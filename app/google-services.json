@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "726240980883",
+    "project_id": "zyapp-6dafb",
+    "storage_bucket": "zyapp-6dafb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:726240980883:android:d77495f94b3aad37d08266",
+        "android_client_info": {
+          "package_name": "com.zyapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDPA4liTxpSLtJZOp_WY496jkRDRMeBg24"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
