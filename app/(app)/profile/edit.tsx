@@ -10,6 +10,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  KeyboardAvoidingView,
 } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from "../../../service/auth";
@@ -17,7 +18,8 @@ import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/d
 import { AppInput } from "../../../components/common/AppInput";
 import { PrimaryButton } from "../../../components/common/PrimaryButton";
 import { Colors, Spacing, Typography, BorderRadius } from "../../../constants/theme";
-import "../../../service/auth"; // Ensure auth service is imported for context
+import { Feather } from "@expo/vector-icons";
+import "../../../service/auth";
 
 interface PickerItem {
   label: string;
@@ -46,7 +48,6 @@ export default function EditProfileScreen() {
   const [showUnitModal, setShowUnitModal] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
-  // ✅ Correct gender values (capitalized)
   const GENDERS: PickerItem[] = [
     { label: "Male", value: "Male" },
     { label: "Female", value: "Female" },
@@ -150,30 +151,61 @@ export default function EditProfileScreen() {
   );
 
   return (
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>Edit Profile</Text>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Feather name="arrow-left" size={24} color={Colors.text} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Edit Profile</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
+      {/* Avatar Section */}
+      <View style={styles.avatarSection}>
+        <View style={styles.avatarContainer}>
+          <Text style={styles.avatarText}>
+            {user?.first_name?.[0]}{user?.last_name?.[0]}
+          </Text>
+        </View>
+        <Text style={styles.userName}>{`${firstName} ${lastName}`}</Text>
+        <Text style={styles.userUsername}>@{username}</Text>
+      </View>
 
       <Text style={styles.sectionTitle}>Personal Information</Text>
 
-      <AppInput
-        placeholder="First Name *"
-        value={firstName}
-        onChangeText={setFirstName}
-        containerStyle={styles.inputContainer}
-      />
-      <AppInput
-        placeholder="Last Name *"
-        value={lastName}
-        onChangeText={setLastName}
-        containerStyle={styles.inputContainer}
-      />
-      <AppInput
-        placeholder="Username *"
-        value={username}
-        onChangeText={setUsername}
-        autoCapitalize="none"
-        containerStyle={styles.inputContainer}
-      />
+      <View style={styles.row}>
+        <View style={styles.halfInput}>
+          <Text style={styles.inputLabel}>First Name</Text>
+          <AppInput
+            placeholder="First Name"
+            value={firstName}
+            onChangeText={setFirstName}
+            containerStyle={styles.inputContainer}
+          />
+        </View>
+        <View style={styles.halfInput}>
+          <Text style={styles.inputLabel}>Last Name</Text>
+          <AppInput
+            placeholder="Last Name"
+            value={lastName}
+            onChangeText={setLastName}
+            containerStyle={styles.inputContainer}
+          />
+        </View>
+      </View>
+
+      {/* Username - NON-EDITABLE */}
+      <View style={styles.readOnlyContainer}>
+        <Text style={styles.inputLabel}>Username</Text>
+        <View style={styles.readOnlyField}>
+          <Text style={styles.readOnlyText}>@{username}</Text>
+          <Feather name="lock" size={16} color={Colors.textMuted} />
+        </View>
+      </View>
+
+      <Text style={styles.inputLabel}>Phone Number</Text>
       <AppInput
         placeholder="Phone Number"
         value={phoneNumber}
@@ -183,10 +215,11 @@ export default function EditProfileScreen() {
       />
 
       {/* Date of Birth */}
+      <Text style={styles.inputLabel}>Date of Birth</Text>
       <Pressable
         onPress={() => {
           if (Platform.OS === "android") {
-            const current = dateOfBirth ? new Date(dateOfBirth) : new Date();
+            const current = dateOfBirth ? new Date(dateOfBirth) : new Date(2000, 0, 1);
             DateTimePickerAndroid.open({
               value: current,
               onChange: (event, selectedDate) => {
@@ -215,7 +248,7 @@ export default function EditProfileScreen() {
 
       {showDatePicker && Platform.OS !== "android" && (
         <DateTimePicker
-          value={dateOfBirth ? new Date(dateOfBirth) : new Date()}
+          value={dateOfBirth ? new Date(dateOfBirth) : new Date(2000, 0, 1)}
           mode="date"
           display="spinner"
           onChange={(event, selectedDate) => {
@@ -230,11 +263,14 @@ export default function EditProfileScreen() {
         />
       )}
 
+      <Text style={styles.sectionTitle}>Additional Information</Text>
+
       {/* Gender */}
+      <Text style={styles.inputLabel}>Gender</Text>
       <Pressable onPress={() => setShowGenderModal(true)}>
         <View pointerEvents="none">
           <AppInput
-            placeholder="Gender"
+            placeholder="Select Gender"
             value={GENDERS.find((g) => g.value === gender)?.label || ""}
             editable={false}
             containerStyle={styles.pressableInputContainer}
@@ -243,10 +279,11 @@ export default function EditProfileScreen() {
       </Pressable>
 
       {/* Blood Group */}
+      <Text style={styles.inputLabel}>Blood Group</Text>
       <Pressable onPress={() => setShowBloodModal(true)}>
         <View pointerEvents="none">
           <AppInput
-            placeholder="Blood Group"
+            placeholder="Select Blood Group"
             value={BLOOD_GROUPS.find((b) => b.value === bloodGroup)?.label || ""}
             editable={false}
             containerStyle={styles.pressableInputContainer}
@@ -256,22 +293,30 @@ export default function EditProfileScreen() {
 
       <Text style={styles.sectionTitle}>Body Measurements</Text>
 
-      <AppInput
-        placeholder={`Height (${unitSystem === "metric" ? "cm" : "ft/in"})`}
-        value={heightCm}
-        onChangeText={setHeightCm}
-        keyboardType="numeric"
-        containerStyle={styles.inputContainer}
-      />
-      <AppInput
-        placeholder={`Weight (${unitSystem === "metric" ? "kg" : "lbs"})`}
-        value={weightKg}
-        onChangeText={setWeightKg}
-        keyboardType="numeric"
-        containerStyle={styles.inputContainer}
-      />
+      <View style={styles.row}>
+        <View style={styles.halfInput}>
+          <Text style={styles.inputLabel}>Height ({unitSystem === "metric" ? "cm" : "ft/in"})</Text>
+          <AppInput
+            placeholder="Height"
+            value={heightCm}
+            onChangeText={setHeightCm}
+            keyboardType="numeric"
+            containerStyle={styles.inputContainer}
+          />
+        </View>
+        <View style={styles.halfInput}>
+          <Text style={styles.inputLabel}>Weight ({unitSystem === "metric" ? "kg" : "lbs"})</Text>
+          <AppInput
+            placeholder="Weight"
+            value={weightKg}
+            onChangeText={setWeightKg}
+            keyboardType="numeric"
+            containerStyle={styles.inputContainer}
+          />
+        </View>
+      </View>
 
-      <Text style={styles.subLabel}>Unit System</Text>
+      <Text style={styles.inputLabel}>Unit System</Text>
       <Pressable onPress={() => setShowUnitModal(true)}>
         <View pointerEvents="none">
           <AppInput
@@ -283,8 +328,12 @@ export default function EditProfileScreen() {
         </View>
       </Pressable>
 
-      <Text style={styles.sectionTitle}>Account Information</Text>
-      <AppInput value={user?.email || ""} editable={false} containerStyle={styles.disabledInputContainer} />
+      <PrimaryButton 
+        title="Save Changes" 
+        onPress={handleUpdate} 
+        loading={loading} 
+        style={styles.updateButton} 
+      />
 
       <ModalPicker
         visible={showGenderModal}
@@ -310,21 +359,113 @@ export default function EditProfileScreen() {
         onSelect={setUnitSystem}
         title="Select Unit System"
       />
-
-      <PrimaryButton title="Update Profile" onPress={handleUpdate} loading={loading} style={styles.updateButton} />
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: Spacing.lg, backgroundColor: Colors.background },
-  title: { ...Typography.h1, color: Colors.text, marginBottom: Spacing.lg, marginTop: Spacing.sm },
-  sectionTitle: { ...Typography.h4, color: Colors.text, marginTop: Spacing.md, marginBottom: Spacing.sm },
-  subLabel: { ...Typography.bodySmall, color: Colors.textSecondary, marginBottom: Spacing.xs },
-  inputContainer: { marginBottom: Spacing.sm },
-  pressableInputContainer: { marginBottom: Spacing.sm, opacity: 0.8 },
-  disabledInputContainer: { marginBottom: Spacing.sm, opacity: 0.6 },
-  updateButton: { marginTop: Spacing.md, marginBottom: 30 },
+  container: { 
+    flex: 1, 
+    padding: Spacing.lg, 
+    backgroundColor: Colors.background,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  backButton: {
+    padding: Spacing.xs,
+  },
+  headerTitle: {
+    ...Typography.h1,
+    color: Colors.text,
+    fontSize: 20,
+  },
+  avatarSection: {
+    alignItems: "center",
+    marginBottom: Spacing.xl,
+  },
+  avatarContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: Colors.primary + "20",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.sm,
+    borderWidth: 3,
+    borderColor: Colors.primary,
+  },
+  avatarText: {
+    fontSize: 36,
+    fontWeight: "700",
+    color: Colors.primary,
+  },
+  userName: {
+    ...Typography.h2,
+    color: Colors.text,
+    fontSize: 22,
+  },
+  userUsername: {
+    ...Typography.body,
+    color: Colors.textSecondary,
+    fontSize: 14,
+  },
+  sectionTitle: { 
+    ...Typography.h4, 
+    color: Colors.text, 
+    marginTop: Spacing.md, 
+    marginBottom: Spacing.sm,
+    fontSize: 16,
+  },
+  inputLabel: {
+    ...Typography.bodySmall,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.xs,
+    fontWeight: "500",
+  },
+  row: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+  },
+  halfInput: {
+    flex: 1,
+  },
+  inputContainer: { 
+    marginBottom: Spacing.sm,
+  },
+  pressableInputContainer: { 
+    marginBottom: Spacing.sm,
+    opacity: 0.8,
+  },
+  readOnlyContainer: {
+    marginBottom: Spacing.sm,
+  },
+  readOnlyField: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  readOnlyText: {
+    ...Typography.body,
+    color: Colors.text,
+    fontSize: 16,
+  },
+  updateButton: { 
+    marginTop: Spacing.md, 
+    marginBottom: 30,
+    backgroundColor: Colors.primary,
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
@@ -338,7 +479,13 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
   },
-  modalTitle: { ...Typography.h4, color: Colors.text, textAlign: "center", marginBottom: Spacing.md },
+  modalTitle: { 
+    ...Typography.h4, 
+    color: Colors.text, 
+    textAlign: "center", 
+    marginBottom: Spacing.md,
+    fontSize: 18,
+  },
   modalItem: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -347,10 +494,32 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  modalItemSelected: { backgroundColor: Colors.primary + "20" },
-  modalItemText: { ...Typography.body, color: Colors.text },
-  modalItemTextSelected: { color: Colors.primary, fontWeight: "600" },
-  modalClose: { marginTop: Spacing.md, paddingVertical: Spacing.md, alignItems: "center" },
-  modalCloseText: { ...Typography.body, color: Colors.error, fontWeight: "600" },
-  checkmark: { fontSize: 18, color: Colors.primary, fontWeight: "bold" },
+  modalItemSelected: { 
+    backgroundColor: Colors.primary + "20",
+    borderRadius: 8,
+  },
+  modalItemText: { 
+    ...Typography.body, 
+    color: Colors.text,
+    fontSize: 16,
+  },
+  modalItemTextSelected: { 
+    color: Colors.primary, 
+    fontWeight: "600" 
+  },
+  modalClose: { 
+    marginTop: Spacing.md, 
+    paddingVertical: Spacing.md, 
+    alignItems: "center" 
+  },
+  modalCloseText: { 
+    ...Typography.body, 
+    color: Colors.error, 
+    fontWeight: "600" 
+  },
+  checkmark: { 
+    fontSize: 18, 
+    color: Colors.primary, 
+    fontWeight: "bold" 
+  },
 });

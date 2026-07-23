@@ -6,6 +6,8 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { router } from "expo-router";
 import { authAPI } from "../../service/api";
@@ -33,6 +35,10 @@ export default function SignupScreen() {
   const [password2, setPassword2] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({
+    email: "", username: "", first_name: "", last_name: "",
+    phone_number: "", password: "", password2: "",
+  });
 
   useEffect(() => {
     return () => {
@@ -188,101 +194,197 @@ export default function SignupScreen() {
     }
   };
 
+  const validateField = (field: string, value: string) => {
+    let error = "";
+    switch (field) {
+      case "email":
+        if (!value.trim()) error = "Email is required";
+        else if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(value)) error = "Enter a valid email";
+        break;
+      case "username":
+        if (!value.trim()) error = "Username is required";
+        else if (value.length < 4) error = "Minimum 4 characters";
+        break;
+      case "first_name": if (!value.trim()) error = "First name is required"; break;
+      case "last_name": if (!value.trim()) error = "Last name is required"; break;
+      case "phone_number":
+        if (!/^[0-9]{10}$/.test(value)) error = "Enter a valid 10-digit phone number";
+        break;
+      case "password":
+        if (value.length < 8) error = "Minimum 8 characters";
+        else if (!/(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[#@$!%*?&])/.test(value))
+          error = "Must contain uppercase, lowercase, number and special character";
+        break;
+      case "password2":
+        if (value !== password) error = "Passwords do not match";
+        break;
+    }
+    setErrors((prev) => ({ ...prev, [field]: error }));
+  };
+
+  const handleChange = (field: string, value: string) => {
+    switch (field) {
+      case "first_name":
+        setFirstName(value);
+        break;
+      case "last_name":
+        setLastName(value);
+        break;
+      case "username":
+        setUsername(value);
+        break;
+      case "email":
+        setEmail(value);
+        break;
+      case "phone_number":
+        setPhoneNumber(value);
+        break;
+      case "password":
+        setPassword(value);
+        break;
+      case "password2":
+        setPassword2(value);
+        break;
+    }
+
+    validateField(field, value);
+
+    if (field === "password") {
+      validateField("password2", password2);
+    }
+  };
+
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>Create account</Text>
-      <Text style={styles.subtitle}>Join thousands of runners today</Text>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+    >
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.title}>Create account</Text>
+        <Text style={styles.subtitle}>Join thousands of runners today</Text>
 
-      {hasGoogleData && (
-        <View style={styles.googleInfoContainer}>
-          <Text style={styles.googleInfoText}>🔵 Signing up with Google</Text>
-          <Text style={styles.googleInfoSubtext}>
-            Your email has been pre-filled from Google.
-          </Text>
+        {hasGoogleData && (
+          <View style={styles.googleInfoContainer}>
+            <Text style={styles.googleInfoText}>🔵 Signing up with Google</Text>
+            <Text style={styles.googleInfoSubtext}>
+              Your email has been pre-filled from Google.
+            </Text>
+          </View>
+        )}
+
+        <Text style={styles.sectionTitle}>Personal Information</Text>
+
+        <View style={styles.row}>
+          <View style={styles.halfInput}>
+            <AppInput
+              placeholder="First Name *"
+              value={firstName}
+              onChangeText={(text) => handleChange("first_name", text)}
+              containerStyle={styles.inputContainer}
+            />
+            {!!errors.first_name && (
+              <Text style={styles.errorText}>{errors.first_name}</Text>
+            )}
+          </View>
+
+          <View style={styles.halfInput}>
+            <AppInput
+              placeholder="Last Name *"
+              value={lastName}
+              onChangeText={(text) => handleChange("last_name", text)}
+              containerStyle={styles.inputContainer}
+            />
+            {!!errors.last_name && (
+              <Text style={styles.errorText}>{errors.last_name}</Text>
+            )}
+          </View>
         </View>
-      )}
 
-      <Text style={styles.sectionTitle}>Personal Information</Text>
-
-      <View style={styles.row}>
         <AppInput
-          placeholder="First Name *"
-          value={firstName}
-          onChangeText={setFirstName}
-          containerStyle={styles.halfInput}
+          placeholder="Username *"
+          value={username}
+          onChangeText={(text) => handleChange("username", text)}
+          autoCapitalize="none"
+          autoCorrect={false}
+          containerStyle={styles.inputContainer}
         />
+        {!!errors.username && (
+          <Text style={styles.errorText}>{errors.username}</Text>
+        )}
+
         <AppInput
-          placeholder="Last Name *"
-          value={lastName}
-          onChangeText={setLastName}
-          containerStyle={styles.halfInput}
+          placeholder="Email *"
+          value={email}
+          onChangeText={(text) => handleChange("email", text)}
+          autoCapitalize="none"
+          keyboardType="email-address"
+          autoCorrect={false}
+          containerStyle={styles.inputContainer}
+          editable={!hasGoogleData}
         />
-      </View>
+        {!!errors.email && (
+          <Text style={styles.errorText}>{errors.email}</Text>
+        )}
 
-      <AppInput
-        placeholder="Username *"
-        value={username}
-        onChangeText={setUsername}
-        autoCapitalize="none"
-        containerStyle={styles.inputContainer}
-      />
+        <AppInput
+          placeholder="Phone Number *"
+          value={phoneNumber}
+          onChangeText={(text) => {
+            const value = text.replace(/[^0-9]/g, "");
+            if (value.length <= 10) {
+              handleChange("phone_number", value);
+            }
+          }}
+          keyboardType="number-pad"
+          maxLength={10}
+          containerStyle={styles.inputContainer}
+        />
+        {!!errors.phone_number && (
+          <Text style={styles.errorText}>{errors.phone_number}</Text>
+        )}
 
-      <AppInput
-        placeholder="Email *"
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        keyboardType="email-address"
-        style={[
-          styles.inputContainer,
-          hasGoogleData && styles.disabledInputContainer,
-        ]}
-        editable={!hasGoogleData}
-      />
+        <Text style={styles.sectionTitle}>Password</Text>
 
-      <AppInput
-        placeholder="Phone Number *"
-        value={phoneNumber}
-        onChangeText={(text) => {
-          const value = text.replace(/[^0-9]/g, "");
-          if (value.length <= 10) {
-            setPhoneNumber(value);
-          }
-        }}
-        keyboardType="number-pad"
-        maxLength={10}
-        containerStyle={styles.inputContainer}
-      />
+        <AppInput
+          placeholder="Password *"
+          value={password}
+          onChangeText={(text) => handleChange("password", text)}
+          secureTextEntry
+          containerStyle={styles.inputContainer}
+        />
+        {!!errors.password && (
+          <Text style={styles.errorText}>{errors.password}</Text>
+        )}
 
-      <Text style={styles.sectionTitle}>Password</Text>
+        <AppInput
+          placeholder="Confirm Password *"
+          value={password2}
+          onChangeText={(text) => handleChange("password2", text)}
+          secureTextEntry
+          containerStyle={styles.inputContainer}
+        />
+        {!!errors.password2 && (
+          <Text style={styles.errorText}>{errors.password2}</Text>
+        )}
 
-      <AppInput
-        placeholder="Password *"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        containerStyle={styles.inputContainer}
-      />
+        <PrimaryButton
+          title="Create Account"
+          onPress={handleSignup}
+          loading={loading}
+          style={styles.signupButton}
+        />
 
-      <AppInput
-        placeholder="Confirm Password *"
-        value={password2}
-        onChangeText={setPassword2}
-        secureTextEntry
-        containerStyle={styles.inputContainer}
-      />
-
-      <PrimaryButton
-        title="Create Account"
-        onPress={handleSignup}
-        loading={loading}
-        style={styles.signupButton}
-      />
-
-      <TouchableOpacity onPress={() => router.back()} disabled={loading}>
-        <Text style={styles.link}>Already have an account? Login</Text>
-      </TouchableOpacity>
-    </ScrollView>
+        <TouchableOpacity onPress={() => router.back()} disabled={loading}>
+          <Text style={styles.link}>Already have an account? Login</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -290,7 +392,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     padding: Spacing.lg,
+    paddingBottom: Spacing.xxl,
   },
   title: {
     ...Typography.h1,
@@ -318,6 +427,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   inputContainer: {
+    marginBottom: Spacing.sm,
+  },
+  errorText: {
+    ...Typography.caption,
+    color: Colors.error,
+    marginTop: Spacing.xs,
     marginBottom: Spacing.sm,
   },
   disabledInputContainer: {

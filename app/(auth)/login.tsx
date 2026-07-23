@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -22,19 +21,127 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [errors, setErrors] = useState({
+    identifier: '',
+    password: '',
+  });
   const { login, googleLogin } = useAuth();
 
+  // Validation functions
+  const validateIdentifier = (value: string): string => {
+    if (!value.trim()) {
+      return 'Email or Username is required';
+    }
+    
+    const trimmedValue = value.trim();
+    
+    // Check if it's an email
+    const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+    const isEmail = emailRegex.test(trimmedValue);
+    
+    // Check if it's a valid username (letters, numbers, underscore, dot, 3-20 chars)
+    const usernameRegex = /^[a-zA-Z0-9._]{3,20}$/;
+    const isUsername = usernameRegex.test(trimmedValue);
+    
+    if (!isEmail && !isUsername) {
+      return 'Please enter a valid email or username';
+    }
+    
+    return '';
+  };
+
+  const validatePassword = (value: string): string => {
+    if (!value) {
+      return 'Password is required';
+    }
+    if (value.length < 8) {
+      return 'Password must be at least 8 characters';
+    }
+    return '';
+  };
+
+  const validateField = (field: string, value: string) => {
+    let error = '';
+    switch (field) {
+      case 'identifier':
+        error = validateIdentifier(value);
+        break;
+      case 'password':
+        error = validatePassword(value);
+        break;
+    }
+    setErrors((prev) => ({ ...prev, [field]: error }));
+  };
+
+  const handleChange = (field: string, value: string) => {
+    switch (field) {
+      case 'identifier':
+        setIdentifier(value);
+        break;
+      case 'password':
+        setPassword(value);
+        break;
+    }
+    validateField(field, value);
+  };
+
   const handleLogin = async () => {
-    if (!identifier || !password) {
-      Alert.alert('Error', 'Please fill all fields');
+    // Validate all fields before submission
+    const identifierError = validateIdentifier(identifier);
+    const passwordError = validatePassword(password);
+
+    // Update all errors
+    setErrors({
+      identifier: identifierError,
+      password: passwordError,
+    });
+
+    // Check if any error exists
+    if (identifierError || passwordError) {
+      Alert.alert(
+        
+        'Please fill all fields'
+      );
       return;
     }
+
     setLoading(true);
     try {
-      await login(identifier, password);
+      await login(identifier.trim(), password);
       router.replace('/(app)/dashboard');
     } catch (error: any) {
-      Alert.alert('Login Failed', error.message || 'Invalid credentials');
+      // Handle different types of errors
+      let errorMessage = 'Invalid credentials. Please check your email/username and password.';
+      
+      // Check if error has response status
+      if (error.response) {
+        // 404 error - user not found
+        if (error.response.status === 404) {
+          errorMessage = 'Account not found. Please check your email/username or sign up.';
+        }
+        // 400 error - bad request
+        else if (error.response.status === 400) {
+          errorMessage = 'Invalid credentials. Please check your email/username and password.';
+        }
+        // 401 error - unauthorized
+        else if (error.response.status === 401) {
+          errorMessage = 'Invalid credentials. Please check your email/username and password.';
+        }
+        // Other errors
+        else {
+          // Use server error message if available
+          if (error.response.data?.message) {
+            errorMessage = error.response.data.message;
+          } else if (typeof error.response.data === 'string') {
+            errorMessage = error.response.data;
+          }
+        }
+      } else if (error.message) {
+        // Network or other errors
+        errorMessage = error.message;
+      }
+      
+      Alert.alert('Login Failed', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -75,19 +182,25 @@ export default function LoginScreen() {
         <AppInput
           placeholder="Email or Username"
           value={identifier}
-          onChangeText={setIdentifier}
+          onChangeText={(text) => handleChange('identifier', text)}
           autoCapitalize="none"
           autoCorrect={false}
           containerStyle={styles.inputContainer}
         />
+        {!!errors.identifier && (
+          <Text style={styles.errorText}>{errors.identifier}</Text>
+        )}
 
         <AppInput
           placeholder="Password"
           value={password}
-          onChangeText={setPassword}
+          onChangeText={(text) => handleChange('password', text)}
           secureTextEntry
           containerStyle={styles.inputContainer}
         />
+        {!!errors.password && (
+          <Text style={styles.errorText}>{errors.password}</Text>
+        )}
 
         <TouchableOpacity
           style={styles.forgotPassword}
@@ -149,7 +262,13 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xl,
   },
   inputContainer: {
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  errorText: {
+    ...Typography.caption,
+    color: Colors.error,
+    marginTop: Spacing.xs,
+    marginBottom: Spacing.sm,
   },
   forgotPassword: {
     alignSelf: 'flex-end',

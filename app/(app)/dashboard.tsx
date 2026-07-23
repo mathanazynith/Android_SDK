@@ -1,4 +1,3 @@
-// app/(app)/dashboard.tsx
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -65,6 +64,20 @@ export default function DashboardScreen() {
     return 'Good Evening';
   };
 
+  // Check if user profile is complete
+  const isProfileComplete = () => {
+    const profile = user?.profile;
+    return !!(
+      user?.first_name &&
+      user?.last_name &&
+      user?.username &&
+      profile?.gender &&
+      profile?.date_of_birth &&
+      profile?.height_cm &&
+      profile?.weight_kg
+    );
+  };
+
   // Get today's workout from saved plan
   const getTodayWorkout = () => {
     if (!savedPlan || !savedPlan.weeklyWorkouts) return null;
@@ -79,9 +92,34 @@ export default function DashboardScreen() {
   const todayWorkout = getTodayWorkout();
   const isRestDay = todayWorkout?.workout === 'Rest' || todayWorkout?.workout === 'Rest Day';
 
+  // Handle "Get My Plan" button press
+  const handleGetPlan = () => {
+    if (hasSavedPlan) {
+      router.push('/(app)/questionnaire');
+      return;
+    }
+
+    if (!isProfileComplete()) {
+      Alert.alert(
+        'Complete Your Profile',
+        'Please complete your profile before generating a training plan. This includes adding your gender, date of birth, height, and weight.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Go to Profile',
+            onPress: () => router.push('/(app)/profile/edit')
+          }
+        ]
+      );
+      return;
+    }
+
+    router.push('/(app)/questionnaire');
+  };
+
   const quickActions = [
     { label: 'Start Run', icon: '▶️', route: '/(app)/run' },
-    { label: 'Training Plan', icon: '📋', route: '/(app)/training-plan' },
+    { label: 'Get My Plan', icon: '📋', route: null },
     { label: 'History', icon: '📊', route: '/(app)/history' },
     { label: 'Achievements', icon: '🏆', route: '/(app)/achievements' },
   ];
@@ -115,6 +153,18 @@ export default function DashboardScreen() {
         break;
     }
   };
+
+  const planStatus = () => {
+    if (hasSavedPlan) {
+      return { label: 'View My Plan', color: '#34C759' };
+    }
+    if (!isProfileComplete()) {
+      return { label: 'Complete Profile First', color: Colors.border };
+    }
+    return { label: 'Get My Plan', color: Colors.primary };
+  };
+
+  const status = planStatus();
 
   return (
     <View style={styles.container}>
@@ -164,7 +214,7 @@ export default function DashboardScreen() {
           />
         </View>
 
-        {/* Today's Workout - NEW */}
+        {/* Today's Workout */}
         {hasSavedPlan && todayWorkout && (
           <AppCard variant="elevated" padding={Spacing.md} style={styles.todayWorkoutCard}>
             <View style={styles.todayWorkoutHeader}>
@@ -207,14 +257,117 @@ export default function DashboardScreen() {
             <Text style={styles.noPlanEmoji}>📋</Text>
             <Text style={styles.noPlanTitle}>No Training Plan Yet</Text>
             <Text style={styles.noPlanSubtext}>
-              Complete the questionnaire to generate your personalized training plan.
+              Complete your profile and generate a personalized training plan.
             </Text>
+            
+            {/* Profile Completion Status */}
+            <View style={styles.profileStatusContainer}>
+              <View style={styles.profileStatusRow}>
+                <Feather 
+                  name={user?.first_name ? 'check-circle' : 'circle'} 
+                  size={16} 
+                  color={user?.first_name ? '#34C759' : Colors.border} 
+                />
+                <Text style={[
+                  styles.profileStatusText,
+                  user?.first_name ? styles.profileStatusComplete : null
+                ]}>
+                  First Name {user?.first_name ? '✅' : '❌'}
+                </Text>
+              </View>
+              <View style={styles.profileStatusRow}>
+                <Feather 
+                  name={user?.last_name ? 'check-circle' : 'circle'} 
+                  size={16} 
+                  color={user?.last_name ? '#34C759' : Colors.border} 
+                />
+                <Text style={[
+                  styles.profileStatusText,
+                  user?.last_name ? styles.profileStatusComplete : null
+                ]}>
+                  Last Name {user?.last_name ? '✅' : '❌'}
+                </Text>
+              </View>
+              <View style={styles.profileStatusRow}>
+                <Feather 
+                  name={user?.profile?.gender ? 'check-circle' : 'circle'} 
+                  size={16} 
+                  color={user?.profile?.gender ? '#34C759' : Colors.border} 
+                />
+                <Text style={[
+                  styles.profileStatusText,
+                  user?.profile?.gender ? styles.profileStatusComplete : null
+                ]}>
+                  Gender {user?.profile?.gender ? '✅' : '❌'}
+                </Text>
+              </View>
+              <View style={styles.profileStatusRow}>
+                <Feather 
+                  name={user?.profile?.date_of_birth ? 'check-circle' : 'circle'} 
+                  size={16} 
+                  color={user?.profile?.date_of_birth ? '#34C759' : Colors.border} 
+                />
+                <Text style={[
+                  styles.profileStatusText,
+                  user?.profile?.date_of_birth ? styles.profileStatusComplete : null
+                ]}>
+                  Date of Birth {user?.profile?.date_of_birth ? '✅' : '❌'}
+                </Text>
+              </View>
+              <View style={styles.profileStatusRow}>
+                <Feather 
+                  name={user?.profile?.height_cm ? 'check-circle' : 'circle'} 
+                  size={16} 
+                  color={user?.profile?.height_cm ? '#34C759' : Colors.border} 
+                />
+                <Text style={[
+                  styles.profileStatusText,
+                  user?.profile?.height_cm ? styles.profileStatusComplete : null
+                ]}>
+                  Height {user?.profile?.height_cm ? '✅' : '❌'}
+                </Text>
+              </View>
+              <View style={styles.profileStatusRow}>
+                <Feather 
+                  name={user?.profile?.weight_kg ? 'check-circle' : 'circle'} 
+                  size={16} 
+                  color={user?.profile?.weight_kg ? '#34C759' : Colors.border} 
+                />
+                <Text style={[
+                  styles.profileStatusText,
+                  user?.profile?.weight_kg ? styles.profileStatusComplete : null
+                ]}>
+                  Weight {user?.profile?.weight_kg ? '✅' : '❌'}
+                </Text>
+              </View>
+            </View>
+
             <TouchableOpacity
-              style={styles.generatePlanButton}
-              onPress={() => router.push('/(app)/questionnaire')}
+              style={[
+                styles.generatePlanButton,
+                (!isProfileComplete() && !hasSavedPlan) ? styles.generatePlanButtonDisabled : null
+              ]}
+              onPress={handleGetPlan}
+              disabled={!isProfileComplete() && !hasSavedPlan}
             >
-              <Text style={styles.generatePlanButtonText}>Generate Plan</Text>
+              <Text style={[
+                styles.generatePlanButtonText,
+                (!isProfileComplete() && !hasSavedPlan) ? styles.generatePlanButtonTextDisabled : null
+              ]}>
+                {status.label}
+              </Text>
             </TouchableOpacity>
+
+            {!isProfileComplete() && (
+              <TouchableOpacity
+                style={styles.completeProfileButton}
+                onPress={() => router.push('/(app)/profile/edit')}
+              >
+                <Text style={styles.completeProfileButtonText}>
+                  Complete Your Profile →
+                </Text>
+              </TouchableOpacity>
+            )}
           </AppCard>
         )}
 
@@ -227,17 +380,27 @@ export default function DashboardScreen() {
                 key={index}
                 style={styles.circularAction}
                 onPress={() => {
-                  if (action.route) {
+                  if (action.label === 'Get My Plan') {
+                    handleGetPlan();
+                  } else if (action.route) {
                     router.push(action.route as any);
                   } else {
                     Alert.alert('Coming Soon', 'This feature is being developed.');
                   }
                 }}
               >
-                <View style={styles.circularIcon}>
+                <View style={[
+                  styles.circularIcon,
+                  action.label === 'Get My Plan' ? styles.circularIconHighlight : null
+                ]}>
                   <Text style={styles.circularIconText}>{action.icon}</Text>
                 </View>
-                <Text style={styles.circularLabel}>{action.label}</Text>
+                <Text style={[
+                  styles.circularLabel,
+                  action.label === 'Get My Plan' ? styles.circularLabelHighlight : null
+                ]}>
+                  {action.label}
+                </Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -286,8 +449,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.primary + '40',
   },
+  circularIconHighlight: {
+    backgroundColor: Colors.primary + '20',
+    borderColor: Colors.primary,
+    borderWidth: 2,
+  },
   circularIconText: { fontSize: 24 },
   circularLabel: { ...Typography.caption, color: Colors.textSecondary, textAlign: 'center' },
+  circularLabelHighlight: {
+    color: Colors.primary,
+    fontWeight: '600',
+  },
   profileLink: { marginTop: Spacing.md, marginBottom: Spacing.xl },
 
   // Today's Workout Styles
@@ -398,15 +570,52 @@ const styles = StyleSheet.create({
     marginTop: Spacing.xs,
     marginBottom: Spacing.md,
   },
+  profileStatusContainer: {
+    width: '100%',
+    paddingHorizontal: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  profileStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: 4,
+  },
+  profileStatusText: {
+    ...Typography.bodySmall,
+    color: Colors.textSecondary,
+  },
+  profileStatusComplete: {
+    color: '#34C759',
+    fontWeight: '600',
+  },
   generatePlanButton: {
     backgroundColor: '#34C759',
-    paddingVertical: Spacing.sm,
+    paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.xl,
     borderRadius: BorderRadius.md,
+    width: '100%',
+    alignItems: 'center',
+  },
+  generatePlanButtonDisabled: {
+    backgroundColor: Colors.border,
   },
   generatePlanButtonText: {
     ...Typography.body,
     color: '#1A1A1A',
     fontWeight: '600',
+    fontSize: 16,
+  },
+  generatePlanButtonTextDisabled: {
+    color: Colors.textMuted,
+  },
+  completeProfileButton: {
+    marginTop: Spacing.sm,
+    paddingVertical: Spacing.sm,
+  },
+  completeProfileButtonText: {
+    ...Typography.body,
+    color: Colors.primary,
+    fontWeight: '500',
   },
 });
