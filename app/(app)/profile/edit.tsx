@@ -40,7 +40,7 @@ export default function EditProfileScreen() {
   const [phoneNumber, setPhoneNumber] = useState(
     user?.phone_number || user?.profile?.phone_number || ""
   );
-  const [unitSystem, setUnitSystem] = useState(user?.profile?.unit_system || "metric");
+  const [unitSystem, setUnitSystem] = useState(user?.profile?.distance_unit || "metric");
 
   const [loading, setLoading] = useState(false);
   const [showGenderModal, setShowGenderModal] = useState(false);
@@ -88,7 +88,7 @@ export default function EditProfileScreen() {
         height_cm: heightCm ? Number(heightCm) : null,
         weight_kg: weightKg ? Number(weightKg) : null,
         phone_number: phoneNumber || null,
-        unit_system: unitSystem || null,
+        distance_unit: unitSystem || null,
       });
       Alert.alert("Success", "Profile updated successfully");
       router.back();

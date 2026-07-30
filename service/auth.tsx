@@ -4,10 +4,9 @@ import React, {
   useState,
   useEffect,
 } from "react";
-
-import * as SecureStore from "expo-secure-store";
 import { authAPI } from "./api";
 import { googleAuthService } from "./googleAuth";
+import { storage } from "./storage";
 import "./googleAuth"; // Ensure GoogleAuthService is initialized
 
 interface User {
@@ -24,7 +23,7 @@ interface User {
     height_cm?: number | null;
     weight_kg?: number | null;
     phone_number?: string;
-    unit_system?: string;
+    distance_unit?: string;
     profile_picture?: string; // ✅ unified field
   };
 }
@@ -37,10 +36,6 @@ interface SignupData {
   password: string;
   password2: string;
   phone_number?: string;
-  date_of_birth?: string;
-  gender?: string;
-  blood_group?: string;
-  unit_system?: string;
 }
 
 interface ProfileData {
@@ -53,7 +48,7 @@ interface ProfileData {
   height_cm?: number | null;
   weight_kg?: number | null;
   phone_number?: string | null;
-  unit_system?: string | null;
+  distance_unit?: string | null;
 }
 
 interface AuthContextType {
@@ -65,6 +60,7 @@ interface AuthContextType {
   resendOtp: (email: string, purpose: string) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (data: ProfileData) => Promise<void>;
+  changePassword: (current_password: string | undefined, password: string, password2: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
   googleLogin: () => Promise<{ requiresSignup: boolean }>;
   googleSignupData: {
@@ -96,15 +92,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const initializeAuth = async () => {
     try {
-      const token = await SecureStore.getItemAsync("access_token");
+      const token = await storage.getItem(storage.KEYS.ACCESS_TOKEN);
       if (token) {
         const response = await authAPI.getProfile();
         setUser(response.data.data);
       }
     } catch (error) {
       console.log("Auth Init Error:", error);
-      await SecureStore.deleteItemAsync("access_token");
-      await SecureStore.deleteItemAsync("refresh_token");
+      await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
+      await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
     } finally {
       setIsLoading(false);
     }
@@ -118,8 +114,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const storeTokens = async (access: string, refresh: string) => {
-    await SecureStore.setItemAsync("access_token", access);
-    await SecureStore.setItemAsync("refresh_token", refresh);
+    await storage.setItem(storage.KEYS.ACCESS_TOKEN, access);
+    await storage.setItem(storage.KEYS.REFRESH_TOKEN, refresh);
   };
 
   const resolveAuthPayload = (response: any) => {
@@ -167,15 +163,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(response.data.data);
   };
 
+  const changePassword = async (
+    current_password: string | undefined,
+    password: string,
+    password2: string
+  ) => {
+    await authAPI.changePassword({
+      current_password,
+      password,
+      password2,
+    });
+  };
+
   const logout = async () => {
     try {
-      const refreshToken = await SecureStore.getItemAsync("refresh_token");
+      const refreshToken = await storage.getItem(storage.KEYS.REFRESH_TOKEN);
       await authAPI.logout({ refresh: refreshToken || "" });
     } catch (error) {
       console.log("Logout Error:", error);
     } finally {
-      await SecureStore.deleteItemAsync("access_token");
-      await SecureStore.deleteItemAsync("refresh_token");
+      await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
+      await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
       setUser(null);
       setGoogleSignupData(null);
     }
@@ -197,8 +205,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const response = await authAPI.googleLogin({
         id_token: result.idToken,
-        access_token: result.accessToken,
-        email: result.user.email,
       });
 
       console.log("Google Login Response:", response.data);
@@ -255,6 +261,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         updateProfile,
         refreshProfile,
+        changePassword,
         googleLogin,
         googleSignupData,
         setGoogleSignupData,

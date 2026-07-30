@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { trainingStyles as styles } from "./styles";
+import { trainingStyles as styles } from "./_styles";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { storage } from "../../../service/storage";
 

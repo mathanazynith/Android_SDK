@@ -1,12 +1,10 @@
 import { Stack } from 'expo-router';
 
-export default function AppLayout() {
+export default function QuestionnaireLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="dashboard" />
-      <Stack.Screen name="profile/edit" />
       <Stack.Screen 
-        name="questionnaire" 
+        name="index" 
         options={{ 
           headerShown: true,
           title: "Questionnaire",

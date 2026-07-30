@@ -67,13 +67,13 @@ export default function CalendarScreen() {
 
     console.log("===== Calendar Initialization =====");
     console.log("Params:", params);
-    console.log("Answers:", answers.map(a => ({ id: a.questionId, value: a.value })));
+    console.log("Answers:", (answers || []).map((a: any) => ({ id: a.questionId, value: a.value })));
 
     const beginnerParam = params.isBeginner === 'true';
     setIsBeginner(beginnerParam);
 
-    const q1Answer = getAnswerValue(answers, 'q1');
-    const selectedPlan = getAnswerValue(answers, 'q9');
+    const q1Answer = getAnswerValue(answers || [], 'q1');
+    const selectedPlan = getAnswerValue(answers || [], 'q9');
 
     console.log("q1Answer:", q1Answer);
     console.log("selectedPlan:", selectedPlan);

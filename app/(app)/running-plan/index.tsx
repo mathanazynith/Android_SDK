@@ -10,15 +10,14 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
-import { getAnswerValue } from '../../../service/questionnaire/questionnaireService';
- 
+
 interface RunningDay {
   day: string;
   dayIndex: number;
   selected: boolean;
   isLongRun: boolean;
 }
- 
+
 interface ScheduledRun {
   day: string;
   runType: 'Easy Run' | 'Tempo Run' | 'Interval Run' | 'Long Run';
@@ -27,7 +26,7 @@ interface ScheduledRun {
   pace: string;
   description: string;
 }
- 
+
 interface RunningEvent {
   id: string;
   name: string;
@@ -38,19 +37,33 @@ interface RunningEvent {
   time: string;
   registered: boolean;
 }
- 
+
+// Helper to get answer value from allAnswers
+const getAnswerFromAllAnswers = (allAnswers: Record<string, any>, questionId: string): any => {
+  // Try exact match first
+  if (allAnswers[questionId]) {
+    return allAnswers[questionId].value;
+  }
+  // Try without "q" prefix
+  const numericId = questionId.replace(/^q/i, '');
+  if (allAnswers[numericId]) {
+    return allAnswers[numericId].value;
+  }
+  return null;
+};
+
 export default function RunningPlanScreen() {
-  const { answers } = useQuestionnaire();
+  const { allAnswers, answers } = useQuestionnaire();
   const params = useLocalSearchParams();
   const [loading, setLoading] = useState(true);
   const [plan, setPlan] = useState<any>(null);
   const [selectedDays, setSelectedDays] = useState<RunningDay[]>([]);
   const [userDays, setUserDays] = useState<number>(3);
- 
+
   useEffect(() => {
     generatePlan();
   }, []);
- 
+
   const generatePlan = () => {
     try {
       // Parse params
@@ -58,16 +71,22 @@ export default function RunningPlanScreen() {
       const daysNum = parseInt(params.userDays as string || '3');
       setSelectedDays(days);
       setUserDays(daysNum);
- 
-      // Get user data from questionnaire
-      const hasRunBefore = getAnswerValue(answers, 'q1') === 'yes';
-      const recentDistance = getAnswerValue(answers, 'q2');
-      const recentTime = getAnswerValue(answers, 'q3');
-      const eventDistance = getAnswerValue(answers, 'q6');
- 
+
+      // Use allAnswers to get user data from questionnaire
+      const hasRunBefore = getAnswerFromAllAnswers(allAnswers, '6') === '14'; // Question 6 = "Have You Run Before?" - value "14" = Yes
+      
+      // For recent long run (question 9)
+      const recentDistance = getAnswerFromAllAnswers(allAnswers, '9');
+      
+      // For time taken (question 10)
+      const recentTime = getAnswerFromAllAnswers(allAnswers, '10');
+      
+      // For event distance (question 33)
+      const eventDistance = getAnswerFromAllAnswers(allAnswers, '33');
+
       // Determine if should start with 5K
       const shouldStartWith5K = !hasRunBefore || daysNum < 3;
- 
+
       // Generate schedule
       const schedule: ScheduledRun[] = days.map((day: RunningDay) => {
         let runType: 'Easy Run' | 'Tempo Run' | 'Interval Run' | 'Long Run';
@@ -75,7 +94,7 @@ export default function RunningPlanScreen() {
         let duration: string;
         let pace: string;
         let description: string;
- 
+
         if (day.isLongRun) {
           runType = 'Long Run';
           distance = shouldStartWith5K ? '5K' : '10K';
@@ -88,7 +107,7 @@ export default function RunningPlanScreen() {
           const types: ('Easy Run' | 'Tempo Run' | 'Interval Run')[] = ['Easy Run', 'Tempo Run', 'Interval Run'];
           const typeIndex = Math.floor(Math.random() * types.length);
           runType = types[typeIndex];
- 
+
           if (runType === 'Easy Run') {
             distance = shouldStartWith5K ? '3K' : '5K';
             duration = '20-30 min';
@@ -106,7 +125,7 @@ export default function RunningPlanScreen() {
             description = 'High intensity intervals';
           }
         }
- 
+
         return {
           day: day.day,
           runType,
@@ -116,7 +135,7 @@ export default function RunningPlanScreen() {
           description,
         };
       });
- 
+
       // Generate mock events
       const events: RunningEvent[] = [
         {
@@ -150,9 +169,9 @@ export default function RunningPlanScreen() {
           registered: false,
         },
       ];
- 
+
       const planName = shouldStartWith5K ? 'Beginner 5K Plan' : 'Custom Running Plan';
- 
+
       setPlan({
         planName,
         planType: shouldStartWith5K ? 'beginner_5k' : 'intermediate',
@@ -166,14 +185,14 @@ export default function RunningPlanScreen() {
           averagePace: shouldStartWith5K ? '7:00/km' : '6:30/km',
         },
       });
- 
+
       setLoading(false);
     } catch (error) {
       console.error('Error generating plan:', error);
       setLoading(false);
     }
   };
- 
+
   const acceptPlan = () => {
     Alert.alert(
       'Plan Created!',
@@ -181,7 +200,7 @@ export default function RunningPlanScreen() {
       [{ text: 'Go to Dashboard', onPress: () => router.replace('/(app)/dashboard') }]
     );
   };
- 
+
   if (loading) {
     return (
       <View style={styles.centerContainer}>
@@ -190,7 +209,7 @@ export default function RunningPlanScreen() {
       </View>
     );
   }
- 
+
   if (!plan) {
     return (
       <View style={styles.centerContainer}>
@@ -201,7 +220,7 @@ export default function RunningPlanScreen() {
       </View>
     );
   }
- 
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
@@ -211,7 +230,7 @@ export default function RunningPlanScreen() {
           {plan.weeklyDays} days/week • {plan.totalWeeks} weeks
         </Text>
       </View>
- 
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Weekly Schedule</Text>
         {plan.schedule.map((run: ScheduledRun, index: number) => (
@@ -231,7 +250,7 @@ export default function RunningPlanScreen() {
           </View>
         ))}
       </View>
- 
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Upcoming Events</Text>
         {plan.events.map((event: RunningEvent, index: number) => (
@@ -246,14 +265,14 @@ export default function RunningPlanScreen() {
           </View>
         ))}
       </View>
- 
+
       <TouchableOpacity style={styles.acceptButton} onPress={acceptPlan}>
         <Text style={styles.acceptButtonText}>Accept & Go to Dashboard</Text>
       </TouchableOpacity>
     </ScrollView>
   );
 }
- 
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -420,4 +439,3 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
- 

@@ -5,7 +5,9 @@ export type QuestionType =
   | 'dropdown'
   | 'rating'
   | 'date'
-  | 'yesno';
+  | 'time'
+  | 'yesno'
+  | 'computed';
 
 export interface QuestionOption {
   id: string;

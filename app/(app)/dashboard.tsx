@@ -95,7 +95,7 @@ export default function DashboardScreen() {
   // Handle "Get My Plan" button press
   const handleGetPlan = () => {
     if (hasSavedPlan) {
-      router.push('/(app)/questionnaire');
+      router.push('/questionnaire');
       return;
     }
 

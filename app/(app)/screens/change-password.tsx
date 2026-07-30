@@ -21,7 +21,7 @@ export default function ChangePasswordScreen() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const { user, updateProfile } = useAuth();
+  const { changePassword } = useAuth();
 
   const validate = () => {
     if (!currentPassword.trim()) {
@@ -60,18 +60,20 @@ export default function ChangePasswordScreen() {
 
     try {
       setLoading(true);
-      // Call your backend API to change password
-      // Example: await authAPI.changePassword({ currentPassword, newPassword });
-      // For now, we'll simulate success
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await changePassword(currentPassword, newPassword, confirmPassword);
       Alert.alert('Success', 'Password updated successfully.', [
         { text: 'OK', onPress: () => router.back() },
       ]);
     } catch (error: any) {
-      Alert.alert(
-        'Update Failed',
-        error?.response?.data?.message || 'Something went wrong. Please try again.'
-      );
+      let errorMessage = 'Something went wrong. Please try again.';
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (typeof error.response?.data === 'string') {
+        errorMessage = error.response.data;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      Alert.alert('Update Failed', errorMessage);
     } finally {
       setLoading(false);
     }

@@ -1,14 +1,12 @@
-import React, { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  TextInput,
-  StyleSheet,
-  Modal,
-  FlatList,
-} from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { View, Text, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { useAuth } from "../../../../service/auth";
+import { RunTypeSelector } from "../components/RunTypeSelector";
+import { DistanceInput } from "../components/DistanceInput";
+import { TimeInput } from "../components/TimeInput";
+import { FormCard } from "../components/FormCard";
+import { calculatePace, timeToSeconds } from "../../../../utils/validators";
 
 interface PlanOption {
   id: string;
@@ -19,7 +17,7 @@ interface PlanOption {
 interface PlanSelectionProps {
   options: PlanOption[];
   selectedValue?: string;
-  onSelect: (value: any) => void;
+  onSelect: (value: any, customValues?: Record<string, any> | null) => void;
   customValues?: {
     targetDistance?: string;
     targetTime?: string;
@@ -35,292 +33,156 @@ const PlanSelection: React.FC<PlanSelectionProps> = ({
   customValues,
   onCustomChange,
 }) => {
-  const [modalVisible, setModalVisible] = useState(false);
+  const { user } = useAuth();
   const [calculatedPace, setCalculatedPace] = useState("");
 
-  const selectedOption = options.find((o) => o.value === selectedValue);
-  const isCustomSelected = selectedValue === "custom";
+  const selectedOption = options.find((option) => option.value === selectedValue || option.id === selectedValue);
+  const isCustomOption = (option: any) =>
+    option?.requires_input === true || /custom/i.test(option?.label || option?.text || "");
+  const isCustomSelected = Boolean(selectedOption && isCustomOption(selectedOption));
 
-  // Calculate pace when distance and time change
-  useEffect(() => {
-    if (customValues?.targetDistance && customValues?.targetTime) {
-      const distance = parseFloat(customValues.targetDistance);
-      const timeInMinutes = parseFloat(customValues.targetTime);
-      
-      if (distance > 0 && timeInMinutes > 0) {
-        const pace = timeInMinutes / distance;
-        const minutes = Math.floor(pace);
-        const seconds = Math.round((pace - minutes) * 60);
-        const paceString = `${minutes}:${seconds.toString().padStart(2, '0')} min/km`;
-        setCalculatedPace(paceString);
-        
-        // Update parent with calculated pace
-        if (onCustomChange) {
-          onCustomChange("targetPace", paceString);
-        }
-      } else {
-        setCalculatedPace("");
-        if (onCustomChange) {
-          onCustomChange("targetPace", "");
-        }
-      }
-    } else {
-      setCalculatedPace("");
-      if (onCustomChange) {
-        onCustomChange("targetPace", "");
-      }
+  const distanceUnitLabel = useMemo(() => {
+    const rawUnit = String(user?.profile?.distance_unit || "km").trim().toLowerCase();
+    if (rawUnit.includes("mile")) {
+      return "mi";
     }
-  }, [customValues?.targetDistance, customValues?.targetTime]);
+    return "km";
+  }, [user?.profile?.distance_unit]);
+
+  const getPresetDistance = (option: any) => {
+    const numericValue = Number(option?.numeric_value ?? option?.value ?? "");
+    if (Number.isFinite(numericValue) && numericValue > 0) {
+      return numericValue;
+    }
+
+    const label = String(option?.label || option?.text || "");
+    const kmMatch = label.match(/(\d+(?:\.\d+)?)\s*(km|kilometers?)/i);
+    if (kmMatch) {
+      return Number(kmMatch[1]);
+    }
+
+    const mileMatch = label.match(/(\d+(?:\.\d+)?)\s*(mi|mile|miles)/i);
+    if (mileMatch) {
+      return Number(mileMatch[1]) * 1.60934;
+    }
+
+    if (/half/i.test(label)) {
+      return 21.0975;
+    }
+
+    if (/full|marathon/i.test(label)) {
+      return 42.195;
+    }
+
+    return null;
+  };
+
+  useEffect(() => {
+    const distanceValue = String(customValues?.targetDistance ?? "").trim();
+    const timeValue = String(customValues?.targetTime ?? "").trim();
+    const distanceForSelection = isCustomSelected
+      ? (distanceValue ? Number(distanceValue) : null)
+      : (selectedOption ? getPresetDistance(selectedOption) : null);
+
+    if (!distanceForSelection || !timeValue) {
+      setCalculatedPace("");
+      onCustomChange?.("targetPace", "");
+      return;
+    }
+
+    const seconds = timeToSeconds(timeValue);
+    if (!Number.isFinite(distanceForSelection) || distanceForSelection <= 0 || seconds === null || seconds <= 0) {
+      setCalculatedPace("");
+      onCustomChange?.("targetPace", "");
+      return;
+    }
+
+    const pace = calculatePace(seconds, distanceForSelection);
+    setCalculatedPace(pace);
+    onCustomChange?.("targetPace", pace);
+  }, [isCustomSelected, selectedOption, customValues?.targetDistance, customValues?.targetTime]);
 
   const handleOptionSelect = (value: string) => {
-    onSelect(value);
-    setModalVisible(false);
+    const nextOption = options.find((option) => option.value === value || option.id === value);
+    const nextIsCustom = Boolean(nextOption && isCustomOption(nextOption));
+    const presetDistance = nextOption ? getPresetDistance(nextOption) : null;
+    const nextCustomValues = nextIsCustom
+      ? undefined
+      : {
+          targetDistance: presetDistance !== null ? String(presetDistance) : "",
+          targetTime: customValues?.targetTime || "",
+          targetPace: "",
+        };
+
+    onSelect(value, nextCustomValues);
+
+    if (!nextIsCustom && presetDistance !== null) {
+      onCustomChange?.("targetDistance", String(presetDistance));
+    } else if (!nextIsCustom) {
+      onCustomChange?.("targetDistance", "");
+    }
   };
 
   return (
-    <View style={styles.container}>
-      {/* Dropdown Trigger */}
-      <TouchableOpacity
-        style={styles.dropdown}
-        onPress={() => setModalVisible(true)}
-      >
-        <Text style={selectedOption ? styles.selectedText : styles.placeholder}>
-          {selectedOption ? selectedOption.label : "Select your running plan..."}
-        </Text>
-        <Feather name="chevron-down" size={20} color="#666" />
-      </TouchableOpacity>
-
-      {/* Modal Dropdown */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Your Plan</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <Feather name="x" size={24} color="#1A1A1A" />
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={options}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.modalOption,
-                    selectedValue === item.value && styles.modalOptionSelected,
-                  ]}
-                  onPress={() => handleOptionSelect(item.value)}
-                >
-                  <Text
-                    style={[
-                      styles.modalOptionText,
-                      selectedValue === item.value && styles.modalOptionTextSelected,
-                    ]}
-                  >
-                    {item.label}
-                  </Text>
-                  {selectedValue === item.value && (
-                    <Feather name="check" size={18} color="#34C759" />
-                  )}
-                </TouchableOpacity>
-              )}
-            />
-          </View>
+    <FormCard style={styles.card}>
+      <View style={styles.header}>
+        <View style={styles.headerTextWrap}>
+          <Text style={styles.title}>Running plan</Text>
+          <Text style={styles.subtitle}>Choose a preset or create a custom target</Text>
         </View>
-      </Modal>
+        <Feather name="flag" size={18} color="#34C759" />
+      </View>
 
-      {/* Custom Fields - only show when "Custom" is selected */}
-      {isCustomSelected && (
-        <View style={styles.customContainer}>
-          <View style={styles.customRow}>
-            <View style={styles.customField}>
-              <Text style={styles.customLabel}>Target Distance (km)</Text>
-              <TextInput
-                style={styles.customInput}
-                value={customValues?.targetDistance || ""}
-                onChangeText={(value) => onCustomChange?.("targetDistance", value)}
-                placeholder="Enter distance"
-                keyboardType="numeric"
-                placeholderTextColor="#999"
-              />
-            </View>
-            <View style={styles.customField}>
-              <Text style={styles.customLabel}>Target Time (min)</Text>
-              <TextInput
-                style={styles.customInput}
-                value={customValues?.targetTime || ""}
-                onChangeText={(value) => onCustomChange?.("targetTime", value)}
-                placeholder="Enter time"
-                keyboardType="numeric"
-                placeholderTextColor="#999"
-              />
-            </View>
-          </View>
+      <RunTypeSelector
+        label="Plan"
+        options={options.map((option) => ({ id: String(option.id), label: option.label, value: option.value }))}
+        selectedValue={selectedValue}
+        hint="Select an option from your plan list"
+        onSelect={handleOptionSelect}
+      />
 
-          {calculatedPace ? (
-            <View style={styles.paceCard}>
-              <Feather name="activity" size={18} color="#34C759" />
-              <View style={styles.paceContent}>
-                <Text style={styles.paceLabel}>Target Pace</Text>
-                <Text style={styles.paceValue}>{calculatedPace}</Text>
-              </View>
-            </View>
-          ) : (
-            <View style={styles.paceCardEmpty}>
-              <Feather name="loader" size={18} color="#999" />
-              <Text style={styles.paceEmptyText}>
-                Enter distance and time to calculate pace
-              </Text>
-            </View>
-          )}
+      <View style={styles.customSection}>
+        {isCustomSelected ? (
+          <DistanceInput
+            label="Target distance"
+            value={customValues?.targetDistance || ""}
+            unitLabel={distanceUnitLabel}
+            hint={`Use your profile unit (${distanceUnitLabel})`}
+            onChange={(value) => onCustomChange?.("targetDistance", value)}
+          />
+        ) : null}
+        <TimeInput
+          label="Target time"
+          value={customValues?.targetTime || ""}
+          hint="Enter HH:MM:SS"
+          onChange={(value) => onCustomChange?.("targetTime", value)}
+        />
+        <View style={styles.paceCard}>
+          <Text style={styles.paceLabel}>Estimated pace</Text>
+          <Text style={styles.paceValue}>{calculatedPace || "Enter distance and time to calculate pace"}</Text>
         </View>
-      )}
-    </View>
+      </View>
+    </FormCard>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    width: "100%",
-  },
-  dropdown: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: 14,
-    backgroundColor: "#F8F9FB",
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: "#E8ECF1",
-  },
-  placeholder: {
-    fontSize: 15,
-    color: "#999",
-  },
-  selectedText: {
-    fontSize: 15,
-    color: "#1A1A1A",
-    fontWeight: "500",
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.5)",
-  },
-  modalContent: {
-    backgroundColor: "#FFFFFF",
-    marginHorizontal: 20,
-    borderRadius: 16,
-    padding: 20,
-    maxHeight: "60%",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1A1A1A",
-  },
-  modalOption: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
-  },
-  modalOptionSelected: {
-    backgroundColor: "#34C75910",
-    borderRadius: 8,
-  },
-  modalOptionText: {
-    fontSize: 16,
-    color: "#1A1A1A",
-  },
-  modalOptionTextSelected: {
-    color: "#34C759",
-    fontWeight: "600",
-  },
-  customContainer: {
-    marginTop: 12,
-    backgroundColor: "#F8F9FB",
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#E8ECF1",
-  },
-  customRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  customField: {
-    flex: 1,
-  },
-  customLabel: {
-    fontSize: 13,
-    color: "#666",
-    fontWeight: "500",
-    marginBottom: 6,
-  },
-  customInput: {
-    borderWidth: 1.5,
-    borderColor: "#E8ECF1",
-    borderRadius: 10,
-    padding: 10,
-    fontSize: 15,
-    backgroundColor: "#FFFFFF",
-    color: "#1A1A1A",
-  },
+  card: { paddingVertical: 18, marginVertical: 8 },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
+  headerTextWrap: { flex: 1 },
+  title: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
+  subtitle: { color: "#8E8E93", fontSize: 12, marginTop: 4 },
+  customSection: { marginTop: 10 },
   paceCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: "#34C75910",
+    marginTop: 10,
     padding: 12,
-    borderRadius: 10,
+    borderRadius: 16,
+    backgroundColor: "rgba(52, 199, 89, 0.12)",
     borderWidth: 1,
-    borderColor: "#34C75930",
-    marginTop: 12,
+    borderColor: "rgba(52, 199, 89, 0.26)",
   },
-  paceCardEmpty: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: "#F5F7FA",
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#E8ECF1",
-    marginTop: 12,
-  },
-  paceContent: {
-    flex: 1,
-  },
-  paceLabel: {
-    fontSize: 12,
-    color: "#666",
-    fontWeight: "400",
-  },
-  paceValue: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#34C759",
-  },
-  paceEmptyText: {
-    fontSize: 13,
-    color: "#999",
-    flex: 1,
-  },
+  paceLabel: { color: "#8E8E93", fontSize: 12, marginBottom: 4 },
+  paceValue: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
 });
 
 export default PlanSelection;
