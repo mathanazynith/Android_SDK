@@ -6,7 +6,7 @@ interface ProgressBarProps {
   totalQuestions: number;
   currentQuestion: number;
 }
-
+// Test
 const ProgressBar: React.FC<ProgressBarProps> = ({
   progress,
   totalQuestions,
