@@ -1,25 +1,22 @@
 import axios from "axios";
-import { Platform } from "react-native";
-import Constants from "expo-constants";
 import { storage } from "./storage";
 
-const API_BASE_URL = (() => {
-  if (Platform.OS === "android") {
-    if (Constants.isDevice === false) {
-      return "http://10.0.2.2:8000/api/v1";
-    }
-    return "http://192.168.88.20:8000/api/v1";
-  }
+const envApiUrl = (process.env.EXPO_PUBLIC_API_URL || "http://18.61.143.223").trim();
+const normalizedApiBase = envApiUrl.endsWith("/api/v1")
+  ? envApiUrl.replace(/\/+$/, "")
+  : `${envApiUrl.replace(/\/+$/, "")}/api/v1`;
 
-  if (Platform.OS === "web") {
-    return "http://localhost:8000/api/v1";
-  }
+export const API_BASE_URL = normalizedApiBase;
+export const API_ROOT_URL = API_BASE_URL.replace(/\/api\/v1$/, "");
 
-  return "http://192.168.88.20:8000/api/v1";
-})();
+export const resolveApiUrl = (value?: string | null) => {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith("/")) return `${API_ROOT_URL}${value}`;
+  return `${API_BASE_URL}/${value}`;
+};
 
 console.log("API_BASE_URL", API_BASE_URL);
-console.log("Platform.OS", Platform.OS, "isDevice", Constants.isDevice);
 
 export const API_ENDPOINTS = {
   auth: {
@@ -249,8 +246,6 @@ export const assessmentAPI = {
     api.post(`/assessments/${assessmentId}/answers/`, { answers }),
   getResults: (assessmentId: number) =>
     api.get(`/assessments/${assessmentId}/results/`),
-  back: (assessmentId: number) =>
-    api.post(`/assessments/${assessmentId}/answers/back/`),
 };
 
 export default api;

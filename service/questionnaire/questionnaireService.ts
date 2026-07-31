@@ -196,22 +196,6 @@ class AssessmentService {
     return response.data;
   }
 
-  async goBack(assessmentId: number): Promise<{
-    saved: boolean;
-    complete: boolean;
-    navigation: Navigation | null;
-    computedResponses: any;
-  }> {
-    const response = await assessmentAPI.back(assessmentId);
-    const data = response.data;
-    return {
-      saved: data.saved,
-      complete: data.complete,
-      navigation: data.navigation || null,
-      computedResponses: data.computed_responses || {},
-    };
-  }
-
   // Helper to get question by id from cache
   getQuestionById(id: number): Question | undefined {
     return this.questionsCache?.find(q => q.id === String(id));

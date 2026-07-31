@@ -7,6 +7,7 @@ import { DistanceInput } from "../components/DistanceInput";
 import { TimeInput } from "../components/TimeInput";
 import { FormCard } from "../components/FormCard";
 import { calculatePace, timeToSeconds } from "../../../../utils/validators";
+import { getDistanceUnitDisplayLabel } from "../../../../utils/distanceUnit";
 
 interface RecentLongRunProps {
   options: any[];
@@ -61,11 +62,7 @@ const RecentLongRun: React.FC<RecentLongRunProps> = ({
   const isCustomSelected = isCustomOption(selectedOption);
 
   const distanceUnitLabel = useMemo(() => {
-    const rawUnit = String(user?.profile?.distance_unit || customValues?.unit || "km").trim().toLowerCase();
-    if (rawUnit.includes("mile")) {
-      return "mi";
-    }
-    return "km";
+    return getDistanceUnitDisplayLabel(user?.profile?.distance_unit || customValues?.unit);
   }, [user?.profile?.distance_unit, customValues?.unit]);
 
   const getPresetDistance = (option?: DistanceOption) => {

@@ -12,6 +12,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
 } from "react-native";
+import { getDistanceUnitCode, getDistanceUnitPreference } from "../../../utils/distanceUnit";
 import { router } from "expo-router";
 import { useAuth } from "../../../service/auth";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
@@ -40,7 +41,9 @@ export default function EditProfileScreen() {
   const [phoneNumber, setPhoneNumber] = useState(
     user?.phone_number || user?.profile?.phone_number || ""
   );
-  const [unitSystem, setUnitSystem] = useState(user?.profile?.distance_unit || "metric");
+  const [unitSystem, setUnitSystem] = useState<"metric" | "imperial">(
+    getDistanceUnitPreference(user?.profile?.distance_unit)
+  );
 
   const [loading, setLoading] = useState(false);
   const [showGenderModal, setShowGenderModal] = useState(false);
@@ -88,7 +91,7 @@ export default function EditProfileScreen() {
         height_cm: heightCm ? Number(heightCm) : null,
         weight_kg: weightKg ? Number(weightKg) : null,
         phone_number: phoneNumber || null,
-        distance_unit: unitSystem || null,
+        distance_unit: getDistanceUnitCode(unitSystem),
       });
       Alert.alert("Success", "Profile updated successfully");
       router.back();
@@ -356,7 +359,7 @@ export default function EditProfileScreen() {
         onClose={() => setShowUnitModal(false)}
         data={UNIT_SYSTEMS}
         selectedValue={unitSystem}
-        onSelect={setUnitSystem}
+        onSelect={(value) => setUnitSystem(value === "imperial" ? "imperial" : "metric")}
         title="Select Unit System"
       />
     </ScrollView>

@@ -26,6 +26,12 @@ interface AnswerRecord extends AnswerData {
   questionId: string;
 }
 
+interface PageState {
+  navigation: Navigation;
+  computedResponses: any;
+  complete: boolean;
+}
+
 interface QuestionnaireContextType {
   questions: Question[];
   currentNavigation: Navigation | null;
@@ -74,30 +80,62 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
   // SINGLE SOURCE OF TRUTH: All answers for all pages
   const [allAnswers, setAllAnswers] = useState<Record<string, AnswerData>>({});
 
-  // Navigation history for back button
-  const navigationHistory = useRef<Navigation[]>([]);
+  // Navigation history for back and forward navigation
+  const navigationHistory = useRef<PageState[]>([]);
+  const forwardHistory = useRef<PageState[]>([]);
+  const isStartingAssessment = useRef(false);
 
   // Derive current page questions
   const getCurrentPageQuestions = useCallback((): Question[] => {
     if (!currentNavigation || !questions.length) return [];
 
-    const ids = currentNavigation.question_ids;
-    const pageQuestions = ids
-      .map((numId) => {
-        let q = questions.find((q) => q.backendId === numId);
-        if (!q) {
-          q = questions.find((q) => getNumericId(q.id) === numId);
-        }
-        return q;
-      })
+    const normalizeId = (id: number | string): string => {
+      if (typeof id === "number") return String(id);
+      return String(id).replace(/\D/g, "");
+    };
+
+    const pageQuestionIds = currentNavigation.question_ids
+      .map((id) => normalizeId(id))
+      .filter((id) => id !== "");
+
+    const questionsById = new Map<string, Question>();
+    for (const question of questions) {
+      const backendId = question.backendId !== undefined ? String(question.backendId) : "";
+      const localId = String(getNumericId(question.id));
+      if (backendId) {
+        questionsById.set(backendId, question);
+      }
+      questionsById.set(localId, question);
+    }
+
+    const pageQuestions = pageQuestionIds
+      .map((questionId) => questionsById.get(questionId))
       .filter((q): q is Question => Boolean(q));
 
-    if (pageQuestions.length > 0) {
+    if (pageQuestions.length === pageQuestionIds.length) {
       return pageQuestions;
     }
 
-    console.warn("[Questionnaire] Using fallback by page_no for page", currentNavigation.page_no);
-    return questions.filter((q) => q.page_no === currentNavigation.page_no);
+    if (__DEV__) {
+      console.warn(
+        "[Questionnaire] Partial question match for page",
+        currentNavigation.page_no,
+        "expected",
+        pageQuestionIds,
+        "found",
+        pageQuestions.map((q) => q.backendId ?? q.id)
+      );
+    }
+
+    const fallbackQuestions = questions
+      .filter((q) => q.page_no === currentNavigation.page_no)
+      .sort((a, b) => (a.question_order ?? 0) - (b.question_order ?? 0));
+
+    if (fallbackQuestions.length) {
+      return fallbackQuestions;
+    }
+
+    return pageQuestions;
   }, [currentNavigation, questions]);
 
   const currentPageQuestions = getCurrentPageQuestions();
@@ -132,8 +170,26 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       resetState();
       return;
     }
-    loadQuestions().then(() => startAssessment());
-  }, [authLoading, user]);
+    if (assessmentId || currentNavigation || isStartingAssessment.current) {
+      return;
+    }
+
+    const initializeAssessment = async () => {
+      if (isStartingAssessment.current) return;
+      try {
+        if (!questions.length) {
+          await loadQuestions();
+        }
+        if (!assessmentId && !currentNavigation) {
+          await startAssessment();
+        }
+      } catch {
+        // startAssessment already sets error state
+      }
+    };
+
+    initializeAssessment();
+  }, [authLoading, user, assessmentId, currentNavigation, questions.length]);
 
   const resetState = () => {
     setQuestions([]);
@@ -143,6 +199,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     setComputedResponses({});
     setAllAnswers({});
     navigationHistory.current = [];
+    forwardHistory.current = [];
     assessmentService.clearCache();
   };
 
@@ -160,7 +217,12 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
   };
 
   const startAssessment = async () => {
+    if (isStartingAssessment.current) {
+      return;
+    }
+
     try {
+      isStartingAssessment.current = true;
       setIsLoading(true);
       setError(null);
       const result = await assessmentService.startAssessment();
@@ -170,10 +232,12 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setIsComplete(result.complete);
       setAllAnswers({});
       navigationHistory.current = [];
+      forwardHistory.current = [];
     } catch (err: any) {
       setError(err.message || "Failed to start assessment");
     } finally {
       setIsLoading(false);
+      isStartingAssessment.current = false;
     }
   };
 
@@ -247,6 +311,15 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
           console.log("[Questionnaire] Answer stored for id", numericId, newAnswer);
         }
 
+        if (forwardHistory.current.length > 0) {
+          forwardHistory.current = [];
+          if (__DEV__) {
+            console.log(
+              "[Questionnaire] Cleared forward history due to answer change"
+            );
+          }
+        }
+
         return {
           ...prev,
           [key]: newAnswer,
@@ -269,8 +342,37 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
           value = value.replace(/[: ]+$/, "").trim();
         }
 
-        const customValues = normalizeCustomValues(answer.customValues);
+        let customValues = normalizeCustomValues(answer.customValues);
         const numericId = question.backendId ?? getNumericId(question.id);
+
+        // For custom options that require input (like custom distance)
+        // The backend expects BOTH numeric_value (as number) AND numeric_unit (km or mi)
+        if (customValues.distance) {
+          // Convert distance string to number for backend
+          const distanceNum = parseFloat(customValues.distance);
+          if (!isNaN(distanceNum)) {
+            customValues.numeric_value = distanceNum; // Must be a number, not string
+          } else {
+            customValues.numeric_value = customValues.distance; // Fallback to original
+          }
+          
+          // Add unit from user's profile
+          if (user?.profile?.distance_unit) {
+            customValues.numeric_unit = user.profile.distance_unit; // "km" or "mi"
+          }
+          
+          if (__DEV__) {
+            console.log(
+              "[Questionnaire] Custom distance - Full customValues after processing:",
+              JSON.stringify(customValues, null, 2)
+            );
+          }
+        }
+
+        if (__DEV__) {
+          console.log("[Questionnaire] Question", numericId, "customValues keys:", Object.keys(customValues));
+        }
+
         payload.push({
           question_id: numericId,
           value,
@@ -280,10 +382,10 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       }
     }
     if (__DEV__) {
-      console.log("[Questionnaire] buildAnswersPayload", payload);
+      console.log("[Questionnaire] buildAnswersPayload", JSON.stringify(payload, null, 2));
     }
     return payload;
-  }, [currentPageQuestions, allAnswers]);
+  }, [currentPageQuestions, allAnswers, user?.profile?.distance_unit]);
 
   // Go to next page - NO CACHING, NO CLEARING
   const goToNext = async () => {
@@ -305,21 +407,41 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setIsLoading(true);
       setError(null);
 
+      const previousNavigation = currentNavigation;
+
+      if (forwardHistory.current.length > 0) {
+        const nextState = forwardHistory.current[forwardHistory.current.length - 1];
+        if (nextState && nextState.navigation.page_no > currentNavigation.page_no) {
+          forwardHistory.current.pop();
+          navigationHistory.current.push({
+            navigation: currentNavigation,
+            computedResponses,
+            complete: isComplete,
+          });
+          setCurrentNavigation(nextState.navigation);
+          setComputedResponses(nextState.computedResponses);
+          setIsComplete(nextState.complete);
+          return;
+        }
+      }
+
       const payload = buildAnswersPayload();
       if (payload.length === 0) {
         setError("No answers to submit");
         return;
       }
 
-      const previousNavigation = currentNavigation;
-
-      // Submit answers - NO CLEARING
       const result = await assessmentService.submitAnswers(assessmentId, payload);
 
       // Save current navigation to history only on successful submit
       if (previousNavigation) {
-        navigationHistory.current.push(previousNavigation);
+        navigationHistory.current.push({
+          navigation: previousNavigation,
+          computedResponses,
+          complete: isComplete,
+        });
       }
+      forwardHistory.current = [];
 
       // Update navigation
       setCurrentNavigation(result.navigation);
@@ -335,35 +457,26 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Go to previous - no cache restore needed
-  const goToPrevious = async () => {
+  // Go to previous using local navigation history only
+  const goToPrevious = () => {
     if (!assessmentId) return;
     if (!currentNavigation) return;
+    if (navigationHistory.current.length === 0) return;
 
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      const result = await assessmentService.goBack(assessmentId);
-      setCurrentNavigation(result.navigation);
-      setComputedResponses(result.computedResponses);
-      setIsComplete(result.complete);
-
-      const currentPageQuestionIds = currentNavigation.question_ids.map((id) => String(id));
-      setAllAnswers((prev) => {
-        const next: Record<string, AnswerData> = {};
-        Object.entries(prev).forEach(([key, value]) => {
-          if (!currentPageQuestionIds.includes(key)) {
-            next[key] = value;
-          }
-        });
-        return next;
-      });
-    } catch (err: any) {
-      setError(err.message || "Failed to go back");
-    } finally {
-      setIsLoading(false);
+    const previousPageState = navigationHistory.current.pop();
+    if (!previousPageState) {
+      return;
     }
+
+    forwardHistory.current.push({
+      navigation: currentNavigation,
+      computedResponses,
+      complete: isComplete,
+    });
+
+    setCurrentNavigation(previousPageState.navigation);
+    setComputedResponses(previousPageState.computedResponses);
+    setIsComplete(previousPageState.complete);
   };
 
   const reset = () => {

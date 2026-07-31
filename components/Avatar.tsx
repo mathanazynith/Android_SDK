@@ -2,6 +2,7 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet, ViewStyle, ImageStyle } from 'react-native';
 import { Colors } from '../constants/theme';
+import { resolveApiUrl } from '../service/api';
 
 interface AvatarProps {
   name?: string;
@@ -21,9 +22,10 @@ export const Avatar: React.FC<AvatarProps> = ({ name = '', imageUrl, size = 40, 
   const backgroundColor = Colors.primary + '30';
 
   if (imageUrl) {
+    const resolvedImageUrl = resolveApiUrl(imageUrl);
     return (
       <Image
-        source={{ uri: imageUrl }}
+        source={{ uri: resolvedImageUrl || imageUrl }}
         // cast style to ImageStyle to satisfy Image prop typing
         style={[styles.image, { width: size, height: size, borderRadius: size / 2 }, style as ImageStyle]}
       />

@@ -7,6 +7,7 @@ import { DistanceInput } from "../components/DistanceInput";
 import { TimeInput } from "../components/TimeInput";
 import { FormCard } from "../components/FormCard";
 import { calculatePace, timeToSeconds } from "../../../../utils/validators";
+import { getDistanceUnitDisplayLabel } from "../../../../utils/distanceUnit";
 
 interface PlanOption {
   id: string;
@@ -42,11 +43,7 @@ const PlanSelection: React.FC<PlanSelectionProps> = ({
   const isCustomSelected = Boolean(selectedOption && isCustomOption(selectedOption));
 
   const distanceUnitLabel = useMemo(() => {
-    const rawUnit = String(user?.profile?.distance_unit || "km").trim().toLowerCase();
-    if (rawUnit.includes("mile")) {
-      return "mi";
-    }
-    return "km";
+    return getDistanceUnitDisplayLabel(user?.profile?.distance_unit);
   }, [user?.profile?.distance_unit]);
 
   const getPresetDistance = (option: any) => {
