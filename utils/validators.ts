@@ -145,16 +145,25 @@ export const formatTimeFromComponents = (hours: string, minutes: string, seconds
 };
 
 /**
- * Calculate pace (MM:SS/km) from time and distance
+ * Calculate pace from time and distance using the selected unit system
  */
-export const calculatePace = (timeSeconds: number, distanceKm: number): string => {
+export const calculatePace = (
+  timeSeconds: number,
+  distanceKm: number,
+  distanceUnit: string | null | undefined = "km"
+): string => {
   if (!timeSeconds || timeSeconds <= 0 || !distanceKm || distanceKm <= 0) {
     return "";
   }
 
+  const normalizedUnit = String(distanceUnit || "km").trim().toLowerCase();
+  const paceUnit = normalizedUnit === "mi" || normalizedUnit === "mile" || normalizedUnit === "miles"
+    ? "min/mile"
+    : "min/km";
+
   const paceSeconds = timeSeconds / distanceKm;
   const minutes = Math.floor(paceSeconds / 60);
   const seconds = Math.round(paceSeconds % 60);
-  
-  return `${minutes}:${seconds.toString().padStart(2, "0")} min/km`;
+
+  return `${minutes}:${seconds.toString().padStart(2, "0")} ${paceUnit}`;
 };

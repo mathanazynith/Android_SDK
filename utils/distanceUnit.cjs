@@ -3,14 +3,20 @@ const normalizeDistanceUnitValue = (value) => {
   return String(value).trim().toLowerCase();
 };
 
+const isImperialValue = (normalized) =>
+  ["imperial", "mi", "mile", "miles", "lbs", "lb", "inch", "inches", "in"].includes(normalized);
+
+const isStandardValue = (normalized) =>
+  ["standard", "metric", "km", "kilometer", "kilometers", "kg", "cm"].includes(normalized);
+
 const getDistanceUnitCode = (value) => {
   const normalized = normalizeDistanceUnitValue(value);
 
-  if (normalized === "imperial" || normalized === "mi" || normalized === "mile" || normalized === "miles") {
+  if (isImperialValue(normalized)) {
     return "mi";
   }
 
-  if (normalized === "metric" || normalized === "km" || normalized === "kilometer" || normalized === "kilometers") {
+  if (isStandardValue(normalized)) {
     return "km";
   }
 
@@ -18,7 +24,7 @@ const getDistanceUnitCode = (value) => {
 };
 
 const getDistanceUnitPreference = (value) => {
-  return getDistanceUnitCode(value) === "mi" ? "imperial" : "metric";
+  return getDistanceUnitCode(value) === "mi" ? "imperial" : "standard";
 };
 
 const getDistanceUnitLabel = (value) => {

@@ -7,7 +7,11 @@ import { DistanceInput } from "../components/DistanceInput";
 import { TimeInput } from "../components/TimeInput";
 import { FormCard } from "../components/FormCard";
 import { calculatePace, timeToSeconds } from "../../../../utils/validators";
-import { getDistanceUnitDisplayLabel } from "../../../../utils/distanceUnit";
+import {
+  getDistanceUnitCode,
+  getDistanceUnitDisplayLabel,
+  getDistanceUnitPaceLabel,
+} from "../../../../utils/distanceUnit";
 
 interface RecentLongRunProps {
   options: any[];
@@ -64,6 +68,9 @@ const RecentLongRun: React.FC<RecentLongRunProps> = ({
   const distanceUnitLabel = useMemo(() => {
     return getDistanceUnitDisplayLabel(user?.profile?.distance_unit || customValues?.unit);
   }, [user?.profile?.distance_unit, customValues?.unit]);
+  const paceUnitLabel = useMemo(() => {
+    return getDistanceUnitPaceLabel(user?.profile?.distance_unit || customValues?.unit);
+  }, [user?.profile?.distance_unit, customValues?.unit]);
 
   const getPresetDistance = (option?: DistanceOption) => {
     if (!option) return null;
@@ -109,8 +116,8 @@ const RecentLongRun: React.FC<RecentLongRunProps> = ({
     }
 
     const seconds = timeToSeconds(timeValue);
-    const isMiles = String(customValues?.unit || distanceUnitLabel || "").toLowerCase().includes("mile");
-    const finalDistance = isMiles ? distanceForSelection * 1.60934 : distanceForSelection;
+    const distanceCode = getDistanceUnitCode(customValues?.unit || distanceUnitLabel || "km");
+    const finalDistance = distanceCode === "mi" ? distanceForSelection * 1.60934 : distanceForSelection;
 
     if (!Number.isFinite(distanceForSelection) || distanceForSelection <= 0 || seconds === null || seconds <= 0) {
       setDisplayPace("");
@@ -118,7 +125,7 @@ const RecentLongRun: React.FC<RecentLongRunProps> = ({
       return;
     }
 
-    const pace = calculatePace(seconds, finalDistance);
+    const pace = calculatePace(seconds, finalDistance, distanceCode);
     setDisplayPace(pace);
     onCustomChange?.("pace", pace);
   }, [isCustomSelected, selectedOption, customValues?.distance, customValues?.time, customValues?.unit, distanceUnitLabel]);
@@ -182,7 +189,7 @@ const RecentLongRun: React.FC<RecentLongRunProps> = ({
           onChange={(value) => onCustomChange?.("time", value)}
         />
         <View style={styles.paceCard}>
-          <Text style={styles.paceLabel}>Estimated pace</Text>
+          <Text style={styles.paceLabel}>Estimated pace ({paceUnitLabel})</Text>
           <Text style={styles.paceValue}>{displayPace || "Enter distance and time to calculate pace"}</Text>
         </View>
       </View>

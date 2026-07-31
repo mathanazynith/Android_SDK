@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, TextInput, StyleSheet } from "react-native";
+import { useAuth } from "../../../../../service/auth";
+import { getDistanceUnitDisplayLabel, getDistanceUnitPaceLabel } from "../../../../../utils/distanceUnit";
  
 interface RunningStatsProps {
   value?: {
@@ -11,9 +13,12 @@ interface RunningStatsProps {
 }
  
 const RunningStats: React.FC<RunningStatsProps> = ({ value, onChange }) => {
+  const { user } = useAuth();
   const [distance, setDistance] = useState(value?.distance || "");
   const [time, setTime] = useState(value?.time || "");
   const [pace, setPace] = useState(value?.pace || "");
+  const distanceUnitLabel = getDistanceUnitDisplayLabel(user?.profile?.distance_unit);
+  const paceUnitLabel = getDistanceUnitPaceLabel(user?.profile?.distance_unit);
  
   // Calculate pace when distance or time changes
   useEffect(() => {
@@ -23,7 +28,7 @@ const RunningStats: React.FC<RunningStatsProps> = ({ value, onChange }) => {
       const calculatedPace = timeInMinutes / dist;
       const minutes = Math.floor(calculatedPace);
       const seconds = Math.round((calculatedPace - minutes) * 60);
-      const paceString = `${minutes}:${seconds.toString().padStart(2, '0')} min/km`;
+      const paceString = `${minutes}:${seconds.toString().padStart(2, '0')} ${paceUnitLabel}`;
       setPace(paceString);
      
       // Update parent with all values
@@ -35,17 +40,17 @@ const RunningStats: React.FC<RunningStatsProps> = ({ value, onChange }) => {
     } else {
       setPace("");
     }
-  }, [distance, time]);
+  }, [distance, time, paceUnitLabel]);
  
   return (
     <View style={styles.container}>
       <View style={styles.inputGroup}>
-        <Text style={styles.label}>Longest Run Distance (km)</Text>
+        <Text style={styles.label}>Longest Run Distance ({distanceUnitLabel})</Text>
         <TextInput
           style={styles.input}
           value={distance}
           onChangeText={setDistance}
-          placeholder="Enter distance in km"
+          placeholder={`Enter distance in ${distanceUnitLabel}`}
           keyboardType="numeric"
         />
       </View>

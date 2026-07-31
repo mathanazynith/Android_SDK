@@ -329,63 +329,69 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  // Build payload from allAnswers filtered by current page questions
+  // ------------------------------------------------------------------
+  // buildAnswersPayload – FIXED for custom distance
+  // ------------------------------------------------------------------
   const buildAnswersPayload = useCallback((): AnswerPayload[] => {
     const payload: AnswerPayload[] = [];
     for (const question of currentPageQuestions) {
       const key = String(question.backendId ?? getNumericId(question.id));
       const answer = allAnswers[key];
-      if (answer && answer.value !== undefined && answer.value !== null && answer.value !== "") {
-        let value = answer.value;
-        // Sanitize time values only when building payload
-        if (typeof value === "string" && question.type === "time") {
-          value = value.replace(/[: ]+$/, "").trim();
-        }
-
-        let customValues = normalizeCustomValues(answer.customValues);
-        const numericId = question.backendId ?? getNumericId(question.id);
-
-        // For custom options that require input (like custom distance)
-        // The backend expects BOTH numeric_value (as number) AND numeric_unit (km or mi)
-        if (customValues.distance) {
-          // Convert distance string to number for backend
-          const distanceNum = parseFloat(customValues.distance);
-          if (!isNaN(distanceNum)) {
-            customValues.numeric_value = distanceNum; // Must be a number, not string
-          } else {
-            customValues.numeric_value = customValues.distance; // Fallback to original
-          }
-          
-          // Add unit from user's profile
-          if (user?.profile?.distance_unit) {
-            customValues.numeric_unit = user.profile.distance_unit; // "km" or "mi"
-          }
-          
-          if (__DEV__) {
-            console.log(
-              "[Questionnaire] Custom distance - Full customValues after processing:",
-              JSON.stringify(customValues, null, 2)
-            );
-          }
-        }
-
-        if (__DEV__) {
-          console.log("[Questionnaire] Question", numericId, "customValues keys:", Object.keys(customValues));
-        }
-
-        payload.push({
-          question_id: numericId,
-          value,
-          unit: answer.unit || null,
-          custom_values: Object.keys(customValues).length > 0 ? customValues : null,
-        });
+      if (!answer || answer.value === undefined || answer.value === null || answer.value === "") {
+        continue;
       }
+
+      let value = answer.value;
+      // Sanitize time values only when building payload
+      if (typeof value === "string" && question.type === "time") {
+        value = value.replace(/[: ]+$/, "").trim();
+      }
+
+      // Initialize as null so we can decide later
+      let customValues: Record<string, any> | null = normalizeCustomValues(answer.customValues);
+      const numericId = question.backendId ?? getNumericId(question.id);
+
+      const selectedOption = question.options?.find(
+        (opt) => String(opt.id) === String(value)
+      );
+
+      if (selectedOption?.requires_input) {
+        const distance = customValues?.distance;
+        const unit = customValues?.unit || "km";
+
+        if (distance) {
+          customValues = {
+            [String(selectedOption.id)]: {
+              value: String(distance),
+              unit,
+            },
+          };
+        } else {
+          customValues = null;
+        }
+      } else {
+        if (customValues && Object.keys(customValues).length === 0) {
+          customValues = null;
+        }
+      }
+
+      payload.push({
+        question_id: numericId,
+        value,
+        unit: answer.unit || null,
+        custom_values: customValues,
+      });
     }
+
     if (__DEV__) {
       console.log("[Questionnaire] buildAnswersPayload", JSON.stringify(payload, null, 2));
     }
     return payload;
-  }, [currentPageQuestions, allAnswers, user?.profile?.distance_unit]);
+  }, [currentPageQuestions, allAnswers]);
+
+  // ------------------------------------------------------------------
+  // End of buildAnswersPayload fix
+  // ------------------------------------------------------------------
 
   // Go to next page - NO CACHING, NO CLEARING
   const goToNext = async () => {

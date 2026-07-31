@@ -7,7 +7,11 @@ import { DistanceInput } from "../components/DistanceInput";
 import { TimeInput } from "../components/TimeInput";
 import { FormCard } from "../components/FormCard";
 import { calculatePace, timeToSeconds } from "../../../../utils/validators";
-import { getDistanceUnitDisplayLabel } from "../../../../utils/distanceUnit";
+import {
+  getDistanceUnitCode,
+  getDistanceUnitDisplayLabel,
+  getDistanceUnitPaceLabel,
+} from "../../../../utils/distanceUnit";
 
 interface PlanOption {
   id: string;
@@ -44,6 +48,9 @@ const PlanSelection: React.FC<PlanSelectionProps> = ({
 
   const distanceUnitLabel = useMemo(() => {
     return getDistanceUnitDisplayLabel(user?.profile?.distance_unit);
+  }, [user?.profile?.distance_unit]);
+  const paceUnitLabel = useMemo(() => {
+    return getDistanceUnitPaceLabel(user?.profile?.distance_unit);
   }, [user?.profile?.distance_unit]);
 
   const getPresetDistance = (option: any) => {
@@ -94,10 +101,11 @@ const PlanSelection: React.FC<PlanSelectionProps> = ({
       return;
     }
 
-    const pace = calculatePace(seconds, distanceForSelection);
+    const distanceCode = getDistanceUnitCode(user?.profile?.distance_unit);
+    const pace = calculatePace(seconds, distanceForSelection, distanceCode);
     setCalculatedPace(pace);
     onCustomChange?.("targetPace", pace);
-  }, [isCustomSelected, selectedOption, customValues?.targetDistance, customValues?.targetTime]);
+  }, [isCustomSelected, selectedOption, customValues?.targetDistance, customValues?.targetTime, user?.profile?.distance_unit]);
 
   const handleOptionSelect = (value: string) => {
     const nextOption = options.find((option) => option.value === value || option.id === value);
@@ -155,7 +163,7 @@ const PlanSelection: React.FC<PlanSelectionProps> = ({
           onChange={(value) => onCustomChange?.("targetTime", value)}
         />
         <View style={styles.paceCard}>
-          <Text style={styles.paceLabel}>Estimated pace</Text>
+          <Text style={styles.paceLabel}>Estimated pace ({paceUnitLabel})</Text>
           <Text style={styles.paceValue}>{calculatedPace || "Enter distance and time to calculate pace"}</Text>
         </View>
       </View>

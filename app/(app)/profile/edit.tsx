@@ -12,7 +12,13 @@ import {
   ScrollView,
   KeyboardAvoidingView,
 } from "react-native";
-import { getDistanceUnitCode, getDistanceUnitPreference } from "../../../utils/distanceUnit";
+import {
+  getDistanceUnitCode,
+  getDistanceUnitPreference,
+  getHeightUnitLabel,
+  getWeightUnitLabel,
+  getUnitSystemLabel,
+} from "../../../utils/distanceUnit";
 import { router } from "expo-router";
 import { useAuth } from "../../../service/auth";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
@@ -41,7 +47,7 @@ export default function EditProfileScreen() {
   const [phoneNumber, setPhoneNumber] = useState(
     user?.phone_number || user?.profile?.phone_number || ""
   );
-  const [unitSystem, setUnitSystem] = useState<"metric" | "imperial">(
+  const [unitSystem, setUnitSystem] = useState<"standard" | "imperial">(
     getDistanceUnitPreference(user?.profile?.distance_unit)
   );
 
@@ -69,8 +75,8 @@ export default function EditProfileScreen() {
   ];
 
   const UNIT_SYSTEMS: PickerItem[] = [
-    { label: "Metric (kg, cm)", value: "metric" },
-    { label: "Imperial (lbs, ft)", value: "imperial" },
+    { label: "Standard (Km / cm / kg)", value: "standard" },
+    { label: "Imperial (mile / in / lb)", value: "imperial" },
   ];
 
   const handleUpdate = async () => {
@@ -298,7 +304,7 @@ export default function EditProfileScreen() {
 
       <View style={styles.row}>
         <View style={styles.halfInput}>
-          <Text style={styles.inputLabel}>Height ({unitSystem === "metric" ? "cm" : "ft/in"})</Text>
+          <Text style={styles.inputLabel}>Height ({getHeightUnitLabel(unitSystem)})</Text>
           <AppInput
             placeholder="Height"
             value={heightCm}
@@ -308,7 +314,7 @@ export default function EditProfileScreen() {
           />
         </View>
         <View style={styles.halfInput}>
-          <Text style={styles.inputLabel}>Weight ({unitSystem === "metric" ? "kg" : "lbs"})</Text>
+          <Text style={styles.inputLabel}>Weight ({getWeightUnitLabel(unitSystem)})</Text>
           <AppInput
             placeholder="Weight"
             value={weightKg}
@@ -324,7 +330,7 @@ export default function EditProfileScreen() {
         <View pointerEvents="none">
           <AppInput
             placeholder="Unit System"
-            value={UNIT_SYSTEMS.find((u) => u.value === unitSystem)?.label || "Metric"}
+            value={getUnitSystemLabel(unitSystem)}
             editable={false}
             containerStyle={styles.pressableInputContainer}
           />
@@ -359,7 +365,7 @@ export default function EditProfileScreen() {
         onClose={() => setShowUnitModal(false)}
         data={UNIT_SYSTEMS}
         selectedValue={unitSystem}
-        onSelect={(value) => setUnitSystem(value === "imperial" ? "imperial" : "metric")}
+        onSelect={(value) => setUnitSystem(value === "imperial" ? "imperial" : "standard")}
         title="Select Unit System"
       />
     </ScrollView>

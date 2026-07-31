@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, TextInput, StyleSheet } from "react-native";
+import { useAuth } from "../../../../../service/auth";
+import { getDistanceUnitDisplayLabel, getDistanceUnitPaceLabel } from "../../../../../utils/distanceUnit";
  
 interface EventRegistrationProps {
   value?: {
@@ -14,9 +16,12 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   value,
   onChange
 }) => {
+  const { user } = useAuth();
   const [eventName, setEventName] = useState(value?.eventName || "");
   const [distance, setDistance] = useState(value?.distance || "");
   const [targetTime, setTargetTime] = useState(value?.targetTime || "");
+  const distanceUnitLabel = getDistanceUnitDisplayLabel(user?.profile?.distance_unit);
+  const paceUnitLabel = getDistanceUnitPaceLabel(user?.profile?.distance_unit);
  
   const handleChange = (field: string, val: string) => {
     const updatedValue = {
@@ -46,18 +51,18 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       </View>
  
       <View style={styles.inputGroup}>
-        <Text style={styles.label}>Event Distance (km)</Text>
+        <Text style={styles.label}>Event Distance ({distanceUnitLabel})</Text>
         <TextInput
           style={styles.input}
           value={distance}
           onChangeText={(val) => handleChange('distance', val)}
-          placeholder="Enter distance in km"
+          placeholder={`Enter distance in ${distanceUnitLabel}`}
           keyboardType="numeric"
         />
       </View>
- 
+
       <View style={styles.inputGroup}>
-        <Text style={styles.label}>Target Time (minutes)</Text>
+        <Text style={styles.label}>Target Pace ({paceUnitLabel})</Text>
         <TextInput
           style={styles.input}
           value={targetTime}
