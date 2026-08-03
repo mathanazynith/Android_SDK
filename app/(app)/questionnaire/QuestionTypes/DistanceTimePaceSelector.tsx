@@ -145,7 +145,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
 
     const seconds = timeToSeconds(timeValue);
     const distanceCode = getDistanceUnitCode(customValues?.unit || distanceUnitLabel || "km");
-    const finalDistance = distanceCode === "mi" ? distanceForSelection * 1.60934 : distanceForSelection;
+    const finalDistance = distanceCode === "mile" ? distanceForSelection * 1.60934 : distanceForSelection;
 
     if (
       !Number.isFinite(distanceForSelection) ||

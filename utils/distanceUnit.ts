@@ -1,4 +1,6 @@
-export type DistanceUnitCode = "km" | "mi";
+// utils/distanceUnit.ts
+
+export type DistanceUnitCode = "km" | "mile";
 export type DistanceUnitPreference = "standard" | "imperial";
 
 const normalizeDistanceUnitValue = (value?: string | null) => {
@@ -12,11 +14,12 @@ const isImperialValue = (normalized: string) =>
 const isStandardValue = (normalized: string) =>
   ["standard", "metric", "km", "kilometer", "kilometers", "kg", "cm"].includes(normalized);
 
+// ✅ FIX: Return "mile" instead of "mi" for backend compatibility
 export const getDistanceUnitCode = (value?: string | null): DistanceUnitCode => {
   const normalized = normalizeDistanceUnitValue(value);
 
   if (isImperialValue(normalized)) {
-    return "mi";
+    return "mile";  // ✅ Changed from "mi" to "mile"
   }
 
   if (isStandardValue(normalized)) {
@@ -27,7 +30,7 @@ export const getDistanceUnitCode = (value?: string | null): DistanceUnitCode => 
 };
 
 export const getDistanceUnitPreference = (value?: string | null): DistanceUnitPreference => {
-  return getDistanceUnitCode(value) === "mi" ? "imperial" : "standard";
+  return getDistanceUnitCode(value) === "mile" ? "imperial" : "standard";
 };
 
 export const getDistanceUnitLabel = (value?: string | null): DistanceUnitCode => {
@@ -35,23 +38,23 @@ export const getDistanceUnitLabel = (value?: string | null): DistanceUnitCode =>
 };
 
 export const getDistanceUnitDisplayLabel = (value?: string | null): string => {
-  return getDistanceUnitCode(value) === "mi" ? "mi" : "km";
+  return getDistanceUnitCode(value) === "mile" ? "mi" : "km";
 };
 
 export const getDistanceUnitPaceLabel = (value?: string | null): string => {
-  return getDistanceUnitCode(value) === "mi" ? "min/mile" : "min/km";
+  return getDistanceUnitCode(value) === "mile" ? "min/mile" : "min/km";
 };
 
 export const getDistanceUnitDisplayText = (value?: string | null): string => {
-  return getDistanceUnitCode(value) === "mi" ? "mile" : "km";
+  return getDistanceUnitCode(value) === "mile" ? "mile" : "km";
 };
 
 export const getHeightUnitLabel = (value?: string | null): string => {
-  return getDistanceUnitCode(value) === "mi" ? "in" : "cm";
+  return getDistanceUnitCode(value) === "mile" ? "in" : "cm";
 };
 
 export const getWeightUnitLabel = (value?: string | null): string => {
-  return getDistanceUnitCode(value) === "mi" ? "lb" : "kg";
+  return getDistanceUnitCode(value) === "mile" ? "lb" : "kg";
 };
 
 export const getUnitSystemLabel = (value?: string | null): string => {
@@ -62,17 +65,15 @@ export const getUnitSystemLabel = (value?: string | null): string => {
 };
 
 export const convertDistanceToKilometers = (distance: number, value?: string | null): number => {
-  if (getDistanceUnitCode(value) === "mi") {
+  if (getDistanceUnitCode(value) === "mile") {
     return distance * 1.60934;
   }
-
   return distance;
 };
 
 export const convertKilometersToDisplay = (distance: number, value?: string | null): number => {
-  if (getDistanceUnitCode(value) === "mi") {
+  if (getDistanceUnitCode(value) === "mile") {
     return distance / 1.60934;
   }
-
   return distance;
 };
