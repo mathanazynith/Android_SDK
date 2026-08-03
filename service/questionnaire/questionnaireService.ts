@@ -105,6 +105,9 @@ class AssessmentService {
     if (["recent_long_run", "recent long run", "long run", "recent_run"].includes(type)) {
       return "recent_long_run";
     }
+    if (["event_registration", "event registration", "event-register", "event register"].includes(type)) {
+      return "event_registration";
+    }
     if (["number", "numeric", "integer", "decimal", "float"].includes(type)) {
       return "number";
     }

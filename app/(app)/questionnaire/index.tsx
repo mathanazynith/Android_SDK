@@ -14,6 +14,7 @@ import YesNo from "../../../app/(app)/questionnaire/QuestionTypes/YesNo";
 import RecentLongRun from "../../../app/(app)/questionnaire/QuestionTypes/RecentLongRun";
 import PlanSelection from "../../../app/(app)/questionnaire/QuestionTypes/PlanSelection";
 import DatePicker from "../../../app/(app)/questionnaire/QuestionTypes/DatePicker";
+import EventRegistration from "../../../app/(app)/questionnaire/components/QuestionTypes/EventRegistration";
 import { formatTimeFromComponents, timeToSeconds, calculatePace } from "../../../utils/validators";
 import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -285,6 +286,15 @@ const QuestionField = ({
         </View>
       );
 
+    case "event_registration":
+      return (
+        <EventRegistration
+          value={typeof value === "object" && value !== null ? value : {}}
+          onChange={(nextValue: Record<string, any>) => onAnswer(id, nextValue)}
+          trainingDaysComputed={computedResponses?.[question.slug ?? id]}
+        />
+      );
+
     default:
       return (
         <View style={styles.questionContainer}>
@@ -408,6 +418,41 @@ export default function QuestionnaireScreen() {
     );
     if (singleQuestion && timeQuestion && computedQuestion) {
       return { singleQuestion, timeQuestion, computedQuestion };
+    }
+    return null;
+  };
+
+  const getEventRegistrationGroup = (questions: Question[]) => {
+    // Detect all event-related questions
+    const eventNameQuestion = questions.find(
+      (q) => /event.*name|name.*event/i.test(q.question)
+    );
+    const eventDateQuestion = questions.find(
+      (q) => /event.*date|when.*event|date.*event/i.test(q.question) && q.type === "date"
+    );
+    const trainingStartDateQuestion = questions.find(
+      (q) => /start.*training|training.*start/i.test(q.question) && q.type === "date"
+    );
+    const distanceQuestion = questions.find(
+      (q) => /event.*distance|distance.*event/i.test(q.question)
+    );
+    const targetTimeQuestion = questions.find(
+      (q) => /target.*time|time.*event/i.test(q.question) && q.type === "time"
+    );
+    const paceQuestion = questions.find(
+      (q) => q.type === "computed" && /pace/i.test(q.question)
+    );
+
+    // If we have at least event name + date, treat as event registration group
+    if (eventNameQuestion && eventDateQuestion) {
+      return {
+        eventNameQuestion,
+        eventDateQuestion,
+        trainingStartDateQuestion,
+        distanceQuestion,
+        targetTimeQuestion,
+        paceQuestion,
+      };
     }
     return null;
   };
@@ -557,6 +602,18 @@ export default function QuestionnaireScreen() {
       ])
     : new Set<string>();
 
+  const eventRegistrationGroup = getEventRegistrationGroup(displayQuestions);
+  const eventRegistrationQuestionIds = eventRegistrationGroup
+    ? new Set<string>([
+        eventRegistrationGroup.eventNameQuestion.id,
+        eventRegistrationGroup.eventDateQuestion.id,
+        ...(eventRegistrationGroup.trainingStartDateQuestion ? [eventRegistrationGroup.trainingStartDateQuestion.id] : []),
+        ...(eventRegistrationGroup.distanceQuestion ? [eventRegistrationGroup.distanceQuestion.id] : []),
+        ...(eventRegistrationGroup.targetTimeQuestion ? [eventRegistrationGroup.targetTimeQuestion.id] : []),
+        ...(eventRegistrationGroup.paceQuestion ? [eventRegistrationGroup.paceQuestion.id] : []),
+      ])
+    : new Set<string>();
+
   const recentLongRunSelectedValue = recentLongRunGroup
     ? currentPageAnswers[
         String(
@@ -636,8 +693,45 @@ export default function QuestionnaireScreen() {
             />
           )}
 
+          {eventRegistrationGroup && (
+            <EventRegistration
+              value={{
+                eventName: currentPageAnswers[String(eventRegistrationGroup.eventNameQuestion.backendId ?? getNumericId(eventRegistrationGroup.eventNameQuestion.id))]?.value,
+                eventDate: currentPageAnswers[String(eventRegistrationGroup.eventDateQuestion.backendId ?? getNumericId(eventRegistrationGroup.eventDateQuestion.id))]?.value,
+                trainingStartDate: eventRegistrationGroup.trainingStartDateQuestion ? currentPageAnswers[String(eventRegistrationGroup.trainingStartDateQuestion.backendId ?? getNumericId(eventRegistrationGroup.trainingStartDateQuestion.id))]?.value : undefined,
+                targetDistance: eventRegistrationGroup.distanceQuestion ? currentPageAnswers[String(eventRegistrationGroup.distanceQuestion.backendId ?? getNumericId(eventRegistrationGroup.distanceQuestion.id))]?.value : undefined,
+                targetTime: eventRegistrationGroup.targetTimeQuestion ? currentPageAnswers[String(eventRegistrationGroup.targetTimeQuestion.backendId ?? getNumericId(eventRegistrationGroup.targetTimeQuestion.id))]?.value : undefined,
+                targetPace: eventRegistrationGroup.paceQuestion ? computedResponses[eventRegistrationGroup.paceQuestion.slug ?? eventRegistrationGroup.paceQuestion.id] : undefined,
+              }}
+              onChange={(nextValue: Record<string, any>) => {
+                // Set event name
+                if (nextValue.eventName !== undefined) {
+                  handleAnswer(eventRegistrationGroup.eventNameQuestion.id, nextValue.eventName);
+                }
+                // Set event date
+                if (nextValue.eventDate !== undefined) {
+                  handleAnswer(eventRegistrationGroup.eventDateQuestion.id, nextValue.eventDate);
+                }
+                // Set training start date
+                if (nextValue.trainingStartDate !== undefined && eventRegistrationGroup.trainingStartDateQuestion) {
+                  handleAnswer(eventRegistrationGroup.trainingStartDateQuestion.id, nextValue.trainingStartDate);
+                }
+                // Set distance
+                if (nextValue.targetDistance !== undefined && eventRegistrationGroup.distanceQuestion) {
+                  handleAnswer(eventRegistrationGroup.distanceQuestion.id, nextValue.targetDistance);
+                }
+                // Set target time
+                if (nextValue.targetTime !== undefined && eventRegistrationGroup.targetTimeQuestion) {
+                  handleAnswer(eventRegistrationGroup.targetTimeQuestion.id, nextValue.targetTime);
+                }
+              }}
+              trainingDaysComputed={computedResponses?.[eventRegistrationGroup.eventDateQuestion.slug ?? "training_days"] ?? computedResponses?.training_days}
+            />
+          )}
+
           {displayQuestions
             .filter((question) => !recentLongRunQuestionIds.has(question.id))
+            .filter((question) => !eventRegistrationQuestionIds.has(question.id))
             .map((question) => {
               const numericKey = String(
                 question.backendId ?? getNumericId(question.id)

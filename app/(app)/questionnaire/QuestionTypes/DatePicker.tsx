@@ -20,7 +20,12 @@ const DatePicker: React.FC<DatePickerProps> = ({ value, onChange }) => {
   );
 
   const onDateChange = (event: any, date?: Date) => {
-    setShow(Platform.OS === "ios");
+    if (Platform.OS === "android") {
+      setShow(false);
+    } else {
+      setShow(true);
+    }
+    
     if (date) {
       setSelectedDate(date);
       onChange(date.toISOString().split("T")[0]);

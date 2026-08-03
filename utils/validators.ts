@@ -137,10 +137,15 @@ export const timeToSeconds = (time: string): number | null => {
 /**
  * Format time from components to HH:MM:SS string
  */
+export const normalizeTimePartValue = (value: string, maxLength: number = 2): string => {
+  const cleaned = String(value ?? "").replace(/\D/g, "").slice(0, maxLength);
+  return cleaned;
+};
+
 export const formatTimeFromComponents = (hours: string, minutes: string, seconds: string): string => {
-  const h = hours.padStart(2, '0');
-  const m = minutes.padStart(2, '0');
-  const s = seconds.padStart(2, '0');
+  const h = String(hours ?? "").padStart(2, "0");
+  const m = String(minutes ?? "").padStart(2, "0");
+  const s = String(seconds ?? "").padStart(2, "0");
   return `${h}:${m}:${s}`;
 };
 

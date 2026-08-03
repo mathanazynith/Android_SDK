@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { StyleSheet, Text, TextInput, View, NativeSyntheticEvent, TextInputKeyPressEventData } from 'react-native';
 
 type TextInputRef = React.ComponentRef<typeof TextInput>;
-import { formatTimeFromComponents, validateTimeFormat } from '../../../../utils/validators';
+import { formatTimeFromComponents, normalizeTimePartValue, validateTimeFormat } from '../../../../utils/validators';
 
 interface TimeInputProps {
   label: string;
@@ -17,6 +17,7 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
   const [hours, setHours] = useState<string>(() => (value ? String(value).split(':')[0] || '' : ''));
   const [minutes, setMinutes] = useState<string>(() => (value ? String(value).split(':')[1] || '' : ''));
   const [seconds, setSeconds] = useState<string>(() => (value ? String(value).split(':')[2] || '' : ''));
+  const [focusedField, setFocusedField] = useState<'hours' | 'minutes' | 'seconds' | null>(null);
   const hoursRef = useRef<TextInputRef>(null);
   const minutesRef = useRef<TextInputRef>(null);
   const secondsRef = useRef<TextInputRef>(null);
@@ -58,6 +59,17 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
   const validation = useMemo(() => validateTimeFormat(currentValue), [currentValue]);
   const resolvedError = error || (!validation.valid && currentValue && currentValue !== '00:00:00' ? validation.error : undefined);
 
+  const focusField = (field: 'hours' | 'minutes' | 'seconds') => {
+    setFocusedField(field);
+    if (field === 'hours') {
+      hoursRef.current?.focus();
+    } else if (field === 'minutes') {
+      minutesRef.current?.focus();
+    } else {
+      secondsRef.current?.focus();
+    }
+  };
+
   const updateTime = (nextHours: string, nextMinutes: string, nextSeconds: string, emit = true) => {
     setHours(nextHours);
     setMinutes(nextMinutes);
@@ -71,7 +83,9 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
   };
 
   const clampComponent = (val: string, type: 'hours' | 'minutes' | 'seconds') => {
-    const num = parseInt(val || '0', 10);
+    const trimmed = String(val ?? '').trim();
+    if (!trimmed) return '';
+    const num = parseInt(trimmed, 10);
     if (isNaN(num)) return '';
     if (type === 'hours') {
       return String(Math.min(Math.max(num, 0), 99)).padStart(2, '0');
@@ -80,16 +94,13 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
   };
 
   const handlePartChange = (part: 'hours' | 'minutes' | 'seconds', raw: string, nextRef?: React.RefObject<TextInputRef | null>) => {
-    const sanitized = raw.replace(/\D/g, '').slice(0, 2);
+    const sanitized = normalizeTimePartValue(raw, 2);
 
     if (part === 'hours') {
       const nextH = sanitized;
       setHours(nextH);
-      // auto advance
       if (nextH.length === 2 && nextRef?.current) {
         nextRef.current.focus();
-        // ensure cursor at end
-        try { nextRef.current.setNativeProps?.({ selection: { start: nextRef.current.props?.value?.length ?? 0, end: nextRef.current.props?.value?.length ?? 0 } }); } catch {}
       }
       updateTime(nextH, minutes, seconds);
       return;
@@ -100,7 +111,6 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
       setMinutes(nextM);
       if (nextM.length === 2 && nextRef?.current) {
         nextRef.current.focus();
-        try { nextRef.current.setNativeProps?.({ selection: { start: nextRef.current.props?.value?.length ?? 0, end: nextRef.current.props?.value?.length ?? 0 } }); } catch {}
       }
       updateTime(hours, nextM, seconds);
       return;
@@ -130,6 +140,10 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
     }
   };
 
+  const handleFocus = (part: 'hours' | 'minutes' | 'seconds') => {
+    setFocusedField(part);
+  };
+
   // On blur, ensure components are within valid ranges and padded
   const handleBlur = (part: 'hours' | 'minutes' | 'seconds') => () => {
     if (part === 'hours') {
@@ -157,11 +171,19 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
         <View style={styles.fieldWrap}>
           <TextInput
             ref={hoursRef}
-            style={[styles.input, resolvedError ? styles.inputError : null]}
+            style={[
+              styles.input,
+              focusedField === 'hours' ? styles.inputFocused : null,
+              resolvedError ? styles.inputError : null,
+            ]}
             value={hours}
             onChangeText={(text) => handlePartChange('hours', text, minutesRef)}
             onKeyPress={handleKeyPress('hours')}
-            onBlur={handleBlur('hours')}
+            onFocus={() => handleFocus('hours')}
+            onBlur={() => {
+              handleBlur('hours')();
+              setFocusedField(null);
+            }}
             placeholder="HH"
             placeholderTextColor="#8E8E93"
             keyboardType="numeric"
@@ -174,11 +196,19 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
         <View style={styles.fieldWrap}>
           <TextInput
             ref={minutesRef}
-            style={[styles.input, resolvedError ? styles.inputError : null]}
+            style={[
+              styles.input,
+              focusedField === 'minutes' ? styles.inputFocused : null,
+              resolvedError ? styles.inputError : null,
+            ]}
             value={minutes}
             onChangeText={(text) => handlePartChange('minutes', text, secondsRef)}
             onKeyPress={handleKeyPress('minutes')}
-            onBlur={handleBlur('minutes')}
+            onFocus={() => handleFocus('minutes')}
+            onBlur={() => {
+              handleBlur('minutes')();
+              setFocusedField(null);
+            }}
             placeholder="MM"
             placeholderTextColor="#8E8E93"
             keyboardType="numeric"
@@ -191,11 +221,19 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
         <View style={styles.fieldWrap}>
           <TextInput
             ref={secondsRef}
-            style={[styles.input, resolvedError ? styles.inputError : null]}
+            style={[
+              styles.input,
+              focusedField === 'seconds' ? styles.inputFocused : null,
+              resolvedError ? styles.inputError : null,
+            ]}
             value={seconds}
             onChangeText={(text) => handlePartChange('seconds', text)}
             onKeyPress={handleKeyPress('seconds')}
-            onBlur={handleBlur('seconds')}
+            onFocus={() => handleFocus('seconds')}
+            onBlur={() => {
+              handleBlur('seconds')();
+              setFocusedField(null);
+            }}
             placeholder="SS"
             placeholderTextColor="#8E8E93"
             keyboardType="numeric"
@@ -228,6 +266,13 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     textAlign: 'center',
     minWidth: 58,
+  },
+  inputFocused: {
+    borderColor: '#34C759',
+    shadowColor: '#34C759',
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
   },
   inputError: { borderColor: '#FF5A5F' },
   fieldLabel: { marginTop: 6, color: '#8E8E93', fontSize: 11, fontWeight: '600' },
