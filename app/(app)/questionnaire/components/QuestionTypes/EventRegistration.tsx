@@ -15,110 +15,65 @@ interface EventRegistrationProps {
     targetTime?: string;
     targetPace?: string;
   };
+  options: any[];
+  selectedValue?: string;
+  customValues?: Record<string, any>;
   onChange: (value: any) => void;
   trainingDaysComputed?: number | string;
 }
 
-/**
- * Event distance options matching Page 2 preset options
- * Converted to match the backend option structure
- */
-const eventDistanceOptions = [
-  { 
-    id: "5k", 
-    label: "5K", 
-    value: "5k", 
-    text: "5K",
-    numeric_value: "5", 
-    numeric_unit: "km" 
-  },
-  { 
-    id: "10k", 
-    label: "10K", 
-    value: "10k",
-    text: "10K", 
-    numeric_value: "10", 
-    numeric_unit: "km" 
-  },
-  { 
-    id: "15k", 
-    label: "15K", 
-    value: "15k",
-    text: "15K", 
-    numeric_value: "15", 
-    numeric_unit: "km" 
-  },
-  { 
-    id: "half-marathon", 
-    label: "Half Marathon", 
-    value: "half-marathon",
-    text: "Half Marathon", 
-    numeric_value: "21.0975", 
-    numeric_unit: "km" 
-  },
-  { 
-    id: "full-marathon", 
-    label: "Full Marathon", 
-    value: "full-marathon",
-    text: "Full Marathon", 
-    numeric_value: "42.195", 
-    numeric_unit: "km" 
-  },
-  { 
-    id: "custom", 
-    label: "CUSTOM", 
-    value: "custom",
-    text: "CUSTOM",
-    requires_input: true, 
-    input_type: "number" 
-  },
-];
-
 const EventRegistration: React.FC<EventRegistrationProps> = ({
   value,
+  options,
+  selectedValue,
+  customValues,
   onChange,
   trainingDaysComputed,
 }) => {
   const [eventName, setEventName] = useState(value?.eventName || "");
   const [eventDate, setEventDate] = useState(value?.eventDate || "");
   const [trainingStartDate, setTrainingStartDate] = useState(value?.trainingStartDate || "");
-  const [distanceState, setDistanceState] = useState(value?.targetDistance || value?.distance || "");
-  const [targetTime, setTargetTime] = useState(value?.targetTime || "");
-  
-  // Determine selected distance option based on current distance value
-  const [selectedDistanceValue, setSelectedDistanceValue] = useState<string | undefined>(() => {
-    if (value?.targetDistance && value?.targetDistance !== "") {
-      const presetMatch = eventDistanceOptions.find(
-        (opt) => String(opt.numeric_value ?? "") === String(value.targetDistance)
-      );
-      if (presetMatch) {
-        return presetMatch.id;
-      }
-      return "custom";
-    }
-    return undefined;
-  });
+  const [distanceState, setDistanceState] = useState(value?.targetDistance || value?.distance || customValues?.distance || "");
+  const [targetTime, setTargetTime] = useState(value?.targetTime || customValues?.targetTime || "");
+  const [selectedDistanceValue, setSelectedDistanceValue] = useState<string | undefined>(selectedValue);
+
+  React.useEffect(() => {
+    setSelectedDistanceValue(selectedValue);
+  }, [selectedValue]);
+
+  React.useEffect(() => {
+    setDistanceState(value?.targetDistance || value?.distance || customValues?.distance || "");
+  }, [value?.targetDistance, value?.distance, customValues?.distance]);
+
+  React.useEffect(() => {
+    setTargetTime(value?.targetTime || customValues?.targetTime || "");
+  }, [value?.targetTime, customValues?.targetTime]);
 
   // Shared state for all custom values (distance, time, unit) - pace is computed only
-  const customValues = useMemo(() => {
+  const normalizedCustomValues = useMemo(() => {
     return {
+      ...customValues,
       distance: distanceState,
       targetDistance: distanceState,
       time: targetTime,
       targetTime,
       unit: "km",
     };
-  }, [distanceState, targetTime]);
+  }, [customValues, distanceState, targetTime]);
 
-  // Emit change to parent component with all current values - memoized to prevent infinite loops
-  const emitChange = useCallback((next: Partial<{
+  interface EventRegistrationChange {
     eventName: string;
     eventDate: string;
     trainingStartDate: string;
     distance: string;
     targetDistance: string;
     targetTime: string;
-  }>) => {
+    eventDistanceValue?: string;
+    eventDistanceCustomValues?: Record<string, any> | null;
+  }
+
+  // Emit change to parent component with all current values - memoized to prevent infinite loops
+  const emitChange = useCallback((next: Partial<EventRegistrationChange>) => {
     onChange({
       eventName,
       eventDate,
@@ -186,39 +141,52 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         title="Event Details"
         subtitle="Pick a preset distance or enter your own details"
         icon={<Feather name="flag" size={18} color="#34C759" />}
-        options={eventDistanceOptions}
+        options={options}
         selectedValue={selectedDistanceValue}
         onSelect={(val: string, nextCustomValues?: Record<string, any> | null) => {
+          const selectedOption = options.find((opt) => String(opt.id) === String(val));
+          const isCustom = selectedOption?.requires_input === true;
+
           setSelectedDistanceValue(val);
-          
-          // Handle preset distance selection
-          if (val === "custom") {
-            setDistanceState((prev) => prev || "");
+
+          if (isCustom) {
+            setDistanceState(String(nextCustomValues?.distance ?? nextCustomValues?.targetDistance ?? distanceState));
           } else {
-            const preset = eventDistanceOptions.find((opt) => opt.id === val);
-            setDistanceState(String(preset?.numeric_value ?? ""));
+            setDistanceState(String(selectedOption?.numeric_value ?? selectedOption?.value ?? ""));
           }
-          
-          // Extract distance from custom values or use current state
-          const nextDistance = String(
-            nextCustomValues?.targetDistance ?? nextCustomValues?.distance ?? distanceState
-          );
+
+          const nextDistance = isCustom
+            ? String(nextCustomValues?.distance ?? nextCustomValues?.targetDistance ?? distanceState)
+            : String(selectedOption?.numeric_value ?? selectedOption?.value ?? "");
+
           emitChange({
+            eventDistanceValue: val,
+            eventDistanceCustomValues: nextCustomValues || normalizedCustomValues,
             distance: nextDistance,
             targetDistance: nextDistance,
+            targetTime: targetTime,
           });
         }}
-        customValues={customValues}
+        customValues={normalizedCustomValues}
         onCustomChange={(field: string, val: string) => {
-          // Route field changes to appropriate state setters - ignore pace (it's computed)
           if (field === "distance" || field === "targetDistance") {
             setDistanceState(val);
-            emitChange({ targetDistance: val, distance: val });
           } else if (field === "time" || field === "targetTime") {
             setTargetTime(val);
-            emitChange({ targetTime: val });
           }
-          // Ignore pace field changes - pace is computed only, not stored
+
+          const updatedCustomValues = {
+            ...normalizedCustomValues,
+            [field]: val,
+          };
+
+          emitChange({
+            eventDistanceValue: selectedDistanceValue,
+            eventDistanceCustomValues: updatedCustomValues,
+            distance: field === "distance" || field === "targetDistance" ? val : distanceState,
+            targetDistance: field === "distance" || field === "targetDistance" ? val : distanceState,
+            targetTime: field === "time" || field === "targetTime" ? val : targetTime,
+          });
         }}
         distanceField="targetDistance"
         timeField="targetTime"

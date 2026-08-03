@@ -89,7 +89,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
 
   // Find the custom option ID from the options list
   const customOptionId = useMemo(() => {
-    const custom = distanceOptions.find(opt => isCustomOption(opt));
+    const custom = distanceOptions.find(opt => opt.requires_input === true);
     return custom?.id || null;
   }, [distanceOptions]);
 
@@ -172,6 +172,11 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
   // FIXED: handleOptionSelect – always use the correct custom option ID
   // ------------------------------------------------------------
   const handleOptionSelect = (optionId: string) => {
+    // Debug: inspect actual question options when selecting a custom type
+    if (__DEV__) {
+      console.log("[DEBUG] question.options for this field:", JSON.stringify(options));
+    }
+
     // Find the option from the list
     const nextOption = distanceOptions.find((option) => option.id === optionId);
     if (!nextOption) {
@@ -182,7 +187,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
     // Determine if the selected option is custom
     const nextIsCustom = isCustomOption(nextOption);
     
-    // For custom selection, force the actual custom option ID
+    // For custom selection, force the actual custom option ID from the real options list
     let actualOptionId = optionId;
     if (nextIsCustom) {
       if (customOptionId) {

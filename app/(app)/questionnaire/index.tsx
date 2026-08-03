@@ -290,6 +290,9 @@ const QuestionField = ({
       return (
         <EventRegistration
           value={typeof value === "object" && value !== null ? value : {}}
+          options={options || []}
+          selectedValue={typeof value === "string" ? value : undefined}
+          customValues={customValues || {}}
           onChange={(nextValue: Record<string, any>) => onAnswer(id, nextValue)}
           trainingDaysComputed={computedResponses?.[question.slug ?? id]}
         />
@@ -699,10 +702,12 @@ export default function QuestionnaireScreen() {
                 eventName: currentPageAnswers[String(eventRegistrationGroup.eventNameQuestion.backendId ?? getNumericId(eventRegistrationGroup.eventNameQuestion.id))]?.value,
                 eventDate: currentPageAnswers[String(eventRegistrationGroup.eventDateQuestion.backendId ?? getNumericId(eventRegistrationGroup.eventDateQuestion.id))]?.value,
                 trainingStartDate: eventRegistrationGroup.trainingStartDateQuestion ? currentPageAnswers[String(eventRegistrationGroup.trainingStartDateQuestion.backendId ?? getNumericId(eventRegistrationGroup.trainingStartDateQuestion.id))]?.value : undefined,
-                targetDistance: eventRegistrationGroup.distanceQuestion ? currentPageAnswers[String(eventRegistrationGroup.distanceQuestion.backendId ?? getNumericId(eventRegistrationGroup.distanceQuestion.id))]?.value : undefined,
                 targetTime: eventRegistrationGroup.targetTimeQuestion ? currentPageAnswers[String(eventRegistrationGroup.targetTimeQuestion.backendId ?? getNumericId(eventRegistrationGroup.targetTimeQuestion.id))]?.value : undefined,
                 targetPace: eventRegistrationGroup.paceQuestion ? computedResponses[eventRegistrationGroup.paceQuestion.slug ?? eventRegistrationGroup.paceQuestion.id] : undefined,
               }}
+              options={eventRegistrationGroup.distanceQuestion?.options || []}
+              selectedValue={eventRegistrationGroup.distanceQuestion ? currentPageAnswers[String(eventRegistrationGroup.distanceQuestion.backendId ?? getNumericId(eventRegistrationGroup.distanceQuestion.id))]?.value : undefined}
+              customValues={eventRegistrationGroup.distanceQuestion ? currentPageAnswers[String(eventRegistrationGroup.distanceQuestion.backendId ?? getNumericId(eventRegistrationGroup.distanceQuestion.id))]?.customValues || {} : {}}
               onChange={(nextValue: Record<string, any>) => {
                 // Set event name
                 if (nextValue.eventName !== undefined) {
@@ -716,9 +721,14 @@ export default function QuestionnaireScreen() {
                 if (nextValue.trainingStartDate !== undefined && eventRegistrationGroup.trainingStartDateQuestion) {
                   handleAnswer(eventRegistrationGroup.trainingStartDateQuestion.id, nextValue.trainingStartDate);
                 }
-                // Set distance
-                if (nextValue.targetDistance !== undefined && eventRegistrationGroup.distanceQuestion) {
-                  handleAnswer(eventRegistrationGroup.distanceQuestion.id, nextValue.targetDistance);
+                // Set distance option and custom values
+                if (nextValue.eventDistanceValue !== undefined && eventRegistrationGroup.distanceQuestion) {
+                  handleAnswer(
+                    eventRegistrationGroup.distanceQuestion.id,
+                    nextValue.eventDistanceValue,
+                    null,
+                    nextValue.eventDistanceCustomValues || null
+                  );
                 }
                 // Set target time
                 if (nextValue.targetTime !== undefined && eventRegistrationGroup.targetTimeQuestion) {
