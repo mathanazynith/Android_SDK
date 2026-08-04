@@ -251,6 +251,23 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     return sanitized;
   };
 
+  const mergeCustomValues = useCallback(
+    (existingCustomValues: Record<string, any> | undefined, incomingCustomValues?: Record<string, any> | null) => {
+      let mergedCustomValues: Record<string, any> = existingCustomValues || {};
+      if (incomingCustomValues === null) {
+        mergedCustomValues = {};
+      } else if (incomingCustomValues !== undefined) {
+        mergedCustomValues = {
+          ...mergedCustomValues,
+          ...incomingCustomValues,
+        };
+      }
+
+      return normalizeCustomValues(mergedCustomValues);
+    },
+    []
+  );
+
   // Set answer - MERGES customValues, never overwrites
   const setAnswer = useCallback(
     (
@@ -265,17 +282,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setAllAnswers((prev) => {
         const existing = prev[key] || { value: undefined, unit: null, customValues: {} };
 
-        let mergedCustomValues: Record<string, any> = existing.customValues || {};
-        if (customValues === null) {
-          mergedCustomValues = {};
-        } else if (customValues !== undefined) {
-          mergedCustomValues = {
-            ...mergedCustomValues,
-            ...customValues,
-          };
-        }
-
-        mergedCustomValues = normalizeCustomValues(mergedCustomValues);
+        const mergedCustomValues = mergeCustomValues(existing.customValues, customValues);
 
         const newAnswer: AnswerData = {
           value: value !== undefined ? value : existing.value,

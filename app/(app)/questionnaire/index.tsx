@@ -485,17 +485,12 @@ export default function QuestionnaireScreen() {
         (val) => val === undefined || val === null || String(val).trim() === ""
       );
 
-    const existingValue = allAnswers[key]?.value;
-    const existingUnit = allAnswers[key]?.unit;
-
-    if (existingValue === undefined && existingUnit === null && isEmptyCustom) {
-      if (allAnswers[key]) {
-        setAnswer(questionId, undefined, null, null);
-      }
+    if (isEmptyCustom) {
+      setAnswer(questionId, undefined, undefined, null);
       return;
     }
 
-    setAnswer(questionId, existingValue, existingUnit, updatedCustomValues);
+    setAnswer(questionId, undefined, undefined, updatedCustomValues);
   };
 
   const getRecentLongRunGroup = (questions: Question[]) => {
@@ -560,10 +555,8 @@ export default function QuestionnaireScreen() {
       ...existing,
       [field]: value,
     };
-    const existingValue = allAnswers[key]?.value;
-    const existingUnit = allAnswers[key]?.unit;
 
-    setAnswer(singleQuestionId, existingValue, existingUnit, updatedCustomValues);
+    setAnswer(singleQuestionId, undefined, undefined, updatedCustomValues);
 
     if (field === "time") {
       setAnswer(timeQuestionId, value, null, null);
