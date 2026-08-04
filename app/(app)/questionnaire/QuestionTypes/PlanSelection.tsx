@@ -13,9 +13,10 @@ interface PlanSelectionProps {
   selectedValue?: string;
   onSelect: (value: any, customValues?: Record<string, any> | null) => void;
   customValues?: {
-    targetDistance?: string;
-    targetTime?: string;
-    targetPace?: string;
+    distance?: string;
+    time?: string;
+    pace?: string;
+    unit?: string;
   };
   onCustomChange?: (field: string, value: string) => void;
 }
@@ -29,22 +30,22 @@ const PlanSelection: React.FC<PlanSelectionProps> = ({
 }) => {
   return (
     <DistanceTimePaceSelector
-      title="Running plan"
-      subtitle="Choose a preset or create a custom target"
+      title="What is your primary running goal?"
+      subtitle="Pick a preset distance or enter your own details"
       icon={<Feather name="flag" size={18} color="#34C759" />}
       options={options}
       selectedValue={selectedValue}
       onSelect={onSelect}
       customValues={customValues}
       onCustomChange={onCustomChange}
-      distanceField="targetDistance"
-      timeField="targetTime"
-      paceField="targetPace"
-      distanceLabel="Plan"
-      timeLabel="Target time"
-      customDistanceLabel="Target distance"
+      distanceField="distance"
+      timeField="time"
+      paceField="pace"
+      distanceLabel="Distance"
+      timeLabel="What is your target finish time for this goal?"
+      customDistanceLabel="Enter Distance"
       timeHint="Enter HH:MM:SS"
-      optionsHint="Select an option from your plan list"
+      optionsHint="Select a common distance or custom option"
     />
   );
 };

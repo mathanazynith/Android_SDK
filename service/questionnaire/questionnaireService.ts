@@ -42,6 +42,7 @@ export interface Question {
   page_no?: number;
   question_order?: number;
   slug?: string;
+  isGoalQuestion?: boolean;
   allowed_input_units?: string;  // comma-separated
 }
 
@@ -147,6 +148,7 @@ class AssessmentService {
       page_no: item.page_no,
       question_order: item.question_order,
       slug: item.slug,
+      isGoalQuestion: Boolean(item.is_goal_question),
       allowed_input_units: Array.isArray(item.input_units)
         ? item.input_units.join(",")
         : item.allowed_input_units,

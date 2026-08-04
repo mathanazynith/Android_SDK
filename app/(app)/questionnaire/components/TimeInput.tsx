@@ -5,7 +5,7 @@ type TextInputRef = React.ComponentRef<typeof TextInput>;
 import { formatTimeFromComponents, normalizeTimePartValue, validateTimeFormat } from '../../../../utils/validators';
 
 interface TimeInputProps {
-  label: string;
+  label?: string;
   value?: string;
   hint?: string;
   error?: string;
@@ -165,7 +165,7 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
 
   return (
     <View style={styles.card}>
-      <Text style={styles.label}>{label}</Text>
+      {label ? <Text style={styles.label}>{label}</Text> : null}
       {hint ? <Text style={styles.hint}>{hint}</Text> : null}
       <View style={styles.row}>
         <View style={styles.fieldWrap}>

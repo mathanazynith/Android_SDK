@@ -30,11 +30,14 @@ interface DistanceTimePaceSelectorProps {
   customDistanceLabel?: string;
   timeHint?: string;
   optionsHint?: string;
+  showHeader?: boolean;
+  showTimeInput?: boolean;
+  showPace?: boolean;
 }
 
 interface DistanceOption {
   id: string;
-  text: string;
+  text?: string;
   label?: string;
   value?: string;
   numeric_value?: string;
@@ -42,6 +45,29 @@ interface DistanceOption {
   requires_input?: boolean;
   input_type?: string;
 }
+
+export const getDistanceInKilometers = (option?: DistanceOption | null): number | null => {
+  if (!option) return null;
+
+  const numericValue = Number(option.numeric_value ?? option.value ?? "");
+  if (Number.isFinite(numericValue) && numericValue > 0) {
+    return /^(mi|mile|miles)$/i.test(String(option.numeric_unit ?? "km"))
+      ? numericValue * 1.60934
+      : numericValue;
+  }
+
+  const label = String(option.label || option.text || "");
+  const kmMatch = label.match(/(\d+(?:\.\d+)?)\s*(k|km|kilometers?)/i);
+  if (kmMatch) return Number(kmMatch[1]);
+
+  const mileMatch = label.match(/(\d+(?:\.\d+)?)\s*(mi|mile|miles)/i);
+  if (mileMatch) return Number(mileMatch[1]) * 1.60934;
+
+  if (/half/i.test(label)) return 21.0975;
+  if (/full|marathon/i.test(label)) return 42.195;
+
+  return null;
+};
 
 const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
   title,
@@ -60,6 +86,9 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
   customDistanceLabel = "Distance",
   timeHint = "Enter HH:MM:SS",
   optionsHint = "Select a common distance or custom option",
+  showHeader = true,
+  showTimeInput = true,
+  showPace = true,
 }) => {
   const { user } = useAuth();
   const [displayPace, setDisplayPace] = useState("");
@@ -101,42 +130,17 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
     return getDistanceUnitPaceLabel(user?.profile?.distance_unit || customValues?.unit);
   }, [user?.profile?.distance_unit, customValues?.unit]);
 
-  const getPresetDistance = (option?: DistanceOption) => {
-    if (!option) return null;
-
-    const numericValue = Number(option.numeric_value ?? option.value ?? "");
-    if (Number.isFinite(numericValue) && numericValue > 0) {
-      return numericValue;
-    }
-
-    const label = String(option.label || option.text || "");
-    const kmMatch = label.match(/(\d+(?:\.\d+)?)\s*(km|kilometers?)/i);
-    if (kmMatch) {
-      return Number(kmMatch[1]);
-    }
-
-    const mileMatch = label.match(/(\d+(?:\.\d+)?)\s*(mi|mile|miles)/i);
-    if (mileMatch) {
-      return Number(mileMatch[1]) * 1.60934;
-    }
-
-    if (/half/i.test(label)) {
-      return 21.0975;
-    }
-
-    if (/full|marathon/i.test(label)) {
-      return 42.195;
-    }
-
-    return null;
-  };
-
   useEffect(() => {
     const distanceInput = String(customValues?.[distanceField] ?? "").trim();
     const timeValue = String(customValues?.[timeField] ?? "").trim();
+    const customDistance = Number(distanceInput);
     const distanceForSelection = isCustomSelected
-      ? (distanceInput ? Number(distanceInput) : null)
-      : getPresetDistance(selectedOption);
+      ? (Number.isFinite(customDistance) && customDistance > 0
+          ? (getDistanceUnitCode(user?.profile?.distance_unit || customValues?.unit) === "mile"
+              ? customDistance * 1.60934
+              : customDistance)
+          : null)
+      : getDistanceInKilometers(selectedOption);
 
     if (!distanceForSelection || !timeValue) {
       setDisplayPace("");
@@ -145,8 +149,6 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
 
     const seconds = timeToSeconds(timeValue);
     const distanceCode = getDistanceUnitCode(customValues?.unit || distanceUnitLabel || "km");
-    const finalDistance = distanceCode === "mile" ? distanceForSelection * 1.60934 : distanceForSelection;
-
     if (
       !Number.isFinite(distanceForSelection) ||
       distanceForSelection <= 0 ||
@@ -157,7 +159,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
       return;
     }
 
-    const pace = calculatePace(seconds, finalDistance, distanceCode);
+    const pace = calculatePace(seconds, distanceForSelection, distanceCode);
     setDisplayPace(pace);
   }, [
     isCustomSelected,
@@ -202,7 +204,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
 
     // For custom, we keep the existing customValues (which will include distance, time, pace)
     // For preset, we set the distance and clear custom values
-    const presetDistance = nextOption ? getPresetDistance(nextOption) : null;
+    const presetDistance = getDistanceInKilometers(nextOption);
     const nextCustomValues = nextIsCustom
       ? { ...customValues } // preserve existing custom values
       : {
@@ -226,17 +228,23 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
 
   return (
     <FormCard style={styles.card}>
-      <View style={styles.header}>
-        <View style={styles.headerTextWrap}>
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.subtitle}>{subtitle}</Text>
+      {showHeader ? (
+        <View style={styles.header}>
+          <View style={styles.headerTextWrap}>
+            <Text style={styles.title}>{title}</Text>
+            <Text style={styles.subtitle}>{subtitle}</Text>
+          </View>
+          {icon ?? <Feather name="activity" size={18} color="#34C759" />}
         </View>
-        {icon ?? <Feather name="activity" size={18} color="#34C759" />}
-      </View>
+      ) : null}
 
       <RunTypeSelector
         label={distanceLabel}
-        options={distanceOptions.map((option) => ({ id: option.id, label: option.text, value: option.id }))}
+        options={distanceOptions.map((option) => ({
+          id: option.id,
+          label: option.text ?? option.label ?? option.id,
+          value: option.id,
+        }))}
         selectedValue={selectedValue}
         hint={optionsHint}
         onSelect={handleOptionSelect}
@@ -253,17 +261,21 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
           />
         ) : null}
 
-        <TimeInput
-          label={timeLabel}
-          value={customValues?.[timeField] || ""}
-          hint={timeHint}
-          onChange={(value) => onCustomChange?.(timeField, value)}
-        />
+        {showTimeInput ? (
+          <TimeInput
+            label={timeLabel}
+            value={customValues?.[timeField] || ""}
+            hint={timeHint}
+            onChange={(value) => onCustomChange?.(timeField, value)}
+          />
+        ) : null}
 
-        <View style={styles.paceCard}>
-          <Text style={styles.paceLabel}>Estimated pace ({paceUnitLabel})</Text>
-          <Text style={styles.paceValue}>{displayPace || "Enter distance and time to calculate pace"}</Text>
-        </View>
+        {showPace ? (
+          <View style={styles.paceCard}>
+            <Text style={styles.paceLabel}>Estimated pace ({paceUnitLabel})</Text>
+            <Text style={styles.paceValue}>{displayPace || "Enter distance and time to calculate pace"}</Text>
+          </View>
+        ) : null}
       </View>
     </FormCard>
   );

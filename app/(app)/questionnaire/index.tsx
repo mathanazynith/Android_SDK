@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -13,9 +13,13 @@ import type { Question } from "../../../service/questionnaire/questionnaireServi
 import YesNo from "../../../app/(app)/questionnaire/QuestionTypes/YesNo";
 import RecentLongRun from "../../../app/(app)/questionnaire/QuestionTypes/RecentLongRun";
 import PlanSelection from "../../../app/(app)/questionnaire/QuestionTypes/PlanSelection";
+import DistanceTimePaceSelector, { getDistanceInKilometers } from "../../../app/(app)/questionnaire/QuestionTypes/DistanceTimePaceSelector";
 import DatePicker from "../../../app/(app)/questionnaire/QuestionTypes/DatePicker";
 import EventRegistration from "../../../app/(app)/questionnaire/components/QuestionTypes/EventRegistration";
+import { TimeInput } from "../../../app/(app)/questionnaire/components/TimeInput";
 import { formatTimeFromComponents, timeToSeconds, calculatePace } from "../../../utils/validators";
+import { getDistanceUnitCode } from "../../../utils/distanceUnit";
+import { useAuth } from "../../../service/auth";
 import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 
@@ -59,6 +63,7 @@ const QuestionField = ({
   onAnswer,
   onCustomChange,
   computedResponses,
+  goalPacePreview,
 }: any) => {
   const {
     id,
@@ -69,6 +74,10 @@ const QuestionField = ({
     isRequired,
   } = question;
   const type = String(rawType ?? "").toLowerCase();
+  const questionIdentifier = `${questionText ?? ""} ${question.slug ?? ""}`;
+  const isPrimaryRunningGoal = question.isGoalQuestion === true || /primary\s+running\s+goal|what\s+is\s+your\s+goal/i.test(questionIdentifier);
+  const isTargetFinishTime = /target\s+finish\s+time|goal[_\s-]*target[_\s-]*time|target.*time.*goal/i.test(questionIdentifier);
+  const isGoalTargetPace = /goal[_\s-]*target[_\s-]*pace|goal.*target.*pace/i.test(questionIdentifier);
 
   const resolveComputedValue = () => {
     const responseCandidates = [
@@ -98,6 +107,53 @@ const QuestionField = ({
     unit,
     customValues,
   });
+
+  // Page 5 uses ordinary backend question types, so route only its two
+  // identified questions through the same Page 2 primitives.
+  if (isPrimaryRunningGoal) {
+    return (
+      <View style={styles.questionContainer}>
+        <Text style={styles.questionText}>
+          {questionText}
+          {isRequired && <Text style={styles.requiredStar}> *</Text>}
+        </Text>
+        <DistanceTimePaceSelector
+          title=""
+          subtitle=""
+          options={options || []}
+          selectedValue={value}
+          onSelect={(val: string, nextCustomValues?: Record<string, any> | null) =>
+            onAnswer(id, val, undefined, nextCustomValues)
+          }
+          customValues={customValues}
+          onCustomChange={(field: string, nextValue: string) =>
+            onCustomChange(id, field, nextValue)
+          }
+          distanceField="distance"
+          timeField="time"
+          paceField="pace"
+          distanceLabel="Distance"
+          customDistanceLabel="Enter Distance"
+          optionsHint="Select a common distance or custom option"
+          showHeader={false}
+          showTimeInput={false}
+          showPace={false}
+        />
+      </View>
+    );
+  }
+
+  if (isTargetFinishTime) {
+    return (
+      <View style={styles.questionContainer}>
+        <Text style={styles.questionText}>
+          {questionText}
+          {isRequired && <Text style={styles.requiredStar}> *</Text>}
+        </Text>
+        <TimeInput value={value || ""} onChange={(nextValue) => onAnswer(id, nextValue)} />
+      </View>
+    );
+  }
 
   switch (type) {
     case "single":
@@ -171,7 +227,9 @@ const QuestionField = ({
           </Text>
           {type === "computed" || type === "calculated_pace" ? (
             <Text style={styles.computedValue}>
-              {computedResponses?.[question.slug ?? id] !== undefined
+              {isGoalTargetPace && goalPacePreview
+                ? goalPacePreview
+                : computedResponses?.[question.slug ?? id] !== undefined
                 ? String(computedResponses[question.slug ?? id])
                 : customValues?.derivedValue !== undefined
                 ? String(customValues.derivedValue)
@@ -325,8 +383,37 @@ export default function QuestionnaireScreen() {
     reset,
     canGoBack,
   } = useQuestionnaire();
+  const { user } = useAuth();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const goalPacePreview = useMemo(() => {
+    const goalQuestion = questions.find((question) =>
+      question.isGoalQuestion === true || /primary\s+running\s+goal|what\s+is\s+your\s+goal/i.test(`${question.question} ${question.slug ?? ""}`)
+    );
+    const goalTimeQuestion = questions.find((question) =>
+      /goal[_\s-]*target[_\s-]*time|target.*time.*goal/i.test(`${question.question} ${question.slug ?? ""}`)
+    );
+    if (!goalQuestion || !goalTimeQuestion) return "";
+
+    const goalAnswer = allAnswers[String(goalQuestion.backendId ?? getNumericId(goalQuestion.id))];
+    const timeAnswer = allAnswers[String(goalTimeQuestion.backendId ?? getNumericId(goalTimeQuestion.id))];
+    const selectedOption = goalQuestion.options?.find((option) => String(option.id) === String(goalAnswer?.value));
+    const seconds = timeToSeconds(String(timeAnswer?.value ?? ""));
+    if (!goalAnswer || !selectedOption || !seconds) return "";
+
+    const unit = getDistanceUnitCode(user?.profile?.distance_unit);
+    const customDistance = Number(goalAnswer.customValues?.distance);
+    const distanceKm = selectedOption.requires_input
+      ? (Number.isFinite(customDistance) && customDistance > 0
+          ? (unit === "mile" ? customDistance * 1.60934 : customDistance)
+          : null)
+      : getDistanceInKilometers(selectedOption);
+
+    return distanceKm && distanceKm > 0
+      ? calculatePace(seconds, distanceKm, unit)
+      : "";
+  }, [allAnswers, questions, user?.profile?.distance_unit]);
 
   React.useEffect(() => {
     if (isComplete && assessmentId) {
@@ -766,6 +853,7 @@ export default function QuestionnaireScreen() {
                   unit={unit}
                   customValues={customValues}
                   computedResponses={computedResponses}
+                  goalPacePreview={goalPacePreview}
                   onAnswer={(
                     questionKey: string,
                     val: any,

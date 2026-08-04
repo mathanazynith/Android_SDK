@@ -166,7 +166,10 @@ export const calculatePace = (
     ? "min/mile"
     : "min/km";
 
-  const paceSeconds = timeSeconds / distanceKm;
+  // `distanceKm` is canonical. Convert only for an imperial pace display so
+  // the numerical pace and its unit always describe the same distance.
+  const paceDistance = paceUnit === "min/mile" ? distanceKm / 1.60934 : distanceKm;
+  const paceSeconds = timeSeconds / paceDistance;
   const minutes = Math.floor(paceSeconds / 60);
   const seconds = Math.round(paceSeconds % 60);
 
