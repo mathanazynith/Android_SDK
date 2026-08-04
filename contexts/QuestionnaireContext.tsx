@@ -48,7 +48,7 @@ interface QuestionnaireContextType {
   startAssessment: () => Promise<void>;
   setAnswer: (questionId: string, value: any, unit?: string | null, customValues?: Record<string, any> | null) => void;
   goToNext: () => Promise<void>;
-  goToPrevious: () => void;
+  goToPrevious: () => Promise<void>;
   reset: () => void;
   // Backward compatibility for running-plan/index.tsx
   answers: AnswerRecord[];
@@ -82,7 +82,6 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
 
   // Navigation history for back and forward navigation
   const navigationHistory = useRef<PageState[]>([]);
-  const forwardHistory = useRef<PageState[]>([]);
   const isStartingAssessment = useRef(false);
 
   // Derive current page questions
@@ -199,7 +198,6 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     setComputedResponses({});
     setAllAnswers({});
     navigationHistory.current = [];
-    forwardHistory.current = [];
     assessmentService.clearCache();
   };
 
@@ -232,7 +230,6 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setIsComplete(result.complete);
       setAllAnswers({});
       navigationHistory.current = [];
-      forwardHistory.current = [];
     } catch (err: any) {
       setError(err.message || "Failed to start assessment");
     } finally {
@@ -309,15 +306,6 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
 
         if (__DEV__) {
           console.log("[Questionnaire] Answer stored for id", numericId, newAnswer);
-        }
-
-        if (forwardHistory.current.length > 0) {
-          forwardHistory.current = [];
-          if (__DEV__) {
-            console.log(
-              "[Questionnaire] Cleared forward history due to answer change"
-            );
-          }
         }
 
         return {
@@ -415,22 +403,6 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
 
       const previousNavigation = currentNavigation;
 
-      if (forwardHistory.current.length > 0) {
-        const nextState = forwardHistory.current[forwardHistory.current.length - 1];
-        if (nextState && nextState.navigation.page_no > currentNavigation.page_no) {
-          forwardHistory.current.pop();
-          navigationHistory.current.push({
-            navigation: currentNavigation,
-            computedResponses,
-            complete: isComplete,
-          });
-          setCurrentNavigation(nextState.navigation);
-          setComputedResponses(nextState.computedResponses);
-          setIsComplete(nextState.complete);
-          return;
-        }
-      }
-
       const payload = buildAnswersPayload();
       if (payload.length === 0) {
         setError("No answers to submit");
@@ -447,8 +419,6 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
           complete: isComplete,
         });
       }
-      forwardHistory.current = [];
-
       // Update navigation
       setCurrentNavigation(result.navigation);
       setComputedResponses(result.computedResponses);
@@ -463,26 +433,29 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Go to previous using local navigation history only
-  const goToPrevious = () => {
-    if (!assessmentId) return;
-    if (!currentNavigation) return;
-    if (navigationHistory.current.length === 0) return;
+  // Rewind through the shared backend flow. The server deletes the most
+  // recently submitted page, making that page valid for a replacement submit.
+  const goToPrevious = async () => {
+    if (!assessmentId || !currentNavigation || navigationHistory.current.length === 0) return;
 
-    const previousPageState = navigationHistory.current.pop();
-    if (!previousPageState) {
-      return;
+    try {
+      setIsLoading(true);
+      setError(null);
+      const result = await assessmentService.goBack(assessmentId);
+      navigationHistory.current.pop();
+      setCurrentNavigation(result.navigation);
+      setComputedResponses(result.computedResponses);
+      setIsComplete(result.complete);
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.detail ||
+        err?.response?.data?.message ||
+        err?.message ||
+        "Unable to return to the previous questionnaire page."
+      );
+    } finally {
+      setIsLoading(false);
     }
-
-    forwardHistory.current.push({
-      navigation: currentNavigation,
-      computedResponses,
-      complete: isComplete,
-    });
-
-    setCurrentNavigation(previousPageState.navigation);
-    setComputedResponses(previousPageState.computedResponses);
-    setIsComplete(previousPageState.complete);
   };
 
   const reset = () => {

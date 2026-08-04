@@ -116,47 +116,110 @@ class AssessmentService {
   }
 
   // Fetch all questions and cache them
+  // async fetchQuestions(): Promise<Question[]> {
+  //   if (this.questionsCache) {
+  //     return this.questionsCache;
+  //   }
+
+  //   const response = await assessmentAPI.getQuestions();
+  //   const rawQuestions = response.data.questions ?? [];
+  //   const mappedQuestions: Question[] = rawQuestions.map((item: any) => ({
+  //     id: `q${item.id}`,
+  //     backendId: item.id,
+  //     question: item.text ?? item.question ?? "",
+  //     type: this.normalizeQuestionType(item.question_type ?? item.type ?? "text"),
+  //     options: (item.options ?? []).map((option: any) => ({
+  //       id: String(option.id),
+  //       label: option.text ?? option.label ?? String(option.id),
+  //       text: option.text ?? option.label ?? String(option.id),
+  //       value: String(option.id),
+  //       numeric_value: option.numeric_value ?? option.value ?? undefined,
+  //       numeric_unit: option.numeric_unit ?? option.unit ?? "km",
+  //       requires_input: option.requires_input ?? false,
+  //       input_type: option.input_type ?? "",
+  //     })),
+  //     isRequired: Boolean(item.is_required ?? item.required ?? false),
+  //     placeholder: item.placeholder ?? undefined,
+  //     validation: {
+  //       min: item.validation?.min,
+  //       max: item.validation?.max,
+  //       pattern: item.validation?.pattern,
+  //     },
+  //     page_no: item.page_no,
+  //     question_order: item.question_order,
+  //     slug: item.slug,
+  //     isGoalQuestion: Boolean(item.is_goal_question),
+  //     allowed_input_units: Array.isArray(item.input_units)
+  //       ? item.input_units.join(",")
+  //       : item.allowed_input_units,
+  //   }));
+
+  //   this.questionsCache = mappedQuestions;
+  //   return this.questionsCache;
+  // }
+
+
   async fetchQuestions(): Promise<Question[]> {
-    if (this.questionsCache) {
-      return this.questionsCache;
-    }
-
-    const response = await assessmentAPI.getQuestions();
-    const rawQuestions = response.data.questions ?? [];
-    const mappedQuestions: Question[] = rawQuestions.map((item: any) => ({
-      id: `q${item.id}`,
-      backendId: item.id,
-      question: item.text ?? item.question ?? "",
-      type: this.normalizeQuestionType(item.question_type ?? item.type ?? "text"),
-      options: (item.options ?? []).map((option: any) => ({
-        id: String(option.id),
-        label: option.text ?? option.label ?? String(option.id),
-        text: option.text ?? option.label ?? String(option.id),
-        value: String(option.id),
-        numeric_value: option.numeric_value ?? option.value ?? undefined,
-        numeric_unit: option.numeric_unit ?? option.unit ?? "km",
-        requires_input: option.requires_input ?? false,
-        input_type: option.input_type ?? "",
-      })),
-      isRequired: Boolean(item.is_required ?? item.required ?? false),
-      placeholder: item.placeholder ?? undefined,
-      validation: {
-        min: item.validation?.min,
-        max: item.validation?.max,
-        pattern: item.validation?.pattern,
-      },
-      page_no: item.page_no,
-      question_order: item.question_order,
-      slug: item.slug,
-      isGoalQuestion: Boolean(item.is_goal_question),
-      allowed_input_units: Array.isArray(item.input_units)
-        ? item.input_units.join(",")
-        : item.allowed_input_units,
-    }));
-
-    this.questionsCache = mappedQuestions;
+  if (this.questionsCache) {
     return this.questionsCache;
   }
+
+  const response = await assessmentAPI.getQuestions();
+  const rawQuestions = response.data.questions ?? [];
+
+  const mappedQuestions: Question[] = rawQuestions.map((item: any) => ({
+    id: `q${item.id}`,
+    backendId: item.id,
+    question: item.text ?? item.question ?? "",
+    type: this.normalizeQuestionType(item.question_type ?? item.type ?? "text"),
+    options: (item.options ?? []).map((option: any) => ({
+      id: String(option.id),
+      label: option.text ?? option.label ?? String(option.id),
+      text: option.text ?? option.label ?? String(option.id),
+      value: String(option.id),
+      numeric_value: option.numeric_value ?? option.value ?? undefined,
+      numeric_unit: option.numeric_unit ?? option.unit ?? "km",
+      requires_input: option.requires_input ?? false,
+      input_type: option.input_type ?? "",
+    })),
+    isRequired: Boolean(item.is_required ?? item.required ?? false),
+    placeholder: item.placeholder ?? undefined,
+    validation: {
+      min: item.validation?.min,
+      max: item.validation?.max,
+      pattern: item.validation?.pattern,
+    },
+    page_no: item.page_no,
+    question_order: item.question_order,
+    slug: item.slug,
+    isGoalQuestion: Boolean(item.is_goal_question),
+    allowed_input_units: Array.isArray(item.input_units)
+      ? item.input_units.join(",")
+      : item.allowed_input_units,
+  }));
+
+  // ================= DEBUG LOGS =================
+
+  console.log("========== ALL QUESTIONS ==========");
+  console.log(JSON.stringify(mappedQuestions, null, 2));
+
+  console.log("========== EVENT_DISTANCE QUESTION ==========");
+  const eventDistanceQuestion = mappedQuestions.find(
+    q => q.slug === "EVENT_DISTANCE"
+  );
+  console.log(JSON.stringify(eventDistanceQuestion, null, 2));
+
+  console.log("========== QUESTION 7 ==========");
+  const question7 = mappedQuestions.find(
+    q => q.backendId === 7
+  );
+  console.log(JSON.stringify(question7, null, 2));
+
+  // =================================================
+
+  this.questionsCache = mappedQuestions;
+  return this.questionsCache;
+}
 
   // Start a new assessment
   async startAssessment(): Promise<{
@@ -176,20 +239,70 @@ class AssessmentService {
   }
 
   // Submit answers for the current page
+  // 
+  
   async submitAnswers(
-    assessmentId: number,
-    answers: AnswerPayload[]
-  ): Promise<{
-    saved: boolean;
+  assessmentId: number,
+  answers: AnswerPayload[]
+): Promise<{
+  saved: boolean;
+  complete: boolean;
+  navigation: Navigation | null;
+  computedResponses: any;
+}> {
+
+  // DEBUG: Convert Question 7 value to number
+  const convertedAnswers = answers.map((answer) => {
+  const question = this.questionsCache?.find(
+    q => q.backendId === answer.question_id
+  );
+
+  let value = answer.value;
+
+  if (
+    question &&
+    ["single", "dropdown"].includes(question.type) &&
+    typeof value === "string" &&
+    !isNaN(Number(value))
+  ) {
+    value = Number(value);
+  }
+
+  return {
+    ...answer,
+    value,
+  };
+});
+
+  console.log("========== CONVERTED ANSWERS ==========");
+  console.log(JSON.stringify(convertedAnswers, null, 2));
+
+  const response = await assessmentAPI.submitAnswers(
+    assessmentId,
+    convertedAnswers
+  );
+
+  const data = response.data;
+
+  return {
+    saved: data.saved,
+    complete: data.complete,
+    navigation: data.navigation || null,
+    computedResponses: data.computed_responses || {},
+  };
+}
+
+  // Rewinds the server-side assessment flow so the returned page can be
+  // edited and submitted again through the normal answers endpoint.
+  async goBack(assessmentId: number): Promise<{
     complete: boolean;
     navigation: Navigation | null;
     computedResponses: any;
   }> {
-    const response = await assessmentAPI.submitAnswers(assessmentId, answers);
+    const response = await assessmentAPI.goBack(assessmentId);
     const data = response.data;
     return {
-      saved: data.saved,
-      complete: data.complete,
+      complete: Boolean(data.complete),
       navigation: data.navigation || null,
       computedResponses: data.computed_responses || {},
     };

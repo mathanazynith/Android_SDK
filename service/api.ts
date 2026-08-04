@@ -242,8 +242,40 @@ export const authAPI = {
 export const assessmentAPI = {
   getQuestions: () => api.get("/assessments/questions/"),
   start: () => api.post("/assessments/start/"),
-  submitAnswers: (assessmentId: number, answers: any[]) =>
-    api.post(`/assessments/${assessmentId}/answers/`, { answers }),
+  // submitAnswers: (assessmentId: number, answers: any[]) =>
+  //   api.post(`/assessments/${assessmentId}/answers/`, { answers }),
+
+  submitAnswers: async (assessmentId: number, answers: any[]) => {
+      const payload = { answers };
+
+      console.log("========== SUBMIT ANSWERS ==========");
+      console.log("Assessment ID:", assessmentId);
+      console.log("Request URL:", `/assessments/${assessmentId}/answers/`);
+      console.log("Payload:");
+      console.log(JSON.stringify(payload, null, 2));
+
+      try {
+        const response = await api.post(
+          `/assessments/${assessmentId}/answers/`,
+          payload
+        );
+
+        console.log("========== RESPONSE ==========");
+        console.log(JSON.stringify(response.data, null, 2));
+
+        return response;
+      } catch (error: any) {
+        console.log("========== API ERROR ==========");
+        console.log("Status:", error?.response?.status);
+        console.log(
+          "Response:",
+          JSON.stringify(error?.response?.data, null, 2)
+        );
+        throw error;
+      }
+    },
+  goBack: (assessmentId: number) =>
+    api.post(`/assessments/${assessmentId}/answers/back/`),
   getResults: (assessmentId: number) =>
     api.get(`/assessments/${assessmentId}/results/`),
 };

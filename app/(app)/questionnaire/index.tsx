@@ -884,14 +884,14 @@ export default function QuestionnaireScreen() {
         <TouchableOpacity
           style={[styles.button, styles.prevButton]}
           onPress={goToPrevious}
-          disabled={!canGoBack}
+          disabled={!canGoBack || isLoading}
         >
           <Feather name="arrow-left" size={18} color="#34C759" />
           <Text
             style={[
               styles.buttonText,
               styles.prevButtonText,
-              !canGoBack && styles.disabledText,
+              (!canGoBack || isLoading) && styles.disabledText,
             ]}
           >
             Previous
