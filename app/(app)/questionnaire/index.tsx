@@ -20,6 +20,7 @@ import { TimeInput } from "../../../app/(app)/questionnaire/components/TimeInput
 import { formatTimeFromComponents, timeToSeconds, calculatePace } from "../../../utils/validators";
 import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import { useAuth } from "../../../service/auth";
+import { validateAnswer } from "../../../service/validation/AssessmentValidator";
 import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 
@@ -386,6 +387,7 @@ export default function QuestionnaireScreen() {
   const { user } = useAuth();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [validationErrorQuestionId, setValidationErrorQuestionId] = useState<string | null>(null);
 
   const goalPacePreview = useMemo(() => {
     const goalQuestion = questions.find((question) =>
@@ -430,17 +432,6 @@ export default function QuestionnaireScreen() {
     );
   }
 
-  if (error) {
-    return (
-      <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={reset}>
-          <Text style={styles.retryText}>Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
   if (!currentNavigation || !questions.length) {
     return (
       <View style={styles.centerContainer}>
@@ -466,6 +457,21 @@ export default function QuestionnaireScreen() {
     unit?: string | null,
     customValues?: any
   ) => {
+    const question = questions.find((item) => String(item.backendId ?? getNumericId(item.id)) === String(getNumericId(questionId)));
+    if (question) {
+      const validationResult = validateAnswer({
+        question,
+        answer: value,
+        allAnswers,
+        questions,
+      });
+      if (!validationResult.valid) {
+        setValidationErrorQuestionId(String(getNumericId(questionId)));
+        return;
+      }
+    }
+
+    setValidationErrorQuestionId(null);
     setAnswer(questionId, value, unit, customValues);
   };
 
@@ -486,10 +492,26 @@ export default function QuestionnaireScreen() {
       );
 
     if (isEmptyCustom) {
+      setValidationErrorQuestionId(null);
       setAnswer(questionId, undefined, undefined, null);
       return;
     }
 
+    const question = questions.find((item) => String(item.backendId ?? getNumericId(item.id)) === String(getNumericId(questionId)));
+    if (question) {
+      const validationResult = validateAnswer({
+        question,
+        answer: updatedCustomValues,
+        allAnswers,
+        questions,
+      });
+      if (!validationResult.valid) {
+        setValidationErrorQuestionId(String(getNumericId(questionId)));
+        return;
+      }
+    }
+
+    setValidationErrorQuestionId(null);
     setAnswer(questionId, undefined, undefined, updatedCustomValues);
   };
 
@@ -752,6 +774,11 @@ export default function QuestionnaireScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <View style={styles.pageContainer}>
+          {(error || validationErrorQuestionId) && (
+            <View style={styles.validationBanner}>
+              <Text style={styles.validationBannerText}>{error || "This answer does not meet the configured validation rules."}</Text>
+            </View>
+          )}
           {recentLongRunGroup && (
             <RecentLongRun
               options={recentLongRunGroup.singleQuestion.options || []}
@@ -856,6 +883,7 @@ export default function QuestionnaireScreen() {
                   onCustomChange={(questionKey: string, field: string, val: string) =>
                     handleCustomChange(questionKey, field, val)
                   }
+                  isInvalid={validationErrorQuestionId === String(question.backendId ?? getNumericId(question.id))}
                 />
               );
             })}
@@ -933,6 +961,20 @@ const styles = StyleSheet.create({
     color: "#ff4444",
     textAlign: "center",
     marginBottom: 16,
+  },
+  validationBanner: {
+    backgroundColor: "#FFF5F5",
+    borderColor: "#FF4D4F",
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 16,
+  },
+  validationBannerText: {
+    color: "#D93025",
+    fontSize: 14,
+    fontWeight: "600",
   },
   retryButton: {
     paddingHorizontal: 24,

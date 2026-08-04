@@ -10,6 +10,7 @@ import React, {
 } from "react";
 import { useAuth } from "../service/auth";
 import { assessmentService } from "../service/questionnaire/questionnaireService";
+import { validateAnswer, ValidationError } from "../service/validation/AssessmentValidator";
 import type {
   Question,
   Navigation,
@@ -279,6 +280,11 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       const numericId = getNumericId(questionId);
       const key = String(numericId);
 
+      const validationResult = validateCurrentAnswer(key, value);
+      if (!validationResult.valid) {
+        return;
+      }
+
       setAllAnswers((prev) => {
         const existing = prev[key] || { value: undefined, unit: null, customValues: {} };
 
@@ -322,6 +328,35 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       });
     },
     []
+  );
+
+  const validateCurrentAnswer = useCallback(
+    (questionId: string, value: any) => {
+      const question = questions.find((item) => String(item.backendId ?? getNumericId(item.id)) === String(getNumericId(questionId)));
+      if (!question) return { valid: true };
+
+      const key = String(getNumericId(questionId));
+      const existingAnswer = allAnswers[key];
+
+      const validationResult = validateAnswer({
+        question,
+        answer: value,
+        allAnswers,
+        questions,
+      });
+
+      if (!validationResult.valid) {
+        setError(validationResult.message || "Invalid answer");
+        return validationResult;
+      }
+
+      if (existingAnswer?.value !== value) {
+        setError(null);
+      }
+
+      return validationResult;
+    },
+    [allAnswers, questions]
   );
 
   // ------------------------------------------------------------------
@@ -409,6 +444,21 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setError(null);
 
       const previousNavigation = currentNavigation;
+
+      for (const question of currentPageQuestions) {
+        const key = String(question.backendId ?? getNumericId(question.id));
+        const answer = allAnswers[key];
+        const validationResult = validateAnswer({
+          question,
+          answer: answer?.value,
+          allAnswers,
+          questions,
+        });
+        if (!validationResult.valid) {
+          setError(validationResult.message || "Invalid answer");
+          return;
+        }
+      }
 
       const payload = buildAnswersPayload();
       if (payload.length === 0) {
