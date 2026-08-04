@@ -8,10 +8,11 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { router } from "expo-router";
 import { trainingStyles as styles } from "./_styles";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { storage } from "../../../service/storage";
+import { useQuestionnaire } from "../../../contexts/QuestionnaireContext";
 
 interface WorkoutDay {
   day: string;
@@ -22,107 +23,77 @@ interface WorkoutDay {
   color: string;
 }
 
-// 5K Training Plan - Full 4 Week Program
-const FIVE_K_PLAN_WEEKS: { [key: number]: WorkoutDay[] } = {
-  1: [
-    { day: 'Mon', workout: 'Easy Run', distance: '3 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Tue', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Wed', workout: 'Easy Run', distance: '3 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Thu', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Fri', workout: 'Easy Run', distance: '3 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Sat', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Sun', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-  ],
-  2: [
-    { day: 'Mon', workout: 'Easy Run', distance: '4 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Tue', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Wed', workout: 'Easy Run', distance: '4 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Thu', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Fri', workout: 'Easy Run', distance: '4 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Sat', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Sun', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-  ],
-  3: [
-    { day: 'Mon', workout: 'Easy Run', distance: '5 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Tue', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Wed', workout: 'Easy Run', distance: '5 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Thu', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Fri', workout: 'Easy Run', distance: '5 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Sat', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Sun', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-  ],
-  4: [
-    { day: 'Mon', workout: 'Easy Run', distance: '5 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Tue', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Wed', workout: 'Easy Run', distance: '5 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Thu', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Fri', workout: 'Easy Run', distance: '5 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Sat', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Sun', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-  ],
-};
-
-// Custom Plan for users with 3+ days
-const CUSTOM_PLAN_WEEKS: { [key: number]: WorkoutDay[] } = {
-  1: [
-    { day: 'Mon', workout: 'Easy Run', distance: '5 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Tue', workout: 'Intervals', distance: '8 km', intensity: 'Hard', icon: '⚡', color: '#FF3B30' },
-    { day: 'Wed', workout: 'Recovery', distance: '3 km', intensity: 'Easy', icon: '🔄', color: '#8E8E93' },
-    { day: 'Thu', workout: 'Tempo Run', distance: '7 km', intensity: 'Medium', icon: '🏃', color: '#FF9500' },
-    { day: 'Fri', workout: 'Rest Day', distance: 'Active recovery', intensity: 'Easy', icon: '🧘', color: '#34C759' },
-    { day: 'Sat', workout: 'Long Run', distance: '15 km', intensity: 'Medium', icon: '⭐', color: '#34C759' },
-    { day: 'Sun', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-  ],
-  2: [
-    { day: 'Mon', workout: 'Easy Run', distance: '6 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Tue', workout: 'Intervals', distance: '9 km', intensity: 'Hard', icon: '⚡', color: '#FF3B30' },
-    { day: 'Wed', workout: 'Recovery', distance: '4 km', intensity: 'Easy', icon: '🔄', color: '#8E8E93' },
-    { day: 'Thu', workout: 'Tempo Run', distance: '8 km', intensity: 'Medium', icon: '🏃', color: '#FF9500' },
-    { day: 'Fri', workout: 'Rest Day', distance: 'Active recovery', intensity: 'Easy', icon: '🧘', color: '#34C759' },
-    { day: 'Sat', workout: 'Long Run', distance: '16 km', intensity: 'Medium', icon: '⭐', color: '#34C759' },
-    { day: 'Sun', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-  ],
-  3: [
-    { day: 'Mon', workout: 'Easy Run', distance: '7 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Tue', workout: 'Intervals', distance: '10 km', intensity: 'Hard', icon: '⚡', color: '#FF3B30' },
-    { day: 'Wed', workout: 'Recovery', distance: '5 km', intensity: 'Easy', icon: '🔄', color: '#8E8E93' },
-    { day: 'Thu', workout: 'Tempo Run', distance: '9 km', intensity: 'Medium', icon: '🏃', color: '#FF9500' },
-    { day: 'Fri', workout: 'Rest Day', distance: 'Active recovery', intensity: 'Easy', icon: '🧘', color: '#34C759' },
-    { day: 'Sat', workout: 'Long Run', distance: '18 km', intensity: 'Medium', icon: '⭐', color: '#34C759' },
-    { day: 'Sun', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-  ],
-  4: [
-    { day: 'Mon', workout: 'Easy Run', distance: '8 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Tue', workout: 'Intervals', distance: '12 km', intensity: 'Hard', icon: '⚡', color: '#FF3B30' },
-    { day: 'Wed', workout: 'Recovery', distance: '5 km', intensity: 'Easy', icon: '🔄', color: '#8E8E93' },
-    { day: 'Thu', workout: 'Tempo Run', distance: '10 km', intensity: 'Medium', icon: '🏃', color: '#FF9500' },
-    { day: 'Fri', workout: 'Rest Day', distance: 'Active recovery', intensity: 'Easy', icon: '🧘', color: '#34C759' },
-    { day: 'Sat', workout: 'Long Run', distance: '20 km', intensity: 'Medium', icon: '⭐', color: '#34C759' },
-    { day: 'Sun', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-  ],
-};
-
 export default function TrainingPlanScreen() {
-  const params = useLocalSearchParams();
+  const { assessmentResult, isAssessmentResultLoading } = useQuestionnaire();
   const [selectedWeek, setSelectedWeek] = useState(1);
-  const [isFiveKPlan, setIsFiveKPlan] = useState(false);
-  const [isBeginner, setIsBeginner] = useState(false);
   const [weeklyWorkouts, setWeeklyWorkouts] = useState<WorkoutDay[]>([]);
+  const [recommendedPlanLabel, setRecommendedPlanLabel] = useState<string | null>(null);
+  const [recommendationReason, setRecommendationReason] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
 
+  const normalizeBackendWorkout = (item: any): WorkoutDay => ({
+    day: item?.day ?? item?.name ?? "Day",
+    workout: item?.workout ?? item?.activity ?? item?.name ?? "Workout",
+    distance: item?.distance ?? item?.duration ?? "TBD",
+    intensity: item?.intensity === "Hard" || item?.intensity === "Medium" || item?.intensity === "Easy"
+      ? item.intensity
+      : "Easy",
+    icon: item?.icon ?? "🏃",
+    color: item?.color ?? "#34C759",
+  });
+
+  // NOTE: Current Django TrainingPlan model only exposes plan metadata like name, duration_weeks, category, and level.
+  // Weekly workout details are not part of this payload and must be generated separately or fetched from another schedule-specific API.
+  const getBackendPlanWeek = (plan: any, week: number): WorkoutDay[] | null => {
+    if (!plan) return null;
+    if (Array.isArray(plan)) {
+      const rawWeek = plan[week - 1] ?? plan[week] ?? null;
+      return rawWeek?.map ? rawWeek.map(normalizeBackendWorkout) : null;
+    }
+    if (plan.weeks && Array.isArray(plan.weeks)) {
+      const rawWeek = plan.weeks[week - 1] ?? plan.weeks[week] ?? null;
+      return rawWeek?.map ? rawWeek.map(normalizeBackendWorkout) : null;
+    }
+    if (plan.weeklyWorkouts) {
+      const weekly = plan.weeklyWorkouts;
+      if (Array.isArray(weekly)) {
+        const rawWeek = weekly[week - 1] ?? weekly[week] ?? null;
+        return rawWeek?.map ? rawWeek.map(normalizeBackendWorkout) : null;
+      }
+      const rawWeek = weekly[week] ?? weekly[`week_${week}`] ?? weekly[`Week ${week}`] ?? null;
+      return rawWeek?.map ? rawWeek.map(normalizeBackendWorkout) : null;
+    }
+    if (plan.schedule && Array.isArray(plan.schedule)) {
+      const rawWeek = plan.schedule[week - 1] ?? plan.schedule[week] ?? null;
+      return rawWeek?.map ? rawWeek.map(normalizeBackendWorkout) : null;
+    }
+    return null;
+  };
+
+  const getRecommendedPlan = () => {
+    const recommendation = assessmentResult?.recommendation;
+    if (__DEV__ && recommendation == null) {
+      console.warn(
+        '[TrainingPlanScreen] assessmentResult.recommendation is missing. Expected recommendation.recommended_plan, recommendation.reason, and recommendation.recommendation_status.',
+        assessmentResult
+      );
+    }
+    return recommendation?.recommended_plan ?? null;
+  };
+
   useEffect(() => {
-    const isFiveK = params.isFiveKPlan === 'true';
-    const beginner = params.isBeginner === 'true';
-    
-    setIsFiveKPlan(isFiveK);
-    setIsBeginner(beginner);
-    
-    const plan = isFiveK ? FIVE_K_PLAN_WEEKS : CUSTOM_PLAN_WEEKS;
-    setWeeklyWorkouts(plan[selectedWeek] || plan[1]);
+    const recommendedPlan = getRecommendedPlan();
+    const recommendationText = assessmentResult?.recommendation?.reason ?? null;
+
+    setRecommendedPlanLabel(recommendedPlan ? String(recommendedPlan?.name ?? recommendedPlan) : null);
+    setRecommendationReason(recommendationText);
+
+    const backendWeek = getBackendPlanWeek(recommendedPlan, selectedWeek);
+    setWeeklyWorkouts(backendWeek && backendWeek.length > 0 ? backendWeek : []);
 
     checkIfSaved();
-  }, [params, selectedWeek]);
+  }, [selectedWeek, assessmentResult]);
 
   const checkIfSaved = async () => {
     try {
@@ -151,8 +122,9 @@ export default function TrainingPlanScreen() {
 
   const handleWeekChange = (week: number) => {
     setSelectedWeek(week);
-    const plan = isFiveKPlan ? FIVE_K_PLAN_WEEKS : CUSTOM_PLAN_WEEKS;
-    setWeeklyWorkouts(plan[week] || plan[1]);
+    const recommendedPlan = getRecommendedPlan();
+    const backendWeek = getBackendPlanWeek(recommendedPlan, week);
+    setWeeklyWorkouts(backendWeek && backendWeek.length > 0 ? backendWeek : []);
   };
 
   const handleSavePlan = async () => {
@@ -162,8 +134,6 @@ export default function TrainingPlanScreen() {
     try {
       const planData = {
         weeklyWorkouts,
-        isFiveKPlan,
-        isBeginner,
         selectedWeek,
         savedAt: new Date().toISOString(),
       };
@@ -232,7 +202,7 @@ export default function TrainingPlanScreen() {
   const totalDistance = weeklyWorkouts
     .filter(w => w.distance !== 'Rest' && w.distance !== 'Active recovery')
     .reduce((sum, w) => {
-      const dist = parseFloat(w.distance);
+      const dist = parseFloat(String(w.distance).replace(/[^0-9.]/g, ""));
       return sum + (isNaN(dist) ? 0 : dist);
     }, 0);
 
@@ -249,14 +219,15 @@ export default function TrainingPlanScreen() {
               <Text style={styles.greetingText}>🏃 Weekly Plan</Text>
               <View style={styles.headerTitleRow}>
                 <Text style={styles.userName}>AI Coach</Text>
-                {isFiveKPlan && (
+                {recommendedPlanLabel && (
                   <View style={styles.planBadge}>
-                    <Text style={styles.planBadgeText}>5K Plan</Text>
+                    <Text style={styles.planBadgeText}>{recommendedPlanLabel}</Text>
                   </View>
                 )}
-                {isBeginner && (
-                  <View style={[styles.planBadge, styles.beginnerBadge]}>
-                    <Text style={styles.planBadgeText}>Beginner</Text>
+                {isAssessmentResultLoading && !recommendedPlanLabel && (
+                  <View style={[styles.planBadge, styles.loadingBadge]}>
+                    <ActivityIndicator size="small" color="#1A1A1A" />
+                    <Text style={styles.planBadgeText}>Loading Plan...</Text>
                   </View>
                 )}
                 {isSaved && (
@@ -275,15 +246,13 @@ export default function TrainingPlanScreen() {
             </TouchableOpacity>
           </View>
 
-          {(isFiveKPlan || isBeginner) && (
+          {recommendedPlanLabel && (
             <View style={styles.planInfoContainer}>
               <Text style={styles.planInfoText}>
-                {isBeginner ? '🎯 Beginner 5K Training Plan - 4 Weeks' : '🎯 5K Training Plan - 4 Weeks'}
+                {`🎯 Recommended Plan: ${recommendedPlanLabel}`}
               </Text>
               <Text style={styles.planInfoSubtext}>
-                {isBeginner 
-                  ? 'Build up to running 5K with 3 easy runs per week. Start slow, stay consistent!' 
-                  : 'Build up to running 5K with 3 runs per week'}
+                {recommendationReason || 'This plan is recommended based on your latest assessment.'}
               </Text>
             </View>
           )}
@@ -343,7 +312,7 @@ export default function TrainingPlanScreen() {
         {/* Weekly Schedule */}
         <View style={styles.weeklySchedule}>
           <Text style={styles.sectionTitle}>
-            {isFiveKPlan ? 'This Week\'s 5K Training' : 'This Week\'s Workouts'}
+            This Week's Workouts
           </Text>
           {weeklyWorkouts.map((day, index) => renderDayCard(day, index))}
         </View>

@@ -47,6 +47,13 @@ export const trainingStyles = StyleSheet.create({
     borderRadius: 12,
     gap: 4,
   },
+  loadingBadge: {
+    backgroundColor: '#F5F5F5',
+    borderColor: '#E0E0E0',
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
   beginnerBadge: {
     backgroundColor: '#FF9500',
   },

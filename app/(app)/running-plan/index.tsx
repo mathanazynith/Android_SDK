@@ -8,19 +8,12 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router } from 'expo-router';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
-
-interface RunningDay {
-  day: string;
-  dayIndex: number;
-  selected: boolean;
-  isLongRun: boolean;
-}
 
 interface ScheduledRun {
   day: string;
-  runType: 'Easy Run' | 'Tempo Run' | 'Interval Run' | 'Long Run';
+  runType: string;
   distance: string;
   duration: string;
   pace: string;
@@ -38,160 +31,174 @@ interface RunningEvent {
   registered: boolean;
 }
 
-// Helper to get answer value from allAnswers
-const getAnswerFromAllAnswers = (allAnswers: Record<string, any>, questionId: string): any => {
-  // Try exact match first
-  if (allAnswers[questionId]) {
-    return allAnswers[questionId].value;
+interface RunningPlan {
+  planName: string;
+  planType: string;
+  weeklyDays: number;
+  totalWeeks: number;
+  schedule: ScheduledRun[];
+  events: RunningEvent[];
+  summary: {
+    totalWeeklyDistance: string;
+    longRunDay: string;
+    averagePace: string;
+  };
+}
+
+const normalizeScheduledRun = (item: any): ScheduledRun => ({
+  day: item?.day ?? item?.name ?? 'Day',
+  runType: item?.runType ?? item?.type ?? item?.workout ?? item?.activity ?? 'Easy Run',
+  distance: item?.distance ?? item?.duration ?? item?.target ?? 'TBD',
+  duration: item?.duration ?? item?.time ?? item?.durationText ?? 'TBD',
+  pace: item?.pace ?? item?.speed ?? item?.targetPace ?? 'TBD',
+  description: item?.description ?? item?.details ?? item?.note ?? 'Keep moving and stay consistent.',
+});
+
+const normalizeRunningEvent = (item: any): RunningEvent => ({
+  id: String(item?.id ?? item?.event_id ?? item?.name ?? Math.random()),
+  name: item?.name ?? item?.title ?? 'Local Running Event',
+  date: item?.date ?? item?.event_date ?? 'TBD',
+  distance: item?.distance ?? item?.event_distance ?? item?.type ?? 'TBD',
+  type: item?.type ?? item?.event_type ?? 'Run',
+  location: item?.location ?? item?.venue ?? 'Nearby Location',
+  time: item?.time ?? item?.start_time ?? 'TBD',
+  registered: Boolean(item?.registered ?? item?.is_registered ?? false),
+});
+
+const extractBackendPlan = (assessmentResult: any): any => {
+  const recommendation = assessmentResult?.recommendation;
+  if (__DEV__ && recommendation == null) {
+    console.warn(
+      '[RunningPlanScreen] assessmentResult.recommendation is missing. Expected recommendation.recommended_plan and recommendation.reason.',
+      assessmentResult
+    );
   }
-  // Try without "q" prefix
-  const numericId = questionId.replace(/^q/i, '');
-  if (allAnswers[numericId]) {
-    return allAnswers[numericId].value;
+  return (
+    assessmentResult?.assessment?.running_plan ??
+    assessmentResult?.running_plan ??
+    recommendation?.recommended_plan ??
+    null
+  );
+};
+
+const extractBackendSchedule = (plan: any, week: number): ScheduledRun[] | null => {
+  // NOTE: The current recommendation payload may only include recommended_plan metadata and not a day-by-day schedule.
+  // If the backend returns only plan metadata, schedule extraction will fail and the UI should not silently fall back.
+  if (!plan) return null;
+
+  const scheduleCandidates = [
+    plan?.schedule,
+    plan?.weekly_schedule,
+    plan?.weeklySchedule,
+    plan?.daily_runs,
+    plan?.dailyRuns,
+    plan?.runs,
+    plan?.workouts,
+    plan?.days,
+    plan?.plan,
+    plan,
+  ];
+
+  const scheduleArray = scheduleCandidates.find((candidate) => Array.isArray(candidate));
+  if (Array.isArray(scheduleArray)) {
+    if (scheduleArray.length === 0) return null;
+
+    const weekMatches = scheduleArray.filter((item) => {
+      const weekValue = item?.week ?? item?.week_number ?? item?.weekNo ?? item?.weekIndex;
+      return weekValue === week;
+    });
+
+    if (weekMatches.length > 0) {
+      return weekMatches.map(normalizeScheduledRun);
+    }
+
+    if (Array.isArray(scheduleArray[0])) {
+      const weekList = scheduleArray[week - 1] ?? scheduleArray[week] ?? scheduleArray[0];
+      if (Array.isArray(weekList)) {
+        return weekList.map(normalizeScheduledRun);
+      }
+    }
+
+    if (typeof scheduleArray[0] === 'object' && scheduleArray[0] !== null && scheduleArray[0]?.day) {
+      return scheduleArray.map(normalizeScheduledRun);
+    }
   }
+
+  const scheduleObject = scheduleCandidates.find((candidate) => candidate && typeof candidate === 'object' && !Array.isArray(candidate));
+  if (scheduleObject && typeof scheduleObject === 'object') {
+    const weekKey = Object.keys(scheduleObject).find((key) => {
+      const normalizedKey = String(key).toLowerCase();
+      return normalizedKey.includes(`week${week}`) || normalizedKey.includes(`week_${week}`) || normalizedKey === String(week) || normalizedKey === `w${week}`;
+    });
+
+    const weekSchedule = weekKey ? scheduleObject[weekKey] : null;
+    if (Array.isArray(weekSchedule)) {
+      return weekSchedule.map(normalizeScheduledRun);
+    }
+
+    if (weekSchedule && typeof weekSchedule === 'object') {
+      return Object.values(weekSchedule).map(normalizeScheduledRun);
+    }
+  }
+
   return null;
 };
 
+const extractBackendEvents = (assessmentResult: any): RunningEvent[] | null => {
+  const events =
+    assessmentResult?.assessment?.recommended_events ??
+    assessmentResult?.recommended_events ??
+    assessmentResult?.assessment?.events ??
+    assessmentResult?.events ??
+    null;
+
+  if (!Array.isArray(events)) return null;
+  return events.map(normalizeRunningEvent);
+};
+
 export default function RunningPlanScreen() {
-  const { allAnswers, answers } = useQuestionnaire();
-  const params = useLocalSearchParams();
+  const { assessmentResult, isAssessmentResultLoading, fetchAssessmentResult } = useQuestionnaire();
   const [loading, setLoading] = useState(true);
-  const [plan, setPlan] = useState<any>(null);
-  const [selectedDays, setSelectedDays] = useState<RunningDay[]>([]);
-  const [userDays, setUserDays] = useState<number>(3);
+  const [plan, setPlan] = useState<RunningPlan | null>(null);
 
   useEffect(() => {
-    generatePlan();
-  }, []);
+    const backendPlan = extractBackendPlan(assessmentResult);
+    const backendSchedule = extractBackendSchedule(backendPlan, 1);
+    const backendEvents = extractBackendEvents(assessmentResult);
 
-  const generatePlan = () => {
-    try {
-      // Parse params
-      const days = JSON.parse(params.selectedDays as string || '[]');
-      const daysNum = parseInt(params.userDays as string || '3');
-      setSelectedDays(days);
-      setUserDays(daysNum);
+    if (!assessmentResult?.recommendation) {
+      if (__DEV__) {
+        console.warn(
+          '[RunningPlanScreen] assessmentResult.recommendation is missing. Running plan may not be available from backend response.',
+          assessmentResult
+        );
+      }
+    }
 
-      // Use allAnswers to get user data from questionnaire
-      const hasRunBefore = getAnswerFromAllAnswers(allAnswers, '6') === '14'; // Question 6 = "Have You Run Before?" - value "14" = Yes
-      
-      // For recent long run (question 9)
-      const recentDistance = getAnswerFromAllAnswers(allAnswers, '9');
-      
-      // For time taken (question 10)
-      const recentTime = getAnswerFromAllAnswers(allAnswers, '10');
-      
-      // For event distance (question 33)
-      const eventDistance = getAnswerFromAllAnswers(allAnswers, '33');
-
-      // Determine if should start with 5K
-      const shouldStartWith5K = !hasRunBefore || daysNum < 3;
-
-      // Generate schedule
-      const schedule: ScheduledRun[] = days.map((day: RunningDay) => {
-        let runType: 'Easy Run' | 'Tempo Run' | 'Interval Run' | 'Long Run';
-        let distance: string;
-        let duration: string;
-        let pace: string;
-        let description: string;
-
-        if (day.isLongRun) {
-          runType = 'Long Run';
-          distance = shouldStartWith5K ? '5K' : '10K';
-          duration = shouldStartWith5K ? '30-40 min' : '60-75 min';
-          pace = shouldStartWith5K ? '7:00/km' : '6:30/km';
-          description = shouldStartWith5K
-            ? 'Build endurance at a comfortable pace'
-            : 'Focus on maintaining steady pace';
-        } else {
-          const types: ('Easy Run' | 'Tempo Run' | 'Interval Run')[] = ['Easy Run', 'Tempo Run', 'Interval Run'];
-          const typeIndex = Math.floor(Math.random() * types.length);
-          runType = types[typeIndex];
-
-          if (runType === 'Easy Run') {
-            distance = shouldStartWith5K ? '3K' : '5K';
-            duration = '20-30 min';
-            pace = '7:30/km';
-            description = 'Recovery run, keep heart rate low';
-          } else if (runType === 'Tempo Run') {
-            distance = shouldStartWith5K ? '4K' : '6K';
-            duration = '25-35 min';
-            pace = '6:45/km';
-            description = 'Moderate intensity, build stamina';
-          } else {
-            distance = shouldStartWith5K ? '3K' : '5K';
-            duration = '20-25 min';
-            pace = '6:15/km';
-            description = 'High intensity intervals';
-          }
-        }
-
-        return {
-          day: day.day,
-          runType,
-          distance,
-          duration,
-          pace,
-          description,
-        };
-      });
-
-      // Generate mock events
-      const events: RunningEvent[] = [
-        {
-          id: '1',
-          name: shouldStartWith5K ? 'City 5K Fun Run' : 'Riverside 10K Challenge',
-          date: '2024-12-15',
-          distance: shouldStartWith5K ? '5K' : '10K',
-          type: shouldStartWith5K ? '5K' : '10K',
-          location: shouldStartWith5K ? 'Central Park, NY' : 'Riverside Trail, Boston',
-          time: '8:00 AM',
-          registered: false,
-        },
-        {
-          id: '2',
-          name: shouldStartWith5K ? 'Community 5K Run' : 'Half Marathon Prep',
-          date: '2025-01-20',
-          distance: shouldStartWith5K ? '5K' : '21.1K',
-          type: shouldStartWith5K ? '5K' : 'Half Marathon',
-          location: shouldStartWith5K ? 'Community Park, Austin' : 'Downtown Square, Chicago',
-          time: '7:30 AM',
-          registered: false,
-        },
-        {
-          id: '3',
-          name: 'Spring 5K Challenge',
-          date: '2025-03-10',
-          distance: '5K',
-          type: '5K',
-          location: 'Sunset Boulevard, LA',
-          time: '8:30 AM',
-          registered: false,
-        },
-      ];
-
-      const planName = shouldStartWith5K ? 'Beginner 5K Plan' : 'Custom Running Plan';
+    if (backendPlan && backendSchedule && backendSchedule.length > 0) {
+      const weeklyDays = Number(backendPlan?.weekly_days ?? backendPlan?.weeklyDays ?? backendPlan?.days_per_week ?? 0);
+      const totalWeeks = Number(backendPlan?.duration_weeks ?? backendPlan?.total_weeks ?? backendPlan?.weeks?.length ?? 0);
+      const longRunDay = backendSchedule.find((run) => String(run.runType).toLowerCase().includes('long'))?.day ?? '';
 
       setPlan({
-        planName,
-        planType: shouldStartWith5K ? 'beginner_5k' : 'intermediate',
-        weeklyDays: daysNum,
-        totalWeeks: shouldStartWith5K ? 8 : 12,
-        schedule,
-        events,
+        planName: String(backendPlan?.name ?? backendPlan?.title ?? 'Recommended Running Plan'),
+        planType: String(backendPlan?.type ?? backendPlan?.planType ?? 'recommended'),
+        weeklyDays: weeklyDays || 0,
+        totalWeeks: totalWeeks || 0,
+        schedule: backendSchedule,
+        events: backendEvents ?? [],
         summary: {
-          totalWeeklyDistance: shouldStartWith5K ? '15K' : '25K',
-          longRunDay: days.find((d: RunningDay) => d.isLongRun)?.day || 'Sunday',
-          averagePace: shouldStartWith5K ? '7:00/km' : '6:30/km',
+          totalWeeklyDistance: String(backendPlan?.totalWeeklyDistance ?? backendPlan?.summary?.totalWeeklyDistance ?? 'TBD'),
+          longRunDay,
+          averagePace: String(backendPlan?.averagePace ?? backendPlan?.summary?.averagePace ?? 'TBD'),
         },
       });
-
-      setLoading(false);
-    } catch (error) {
-      console.error('Error generating plan:', error);
-      setLoading(false);
+    } else {
+      setPlan(null);
     }
-  };
+
+    setLoading(false);
+  }, [assessmentResult]);
 
   const acceptPlan = () => {
     Alert.alert(
@@ -210,11 +217,17 @@ export default function RunningPlanScreen() {
     );
   }
 
+  const handleRetry = async () => {
+    setLoading(true);
+    await fetchAssessmentResult();
+    setLoading(false);
+  };
+
   if (!plan) {
     return (
       <View style={styles.centerContainer}>
         <Text style={styles.errorText}>Failed to generate plan</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={generatePlan}>
+        <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
           <Text style={styles.retryText}>Retry</Text>
         </TouchableOpacity>
       </View>

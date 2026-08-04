@@ -44,6 +44,9 @@ interface QuestionnaireContextType {
   isComplete: boolean;
   computedResponses: any;
   assessmentId: number | null;
+  assessmentResult: any | null;
+  isAssessmentResultLoading: boolean;
+  fetchAssessmentResult: () => Promise<any | null>;
   canGoBack: boolean;
   loadQuestions: () => Promise<void>;
   startAssessment: () => Promise<void>;
@@ -80,6 +83,9 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
 
   // SINGLE SOURCE OF TRUTH: All answers for all pages
   const [allAnswers, setAllAnswers] = useState<Record<string, AnswerData>>({});
+  const [assessmentResult, setAssessmentResult] = useState<any | null>(null);
+  const [assessmentResultLoaded, setAssessmentResultLoaded] = useState(false);
+  const [isAssessmentResultLoading, setIsAssessmentResultLoading] = useState(false);
 
   // Navigation history for back and forward navigation
   const navigationHistory = useRef<PageState[]>([]);
@@ -198,6 +204,9 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     setIsComplete(false);
     setComputedResponses({});
     setAllAnswers({});
+    setAssessmentResult(null);
+    setAssessmentResultLoaded(false);
+    setIsAssessmentResultLoading(false);
     navigationHistory.current = [];
     assessmentService.clearCache();
   };
@@ -214,6 +223,31 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
     }
   };
+
+  const fetchAssessmentResult = useCallback(async () => {
+    if (!assessmentId || !isComplete || assessmentResultLoaded) {
+      return assessmentResult;
+    }
+
+    setIsAssessmentResultLoading(true);
+    try {
+      const result = await assessmentService.getResults(assessmentId);
+      setAssessmentResult(result);
+      return result;
+    } catch (err: any) {
+      console.error("[Questionnaire] fetchAssessmentResult failed:", err);
+      return null;
+    } finally {
+      setIsAssessmentResultLoading(false);
+      setAssessmentResultLoaded(true);
+    }
+  }, [assessmentId, assessmentResult, assessmentResultLoaded, isComplete]);
+
+  useEffect(() => {
+    if (assessmentId && isComplete && !assessmentResultLoaded && !isAssessmentResultLoading) {
+      fetchAssessmentResult().catch(() => {});
+    }
+  }, [assessmentId, isComplete, assessmentResultLoaded, isAssessmentResultLoading, fetchAssessmentResult]);
 
   const startAssessment = async () => {
     if (isStartingAssessment.current) {
@@ -535,6 +569,9 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
         isComplete,
         computedResponses,
         assessmentId,
+        assessmentResult,
+        isAssessmentResultLoading,
+        fetchAssessmentResult,
         canGoBack,
         loadQuestions,
         startAssessment,
