@@ -10,6 +10,7 @@ import React, {
 } from "react";
 import { useAuth } from "../service/auth";
 import { assessmentService } from "../service/questionnaire/questionnaireService";
+import { getBackendErrorMessage } from "../service/api";
 import { validateAnswer, ValidationError } from "../service/validation/AssessmentValidator";
 import type {
   Question,
@@ -218,7 +219,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       const qs = await assessmentService.fetchQuestions();
       setQuestions(qs);
     } catch (err: any) {
-      setError(err.message || "Failed to load questions");
+      setError(getBackendErrorMessage(err, "Failed to load questions"));
     } finally {
       setIsLoading(false);
     }
@@ -266,7 +267,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setAllAnswers({});
       navigationHistory.current = [];
     } catch (err: any) {
-      setError(err.message || "Failed to start assessment");
+      setError(getBackendErrorMessage(err, "Failed to start assessment"));
     } finally {
       setIsLoading(false);
       isStartingAssessment.current = false;
@@ -518,7 +519,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       // Answers remain in allAnswers - no clearing!
 
     } catch (err: any) {
-      setError(err.message || "Failed to submit answers");
+      setError(getBackendErrorMessage(err, "Failed to submit answers"));
     } finally {
       setIsLoading(false);
     }
@@ -538,12 +539,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setComputedResponses(result.computedResponses);
       setIsComplete(result.complete);
     } catch (err: any) {
-      setError(
-        err?.response?.data?.detail ||
-        err?.response?.data?.message ||
-        err?.message ||
-        "Unable to return to the previous questionnaire page."
-      );
+      setError(getBackendErrorMessage(err, "Unable to return to the previous questionnaire page."));
     } finally {
       setIsLoading(false);
     }

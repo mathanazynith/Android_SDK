@@ -239,6 +239,67 @@ export const authAPI = {
     api.post("/auth/admin-login/", data),
 };
 
+const normalizeErrorResponse = (value: any): string | null => {
+  if (value == null) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    const messages = value
+      .map(normalizeErrorResponse)
+      .filter((item): item is string => Boolean(item));
+    if (messages.length === 0) {
+      return null;
+    }
+    return messages.join(" ");
+  }
+
+  if (typeof value === "object") {
+    const preferredKeys = ["detail", "message", "non_field_errors", "errors"];
+    for (const key of preferredKeys) {
+      if (Object.prototype.hasOwnProperty.call(value, key)) {
+        const normalized = normalizeErrorResponse(value[key]);
+        if (normalized) {
+          return normalized;
+        }
+      }
+    }
+
+    const keys = Object.keys(value);
+    for (const key of keys) {
+      const normalized = normalizeErrorResponse(value[key]);
+      if (normalized) {
+        return normalized;
+      }
+    }
+  }
+
+  return null;
+};
+
+export const getBackendErrorMessage = (error: any, fallbackMessage = "An unexpected error occurred."): string => {
+  const responseData = error?.response?.data;
+  const parsedMessage = normalizeErrorResponse(responseData);
+  if (parsedMessage) {
+    return parsedMessage;
+  }
+
+  if (typeof error?.message === "string" && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return fallbackMessage;
+};
+
 export const assessmentAPI = {
   getQuestions: () => api.get("/assessments/questions/"),
   start: () => api.post("/assessments/start/"),
