@@ -8,18 +8,7 @@ export default function AppLayout() {
       <Stack.Screen 
         name="questionnaire" 
         options={{ 
-          headerShown: true,
-          title: "Questionnaire",
-          headerBackVisible: false,
-          headerStyle: {
-            backgroundColor: '#1A1A1A',
-          },
-          headerTintColor: '#34C759',
-          headerTitleStyle: {
-            fontWeight: '600',
-            fontSize: 18,
-            color: '#34C759',
-          },
+          headerShown: false,
         }} 
       />
       <Stack.Screen 
@@ -31,17 +20,7 @@ export default function AppLayout() {
       <Stack.Screen 
         name="calendar" 
         options={{ 
-          headerShown: true,
-          title: "Calendar",
-          headerStyle: {
-            backgroundColor: '#1A1A1A',
-          },
-          headerTintColor: '#34C759',
-          headerTitleStyle: {
-            fontWeight: '600',
-            fontSize: 18,
-            color: '#34C759',
-          },
+          headerShown: false,
         }} 
       />
     </Stack>

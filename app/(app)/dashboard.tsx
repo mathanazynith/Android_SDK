@@ -4,7 +4,6 @@ import { router } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useAuth } from '../../service/auth';
 import { Colors, Spacing } from '../../constants/theme';
-import NotificationBell from '../../components/NotificationBell';
 import SettingsMenu from '../../components/SettingsMenu';
 import { storage } from '../../service/storage';
 
@@ -92,21 +91,15 @@ export default function DashboardScreen() {
   const isRestDay = todayWorkout?.workout === 'Rest' || todayWorkout?.workout === 'Rest Day';
   const completedProfile = isProfileComplete();
   const scheduledRuns = savedPlan?.weeklyWorkouts?.filter((w: WorkoutDay) => w.workout !== 'Rest' && w.workout !== 'Rest Day').length || 0;
-  const planLabel = hasSavedPlan ? 'View My Plan' : !completedProfile ? 'Complete Profile First' : 'Get My Plan';
+  const planLabel = hasSavedPlan ? 'View My Plan' : 'Start Onboarding';
 
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
         <Text style={styles.pageTitle}>Dashboard</Text>
-        <View style={styles.headerIcons}>
-          <NotificationBell onPress={() => router.push('/(app)/attendance')} />
-          <TouchableOpacity accessibilityLabel="Open settings" style={styles.settingsButton} onPress={() => setSettingsVisible(true)}>
-            <Feather name="settings" size={23} color="#D8D8D8" />
-          </TouchableOpacity>
-        </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView scrollEnabled={false} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <View style={styles.welcomeSection}>
           <Text style={styles.welcomeTitle}>Welcome</Text>
           <Text style={styles.welcomeEmail}>{user?.email || 'Your running journey starts here'}</Text>
@@ -127,7 +120,6 @@ export default function DashboardScreen() {
           <TouchableOpacity style={[styles.primaryCta, !completedProfile && styles.primaryCtaDisabled]} onPress={handleGetPlan} disabled={!completedProfile && !hasSavedPlan}>
             <Feather name="clipboard" size={22} color="#FFFFFF" /><Text style={styles.primaryCtaText}>Start Assessment</Text>
           </TouchableOpacity>
-          {!completedProfile && <TouchableOpacity onPress={() => router.push('/(app)/profile/edit')} style={styles.completeProfileLink}><Text style={styles.completeProfileText}>Complete your profile to continue</Text></TouchableOpacity>}
         </View>
 
         <View style={styles.card}>
@@ -147,25 +139,30 @@ export default function DashboardScreen() {
           <View style={styles.statCard}><Text style={styles.statLabel}>This Week</Text><Text style={styles.statValue}>{savedPlan ? `${scheduledRuns} runs` : 'N/A'}</Text></View>
         </View>
 
-        <View style={styles.quickActionsCard}>
-          <Text style={styles.cardTitle}>Quick Actions</Text>
-          <View style={styles.quickActionsContainer}>
-            {quickActions.map((action) => (
-              <TouchableOpacity key={action.label} style={styles.circularAction} onPress={() => {
-                if (action.label === 'Get My Plan') handleGetPlan();
-                else if (action.route) router.push(action.route as any);
-              }}>
-                <View style={[styles.circularIcon, action.label === 'Get My Plan' && styles.circularIconHighlight]}><Text style={styles.circularIconText}>{action.icon}</Text></View>
-                <Text style={[styles.circularLabel, action.label === 'Get My Plan' && styles.circularLabelHighlight]}>{action.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        <TouchableOpacity style={styles.profileLink} onPress={() => router.push('/(app)/profile')}>
-          <Feather name="user" size={18} color={Colors.primary} /><Text style={styles.profileLinkText}>View Full Profile</Text>
-        </TouchableOpacity>
       </ScrollView>
+
+      <View style={styles.floatingTabBar}>
+        <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/(app)/run' as any)}>
+          <View style={[styles.tabIcon, styles.tabIconActive]}><Feather name="activity" size={24} color={Colors.primary} /></View>
+          <Text style={[styles.tabLabel, styles.tabLabelActive]}>Record</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/(app)/history' as any)}>
+          <View style={styles.tabIcon}><Feather name="clock" size={24} color="#C4C8C5" /></View>
+          <Text style={styles.tabLabel}>History</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/(app)/attendance')}>
+          <View style={styles.tabIcon}><Feather name="bar-chart-2" size={24} color="#C4C8C5" /></View>
+          <Text style={styles.tabLabel}>Stats</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/(app)/profile')}>
+          <View style={styles.tabIcon}><Feather name="user" size={24} color="#C4C8C5" /></View>
+          <Text style={styles.tabLabel}>Profile</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.tabItem} onPress={() => setSettingsVisible(true)}>
+          <View style={styles.tabIcon}><Feather name="settings" size={24} color="#C4C8C5" /></View>
+          <Text style={styles.tabLabel}>Settings</Text>
+        </TouchableOpacity>
+      </View>
 
       <SettingsMenu visible={settingsVisible} onClose={() => setSettingsVisible(false)} onSelect={handleSettingsOption} />
     </View>
@@ -174,41 +171,33 @@ export default function DashboardScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0B0E0F' },
-  topBar: { minHeight: 178, paddingHorizontal: 35, paddingTop: 56, flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#282B2D' },
-  pageTitle: { color: '#F7F7F7', fontSize: 42, fontWeight: '700', letterSpacing: -1 },
-  headerIcons: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
-  settingsButton: { marginTop: 2, padding: Spacing.xs },
-  scrollContent: { paddingHorizontal: 35, paddingBottom: 44 },
-  welcomeSection: { paddingTop: 35, paddingBottom: 30 },
-  welcomeTitle: { color: '#F7F7F7', fontSize: 30, lineHeight: 38, fontWeight: '700' },
-  welcomeEmail: { color: '#ADAFB1', fontSize: 22, marginTop: 4 },
-  card: { backgroundColor: '#242627', borderWidth: 1.25, borderColor: '#65686A', borderRadius: 39, padding: 29, marginBottom: 30, shadowColor: '#000', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.22, shadowRadius: 18, elevation: 5 },
+  topBar: { minHeight: 122, paddingHorizontal: 28, paddingTop: 45, flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#282B2D' },
+  pageTitle: { color: '#F7F7F7', fontSize: 31, fontWeight: '700', letterSpacing: -0.6 },
+  scrollContent: { paddingHorizontal: 28, paddingBottom: 116 },
+  welcomeSection: { paddingTop: 23, paddingBottom: 18 },
+  welcomeTitle: { color: '#F7F7F7', fontSize: 24, lineHeight: 30, fontWeight: '700' },
+  welcomeEmail: { color: '#ADAFB1', fontSize: 17, marginTop: 2 },
+  card: { backgroundColor: '#242627', borderWidth: 1.25, borderColor: '#65686A', borderRadius: 28, padding: 22, marginBottom: 18, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 14, elevation: 5 },
   statusCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  cardTitle: { color: '#F2F2F2', fontSize: 24, fontWeight: '700' },
-  cardSubtitle: { color: '#AEB0B2', fontSize: 22, marginTop: 7 },
-  activeRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 7 },
-  activeText: { color: '#2BD64F', fontSize: 22, fontWeight: '700' },
-  statusIcon: { width: 58, height: 58, borderRadius: 29, backgroundColor: '#2BD64F', alignItems: 'center', justifyContent: 'center' },
-  assessmentTitle: { color: '#079DFF', fontSize: 25, fontWeight: '700' },
-  assessmentDescription: { color: '#079DFF', fontSize: 23, lineHeight: 31, textAlign: 'center', marginVertical: 29 },
-  primaryCta: { minHeight: 76, borderRadius: 21, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 13, backgroundColor: '#2CBD08' },
+  cardTitle: { color: '#F2F2F2', fontSize: 20, fontWeight: '700' },
+  cardSubtitle: { color: '#AEB0B2', fontSize: 18, marginTop: 4 },
+  activeRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 },
+  activeText: { color: '#2BD64F', fontSize: 18, fontWeight: '700' },
+  statusIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#2BD64F', alignItems: 'center', justifyContent: 'center' },
+  assessmentTitle: { color: '#079DFF', fontSize: 21, fontWeight: '700' },
+  assessmentDescription: { color: '#079DFF', fontSize: 18, lineHeight: 24, textAlign: 'center', marginVertical: 20 },
+  primaryCta: { minHeight: 58, borderRadius: 17, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#2CBD08' },
   primaryCtaDisabled: { backgroundColor: '#4B6248' },
-  primaryCtaText: { color: '#FFFFFF', fontSize: 24, fontWeight: '700' },
-  completeProfileLink: { alignItems: 'center', paddingTop: 14 },
-  completeProfileText: { color: '#AEB0B2', fontSize: 14 },
-  planDescription: { color: '#F0F0F0', fontSize: 22, lineHeight: 30, marginTop: 25, marginBottom: 25 },
-  statsRow: { flexDirection: 'row', gap: 16, marginBottom: 30 },
-  statCard: { flex: 1, minHeight: 128, borderRadius: 28, backgroundColor: '#242627', borderWidth: 1.25, borderColor: '#65686A', padding: 19, justifyContent: 'center' },
-  statLabel: { color: '#ADAFB1', fontSize: 14, marginBottom: 7 },
-  statValue: { color: '#F7F7F7', fontSize: 25, fontWeight: '700' },
-  quickActionsCard: { backgroundColor: '#242627', borderWidth: 1.25, borderColor: '#65686A', borderRadius: 30, padding: 22, marginBottom: 24 },
-  quickActionsContainer: { flexDirection: 'row', justifyContent: 'space-around', flexWrap: 'wrap', marginTop: 18 },
-  circularAction: { alignItems: 'center', gap: Spacing.xs, width: 70 },
-  circularIcon: { width: 60, height: 60, borderRadius: 30, backgroundColor: Colors.surfaceLight, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.primary + '40' },
-  circularIconHighlight: { backgroundColor: Colors.primary + '20', borderColor: Colors.primary, borderWidth: 2 },
-  circularIconText: { fontSize: 24 },
-  circularLabel: { color: Colors.textSecondary, textAlign: 'center', fontSize: 12 },
-  circularLabelHighlight: { color: Colors.primary, fontWeight: '600' },
-  profileLink: { minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: Colors.primary, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 },
-  profileLinkText: { color: Colors.primary, fontSize: 16, fontWeight: '700' },
+  primaryCtaText: { color: '#FFFFFF', fontSize: 19, fontWeight: '700' },
+  planDescription: { color: '#F0F0F0', fontSize: 18, lineHeight: 24, marginTop: 19, marginBottom: 19 },
+  statsRow: { flexDirection: 'row', gap: 12, marginBottom: 18 },
+  statCard: { flex: 1, minHeight: 92, borderRadius: 22, backgroundColor: '#242627', borderWidth: 1.25, borderColor: '#65686A', padding: 14, justifyContent: 'center' },
+  statLabel: { color: '#ADAFB1', fontSize: 12, marginBottom: 5 },
+  statValue: { color: '#F7F7F7', fontSize: 21, fontWeight: '700' },
+  floatingTabBar: { position: 'absolute', left: 38, right: 38, bottom: 18, minHeight: 90, borderRadius: 46, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', backgroundColor: 'rgba(41, 47, 41, 0.96)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)', shadowColor: '#000', shadowOpacity: 0.4, shadowOffset: { width: 0, height: 10 }, shadowRadius: 18, elevation: 12 },
+  tabItem: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  tabIcon: { width: 46, height: 43, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
+  tabIconActive: { backgroundColor: 'rgba(47, 194, 14, 0.20)' },
+  tabLabel: { color: '#C4C8C5', fontSize: 12, fontWeight: '500', marginTop: 1 },
+  tabLabelActive: { color: Colors.primary, fontWeight: '700' },
 });

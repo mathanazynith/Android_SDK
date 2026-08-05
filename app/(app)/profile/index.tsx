@@ -4,6 +4,7 @@ import {
   Platform,
   SafeAreaView,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -87,6 +88,7 @@ export default function ProfileScreen() {
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={false}
       >
         <LinearGradient
           colors={["#39C80B", "#16A600"]}
@@ -152,34 +154,38 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#090B0C" },
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#090B0C",
+    paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight || 0) + 14 : 14,
+  },
   container: { flex: 1, backgroundColor: "#090B0C" },
-  scrollContent: { paddingBottom: Platform.OS === "ios" ? 42 : 30 },
+  scrollContent: { paddingBottom: Platform.OS === "ios" ? 16 : 10 },
   loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#090B0C" },
   loadingText: { color: Colors.text, fontSize: 16 },
   hero: {
-    minHeight: 362,
-    paddingHorizontal: 28,
-    paddingTop: 15,
-    borderBottomLeftRadius: 40,
-    borderBottomRightRadius: 40,
+    minHeight: 218,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
     overflow: "hidden",
   },
-  heroNavigation: { height: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  heroTitle: { color: "#FFFFFF", fontSize: 24, fontWeight: "700" },
-  circleButton: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)" },
-  editButton: { minWidth: 80, height: 48, paddingHorizontal: 18, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.19)" },
-  editButtonText: { color: "#FFFFFF", fontSize: 21, fontWeight: "700" },
-  profileIdentity: { flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: 37 },
-  avatar: { width: 116, height: 116, borderRadius: 58, borderWidth: 4, borderColor: "#FFFFFF", alignItems: "center", justifyContent: "center", position: "relative", marginBottom: 12, backgroundColor: "rgba(255,255,255,0.16)" },
-  avatarText: { color: "#FFFFFF", fontSize: 38, fontWeight: "600" },
-  cameraBadge: { position: "absolute", right: -8, bottom: -5, width: 37, height: 37, borderRadius: 19, alignItems: "center", justifyContent: "center", borderWidth: 3, borderColor: "#26B705", backgroundColor: "#FFFFFF" },
-  name: { color: "#FFFFFF", fontSize: 25, lineHeight: 31, fontWeight: "700", textAlign: "center" },
-  username: { color: "rgba(255,255,255,0.72)", fontSize: 18, fontWeight: "500", marginTop: 1 },
-  detailsCard: { marginHorizontal: 28, marginTop: 52, borderRadius: 37, backgroundColor: "#242627", borderWidth: 1.25, borderColor: "#66686A", paddingHorizontal: 28, paddingVertical: 28, shadowColor: "#000000", shadowOpacity: 0.28, shadowOffset: { width: 0, height: 12 }, shadowRadius: 20, elevation: 5 },
-  detailRow: { minHeight: 60, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#515354" },
-  detailLabel: { flex: 0.45, color: "#BDBEC0", fontSize: 18, fontWeight: "500" },
-  detailValue: { flex: 0.55, color: "#F7F7F7", fontSize: 18, fontWeight: "700", textAlign: "right" },
-  logoutButton: { alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 8, marginTop: 22, padding: 12 },
-  logoutText: { color: "#B8B8B8", fontSize: 15, fontWeight: "600" },
+  heroNavigation: { height: 40, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  heroTitle: { color: "#FFFFFF", fontSize: 21, fontWeight: "700" },
+  circleButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)" },
+  editButton: { minWidth: 68, height: 40, paddingHorizontal: 14, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.19)" },
+  editButtonText: { color: "#FFFFFF", fontSize: 17, fontWeight: "700" },
+  profileIdentity: { flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: 15 },
+  avatar: { width: 82, height: 82, borderRadius: 41, borderWidth: 3, borderColor: "#FFFFFF", alignItems: "center", justifyContent: "center", position: "relative", marginBottom: 7, backgroundColor: "rgba(255,255,255,0.16)" },
+  avatarText: { color: "#FFFFFF", fontSize: 31, fontWeight: "600" },
+  cameraBadge: { position: "absolute", right: -6, bottom: -4, width: 29, height: 29, borderRadius: 15, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#26B705", backgroundColor: "#FFFFFF" },
+  name: { color: "#FFFFFF", fontSize: 20, lineHeight: 25, fontWeight: "700", textAlign: "center" },
+  username: { color: "rgba(255,255,255,0.72)", fontSize: 14, fontWeight: "500", marginTop: 0 },
+  detailsCard: { marginHorizontal: 16, marginTop: 14, borderRadius: 23, backgroundColor: "#242627", borderWidth: 1.25, borderColor: "#66686A", paddingHorizontal: 17, paddingVertical: 7, shadowColor: "#000000", shadowOpacity: 0.2, shadowOffset: { width: 0, height: 6 }, shadowRadius: 10, elevation: 3 },
+  detailRow: { minHeight: 37, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#515354" },
+  detailLabel: { flex: 0.45, color: "#BDBEC0", fontSize: 14, fontWeight: "500" },
+  detailValue: { flex: 0.55, color: "#F7F7F7", fontSize: 14, fontWeight: "700", textAlign: "right" },
+  logoutButton: { alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 7, padding: 7 },
+  logoutText: { color: "#B8B8B8", fontSize: 13, fontWeight: "600" },
 });
