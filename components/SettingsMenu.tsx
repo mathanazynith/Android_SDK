@@ -9,6 +9,7 @@ import {
   TouchableWithoutFeedback,
   Dimensions,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius } from '../constants/theme';
 
 const { height } = Dimensions.get('window');
@@ -20,10 +21,10 @@ interface SettingsMenuProps {
 }
 
 const options = [
-  { label: 'Edit Profile', icon: '👤' },
-  { label: 'Change Password', icon: '🔒' },
-  { label: 'Notifications', icon: '🔔' },
-  { label: 'Logout', icon: '🚪' },
+  { label: 'Edit Profile', icon: 'user' },
+  { label: 'Change Password', icon: 'lock' },
+  { label: 'Notifications', icon: 'bell' },
+  { label: 'Logout', icon: 'log-out' },
 ];
 
 export default function SettingsMenu({ visible, onClose, onSelect }: SettingsMenuProps) {
@@ -48,7 +49,12 @@ export default function SettingsMenu({ visible, onClose, onSelect }: SettingsMen
                   ]}
                   onPress={() => onSelect(item.label)}
                 >
-                  <Text style={styles.optionIcon}>{item.icon}</Text>
+                  <Feather
+                    name={item.icon as any}
+                    size={24}
+                    color="#FFFFFF"
+                    style={styles.optionIcon}
+                  />
                   <Text style={styles.optionLabel}>{item.label}</Text>
                 </TouchableOpacity>
               ))}
@@ -66,41 +72,58 @@ export default function SettingsMenu({ visible, onClose, onSelect }: SettingsMen
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: BorderRadius.xl,
-    borderTopRightRadius: BorderRadius.xl,
-    padding: Spacing.lg,
-    paddingBottom: Spacing.xl,
-    maxHeight: height * 0.6,
+    backgroundColor: '#1A1A1A',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: 32,
+    maxHeight: height * 0.65,
   },
   handle: {
-    width: 40,
-    height: 4,
-    backgroundColor: Colors.border,
-    borderRadius: 2,
+    width: 48,
+    height: 5,
+    backgroundColor: '#404040',
+    borderRadius: 2.5,
     alignSelf: 'center',
-    marginBottom: Spacing.md,
+    marginBottom: 28,
   },
   option: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: Spacing.md,
+    paddingVertical: 20,
+    paddingHorizontal: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: '#2A2A2A',
   },
-  lastOption: { borderBottomWidth: 0 },
-  optionIcon: { fontSize: 22, marginRight: Spacing.md },
-  optionLabel: { ...Typography.body, color: Colors.text },
+  lastOption: { 
+    borderBottomWidth: 0,
+  },
+  optionIcon: {
+    marginRight: 20,
+  },
+  optionLabel: {
+    fontSize: 17,
+    fontWeight: '500',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+  },
   cancelButton: {
-    marginTop: Spacing.md,
-    paddingVertical: Spacing.md,
+    marginTop: 12,
+    paddingVertical: 18,
+    paddingHorizontal: 12,
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: Colors.border,
+    borderTopColor: '#2A2A2A',
   },
-  cancelText: { ...Typography.body, color: Colors.error, fontWeight: '600' },
+  cancelText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#FF3B30',
+    letterSpacing: -0.3,
+  },
 });

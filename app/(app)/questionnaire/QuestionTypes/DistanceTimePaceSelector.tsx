@@ -4,7 +4,7 @@ import { Feather } from "@expo/vector-icons";
 import { useAuth } from "../../../../service/auth";
 import { RunTypeSelector } from "../components/RunTypeSelector";
 import { DistanceInput } from "../components/DistanceInput";
-import { TimeInput } from "../components/TimeInput";
+import { ScrollTimePicker } from "../../../../components/ScrollTimePicker";
 import { FormCard } from "../components/FormCard";
 import { calculatePace, timeToSeconds } from "../../../../utils/validators";
 import {
@@ -262,11 +262,12 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
         ) : null}
 
         {showTimeInput ? (
-          <TimeInput
+          <ScrollTimePicker
             label={timeLabel}
-            value={customValues?.[timeField] || ""}
+            value={customValues?.[timeField] || "00:00:00"}
             hint={timeHint}
             onChange={(value) => onCustomChange?.(timeField, value)}
+            maxHours={99}
           />
         ) : null}
 

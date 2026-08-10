@@ -8,8 +8,10 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  StatusBar,
 } from "react-native";
 import { router } from "expo-router";
+import { Ionicons } from '@expo/vector-icons';
 import { authAPI } from "../../service/api";
 import { useAuth } from "../../service/auth";
 import { AppInput } from "../../components/common/AppInput";
@@ -260,14 +262,24 @@ export default function SignupScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
     >
+      <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.title}>Create account</Text>
-        <Text style={styles.subtitle}>Join thousands of runners today</Text>
+        <View style={styles.authCard}>
+          <View style={styles.segmentedControl}>
+            <TouchableOpacity style={styles.segment} onPress={() => router.back()} disabled={loading}>
+              <Text style={styles.segmentText}>Sign in</Text>
+            </TouchableOpacity>
+            <View style={[styles.segment, styles.activeSegment]}><Text style={styles.activeSegmentText}>Sign up</Text></View>
+          </View>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()} disabled={loading} accessibilityLabel="Go back">
+            <Ionicons name="chevron-back" size={28} color={Colors.text} />
+          </TouchableOpacity>
+          <View style={styles.emailDivider}><View style={styles.dividerLine} /><Text style={styles.emailDividerText}>Or With E-Mail</Text><View style={styles.dividerLine} /></View>
 
         {hasGoogleData && (
           <View style={styles.googleInfoContainer}>
@@ -278,15 +290,15 @@ export default function SignupScreen() {
           </View>
         )}
 
-        <Text style={styles.sectionTitle}>Personal Information</Text>
-
         <View style={styles.row}>
           <View style={styles.halfInput}>
             <AppInput
               placeholder="First Name *"
+              label="First Name *"
               value={firstName}
               onChangeText={(text) => handleChange("first_name", text)}
               containerStyle={styles.inputContainer}
+              authStyle
             />
             {!!errors.first_name && (
               <Text style={styles.errorText}>{errors.first_name}</Text>
@@ -295,10 +307,12 @@ export default function SignupScreen() {
 
           <View style={styles.halfInput}>
             <AppInput
-              placeholder="Last Name *"
+              placeholder="Last Name"
+              label="Last Name"
               value={lastName}
               onChangeText={(text) => handleChange("last_name", text)}
               containerStyle={styles.inputContainer}
+              authStyle
             />
             {!!errors.last_name && (
               <Text style={styles.errorText}>{errors.last_name}</Text>
@@ -308,11 +322,13 @@ export default function SignupScreen() {
 
         <AppInput
           placeholder="Username *"
+          label="Username *"
           value={username}
           onChangeText={(text) => handleChange("username", text)}
           autoCapitalize="none"
           autoCorrect={false}
           containerStyle={styles.inputContainer}
+          authStyle
         />
         {!!errors.username && (
           <Text style={styles.errorText}>{errors.username}</Text>
@@ -320,12 +336,15 @@ export default function SignupScreen() {
 
         <AppInput
           placeholder="Email *"
+          label="Email *"
           value={email}
           onChangeText={(text) => handleChange("email", text)}
           autoCapitalize="none"
           keyboardType="email-address"
           autoCorrect={false}
           containerStyle={styles.inputContainer}
+          authStyle
+          icon={<Ionicons name="mail-outline" size={20} color={Colors.textSecondary} />}
           editable={!hasGoogleData}
         />
         {!!errors.email && (
@@ -333,7 +352,8 @@ export default function SignupScreen() {
         )}
 
         <AppInput
-          placeholder="Phone Number *"
+          placeholder="Phone Number"
+          label="Phone"
           value={phoneNumber}
           onChangeText={(text) => {
             const value = text.replace(/[^0-9]/g, "");
@@ -344,19 +364,20 @@ export default function SignupScreen() {
           keyboardType="number-pad"
           maxLength={10}
           containerStyle={styles.inputContainer}
+          authStyle
         />
         {!!errors.phone_number && (
           <Text style={styles.errorText}>{errors.phone_number}</Text>
         )}
 
-        <Text style={styles.sectionTitle}>Password</Text>
-
         <AppInput
           placeholder="Password *"
+          label="Password *"
           value={password}
           onChangeText={(text) => handleChange("password", text)}
           secureTextEntry
           containerStyle={styles.inputContainer}
+          authStyle
         />
         {!!errors.password && (
           <Text style={styles.errorText}>{errors.password}</Text>
@@ -364,25 +385,34 @@ export default function SignupScreen() {
 
         <AppInput
           placeholder="Confirm Password *"
+          label="Confirm Password *"
           value={password2}
           onChangeText={(text) => handleChange("password2", text)}
           secureTextEntry
           containerStyle={styles.inputContainer}
+          authStyle
         />
         {!!errors.password2 && (
           <Text style={styles.errorText}>{errors.password2}</Text>
         )}
+
+        <View style={styles.termsRow}>
+          <View style={styles.checkbox} />
+          <Text style={styles.termsText}>I agree to the Terms and Privacy Policy</Text>
+        </View>
 
         <PrimaryButton
           title="Create Account"
           onPress={handleSignup}
           loading={loading}
           style={styles.signupButton}
+          authStyle
         />
 
         <TouchableOpacity onPress={() => router.back()} disabled={loading}>
-          <Text style={styles.link}>Already have an account? Login</Text>
+          <Text style={styles.link}>Already a member? <Text style={styles.linkAccent}>Sign in</Text></Text>
         </TouchableOpacity>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -398,8 +428,9 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    padding: Spacing.lg,
-    paddingBottom: Spacing.xxl,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 30,
   },
   title: {
     ...Typography.h1,
@@ -414,20 +445,21 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.lg,
   },
   sectionTitle: {
-    ...Typography.h4,
+    fontSize: 14,
+    fontWeight: "600",
     color: Colors.text,
-    marginTop: Spacing.md,
-    marginBottom: Spacing.sm,
+    marginTop: 10,
+    marginBottom: 5,
   },
   row: {
     flexDirection: "row",
-    gap: Spacing.sm,
+    gap: 16,
   },
   halfInput: {
     flex: 1,
   },
   inputContainer: {
-    marginBottom: Spacing.sm,
+    marginBottom: 10,
   },
   errorText: {
     ...Typography.caption,
@@ -439,14 +471,14 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   signupButton: {
-    marginTop: Spacing.md,
+    marginTop: 16,
   },
   link: {
-    ...Typography.bodySmall,
+    fontSize: 13,
     color: Colors.primary,
     textAlign: "center",
-    marginTop: Spacing.lg,
-    marginBottom: 30,
+    marginTop: 20,
+    marginBottom: 10,
   },
   googleInfoContainer: {
     backgroundColor: Colors.surfaceLight,
@@ -465,4 +497,18 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     color: Colors.textSecondary,
   },
+  authCard: { width: '100%', maxWidth: 520, alignSelf: 'center' },
+  segmentedControl: { flexDirection: 'row', backgroundColor: '#202124', padding: 3, borderRadius: 10, marginBottom: 14 },
+  segment: { flex: 1, minHeight: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
+  activeSegment: { backgroundColor: '#63C438' },
+  segmentText: { color: Colors.textSecondary, fontSize: 12, fontWeight: '600' },
+  activeSegmentText: { color: '#101510', fontSize: 12, fontWeight: '700' },
+  backButton: { width: 60, height: 60, alignItems: 'center', justifyContent: 'center', borderRadius: 30, backgroundColor: '#202124', borderWidth: 1, borderColor: '#333538', marginBottom: 12 },
+  emailDivider: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 14 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#202124' },
+  emailDividerText: { color: Colors.textMuted, fontSize: 13, fontWeight: '600', letterSpacing: .2 },
+  termsRow: { minHeight: 62, borderRadius: 14, backgroundColor: '#202124', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, marginTop: 8 },
+  checkbox: { width: 21, height: 21, borderRadius: 3, borderWidth: 2, borderColor: Colors.textSecondary, marginRight: 15 },
+  termsText: { color: Colors.textSecondary, fontSize: 14, flexShrink: 1 },
+  linkAccent: { color: Colors.primary, fontWeight: '700' },
 });

@@ -12,15 +12,9 @@ export const FormCard: React.FC<FormCardProps> = ({ children, style }) => {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#111111',
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#202124',
+    borderRadius: 18,
+    borderWidth: 0,
     padding: 18,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.25,
-    shadowRadius: 18,
-    elevation: 6,
   },
 });

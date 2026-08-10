@@ -14,6 +14,7 @@ interface PrimaryButtonProps {
   textStyle?: TextStyle;
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
+  authStyle?: boolean;
 }
 
 export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
@@ -27,6 +28,7 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
   textStyle,
   leftIcon,
   rightIcon,
+  authStyle = false,
 }) => {
   const getBackgroundColor = () => {
     if (disabled) return Colors.surfaceLighter;
@@ -60,6 +62,7 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
           borderColor: getBorderColor(),
           width: fullWidth ? '100%' : 'auto',
         },
+        authStyle && styles.authButton,
         style,
       ]}
       onPress={onPress}
@@ -92,4 +95,5 @@ const styles = StyleSheet.create({
     minHeight: 50,
   },
   text: { ...Typography.button, textAlign: 'center' },
+  authButton: { minHeight: 52, borderRadius: 14, borderWidth: 0 },
 });

@@ -16,7 +16,7 @@ import PlanSelection from "../../../app/(app)/questionnaire/QuestionTypes/PlanSe
 import DistanceTimePaceSelector, { getDistanceInKilometers } from "../../../app/(app)/questionnaire/QuestionTypes/DistanceTimePaceSelector";
 import DatePicker from "../../../app/(app)/questionnaire/QuestionTypes/DatePicker";
 import EventRegistration from "../../../app/(app)/questionnaire/components/QuestionTypes/EventRegistration";
-import { TimeInput } from "../../../app/(app)/questionnaire/components/TimeInput";
+import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { formatTimeFromComponents, timeToSeconds, calculatePace } from "../../../utils/validators";
 import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import { useAuth } from "../../../service/auth";
@@ -151,7 +151,7 @@ const QuestionField = ({
           {questionText}
           {isRequired && <Text style={styles.requiredStar}> *</Text>}
         </Text>
-        <TimeInput value={value || ""} onChange={(nextValue) => onAnswer(id, nextValue)} />
+        <ScrollTimePicker value={value || "00:00:00"} onChange={(nextValue) => onAnswer(id, nextValue)} />
       </View>
     );
   }
@@ -756,6 +756,7 @@ export default function QuestionnaireScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.progressHeader}>
+        <Text style={styles.assessmentTitle}>Assessment</Text>
         <View style={styles.progressHeaderRow}>
           <Text style={styles.progressHeaderText}>
             Page {stepInfo.current} of {stepInfo.total}
@@ -938,7 +939,7 @@ export default function QuestionnaireScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F5F7FA",
+    backgroundColor: "#0B0D0E",
   },
   scrollContainer: {
     flexGrow: 1,
@@ -949,7 +950,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
-    backgroundColor: "#F5F7FA",
+    backgroundColor: "#0B0D0E",
   },
   loadingText: {
     marginTop: 12,
@@ -988,22 +989,21 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   progressHeader: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: "#1A1A1A",
-    borderBottomWidth: 1,
-    borderBottomColor: "#2D2D2D",
+    paddingHorizontal: 30,
+    paddingTop: 22,
+    paddingBottom: 18,
+    backgroundColor: "#0B0D0E",
   },
   progressHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: 10,
   },
   progressHeaderText: {
     fontSize: 14,
-    color: "#34C759",
-    fontWeight: "600",
+    color: "#B5B6B9",
+    fontWeight: "500",
   },
   progressLabel: {
     fontSize: 14,
@@ -1011,8 +1011,8 @@ const styles = StyleSheet.create({
     fontWeight: "400",
   },
   progressBar: {
-    height: 4,
-    backgroundColor: "#2D2D2D",
+    height: 6,
+    backgroundColor: "#34373B",
     borderRadius: 2,
     overflow: "hidden",
   },
@@ -1024,59 +1024,55 @@ const styles = StyleSheet.create({
   buttonContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
-    padding: 16,
-    backgroundColor: "#FFFFFF",
-    borderTopWidth: 1,
-    borderTopColor: "#E8ECF1",
+    gap: 16,
+    paddingHorizontal: 30,
+    paddingTop: 14,
+    paddingBottom: 24,
+    backgroundColor: "#0B0D0E",
   },
   button: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
     borderRadius: 12,
-    minWidth: 110,
+    flex: 1,
   },
   prevButton: {
-    backgroundColor: "transparent",
-    borderWidth: 2,
-    borderColor: "#34C759",
+    backgroundColor: "#303236",
   },
   nextButton: {
     backgroundColor: "#34C759",
   },
   buttonText: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#1A1A1A",
+    fontSize: 17,
+    fontWeight: "500",
+    color: "#FFFFFF",
   },
   prevButtonText: {
-    color: "#34C759",
+    color: "#FFFFFF",
   },
   disabledText: {
     color: "#999",
   },
   pageContainer: {
-    padding: 24,
-    backgroundColor: "#FFFFFF",
-    margin: 16,
-    borderRadius: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 4,
+    paddingHorizontal: 30,
+    paddingTop: 4,
   },
   questionContainer: {
     marginBottom: 24,
+    padding: 22,
+    borderRadius: 18,
+    backgroundColor: "#202124",
   },
   questionText: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 12,
-    color: "#1A1A1A",
+    fontSize: 23,
+    fontWeight: "700",
+    lineHeight: 31,
+    marginBottom: 20,
+    color: "#F4F4F5",
   },
   requiredStar: {
     color: "#ff4444",
@@ -1089,40 +1085,40 @@ const styles = StyleSheet.create({
   optionButton: {
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#ddd",
-    backgroundColor: "#f9f9f9",
+    borderColor: "#3D4044",
+    backgroundColor: "#303236",
     marginBottom: 8,
   },
   optionSelected: {
     borderColor: "#34C759",
-    backgroundColor: "#34C75920",
+    backgroundColor: "#253525",
   },
   optionText: {
     fontSize: 16,
-    color: "#1A1A1A",
+    color: "#F4F4F5",
   },
   textInput: {
     borderWidth: 1,
-    borderColor: "#E8ECF1",
-    borderRadius: 12,
-    padding: 14,
+    borderColor: "#45474B",
+    borderRadius: 14,
+    padding: 16,
     fontSize: 16,
-    backgroundColor: "#F8F9FB",
-    color: "#1A1A1A",
+    backgroundColor: "#303236",
+    color: "#F4F4F5",
   },
   dropdownContainer: {
     borderWidth: 1,
-    borderColor: "#E8ECF1",
-    borderRadius: 12,
+    borderColor: "#45474B",
+    borderRadius: 14,
     overflow: "hidden",
   },
   dropdownItem: {
     padding: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-    backgroundColor: "#FFF",
+    borderBottomColor: "#3D4044",
+    backgroundColor: "#303236",
   },
   ratingContainer: {
     flexDirection: "row",
@@ -1134,10 +1130,10 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#45474B",
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f9f9f9",
+    backgroundColor: "#303236",
   },
   ratingText: {
     fontSize: 16,
@@ -1158,9 +1154,13 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   computedValue: {
-    fontSize: 14,
-    color: "#6B7280",
-    marginTop: 8,
+    fontSize: 36,
+    fontWeight: "700",
+    color: "#34C759",
+    textAlign: "center",
+    paddingVertical: 20,
+    borderRadius: 16,
+    backgroundColor: "#202124",
   },
   computedValueContainer: {
     marginTop: 10,
@@ -1187,4 +1187,5 @@ const styles = StyleSheet.create({
     marginTop: 12,
     gap: 8,
   },
+  assessmentTitle: { color: "#F4F4F5", fontSize: 24, fontWeight: "700", textAlign: "center", marginBottom: 28 },
 });

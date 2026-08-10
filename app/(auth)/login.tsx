@@ -8,8 +8,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StatusBar,
 } from 'react-native';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../service/auth';
 import { AppInput } from '../../components/common/AppInput';
 import { PrimaryButton } from '../../components/common/PrimaryButton';
@@ -172,12 +174,24 @@ export default function LoginScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
+      <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.title}>Welcome Back</Text>
-        <Text style={styles.subtitle}>Sign in to continue your journey</Text>
+        <View style={styles.authCard}>
+          <View style={styles.segmentedControl}>
+            <View style={[styles.segment, styles.activeSegment]}><Text style={styles.activeSegmentText}>Sign in</Text></View>
+            <TouchableOpacity style={styles.segment} onPress={() => router.push('/(auth)/signup')}>
+              <Text style={styles.segmentText}>Sign up</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.runnerBadge}>
+            <Ionicons name="walk" size={34} color={Colors.background} />
+          </View>
+          <Text style={styles.title}>Let's get moving</Text>
+          <Text style={styles.subtitle}>Sign in to pick up your streak</Text>
 
         <AppInput
           placeholder="Email or Username"
@@ -186,6 +200,8 @@ export default function LoginScreen() {
           autoCapitalize="none"
           autoCorrect={false}
           containerStyle={styles.inputContainer}
+          authStyle
+          icon={<Ionicons name="mail-outline" size={18} color={Colors.textSecondary} />}
         />
         {!!errors.identifier && (
           <Text style={styles.errorText}>{errors.identifier}</Text>
@@ -197,6 +213,8 @@ export default function LoginScreen() {
           onChangeText={(text) => handleChange('password', text)}
           secureTextEntry
           containerStyle={styles.inputContainer}
+          authStyle
+          icon={<Ionicons name="lock-closed-outline" size={17} color={Colors.textSecondary} />}
         />
         {!!errors.password && (
           <Text style={styles.errorText}>{errors.password}</Text>
@@ -210,29 +228,27 @@ export default function LoginScreen() {
         </TouchableOpacity>
 
         <PrimaryButton
-          title="Login"
+          title="Sign in  →"
           onPress={handleLogin}
           loading={loading}
           style={styles.loginButton}
+          authStyle
         />
 
         <View style={styles.dividerContainer}>
           <View style={styles.divider} />
-          <Text style={styles.dividerText}>or</Text>
+          <Text style={styles.dividerText}>or continue with</Text>
           <View style={styles.divider} />
         </View>
 
-        <GoogleLoginButton
-          onPress={handleGoogleLogin}
-          loading={googleLoading}
-          disabled={loading || googleLoading}
-        />
+        <GoogleLoginButton onPress={handleGoogleLogin} loading={googleLoading} disabled={loading || googleLoading} authStyle />
 
         <View style={styles.signupContainer}>
-          <Text style={styles.signupText}>Don't have an account? </Text>
+          <Text style={styles.signupText}>New here? </Text>
           <TouchableOpacity onPress={() => router.push('/(auth)/signup')}>
-            <Text style={styles.signupLink}>Sign Up</Text>
+            <Text style={styles.signupLink}>Create account</Text>
           </TouchableOpacity>
+        </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -247,22 +263,25 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
-    padding: Spacing.xl,
+    paddingHorizontal: 26,
+    paddingVertical: 22,
   },
   title: {
-    ...Typography.h1,
+    fontSize: 20,
+    fontWeight: '700',
     color: Colors.text,
     textAlign: 'center',
-    marginBottom: Spacing.xs,
+    marginBottom: 3,
   },
   subtitle: {
-    ...Typography.body,
+    fontSize: 11,
+    lineHeight: 16,
     color: Colors.textSecondary,
     textAlign: 'center',
-    marginBottom: Spacing.xl,
+    marginBottom: 22,
   },
   inputContainer: {
-    marginBottom: Spacing.sm,
+    marginBottom: 10,
   },
   errorText: {
     ...Typography.caption,
@@ -272,20 +291,20 @@ const styles = StyleSheet.create({
   },
   forgotPassword: {
     alignSelf: 'flex-end',
-    marginBottom: Spacing.lg,
+    marginBottom: 10,
   },
   forgotPasswordText: {
     color: Colors.primary,
-    ...Typography.bodySmall,
+    fontSize: 11,
     fontWeight: '500',
   },
   loginButton: {
-    marginTop: Spacing.sm,
+    marginTop: 2,
   },
   dividerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: Spacing.lg,
+    marginVertical: 18,
   },
   divider: {
     flex: 1,
@@ -295,20 +314,27 @@ const styles = StyleSheet.create({
   dividerText: {
     marginHorizontal: Spacing.md,
     color: Colors.textMuted,
-    ...Typography.caption,
+    fontSize: 10,
   },
   signupContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: Spacing.lg,
+    marginTop: 18,
   },
   signupText: {
-    ...Typography.bodySmall,
+    fontSize: 11,
     color: Colors.textSecondary,
   },
   signupLink: {
-    ...Typography.bodySmall,
+    fontSize: 11,
     color: Colors.primary,
     fontWeight: '600',
   },
+  authCard: { width: '100%', maxWidth: 420, alignSelf: 'center' },
+  segmentedControl: { flexDirection: 'row', backgroundColor: '#202124', borderRadius: 9, padding: 3, marginBottom: 24 },
+  segment: { flex: 1, minHeight: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 7 },
+  activeSegment: { backgroundColor: '#63C438' },
+  segmentText: { color: Colors.textSecondary, fontSize: 11, fontWeight: '600' },
+  activeSegmentText: { color: '#101510', fontSize: 11, fontWeight: '700' },
+  runnerBadge: { width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center', backgroundColor: '#63C438', alignSelf: 'center', marginBottom: 16 },
 });

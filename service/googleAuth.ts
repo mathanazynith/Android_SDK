@@ -23,21 +23,27 @@ const WEB_CLIENT_ID = extra.googleWebClientId;
 const ANDROID_CLIENT_ID = extra.googleAndroidClientId;
 
 const isExpoGo = Constants.appOwnership === "expo";
+const appScheme = Constants.expoConfig?.scheme ?? "frontend";
 
 function getClientId() {
-  return isExpoGo
-    ? WEB_CLIENT_ID
-    : ANDROID_CLIENT_ID;
+  return isExpoGo ? WEB_CLIENT_ID : ANDROID_CLIENT_ID || WEB_CLIENT_ID;
 }
 
-const REDIRECT_URI = AuthSession.makeRedirectUri({
-  scheme: "zyapp",
-  path: "auth/google",
-});
+const REDIRECT_URI = isExpoGo
+  ? AuthSession.makeRedirectUri({
+      useProxy: true,
+      projectNameForProxy: "@anishmetha/frontend",
+    })
+  : AuthSession.makeRedirectUri({ scheme: appScheme, path: "auth/google" });
 
 console.log("Google Client:", getClientId());
-console.log("Redirect URI:", REDIRECT_URI);
 console.log("Expo Go:", isExpoGo);
+console.log("Expo Config:", Constants.expoConfig);
+console.log("Redirect URI:", REDIRECT_URI);
+console.log(
+  "Expected Google Console redirect URI for Expo Go:",
+  "https://auth.expo.io/@anishmetha/frontend"
+);
 
 const SCOPES = [
   "openid",
@@ -82,7 +88,9 @@ class GoogleAuthService {
         await this.initializeGoogleSignIn();
 
       const result =
-        await request.promptAsync(GOOGLE_DISCOVERY);
+        await request.promptAsync(GOOGLE_DISCOVERY, {
+          useProxy: isExpoGo,
+        });
 
       console.log(result);
 

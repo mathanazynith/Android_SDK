@@ -13,6 +13,7 @@ interface GoogleLoginButtonProps {
   loading?: boolean;
   disabled?: boolean;
   title?: string;
+  authStyle?: boolean;
 }
 
 const GoogleLoginButton: React.FC<GoogleLoginButtonProps> = ({
@@ -20,11 +21,13 @@ const GoogleLoginButton: React.FC<GoogleLoginButtonProps> = ({
   loading = false,
   disabled = false,
   title = "Continue with Google",
+  authStyle = false,
 }) => {
   return (
     <TouchableOpacity
       style={[
         styles.button,
+        authStyle && styles.authButton,
         (disabled || loading) && styles.buttonDisabled,
       ]}
       onPress={onPress}
@@ -84,6 +87,13 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
+  },
+  authButton: {
+    backgroundColor: "#202124",
+    borderWidth: 1,
+    borderColor: "#303236",
+    borderRadius: 12,
+    minHeight: 48,
   },
 });
 

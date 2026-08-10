@@ -37,27 +37,27 @@ const styles = StyleSheet.create({
   button: {
     flex: 1,
     padding: 16,
-    backgroundColor: "#f8f8f8",
+    backgroundColor: "#303236",
     borderRadius: 10,
     alignItems: "center",
     borderWidth: 2,
     borderColor: "transparent",
   },
   selectedYes: {
-    backgroundColor: "#e8f5e9",
-    borderColor: "#4CAF50",
+    backgroundColor: "#253525",
+    borderColor: "#34C759",
   },
   selectedNo: {
-    backgroundColor: "#fce4ec",
-    borderColor: "#f44336",
+    backgroundColor: "#303236",
+    borderColor: "#FF5A5F",
   },
   buttonText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#666",
+    color: "#E8E8EA",
   },
   selectedText: {
-    color: "#333",
+    color: "#FFFFFF",
   },
 });
 

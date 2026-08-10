@@ -7,6 +7,7 @@ import {
   Platform,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import { Feather } from '@expo/vector-icons';
 
 interface DatePickerProps {
   value?: string;
@@ -46,6 +47,7 @@ const DatePicker: React.FC<DatePickerProps> = ({ value, onChange }) => {
         <Text style={value ? styles.dateText : styles.placeholder}>
           {value ? formatDate(new Date(value)) : "Select a date..."}
         </Text>
+        <Feather name="chevron-down" size={21} color="#34C759" />
       </TouchableOpacity>
 
       {show && (
@@ -63,18 +65,18 @@ const DatePicker: React.FC<DatePickerProps> = ({ value, onChange }) => {
 const styles = StyleSheet.create({
   dateButton: {
     padding: 16,
-    backgroundColor: "#f8f8f8",
-    borderRadius: 10,
+    backgroundColor: "#303236",
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#45474B",
   },
   dateText: {
     fontSize: 16,
-    color: "#333",
+    color: "#F4F4F5",
   },
   placeholder: {
     fontSize: 16,
-    color: "#999",
+    color: "#A8A9AD",
   },
 });
 
