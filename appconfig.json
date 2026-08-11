@@ -11,14 +11,14 @@
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "com.zyapp",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false,
-      "package": "com.zyapp"
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
@@ -28,20 +28,11 @@
     "plugins": [
       "expo-router",
       [
-        "expo-location",
+        "react-native-maps",
         {
-          "isAndroidBackgroundLocationEnabled": true,
-          "isAndroidForegroundServiceEnabled": true,
-          "locationAlwaysAndWhenInUsePermission": "Allow this app to access your location even when the app is in the background to track your run.",
-          "locationWhenInUsePermission": "Allow this app to use your location while you are running."
+          "androidGoogleMapsApiKey": "AIzaSyCbfFEhN28i6_DmvgUdRN6FUH9UVaTJoAk"
         }
       ],
-       [
-    "react-native-maps",
-    {
-      "androidGoogleMapsApiKey": "AIzaSyCbfFEhN28i6_DmvgUdRN6FUH9UVaTJoAk"
-    }
-  ],
       [
         "expo-splash-screen",
         {
@@ -59,6 +50,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "apiUrl": "http://18.61.143.223",
+      "googleMapsApiKey": "AIzaSyCbfFEhN28i6_DmvgUdRN6FUH9UVaTJoAk",
+      "googleWebClientId": "1012302664400-6073m4mgphm1jtv0u10fc4sfff08ejoc.apps.googleusercontent.com",
+      "googleAndroidClientId": "1012302664400-ncmdep47qdvvh7eg8vrge88ak0qbcr79.apps.googleusercontent.com"
     }
   }
 }
