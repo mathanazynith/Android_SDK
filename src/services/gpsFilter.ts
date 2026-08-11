@@ -9,10 +9,14 @@ export interface GpsFilterConfig {
 }
 
 export const DEFAULT_GPS_FILTER_CONFIG: GpsFilterConfig = {
-  maxAccuracyMeters: 30,
-  minMovementDistanceMeters: 2,
+  // Indoor / room tracking often starts from coarse fallback readings. Accepting a
+  // much wider accuracy window avoids the sample being dropped before the path
+  // processor sees it. Keep the movement distances small so a room walk has a
+  // chance to become a visible, retained route instead of only a single startup coordinate.
+  maxAccuracyMeters: 2000,
+  minMovementDistanceMeters: 0.5,
   maxReasonableRunningSpeedMetersPerSecond: 16,
-  maxJumpDistanceMeters: 50,
+  maxJumpDistanceMeters: 80,
 };
 
 export class GpsFilter {

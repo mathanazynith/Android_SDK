@@ -15,15 +15,19 @@ export interface AdaptiveSamplerConfig {
 }
 
 export const DEFAULT_ADAPTIVE_SAMPLER_CONFIG: AdaptiveSamplerConfig = {
-  straightMinMeters: 8,
-  straightMaxMeters: 15,
-  curveMinMeters: 3,
-  curveMaxMeters: 5,
+  // The original defaults are optimized for outdoor running pace and sustained
+  // straight-line retention. Indoor room walking produces tiny movement deltas,
+  // so the retention thresholds need to stay close to the motion noise floor
+  // instead of forcing a 8m+ outdoor straight-line sample gate.
+  straightMinMeters: 1,
+  straightMaxMeters: 3,
+  curveMinMeters: 1,
+  curveMaxMeters: 2,
   turnMinMeters: 1,
-  turnMaxMeters: 3,
-  straightOverflowMeters: 50,
-  curveOverflowMeters: 20,
-  turnOverflowMeters: 8,
+  turnMaxMeters: 2,
+  straightOverflowMeters: 15,
+  curveOverflowMeters: 10,
+  turnOverflowMeters: 6,
 };
 
 export class AdaptiveSampler {

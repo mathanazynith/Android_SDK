@@ -43,10 +43,12 @@ export class PathProcessor {
     const candidate = this.gpsFilter.validateRawPoint(raw);
 
     if (!candidate) {
+      console.log('[LocationManager] Rejected: GPS sample failed raw validation');
       return null;
     }
 
     if (this.gpsFilter.rejectDuplicate(this.lastAccepted, candidate)) {
+      console.log('[LocationManager] Rejected: duplicate / tiny movement threshold');
       return null;
     }
 
@@ -63,10 +65,12 @@ export class PathProcessor {
     if (lastAcceptedCoordinate) {
       const distance = calculateDistanceMeters(lastAcceptedCoordinate, candidateCoordinate);
       if (distance < this.gpsFilter['config'].minMovementDistanceMeters) {
+        console.log(`[LocationManager] Rejected: jump ${distance.toFixed(2)}m < min movement ${this.gpsFilter['config'].minMovementDistanceMeters}m`);
         return null;
       }
 
       if (distance > this.gpsFilter['config'].maxJumpDistanceMeters) {
+        console.log(`[LocationManager] Rejected: jump ${distance.toFixed(2)}m > realistic ${this.gpsFilter['config'].maxJumpDistanceMeters}m`);
         return null;
       }
 
@@ -75,6 +79,7 @@ export class PathProcessor {
         candidate.speed !== null &&
         candidate.speed > this.gpsFilter['config'].maxReasonableRunningSpeedMetersPerSecond
       ) {
+        console.log(`[LocationManager] Rejected: speed ${candidate.speed} > realistic running limit ${this.gpsFilter['config'].maxReasonableRunningSpeedMetersPerSecond}`);
         return null;
       }
     }
@@ -104,6 +109,9 @@ export class PathProcessor {
     const pathPoint = this.classifyAndRetain(point);
     if (pathPoint) {
       this.optimizedPoints.push(pathPoint);
+      console.log(`[LocationManager] ✅ Recorded point #${this.optimizedPoints.length}: ${pathPoint.latitude}, ${pathPoint.longitude} accepted`);
+    } else {
+      console.log('[LocationManager] Rejected: path processor retained null');
     }
 
     this.lastAccepted = point;

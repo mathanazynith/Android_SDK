@@ -37,6 +37,7 @@ export interface RunningPathPoint extends RunningGpsPoint {
 export interface RunSessionStartPayload {
   user_id: string;
   started_at: string;
+  run_id?: string;
 }
 
 export interface RunSessionStartResponse {
