@@ -1,12 +1,9 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
   ScrollView,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-  Dimensions,
+  StyleSheet,
+  Text,
+  View
 } from 'react-native';
 
 interface ScrollTimePickerProps {
@@ -42,22 +39,30 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
   maxHours = 99,
 }) => {
   // Parse initial value
+  const parseTimeComponent = (part: string, maxValue: number) => {
+    const parsed = Number.parseInt(part, 10);
+    return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), maxValue) : 0;
+  };
+
+  const parseTimeValue = (timeValue: string) => {
+    const parts = timeValue.split(':');
+    return [
+      parseTimeComponent(parts[0] || '0', maxHours),
+      parseTimeComponent(parts[1] || '0', 59),
+      parseTimeComponent(parts[2] || '0', 59),
+    ] as const;
+  };
+
   const [hours, setHours] = useState<number>(() => {
-    const parts = value.split(':');
-    const h = parseInt(parts[0] || '0', 10);
-    return Math.min(Math.max(h, 0), maxHours);
+    return parseTimeValue(value)[0];
   });
 
   const [minutes, setMinutes] = useState<number>(() => {
-    const parts = value.split(':');
-    const m = parseInt(parts[1] || '0', 10);
-    return Math.min(Math.max(m, 0), 59);
+    return parseTimeValue(value)[1];
   });
 
   const [seconds, setSeconds] = useState<number>(() => {
-    const parts = value.split(':');
-    const s = parseInt(parts[2] || '0', 10);
-    return Math.min(Math.max(s, 0), 59);
+    return parseTimeValue(value)[2];
   });
 
   // Refs for scroll views
@@ -81,36 +86,73 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
     return Array.from({ length: 60 }, (_, i) => i);
   }, []);
 
+  const [hasMounted, setHasMounted] = useState(false);
+
   // Format selected time
   const selectedTime = useMemo(() => {
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   }, [hours, minutes, seconds]);
 
-  // Emit onChange when time changes
+  // Keep internal state aligned with the external value prop and update scroll position.
   useEffect(() => {
-    onChange(selectedTime);
-  }, [selectedTime, onChange]);
+    const [nextHours, nextMinutes, nextSeconds] = parseTimeValue(value);
 
-  // Scroll to initial position on mount
-  useEffect(() => {
-    if (!initialScrollDoneRef.current) {
-      // Delay scroll to allow layout to complete
+    setHours(nextHours);
+    setMinutes(nextMinutes);
+    setSeconds(nextSeconds);
+
+    if (hasMounted) {
+      scrollToHour(nextHours, false);
+      scrollToMinute(nextMinutes, false);
+      scrollToSecond(nextSeconds, false);
+    } else {
       const timer = setTimeout(() => {
-        scrollToHour(hours, false);
-        scrollToMinute(minutes, false);
-        scrollToSecond(seconds, false);
-        initialScrollDoneRef.current = true;
-      }, 100);
+        scrollToHour(nextHours, false);
+        scrollToMinute(nextMinutes, false);
+        scrollToSecond(nextSeconds, false);
+        setHasMounted(true);
+      }, 50);
       return () => clearTimeout(timer);
     }
-  }, []);
+  }, [value, maxHours]);
+
+  const scrollIndexFromOffset = (offsetY: number, length: number) => {
+    const index = Math.round(offsetY / ITEM_HEIGHT);
+    return Math.max(0, Math.min(index, length - 1));
+  };
+
+  const finalizeScroll = (axis: 'hours' | 'minutes' | 'seconds', offsetY: number) => {
+    if (axis === 'hours') {
+      const index = scrollIndexFromOffset(offsetY, hoursArray.length);
+      const nextHours = hoursArray[index];
+      setHours(nextHours);
+      scrollToHour(nextHours, true);
+      onChange(`${String(nextHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
+      return;
+    }
+
+    if (axis === 'minutes') {
+      const index = scrollIndexFromOffset(offsetY, minutesArray.length);
+      const nextMinutes = minutesArray[index];
+      setMinutes(nextMinutes);
+      scrollToMinute(nextMinutes, true);
+      onChange(`${String(hours).padStart(2, '0')}:${String(nextMinutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
+      return;
+    }
+
+    const index = scrollIndexFromOffset(offsetY, secondsArray.length);
+    const nextSeconds = secondsArray[index];
+    setSeconds(nextSeconds);
+    scrollToSecond(nextSeconds, true);
+    onChange(`${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(nextSeconds).padStart(2, '0')}`);
+  };
 
   // Helper functions to scroll to specific values
   const scrollToHour = (targetHour: number, animated: boolean = true) => {
     const index = hoursArray.indexOf(targetHour);
     if (index >= 0 && hoursScrollRef.current) {
       hoursScrollRef.current.scrollTo({
-        y: Math.max(0, (index - 1) * ITEM_HEIGHT),
+        y: Math.max(0, index * ITEM_HEIGHT),
         animated,
       });
     }
@@ -120,7 +162,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
     const index = minutesArray.indexOf(targetMinute);
     if (index >= 0 && minutesScrollRef.current) {
       minutesScrollRef.current.scrollTo({
-        y: Math.max(0, (index - 1) * ITEM_HEIGHT),
+        y: Math.max(0, index * ITEM_HEIGHT),
         animated,
       });
     }
@@ -130,35 +172,12 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
     const index = secondsArray.indexOf(targetSecond);
     if (index >= 0 && secondsScrollRef.current) {
       secondsScrollRef.current.scrollTo({
-        y: Math.max(0, (index - 1) * ITEM_HEIGHT),
+        y: Math.max(0, index * ITEM_HEIGHT),
         animated,
       });
     }
   };
 
-  // Handle hours scroll
-  const handleHoursScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetY = event.nativeEvent.contentOffset.y;
-    const index = Math.round(offsetY / ITEM_HEIGHT) + 1;
-    const clampedIndex = Math.max(0, Math.min(index, hoursArray.length - 1));
-    setHours(hoursArray[clampedIndex]);
-  };
-
-  // Handle minutes scroll
-  const handleMinutesScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetY = event.nativeEvent.contentOffset.y;
-    const index = Math.round(offsetY / ITEM_HEIGHT) + 1;
-    const clampedIndex = Math.max(0, Math.min(index, minutesArray.length - 1));
-    setMinutes(minutesArray[clampedIndex]);
-  };
-
-  // Handle seconds scroll
-  const handleSecondsScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetY = event.nativeEvent.contentOffset.y;
-    const index = Math.round(offsetY / ITEM_HEIGHT) + 1;
-    const clampedIndex = Math.max(0, Math.min(index, secondsArray.length - 1));
-    setSeconds(secondsArray[clampedIndex]);
-  };
 
   return (
     <View style={styles.card}>
@@ -172,17 +191,17 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
           <ScrollView
             ref={hoursScrollRef}
             style={styles.scrollColumn}
+            contentContainerStyle={styles.scrollContainer}
             scrollEventThrottle={16}
-            onScroll={handleHoursScroll}
+            onMomentumScrollEnd={(event) => finalizeScroll('hours', event.nativeEvent.contentOffset.y)}
+            onStartShouldSetResponderCapture={() => true}
             scrollEnabled={true}
+            nestedScrollEnabled={true}
             showsVerticalScrollIndicator={false}
             snapToInterval={ITEM_HEIGHT}
+            snapToAlignment="center"
             decelerationRate="fast"
           >
-            {/* Top padding */}
-            <View style={{ height: ITEM_HEIGHT }} />
-
-            {/* Items */}
             {hoursArray.map((hour) => (
               <View key={`hour-${hour}`} style={styles.item}>
                 <Text
@@ -195,9 +214,6 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
                 </Text>
               </View>
             ))}
-
-            {/* Bottom padding */}
-            <View style={{ height: ITEM_HEIGHT }} />
           </ScrollView>
         </View>
 
@@ -209,17 +225,17 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
           <ScrollView
             ref={minutesScrollRef}
             style={styles.scrollColumn}
+            contentContainerStyle={styles.scrollContainer}
             scrollEventThrottle={16}
-            onScroll={handleMinutesScroll}
+            onMomentumScrollEnd={(event) => finalizeScroll('minutes', event.nativeEvent.contentOffset.y)}
+            onStartShouldSetResponderCapture={() => true}
             scrollEnabled={true}
+            nestedScrollEnabled={true}
             showsVerticalScrollIndicator={false}
             snapToInterval={ITEM_HEIGHT}
+            snapToAlignment="center"
             decelerationRate="fast"
           >
-            {/* Top padding */}
-            <View style={{ height: ITEM_HEIGHT }} />
-
-            {/* Items */}
             {minutesArray.map((minute) => (
               <View key={`minute-${minute}`} style={styles.item}>
                 <Text
@@ -232,9 +248,6 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
                 </Text>
               </View>
             ))}
-
-            {/* Bottom padding */}
-            <View style={{ height: ITEM_HEIGHT }} />
           </ScrollView>
         </View>
 
@@ -246,17 +259,17 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
           <ScrollView
             ref={secondsScrollRef}
             style={styles.scrollColumn}
+            contentContainerStyle={styles.scrollContainer}
             scrollEventThrottle={16}
-            onScroll={handleSecondsScroll}
+            onMomentumScrollEnd={(event) => finalizeScroll('seconds', event.nativeEvent.contentOffset.y)}
+            onStartShouldSetResponderCapture={() => true}
             scrollEnabled={true}
+            nestedScrollEnabled={true}
             showsVerticalScrollIndicator={false}
             snapToInterval={ITEM_HEIGHT}
+            snapToAlignment="center"
             decelerationRate="fast"
           >
-            {/* Top padding */}
-            <View style={{ height: ITEM_HEIGHT }} />
-
-            {/* Items */}
             {secondsArray.map((second) => (
               <View key={`second-${second}`} style={styles.item}>
                 <Text
@@ -269,9 +282,6 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
                 </Text>
               </View>
             ))}
-
-            {/* Bottom padding */}
-            <View style={{ height: ITEM_HEIGHT }} />
           </ScrollView>
         </View>
       </View>
@@ -361,6 +371,11 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginHorizontal: 8,
     marginTop: -ITEM_HEIGHT * 0.5,
+  },
+
+  scrollContainer: {
+    paddingTop: ITEM_HEIGHT,
+    paddingBottom: ITEM_HEIGHT,
   },
 
   highlightOverlay: {

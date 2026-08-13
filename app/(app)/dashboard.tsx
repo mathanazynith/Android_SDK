@@ -1,15 +1,15 @@
 import React, {
-  useEffect,
-  useState,
+    useEffect,
+    useState,
 } from 'react';
 
 import {
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Alert,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 
 import { router } from 'expo-router';
@@ -19,8 +19,8 @@ import { Feather } from '@expo/vector-icons';
 import { useAuth } from '../../service/auth';
 
 import {
-  Colors,
-  Spacing,
+    Colors,
+    Spacing,
 } from '../../constants/theme';
 
 import SettingsMenu from '../../components/SettingsMenu';
@@ -770,6 +770,40 @@ export default function DashboardScreen() {
           </Text>
 
         </TouchableOpacity>
+
+
+        {/* Activity */}
+
+        <TouchableOpacity
+          style={styles.tabItem}
+
+          onPress={() =>
+            router.push(
+              '/(app)/activity' as any
+            )
+          }
+        >
+
+          <View
+            style={styles.tabIcon}
+          >
+
+            <Feather
+              name="layers"
+              size={24}
+              color="#C4C8C5"
+            />
+
+          </View>
+
+          <Text
+            style={styles.tabLabel}
+          >
+            Activity
+          </Text>
+
+        </TouchableOpacity>
+
 
 
         {/* Stats */}

@@ -1,12 +1,29 @@
-import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import WorkoutCard from './WorkoutCard';
 import { WorkoutDetail } from './types';
 
-interface TimelineProps { workouts: WorkoutDetail[]; onSelectWorkout: (workout: WorkoutDetail) => void; }
+interface TimelineProps {
+  workouts: WorkoutDetail[];
+  onSelectWorkout: (workout: WorkoutDetail) => void;
+  onSwapWorkout: (workout: WorkoutDetail) => void;
+}
 
-export default function Timeline({ workouts, onSelectWorkout }: TimelineProps) {
-  return <View style={styles.container}>{workouts.map((workout, index) => <View key={workout.id} style={styles.row}><View style={styles.leftRail}><View style={styles.dot} />{index < workouts.length - 1 && <View style={styles.line} />}</View><View style={styles.cardWrapper}><WorkoutCard workout={workout} onPress={onSelectWorkout} /></View></View>)}</View>;
+export default function Timeline({ workouts, onSelectWorkout, onSwapWorkout }: TimelineProps) {
+  return (
+    <View style={styles.container}>
+      {workouts.map((workout, index) => (
+        <View key={workout.id} style={styles.row}>
+          <View style={styles.leftRail}>
+            <View style={styles.dot} />
+            {index < workouts.length - 1 && <View style={styles.line} />}
+          </View>
+          <View style={styles.cardWrapper}>
+            <WorkoutCard workout={workout} onPress={onSelectWorkout} onSwap={onSwapWorkout} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({

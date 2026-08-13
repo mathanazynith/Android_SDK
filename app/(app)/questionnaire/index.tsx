@@ -1,28 +1,28 @@
+import { Feather } from "@expo/vector-icons";
+import { router } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
   ActivityIndicator,
-  ScrollView,
   TextInput as RNTextInput,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { useQuestionnaire } from "../../../contexts/QuestionnaireContext";
-import type { Question } from "../../../service/questionnaire/questionnaireService";
-import YesNo from "../../../app/(app)/questionnaire/QuestionTypes/YesNo";
-import RecentLongRun from "../../../app/(app)/questionnaire/QuestionTypes/RecentLongRun";
-import PlanSelection from "../../../app/(app)/questionnaire/QuestionTypes/PlanSelection";
-import DistanceTimePaceSelector, { getDistanceInKilometers } from "../../../app/(app)/questionnaire/QuestionTypes/DistanceTimePaceSelector";
 import DatePicker from "../../../app/(app)/questionnaire/QuestionTypes/DatePicker";
+import DistanceTimePaceSelector, { getDistanceInKilometers } from "../../../app/(app)/questionnaire/QuestionTypes/DistanceTimePaceSelector";
+import PlanSelection from "../../../app/(app)/questionnaire/QuestionTypes/PlanSelection";
+import RecentLongRun from "../../../app/(app)/questionnaire/QuestionTypes/RecentLongRun";
+import YesNo from "../../../app/(app)/questionnaire/QuestionTypes/YesNo";
 import EventRegistration from "../../../app/(app)/questionnaire/components/QuestionTypes/EventRegistration";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
-import { formatTimeFromComponents, timeToSeconds, calculatePace } from "../../../utils/validators";
-import { getDistanceUnitCode } from "../../../utils/distanceUnit";
+import { useQuestionnaire } from "../../../contexts/QuestionnaireContext";
 import { useAuth } from "../../../service/auth";
+import type { Question } from "../../../service/questionnaire/questionnaireService";
 import { validateAnswer } from "../../../service/validation/AssessmentValidator";
-import { router } from "expo-router";
-import { Feather } from "@expo/vector-icons";
+import { getDistanceUnitCode } from "../../../utils/distanceUnit";
+import { calculatePace, timeToSeconds } from "../../../utils/validators";
 
 // Helper to get numeric ID
 const getNumericId = (id: number | string): number => {
@@ -773,7 +773,7 @@ export default function QuestionnaireScreen() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
+      <ScrollView contentContainerStyle={styles.scrollContainer} nestedScrollEnabled={true}>
         <View style={styles.pageContainer}>
           {(error || validationErrorQuestionId) && (
             <View style={styles.validationBanner}>

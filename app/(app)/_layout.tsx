@@ -23,6 +23,18 @@ export default function AppLayout() {
           headerShown: false,
         }} 
       />
+      <Stack.Screen
+        name="activity"
+        options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="running-tracker"
+        options={{
+          headerShown: false,
+        }}
+      />
     </Stack>
   );
 }

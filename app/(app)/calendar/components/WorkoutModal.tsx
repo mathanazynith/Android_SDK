@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { GlassView } from 'expo-glass-effect';
 import { BlurView } from 'expo-blur';
+import { GlassView } from 'expo-glass-effect';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, Animated, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WorkoutDetail } from './types';
 
 interface WorkoutModalProps { visible: boolean; workout: WorkoutDetail | null; onClose: () => void; }
@@ -40,6 +40,9 @@ export default function WorkoutModal({ visible, workout, onClose }: WorkoutModal
     <Text style={[styles.sectionLabel, styles.statsTitle]}>Stats</Text>
     <View style={styles.statsRow}><Stat label="Est Calories" value={activeWorkout.estimatedCalories} /><Stat label="Duration" value={activeWorkout.estimatedDuration} /><Stat label="HR Zone" value={activeWorkout.heartRateZone} /></View>
     <View style={styles.statsRow}><Stat label="Target Pace" value={activeWorkout.targetPace} /><Stat label="Distance" value={activeWorkout.distance} /><Stat label="Notes" value={activeWorkout.notes} /></View>
+    <TouchableOpacity style={styles.startButton} onPress={() => Alert.alert('Start Run', `Mock starting ${activeWorkout.title}.`)}>
+      <Text style={styles.startButtonText}>▶ Start Run</Text>
+    </TouchableOpacity>
   </ScrollView>;
 
   return <Modal transparent visible={rendered} animationType="none" onRequestClose={onClose}><Animated.View style={[styles.overlay, { opacity }]}><BlurView intensity={24} tint="dark" style={StyleSheet.absoluteFill} /><Pressable style={StyleSheet.absoluteFill} onPress={onClose} /><Animated.View style={[styles.cardWrapper, { transform: [{ translateY }] }]}>{Platform.OS === 'ios' ? <GlassView style={styles.glassCard} glassEffectStyle="regular" tintColor="rgba(18, 42, 29, 0.68)" colorScheme="dark"><LinearGradient pointerEvents="none" colors={['rgba(104,199,71,0.22)', 'rgba(8,18,14,0.84)']} style={StyleSheet.absoluteFill} />{content}</GlassView> : <View style={styles.androidCard}><LinearGradient pointerEvents="none" colors={['rgba(104,199,71,0.25)', 'rgba(8,18,14,0.94)']} style={StyleSheet.absoluteFill} />{content}</View>}</Animated.View></Animated.View></Modal>;
@@ -74,4 +77,6 @@ const styles = StyleSheet.create({
   stat: { flex: 1 },
   statLabel: { color: '#FFF', fontSize: 13, fontWeight: '600', marginBottom: 4 },
   statValue: { color: 'rgba(255,255,255,0.72)', fontSize: 14, lineHeight: 19 },
+  startButton: { marginTop: 24, backgroundColor: '#63C72B', borderRadius: 16, paddingVertical: 16, alignItems: 'center', justifyContent: 'center' },
+  startButtonText: { color: '#091200', fontSize: 17, fontWeight: '700' },
 });
