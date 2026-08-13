@@ -371,13 +371,16 @@ export default function MapScreen() {
       const retained = processor.ingestRaw(rawGps);
 
       if (retained) {
-        const liveCoordinates = processor.getDisplayPoints().map((point: RunningGpsPoint) => ({
+        // The map is a visual trace, not the backend route. Draw every raw
+        // coordinate received during this workout so saving cannot shorten or
+        // alter what the runner saw while walking.
+        const liveCoordinates = processor.getRawPoints().map((point: RunningGpsPoint) => ({
           latitude: point.latitude,
           longitude: point.longitude,
         }));
 
         setRouteCoordinates(liveCoordinates);
-        console.log(`[WorkoutMapView] Polyline updated: ${liveCoordinates.length} display points`);
+        console.log(`[WorkoutMapView] Polyline updated: ${liveCoordinates.length} raw points`);
         console.log(`[LocationManager] Tiers -> raw:${processor.getRawPoints().length} display:${processor.getDisplayPoints().length}`);
         addLog(`? Live GPS retained: ${liveCoordinates.length} points`);
 
@@ -488,7 +491,7 @@ export default function MapScreen() {
       // produces no additional indoor fixes during a short workout.
       const startRawPoint = pathProcessor.ingestRaw(currentLocation);
       if (startRawPoint) {
-        const initialRoute = pathProcessor.getDisplayPoints().map((point) => ({
+        const initialRoute = pathProcessor.getRawPoints().map((point) => ({
           latitude: point.latitude,
           longitude: point.longitude,
         }));
@@ -592,12 +595,20 @@ export default function MapScreen() {
         console.log(`[LocationManager] Optimized points: ${optimizedCount}`);
         console.log(`[LocationManager] Reduction: ${reductionPercent}%`);
 
+        // These coordinates are only for the final backend submission. Never
+        // assign them to routeCoordinates: the map must retain its complete
+        // live raw trace after Stop & Save.
         const finalCoordinates = finalOptimized.map((point: RunningPathPoint) => ({
           latitude: point.latitude,
           longitude: point.longitude,
         }));
-        setRouteCoordinates(finalCoordinates);
-        fitMapToRoute(finalCoordinates);
+
+        const displayedRawCoordinates = processor.getRawPoints().map((point) => ({
+          latitude: point.latitude,
+          longitude: point.longitude,
+        }));
+        fitMapToRoute(displayedRawCoordinates);
+        console.log(`[WorkoutMapView] Raw polyline preserved after save: ${displayedRawCoordinates.length} points`);
 
         console.log('[Route Saved]', JSON.stringify(finalCoordinates, null, 2));
         console.log(`[Route Saved] ${finalCoordinates.length} coordinate points finalized`);
