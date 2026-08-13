@@ -1,4 +1,4 @@
-import React, {
+import {
     useEffect,
     useState,
 } from 'react';
@@ -19,8 +19,7 @@ import { Feather } from '@expo/vector-icons';
 import { useAuth } from '../../service/auth';
 
 import {
-    Colors,
-    Spacing,
+    Colors
 } from '../../constants/theme';
 
 import SettingsMenu from '../../components/SettingsMenu';
@@ -255,6 +254,30 @@ export default function DashboardScreen() {
         router.push(
           '/(app)/screens/notifications'
         );
+
+        break;
+
+      case 'Plan':
+
+        router.push(
+          '/(app)/running-plan'
+        );
+
+        break;
+
+      case 'Use Mock Calendar':
+
+        (async () => {
+          try {
+            const current = await storage.getItem(storage.KEYS.USE_MOCK_CALENDAR);
+            const newVal = current === 'false' ? 'true' : 'false';
+            await storage.setItem(storage.KEYS.USE_MOCK_CALENDAR, newVal);
+            Alert.alert('Settings', `Use Mock Calendar: ${newVal === 'true' ? 'ON' : 'OFF'}`);
+          } catch (err) {
+            console.error('Failed to toggle mock calendar', err);
+            Alert.alert('Settings', 'Failed to toggle mock calendar');
+          }
+        })();
 
         break;
 
@@ -718,14 +741,14 @@ export default function DashboardScreen() {
         </TouchableOpacity>
 
 
-        {/* Activity */}
+        {/* Plan (replaces Activity) */}
 
         <TouchableOpacity
           style={styles.tabItem}
 
           onPress={() =>
             router.push(
-              '/(app)/activity' as any
+              '/(app)/running-plan' as any
             )
           }
         >
@@ -735,7 +758,7 @@ export default function DashboardScreen() {
           >
 
             <Feather
-              name="layers"
+              name="clipboard"
               size={24}
               color="#C4C8C5"
             />
@@ -745,7 +768,7 @@ export default function DashboardScreen() {
           <Text
             style={styles.tabLabel}
           >
-            Activity
+            Plan
           </Text>
 
         </TouchableOpacity>

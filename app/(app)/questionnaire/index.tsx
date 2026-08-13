@@ -419,7 +419,8 @@ export default function QuestionnaireScreen() {
 
   React.useEffect(() => {
     if (isComplete && assessmentId) {
-      router.replace("./calendar");
+      // After assessment completion, show the Plan Summary screen (separate from the Training Calendar)
+      router.replace('/(app)/running-plan');
     }
   }, [isComplete, assessmentId]);
 
