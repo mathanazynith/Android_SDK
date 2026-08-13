@@ -27,7 +27,6 @@ import SettingsMenu from '../../components/SettingsMenu';
 
 import { storage } from '../../service/storage';
 
-import MapScreen from './screens/map';
 
 
 // ----------------------------------------------------
@@ -450,11 +449,16 @@ export default function DashboardScreen() {
           </View>
 
 
-          <View style={styles.mapWrapper}>
-
-            <MapScreen />
-
-          </View>
+          <TouchableOpacity
+            style={styles.mapWrapper}
+            activeOpacity={0.85}
+            onPress={() => router.push('/(app)/run' as any)}
+          >
+            <Text style={styles.mapLaunchTitle}>Open full-screen run tracker</Text>
+            <Text style={styles.mapLaunchSubtitle}>
+              Start, stop, close GPS zoom, route processing, and final payload are available here.
+            </Text>
+          </TouchableOpacity>
 
         </View>
 
@@ -1065,7 +1069,26 @@ const styles = StyleSheet.create({
 
     borderRadius: 20,
 
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    backgroundColor: '#161819',
     overflow: 'hidden',
+  },
+
+  mapLaunchTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+
+  mapLaunchSubtitle: {
+    color: '#A8AFB8',
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 10,
+    textAlign: 'center',
   },
 
 

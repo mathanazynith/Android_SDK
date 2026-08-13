@@ -1,4 +1,4 @@
-import { RunSessionStartResponse, RunSessionStartPayload, RunStopPayload, UploadBatchPayload } from '../types/running';
+import { ActivitySubmissionPayload, RunSessionStartResponse, RunSessionStartPayload, RunStopPayload, UploadBatchPayload } from '../types/running';
 
 export class RunningApiClient {
   public async startRun(userId: string, startedAtIso: string): Promise<RunSessionStartResponse> {
@@ -29,6 +29,13 @@ export class RunningApiClient {
 
   public async stopRun(payload: RunStopPayload): Promise<boolean> {
     console.log('[RunningApiClient] POST /runs/stop', JSON.stringify(payload, null, 2));
+    return true;
+  }
+
+  /** Final iOS-compatible workout submission (currently logged by the mock client). */
+  public async submitActivity(payload: ActivitySubmissionPayload): Promise<boolean> {
+    console.log('[RunningApiClient] POST /activities', JSON.stringify(payload, null, 2));
+    console.log('[RunningApiClient] Activity request body', JSON.stringify(payload, null, 2));
     return true;
   }
 }

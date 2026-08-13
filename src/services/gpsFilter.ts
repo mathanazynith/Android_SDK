@@ -9,11 +9,12 @@ export interface GpsFilterConfig {
 }
 
 export const DEFAULT_GPS_FILTER_CONFIG: GpsFilterConfig = {
-  // Indoor / room tracking often starts from coarse fallback readings. Accepting a
-  // much wider accuracy window avoids the sample being dropped before the path
-  // processor sees it. Keep the movement distances small so a room walk has a
-  // chance to become a visible, retained route instead of only a single startup coordinate.
-  maxAccuracyMeters: 2000,
+  // A 2000m acceptance band is too wide for a live running/route screen. It lets
+  // coarse network/last-known samples through the config gate and makes the UI
+  // behave as if the route is live while the path data is effectively untrusted.
+  // Use a tighter live tracking threshold so the map only keeps points up to a
+  // meaningful GPS accuracy radius.
+  maxAccuracyMeters: 50,
   minMovementDistanceMeters: 0.5,
   maxReasonableRunningSpeedMetersPerSecond: 16,
   maxJumpDistanceMeters: 80,

@@ -56,6 +56,23 @@ export interface UploadBatchPayload {
   points: RunningPathPoint[];
 }
 
+export interface ActivityGpsPointPayload {
+  latitude: number;
+  longitude: number;
+  altitude: number | null;
+  accuracy: number | null;
+  speed: number | null;
+  heading: number | null;
+  timestamp: string;
+}
+
+export interface ActivitySubmissionPayload {
+  gps_points: ActivityGpsPointPayload[];
+  start_time: string;
+  end_time: string;
+  activity_type: 'RUN' | 'WALK';
+}
+
 export interface PathProcessorSnapshot {
   rawPointCount: number;
   optimizedPointCount: number;
