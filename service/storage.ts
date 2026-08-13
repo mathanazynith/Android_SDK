@@ -33,5 +33,6 @@ export const storage = {
     QUESTIONNAIRE_PROGRESS: "questionnaire_progress",
     QUESTIONNAIRE_ANSWERS: "questionnaire_answers",
     TRAINING_PLAN: "training_plan", // ✅ NEW: For saving training plan
+    USE_MOCK_CALENDAR: "use_mock_calendar",
   },
 };

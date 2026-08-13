@@ -1,16 +1,14 @@
 // components/SettingsMenu.tsx
-import React from 'react';
+import { Feather } from '@expo/vector-icons';
 import {
-  View,
-  Text,
-  StyleSheet,
+  Dimensions,
   Modal,
+  StyleSheet,
+  Text,
   TouchableOpacity,
   TouchableWithoutFeedback,
-  Dimensions,
+  View,
 } from 'react-native';
-import { Feather } from '@expo/vector-icons';
-import { Colors, Spacing, Typography, BorderRadius } from '../constants/theme';
 
 const { height } = Dimensions.get('window');
 
@@ -24,6 +22,8 @@ const options = [
   { label: 'Edit Profile', icon: 'user' },
   { label: 'Change Password', icon: 'lock' },
   { label: 'Notifications', icon: 'bell' },
+  { label: 'Plan', icon: 'clipboard' },
+  { label: 'Use Mock Calendar', icon: 'shuffle' },
   { label: 'Logout', icon: 'log-out' },
 ];
 

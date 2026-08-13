@@ -1,22 +1,40 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, SafeAreaView, ScrollView, StatusBar, StyleSheet } from 'react-native';
+import { ActivityIndicator, Animated, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 import { useAuth } from '../../../service/auth';
 import { mockRunningPlan } from './components/mockPlan';
 import RunningPlanHeader from './components/RunningPlanHeader';
 import Timeline from './components/Timeline';
 import TrainingCalendarCard from './components/TrainingCalendarCard';
-import { WorkoutDetail } from './components/types';
+import { RunningPlanData, WorkoutDetail } from './components/types';
 import WorkoutModal from './components/WorkoutModal';
 
 export default function CalendarScreen() {
   const { user } = useAuth();
-  const [selectedWeekIndex, setSelectedWeekIndex] = useState(0);
+  const { assessmentResult, isAssessmentResultLoading, fetchAssessmentResult } = useQuestionnaire();
+  const [useMock, setUseMock] = useState<boolean>(true);
+  const [selectedWeekIndex, setSelectedWeekIndex] = useState<number>(0);
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutDetail | null>(null);
-  const [weekWorkouts, setWeekWorkouts] = useState(() => mockRunningPlan.weeks.map((week) => [...week.workouts]));
+  const [weekWorkouts, setWeekWorkouts] = useState<WorkoutDetail[][]>([]);
+  const [planMeta, setPlanMeta] = useState<RunningPlanData | null>(null);
+  const [loadingPlan, setLoadingPlan] = useState<boolean>(true);
+  const [planError, setPlanError] = useState<string | null>(null);
   const weekAnimation = useRef(new Animated.Value(1)).current;
-  const selectedWeek = mockRunningPlan.weeks[selectedWeekIndex];
-  const selectedWeekWorkouts = weekWorkouts[selectedWeekIndex] || selectedWeek.workouts;
+  const selectedWeek = planMeta?.weeks?.[selectedWeekIndex];
+  const selectedWeekWorkouts = weekWorkouts[selectedWeekIndex] || selectedWeek?.workouts || [];
   const userName = user?.first_name?.trim() || user?.username?.trim() || 'Runner';
+
+  // read runtime mock flag from storage on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const v = await storage.getItem(storage.KEYS.USE_MOCK_CALENDAR);
+        setUseMock(v === null ? true : v === 'true');
+      } catch (err) {
+        setUseMock(true);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     weekAnimation.setValue(0.94);
@@ -30,7 +48,7 @@ export default function CalendarScreen() {
 
   const changeWeek = (direction: -1 | 1) => {
     setSelectedWeekIndex((currentIndex) =>
-      Math.max(0, Math.min(mockRunningPlan.weeks.length - 1, currentIndex + direction))
+      Math.max(0, Math.min((planMeta?.weeks?.length ?? 1) - 1, currentIndex + direction))
     );
   };
 
@@ -86,23 +104,165 @@ export default function CalendarScreen() {
     }
   };
 
+
+  const normalizeBackendWorkout = (item: any): WorkoutDetail => {
+    return {
+      id: String(item?.id ?? item?.workout_id ?? item?.name ?? Math.random()),
+      day: item?.day ?? item?.weekday ?? item?.name ?? 'Day',
+      date: item?.date ?? item?.date_text ?? '',
+      title: item?.title ?? item?.name ?? item?.workout ?? 'Workout',
+      workoutType: item?.type ?? item?.workout_type ?? item?.activity ?? '',
+      iconName: (item?.iconName ?? 'walk-outline') as any,
+      accentColor: item?.accentColor ?? '#63C72B',
+      isRest: Boolean(item?.is_rest ?? item?.isRest ?? false),
+      description: item?.description ?? item?.details ?? '',
+      instructions: item?.instructions ?? item?.instruction ?? '',
+      warmUp: item?.warm_up ?? item?.warmUp ?? '',
+      steps: item?.steps ?? item?.steps_list ?? [],
+      coolDown: item?.cool_down ?? item?.coolDown ?? '',
+      estimatedDuration: item?.estimatedDuration ?? item?.duration ?? '',
+      estimatedCalories: item?.estimatedCalories ?? item?.calories ?? '',
+      targetPace: item?.targetPace ?? item?.pace ?? '',
+      heartRateZone: item?.heartRateZone ?? item?.hr_zone ?? '',
+      distance: item?.distance ?? item?.target_distance ?? '—',
+      notes: item?.notes ?? '',
+    } as WorkoutDetail;
+  };
+
+  useEffect(() => {
+    const loadPlanFromBackend = async () => {
+      setLoadingPlan(true);
+      setPlanError(null);
+      if (useMock) {
+        // Load mock plan immediately and skip backend fetch
+        const plan = mockRunningPlan;
+        setPlanMeta(plan);
+        setWeekWorkouts(plan.weeks.map((w) => w.workouts || []));
+        const firstWithWorkouts = plan.weeks.findIndex((w) => Array.isArray(w.workouts) && w.workouts.length > 0);
+        setSelectedWeekIndex(firstWithWorkouts >= 0 ? firstWithWorkouts : 0);
+        setLoadingPlan(false);
+        return;
+      }
+      try {
+        if (!assessmentResult) {
+          // try to fetch; QuestionnaireContext will cache
+          await fetchAssessmentResult();
+        }
+
+        const backendPlan = assessmentResult?.assessment?.running_plan ?? assessmentResult?.running_plan ?? assessmentResult?.recommendation?.recommended_plan ?? null;
+
+        if (!backendPlan) {
+          setPlanMeta(null);
+          setWeekWorkouts([]);
+          setPlanError('No running plan available from backend.');
+          return;
+        }
+
+        // Build RunningPlanData expected by components
+        const weeksSource = backendPlan?.weeks ?? backendPlan?.schedule ?? backendPlan?.weekly_schedule ?? null;
+
+        let weeks = [] as any[];
+        if (Array.isArray(weeksSource) && weeksSource.length > 0) {
+          // backend might provide array of week objects
+          weeks = weeksSource.map((w: any, idx: number) => ({
+            id: w.id ?? `week-${idx}`,
+            label: w.label ?? `Week ${w.week ?? idx + 1}`,
+            dateRange: w.date_range ?? w.dateRange ?? `${w.start_date ?? ''} – ${w.end_date ?? ''}`,
+            statusText: w.status_text ?? w.statusText ?? '',
+            workouts: Array.isArray(w.workouts || w.runs || w.days) ? (w.workouts || w.runs || w.days).map(normalizeBackendWorkout) : [],
+          }));
+        } else if (backendPlan?.weeklyDays || backendPlan?.duration_weeks) {
+          // fallback: if backend returns a flat schedule, try to group by week index
+          const schedule = backendPlan?.schedule ?? backendPlan?.workouts ?? [];
+          const grouped: Record<number, any[]> = {};
+          (schedule || []).forEach((item: any) => {
+            const weekNo = Number(item.week ?? item.week_number ?? item.weekIndex ?? 1) - 1;
+            const key = Number.isNaN(weekNo) ? 0 : weekNo;
+            grouped[key] = grouped[key] || [];
+            grouped[key].push(normalizeBackendWorkout(item));
+          });
+          weeks = Object.keys(grouped).map((k) => ({
+            id: `week-${k}`,
+            label: `Week ${Number(k) + 1}`,
+            dateRange: '',
+            statusText: '',
+            workouts: grouped[Number(k)] ?? [],
+          }));
+        }
+
+        const runningPlanData: RunningPlanData = {
+          name: backendPlan?.name ?? backendPlan?.title ?? 'Recommended Plan',
+          focus: backendPlan?.focus ?? backendPlan?.summary?.focus ?? 'Focus',
+          totalWeeks: Number(backendPlan?.duration_weeks ?? backendPlan?.total_weeks ?? weeks.length ?? 0),
+          weeks: weeks,
+        };
+
+        setPlanMeta(runningPlanData);
+        setWeekWorkouts(runningPlanData.weeks.map((w) => w.workouts || []));
+        setSelectedWeekIndex((i) => Math.min(i, Math.max(0, runningPlanData.weeks.length - 1)));
+      } catch (err: any) {
+        setPlanError('Failed to load running plan from backend.');
+      } finally {
+        setLoadingPlan(false);
+      }
+    };
+
+    loadPlanFromBackend();
+  }, [assessmentResult, useMock]);
+
+  if (loadingPlan || isAssessmentResultLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#28a745" />
+          <Text style={{ color: '#fff', marginTop: 12 }}>Generating your running plan...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (planError || !planMeta) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <Text style={{ color: '#fff', fontSize: 16, marginBottom: 12 }}>{planError ?? 'No running plan available.'}</Text>
+          <TouchableOpacity
+            onPress={async () => {
+              setLoadingPlan(true);
+              setPlanError(null);
+              await fetchAssessmentResult();
+              setLoadingPlan(false);
+            }}
+            style={{ backgroundColor: '#28a745', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 8 }}
+          >
+            <Text style={{ color: '#fff' }}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <RunningPlanHeader
-          planName={mockRunningPlan.name}
-          focusLabel={mockRunningPlan.focus}
+          planName={planMeta.name}
+          focusLabel={planMeta.focus}
           userName={userName}
         />
         <TrainingCalendarCard
-          weekLabel={selectedWeek.label}
-          rangeLabel={selectedWeek.dateRange}
-          statusText={selectedWeek.statusText}
-          totalWeeks={mockRunningPlan.totalWeeks}
-          currentWeekIndex={selectedWeekIndex + 3}
+          weekLabel={selectedWeek?.label ?? ''}
+          rangeLabel={selectedWeek?.dateRange ?? ''}
+          statusText={selectedWeek?.statusText ?? ''}
+          totalWeeks={planMeta.totalWeeks}
+          currentWeekIndex={selectedWeekIndex + 1}
           onPrevious={() => changeWeek(-1)}
           onNext={() => changeWeek(1)}
+          previousDisabled={selectedWeekIndex <= 0}
+          nextDisabled={selectedWeekIndex >= (planMeta?.weeks?.length ?? 1) - 1}
         />
         <Animated.View style={[styles.timelineWrapper, { transform: [{ scale: weekAnimation }] }]}>          
           <Timeline

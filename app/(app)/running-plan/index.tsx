@@ -1,14 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
   ActivityIndicator,
   Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { router } from 'expo-router';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 
 interface ScheduledRun {
@@ -223,65 +223,78 @@ export default function RunningPlanScreen() {
     setLoading(false);
   };
 
-  if (!plan) {
-    return (
-      <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>Failed to generate plan</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
-          <Text style={styles.retryText}>Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  // If backend did not return a full schedule, build a lightweight fallback
+  const backendPlanRaw = extractBackendPlan(assessmentResult);
+  const displayPlan = plan ?? {
+    planName: String(backendPlanRaw?.name ?? backendPlanRaw?.title ?? 'Recommended Running Plan'),
+    planType: String(backendPlanRaw?.type ?? backendPlanRaw?.planType ?? 'recommended'),
+    weeklyDays: Number(backendPlanRaw?.weekly_days ?? backendPlanRaw?.weeklyDays ?? backendPlanRaw?.days_per_week ?? 0) || 0,
+    totalWeeks: Number(backendPlanRaw?.duration_weeks ?? backendPlanRaw?.total_weeks ?? backendPlanRaw?.weeks?.length ?? 0) || 0,
+    schedule: extractBackendSchedule(backendPlanRaw, 1) ?? [],
+    events: extractBackendEvents(assessmentResult) ?? [],
+    summary: {
+      totalWeeklyDistance: String(backendPlanRaw?.totalWeeklyDistance ?? backendPlanRaw?.summary?.totalWeeklyDistance ?? 'TBD'),
+      longRunDay: String(backendPlanRaw?.summary?.longRunDay ?? ''),
+      averagePace: String(backendPlanRaw?.averagePace ?? backendPlanRaw?.summary?.averagePace ?? 'TBD'),
+      // optional fields that UI may display
+      readiness: backendPlanRaw?.summary?.readiness ?? backendPlanRaw?.readiness ?? undefined,
+      riskLevel: backendPlanRaw?.summary?.riskLevel ?? backendPlanRaw?.risk_level ?? undefined,
+      description: backendPlanRaw?.summary?.description ?? backendPlanRaw?.reason ?? 'Based on your assessment, this plan matches your goal.',
+    },
+  };
+
+  const darkStyles = StyleSheet.create({
+    container: { backgroundColor: '#06090B' },
+    topSection: { alignItems: 'center', paddingTop: 28, paddingBottom: 12 },
+    checkBadge: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#2BD64F', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+    planTitle: { color: '#fff', fontSize: 28, fontWeight: '700', marginBottom: 6 },
+    valuesRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 18, marginTop: 8 },
+    valueCard: { flex: 1, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 12, padding: 12, marginHorizontal: 6, borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' },
+    valueLabel: { color: '#AEB0B2', fontSize: 13, marginBottom: 6 },
+    valueText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+    reasonCard: { marginTop: 12, marginHorizontal: 18, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' },
+    reasonTitle: { color: '#fff', fontWeight: '700', marginBottom: 8 },
+    reasonText: { color: '#AEB0B2' },
+    calendarButton: { backgroundColor: '#0B0D0E', borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+    calendarButtonText: { color: '#2BD64F', fontWeight: '700', fontSize: 16 },
+  });
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>🏃 Your Running Plan</Text>
-        <Text style={styles.planType}>{plan.planName}</Text>
-        <Text style={styles.planDetails}>
-          {plan.weeklyDays} days/week • {plan.totalWeeks} weeks
-        </Text>
+    <ScrollView style={[styles.container, darkStyles.container]} contentContainerStyle={{ paddingBottom: 120 }}>
+      <View style={darkStyles.topSection}>
+        <View style={darkStyles.checkBadge}>
+          <Text style={{ fontSize: 36, color: '#fff' }}>✓</Text>
+        </View>
+        <Text style={darkStyles.planTitle}>{displayPlan.planName}</Text>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Weekly Schedule</Text>
-        {plan.schedule.map((run: ScheduledRun, index: number) => (
-          <View key={index} style={styles.scheduleCard}>
-            <View style={styles.scheduleHeader}>
-              <Text style={styles.dayName}>{run.day}</Text>
-              {run.runType === 'Long Run' && (
-                <View style={styles.longRunChip}>
-                  <Text style={styles.longRunChipText}>🏃 Long Run</Text>
-                </View>
-              )}
-            </View>
-            <Text style={styles.runType}>{run.runType}</Text>
-            <Text style={styles.runInfo}>{run.distance} • {run.duration}</Text>
-            <Text style={styles.runPace}>Pace: {run.pace}</Text>
-            <Text style={styles.runDescription}>{run.description}</Text>
-          </View>
-        ))}
+      <View style={darkStyles.valuesRow}>
+        <View style={darkStyles.valueCard}>
+          <Text style={darkStyles.valueLabel}>Readiness</Text>
+          <Text style={darkStyles.valueText}>{(displayPlan as any).summary?.readiness ?? 'Beginner'}</Text>
+        </View>
+        <View style={darkStyles.valueCard}>
+          <Text style={darkStyles.valueLabel}>Risk Level</Text>
+          <Text style={darkStyles.valueText}>{(displayPlan as any).summary?.riskLevel ?? 'Low'}</Text>
+        </View>
+        <View style={darkStyles.valueCard}>
+          <Text style={darkStyles.valueLabel}>Duration</Text>
+          <Text style={darkStyles.valueText}>{displayPlan.totalWeeks ? `${displayPlan.totalWeeks} weeks` : '—'}</Text>
+        </View>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Upcoming Events</Text>
-        {plan.events.map((event: RunningEvent, index: number) => (
-          <View key={index} style={styles.eventCard}>
-            <Text style={styles.eventName}>{event.name}</Text>
-            <Text style={styles.eventDetails}>📅 {event.date} • {event.time}</Text>
-            <Text style={styles.eventDetails}>📍 {event.location}</Text>
-            <Text style={styles.eventDetails}>🏁 {event.distance}</Text>
-            <TouchableOpacity style={styles.registerButton}>
-              <Text style={styles.registerButtonText}>Register</Text>
-            </TouchableOpacity>
-          </View>
-        ))}
+      <View style={darkStyles.reasonCard}>
+        <Text style={darkStyles.reasonTitle}>Why this plan</Text>
+        <Text style={darkStyles.reasonText}>{(displayPlan as any).summary?.description ?? displayPlan.summary?.totalWeeklyDistance ?? 'Based on your assessment, this plan matches your goal.'}</Text>
       </View>
 
-      <TouchableOpacity style={styles.acceptButton} onPress={acceptPlan}>
-        <Text style={styles.acceptButtonText}>Accept & Go to Dashboard</Text>
-      </TouchableOpacity>
+      <View style={{ paddingHorizontal: 18, marginTop: 8 }}>
+        <TouchableOpacity style={darkStyles.calendarButton} onPress={() => router.push('/(app)/calendar')}>
+          <Text style={darkStyles.calendarButtonText}>View Training Calendar</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={{ height: 24 }} />
     </ScrollView>
   );
 }
