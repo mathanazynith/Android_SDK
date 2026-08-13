@@ -3,6 +3,7 @@
     "name": "frontend",
     "slug": "frontend",
     "version": "1.0.0",
+    "newArchEnabled": false,
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "frontend",
@@ -32,8 +33,10 @@
         {
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true,
+          "isAndroidMotionActivityEnabled": true,
           "locationAlwaysAndWhenInUsePermission": "Allow this app to access your location even when the app is in the background to track your run.",
-          "locationWhenInUsePermission": "Allow this app to use your location while you are running."
+          "locationWhenInUsePermission": "Allow this app to use your location while you are running.",
+          "motionUsagePermission": "Allow this app to detect whether you are walking or running while recording a workout."
         }
       ],
        [

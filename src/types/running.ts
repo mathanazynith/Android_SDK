@@ -37,6 +37,7 @@ export interface RunningPathPoint extends RunningGpsPoint {
 export interface RunSessionStartPayload {
   user_id: string;
   started_at: string;
+  run_id?: string;
 }
 
 export interface RunSessionStartResponse {
@@ -53,6 +54,23 @@ export interface RunStopPayload {
 export interface UploadBatchPayload {
   run_id: string;
   points: RunningPathPoint[];
+}
+
+export interface ActivityGpsPointPayload {
+  latitude: number;
+  longitude: number;
+  altitude: number | null;
+  accuracy: number | null;
+  speed: number | null;
+  heading: number | null;
+  timestamp: string;
+}
+
+export interface ActivitySubmissionPayload {
+  gps_points: ActivityGpsPointPayload[];
+  start_time: string;
+  end_time: string;
+  activity_type: 'RUN' | 'WALK';
 }
 
 export interface PathProcessorSnapshot {

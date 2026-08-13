@@ -1,131 +1,50 @@
-import React, {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
   ActivityIndicator,
   Alert,
-  TouchableOpacity,
-  ScrollView,
-  Dimensions,
+  BackHandler,
   Platform,
-} from "react-native";
+  Pressable,
+  StyleSheet,
+  Text,    
+  View,
+} from 'react-native';
+import MapView, { Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import * as Location from 'expo-location';
+import { LocationService } from '../../../src/services/locationService';
+import { ActivityDetectionService } from '../../../src/services/activityDetectionService';
+import { StepDetectionService } from '../../../src/services/stepDetectionService';
+import { RunningApiClient } from '../../../src/services/runningApi';
+import { LocationQueue } from '../../../src/services/locationQueue';
+import { PathProcessor } from '../../../src/services/pathProcessor';
+import { ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
+import { calculateDistanceMeters } from '../../../src/utils/distance';
 
-import MapView, {
-  Marker,
-  Polyline,
-  PROVIDER_GOOGLE,
-  Region,
-} from "react-native-maps";
+const RUNNING_USER_ID = 'USER-1001';
 
-import * as Location from "expo-location";
-
-// Import your actual services
-import { LocationService } from "../../../src/services/locationService";
-import { PathProcessor } from "../../../src/services/pathProcessor";
-import { RunningApiClient } from "../../../src/services/runningApi";
-import { LocationQueue } from "../../../src/services/locationQueue";
-import { RunningPathPoint, RawGpsPayload } from "../../../src/types/running";
-
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-
-/* =========================================================
-   CONSTANTS
-========================================================= */
-
-const RUNNING_USER_ID = "USER-1001";
-const DEFAULT_LATITUDE_DELTA = 0.005;
-const DEFAULT_LONGITUDE_DELTA = 0.005;
-const BATCH_UPLOAD_SIZE = 25;
-const RUNNING_ZOOM = 18;
-
-/* =========================================================
-   TYPES
-========================================================= */
-
-type Coordinate = {
+interface Coordinate {
   latitude: number;
   longitude: number;
-};
+}
 
-/* =========================================================
-   DISTANCE UTILITIES
-========================================================= */
-
-const calculateDistance = (point1: Coordinate, point2: Coordinate): number => {
-  const R = 6371000;
-  const lat1 = (point1.latitude * Math.PI) / 180;
-  const lat2 = (point2.latitude * Math.PI) / 180;
-  const deltaLat = ((point2.latitude - point1.latitude) * Math.PI) / 180;
-  const deltaLon = ((point2.longitude - point1.longitude) * Math.PI) / 180;
-
-  const a =
-    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
-    Math.cos(lat1) *
-      Math.cos(lat2) *
-      Math.sin(deltaLon / 2) *
-      Math.sin(deltaLon / 2);
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-};
-
-const formatDistance = (meters: number): string => {
-  if (meters < 1000) return `${Math.round(meters)} m`;
-  return `${(meters / 1000).toFixed(2)} km`;
-};
-
-const formatTime = (totalSeconds: number): string => {
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return `${hours.toString().padStart(2, "0")}:${minutes
-    .toString()
-    .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-};
-
-/* =========================================================
-   COMPONENT
-========================================================= */
+interface LocationState {
+  coords: {
+    latitude: number;
+    longitude: number;
+    accuracy: number | null;
+    altitude: number | null;
+    altitudeAccuracy: number | null;
+    heading: number | null;
+    speed: number | null;
+  };
+  timestamp: number;
+}
 
 export default function MapScreen() {
-  /* =======================================================
-     REFS
-  ======================================================= */
-
-  const mapRef = useRef<MapView | null>(null);
-  const locationSubscription = useRef<Location.LocationSubscription | null>(
-    null
-  );
-  const pathProcessorRef = useRef<PathProcessor | null>(null);
-  const queueRef = useRef<LocationQueue | null>(null);
-  const apiClientRef = useRef<RunningApiClient | null>(null);
-  const runIdRef = useRef<string | null>(null);
-  const isRunningRef = useRef(false);
-  const startTimeRef = useRef<number | null>(null);
-  const previousLocationRef = useRef<RawGpsPayload | null>(null);
-  const uploadInProgressRef = useRef(false);
-  const distanceRef = useRef(0);
-  const lastRetainedCoordinateRef = useRef<Coordinate | null>(null);
-  const lastRouteFitLengthRef = useRef(0);
-  const lastRouteFitAtRef = useRef(0);
-
-  /* =======================================================
-     STATE
-  ======================================================= */
-
-  const [location, setLocation] = useState<Location.LocationObject | null>(
-    null
-  );
-  const [permissionGranted, setPermissionGranted] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [permissionGranted, setPermissionGranted] = useState(false);
+  const [isMapReady, setIsMapReady] = useState(false);
   const [routeCoordinates, setRouteCoordinates] = useState<Coordinate[]>([]);
   const [distance, setDistance] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -135,85 +54,123 @@ export default function MapScreen() {
     optimizedPointCount: 0,
     reductionPercent: 0,
   });
+  const [stepCount, setStepCount] = useState(0);
+
+  const mapRef = useRef<MapView | null>(null);
+  const locationSubscription = useRef<Location.LocationSubscription | null>(null);
+  const activityDetectionRef = useRef<ActivityDetectionService | null>(null);
+  const stepDetectionRef = useRef<StepDetectionService | null>(null);
+  const startTimeRef = useRef<number | null>(null);
+  const previousLocationRef = useRef<RawGpsPayload | null>(null);
+  const runIdRef = useRef<string | null>(null);
+  const apiClientRef = useRef<RunningApiClient | null>(null);
+  const pathProcessorRef = useRef<PathProcessor | null>(null);
+  const queueRef = useRef<LocationQueue | null>(null);
+  const uploadInProgressRef = useRef(false);
+  const distanceRef = useRef(0);
+  const lastRetainedCoordinateRef = useRef<Coordinate | null>(null);
+  const isRunningRef = useRef(false);
+  const lastCameraUpdateRef = useRef(0);
+  const hasInitializedLocationRef = useRef(false);
+  const stopRunRef = useRef<() => void>(() => {});
+  const isStoppingRef = useRef(false);
+  const isStartingRef = useRef(false);
+
   const [logs, setLogs] = useState<string[]>([]);
-  const [isMapReady, setIsMapReady] = useState(false);
-
-  /* =======================================================
-     LOGGING
-  ======================================================= */
-
-  const addLog = useCallback((message: string) => {
-    const time = new Date().toLocaleTimeString();
-    setLogs((previous) => [...previous.slice(-7), `${time} - ${message}`]);
+  const addLog = useCallback((value: string) => {
+    setLogs((prev) => [...prev, value]);
   }, []);
 
-  /* =======================================================
-     MAP CONTROLS
-  ======================================================= */
+  const [location, setLocation] = useState<LocationState | null>(null);
+
+  const region = useMemo(
+    () => location ? {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+      latitudeDelta: 0.0007,
+      longitudeDelta: 0.0007,
+    } : undefined,
+    [location]
+  );
 
   const moveMapToLocation = useCallback((latitude: number, longitude: number) => {
-    if (!mapRef.current) return;
+    if (!mapRef.current || !isMapReady) return;
 
-    const region: Region = {
-      latitude,
-      longitude,
-      latitudeDelta: DEFAULT_LATITUDE_DELTA,
-      longitudeDelta: DEFAULT_LONGITUDE_DELTA,
-    };
-
-    mapRef.current.animateToRegion(region, 500);
-  }, []);
-
-  const followRunner = useCallback((latitude: number, longitude: number) => {
-    if (!isRunningRef.current || !mapRef.current) return;
+    const now = Date.now();
+    if (now - lastCameraUpdateRef.current < 700) return;
+    lastCameraUpdateRef.current = now;
 
     mapRef.current.animateCamera(
       {
         center: { latitude, longitude },
-        zoom: RUNNING_ZOOM,
+        zoom: 20,
       },
-      { duration: 500 }
+      { duration: 600 }
     );
-  }, []);
+  }, [isMapReady]);
 
   const fitMapToRoute = useCallback((coordinates: Coordinate[]) => {
-    if (!mapRef.current || coordinates.length < 2) return;
+    if (!mapRef.current || !isMapReady || coordinates.length === 0) return;
 
-    const now = Date.now();
-    const sizeDelta = coordinates.length - lastRouteFitLengthRef.current;
-    const fitAllowed =
-      sizeDelta >= 2 ||
-      now - lastRouteFitAtRef.current > 2500;
-
-    if (!fitAllowed) {
+    if (coordinates.length < 2) {
+      const first = coordinates[0];
+      if (first) {
+        moveMapToLocation(first.latitude, first.longitude);
+      }
       return;
     }
 
-    const route = coordinates.map((coordinate) => ({
-      latitude: coordinate.latitude,
-      longitude: coordinate.longitude,
-    }));
+    const lats = coordinates.map((point) => point.latitude);
+    const lons = coordinates.map((point) => point.longitude);
 
-    mapRef.current.fitToCoordinates(route, {
-      edgePadding: {
-        top: 80,
-        right: 80,
-        bottom: 110,
-        left: 80,
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLon = Math.min(...lons);
+    const maxLon = Math.max(...lons);
+
+    const midLat = (minLat + maxLat) / 2;
+    const midLon = (minLon + maxLon) / 2;
+
+    const routeWidthMeters = calculateDistanceMeters(
+      { latitude: midLat, longitude: minLon },
+      { latitude: midLat, longitude: maxLon }
+    );
+    const routeHeightMeters = calculateDistanceMeters(
+      { latitude: minLat, longitude: midLon },
+      { latitude: maxLat, longitude: midLon }
+    );
+
+    // The old 0.002-degree minimum showed roughly 200m and made a room route
+    // appear tiny. Keep short routes at the close tracking zoom.
+    if (Math.max(routeWidthMeters, routeHeightMeters) < 60) {
+      mapRef.current.animateCamera(
+        { center: { latitude: midLat, longitude: midLon }, zoom: 20 },
+        { duration: 350 }
+      );
+      console.log('[WorkoutMapView] Short route kept at close indoor zoom (20)');
+      return;
+    }
+
+    const latDelta = Math.max(0.00015, (maxLat - minLat) * 1.2);
+    const lonDelta = Math.max(0.00015, (maxLon - minLon) * 1.2);
+
+    mapRef.current.animateToRegion(
+      {
+        latitude: midLat,
+        longitude: midLon,
+        latitudeDelta: latDelta,
+        longitudeDelta: lonDelta,
       },
-      animated: true,
-    });
-
-    lastRouteFitLengthRef.current = coordinates.length;
-    lastRouteFitAtRef.current = now;
-  }, []);
+      350
+    );
+  }, [isMapReady, moveMapToLocation]);
 
   const zoomIn = useCallback(() => {
     if (!mapRef.current) return;
     mapRef.current.getCamera().then((camera) => {
       mapRef.current?.animateCamera(
         {
-          zoom: (camera.zoom || RUNNING_ZOOM) + 1,
+          zoom: (camera.zoom || 16) + 1,
         },
         { duration: 300 }
       );
@@ -225,32 +182,27 @@ export default function MapScreen() {
     mapRef.current.getCamera().then((camera) => {
       mapRef.current?.animateCamera(
         {
-          zoom: Math.max((camera.zoom || RUNNING_ZOOM) - 1, 10),
+          zoom: Math.max((camera.zoom || 16) - 1, 10),
         },
         { duration: 300 }
       );
     });
   }, []);
 
-  /* =======================================================
-     LOCATION PERMISSIONS
-  ======================================================= */
-
   const requestLocation = useCallback(async () => {
     try {
       setLoading(true);
 
-      // Request foreground permissions
       const granted = await LocationService.requestForegroundPermissions();
       if (!granted) {
         setPermissionGranted(false);
         Alert.alert(
-          "Location Permission Required",
-          "Please allow precise location access to track your runs.",
+          'Location Permission Required',
+          'Please allow precise location access to track your runs.',
           [
-            { text: "OK", style: "default" },
+            { text: 'OK', style: 'default' },
             {
-              text: "Settings",
+              text: 'Settings',
               onPress: () => Location.requestForegroundPermissionsAsync(),
             },
           ]
@@ -258,28 +210,29 @@ export default function MapScreen() {
         return;
       }
 
-      // Request background permissions for Android
-      if (Platform.OS === "android") {
-        const { status: backgroundStatus } =
-          await Location.requestBackgroundPermissionsAsync();
-        if (backgroundStatus !== "granted") {
+      await LocationService.enableHighAccuracyProvider();
+
+      if (Platform.OS === 'android') {
+        const backgroundGranted = await LocationService.requestBackgroundPermissions();
+        if (!backgroundGranted) {
           Alert.alert(
-            "Background Location",
-            "Background location access helps track your run even when the app is in background."
+            'Background Location',
+            'Background location access helps track your run even when the app is in background.'
           );
         }
       }
 
       setPermissionGranted(true);
 
-      // Get current location
       const currentLocation = await LocationService.getCurrentLocation();
-      
-      // Convert timestamp to number
-      const timestamp = typeof currentLocation.timestamp === 'number' 
-        ? currentLocation.timestamp 
-        : typeof currentLocation.timestamp === 'string' 
-          ? parseInt(currentLocation.timestamp, 10) 
+      console.log(
+        `[LocationManager] incoming sample acc:${currentLocation.accuracy ?? 0}m age:0.0s speed:${currentLocation.speed ?? 0} hasLast:false`
+      );
+
+      const timestamp = typeof currentLocation.timestamp === 'number'
+        ? currentLocation.timestamp
+        : typeof currentLocation.timestamp === 'string'
+          ? parseInt(currentLocation.timestamp, 10)
           : Date.now();
 
       setLocation({
@@ -292,46 +245,38 @@ export default function MapScreen() {
           heading: currentLocation.heading ?? null,
           speed: currentLocation.speed ?? null,
         },
-        timestamp: timestamp,
+        timestamp,
       });
 
       setAccuracy(currentLocation.accuracy ?? null);
-
-      // Move map to location
       moveMapToLocation(currentLocation.latitude, currentLocation.longitude);
-
-      addLog("📍 Precise location access granted");
-      addLog(`📍 Accuracy: ${(currentLocation.accuracy ?? 0).toFixed(1)}m`);
+      addLog('?? Precise location access granted');
+      addLog(`?? Accuracy: ${(currentLocation.accuracy ?? 0).toFixed(1)}m`);
     } catch (error) {
-      console.error("Location error:", error);
-      Alert.alert(
-        "Location Error",
-        "Unable to get your current location. Please make sure GPS is enabled."
-      );
+      console.error('Location error:', error);
+      Alert.alert('Location Error', 'Unable to get your current location. Please make sure GPS is enabled.');
     } finally {
       setLoading(false);
     }
-  }, [moveMapToLocation, addLog]);
-
-  /* =======================================================
-     INITIAL LOCATION
-  ======================================================= */
+  }, [addLog, moveMapToLocation]);
 
   useEffect(() => {
-    requestLocation();
+    if (hasInitializedLocationRef.current) return;
+    hasInitializedLocationRef.current = true;
+    void requestLocation();
+  }, [requestLocation]);
 
+  useEffect(() => {
     return () => {
       isRunningRef.current = false;
       if (locationSubscription.current) {
         locationSubscription.current.remove();
         locationSubscription.current = null;
       }
+      activityDetectionRef.current?.stop();
+      activityDetectionRef.current = null;
     };
-  }, [requestLocation]);
-
-  /* =======================================================
-     RUN TIMER
-  ======================================================= */
+  }, []);
 
   useEffect(() => {
     if (!isRunning) return;
@@ -346,10 +291,6 @@ export default function MapScreen() {
     return () => clearInterval(timer);
   }, [isRunning]);
 
-  /* =======================================================
-     UPLOAD BATCH
-  ======================================================= */
-
   const uploadBatch = useCallback(
     async (batch: RunningPathPoint[]) => {
       if (batch.length === 0) return;
@@ -358,13 +299,20 @@ export default function MapScreen() {
 
       uploadInProgressRef.current = true;
 
+      const uploadPayload = {
+        run_id: runIdRef.current,
+        points: batch,
+      };
+
+      console.log('[Upload Payload JSON]', JSON.stringify(uploadPayload, null, 2));
+
       try {
-        addLog(`📤 Uploading ${batch.length} points`);
+        addLog(`?? Uploading ${batch.length} points`);
         await apiClientRef.current.uploadBatch(runIdRef.current, batch);
-        addLog(`✅ ${batch.length} points uploaded`);
+        addLog(`? ${batch.length} points uploaded`);
       } catch (error) {
-        console.error("Batch upload failed:", error);
-        addLog("❌ Batch upload failed");
+        console.error('Batch upload failed:', error);
+        addLog('? Batch upload failed');
       } finally {
         uploadInProgressRef.current = false;
       }
@@ -372,22 +320,28 @@ export default function MapScreen() {
     [addLog]
   );
 
-  /* =======================================================
-     LIVE LOCATION UPDATE
-  ======================================================= */
-
   const handleLocationUpdate = useCallback(
     (rawGps: RawGpsPayload) => {
       if (!isRunningRef.current) return;
 
-      // Convert timestamp to number
-      const timestamp = typeof rawGps.timestamp === 'number' 
-        ? rawGps.timestamp 
-        : typeof rawGps.timestamp === 'string' 
-          ? parseInt(rawGps.timestamp, 10) 
+      const timestamp = typeof rawGps.timestamp === 'number'
+        ? rawGps.timestamp
+        : typeof rawGps.timestamp === 'string'
+          ? parseInt(rawGps.timestamp, 10)
           : Date.now();
 
-      // Update UI location
+      const ageSeconds = previousLocationRef.current && typeof previousLocationRef.current.timestamp !== 'undefined'
+        ? Math.max(0, (timestamp - (typeof previousLocationRef.current.timestamp === 'number' ? previousLocationRef.current.timestamp : Date.now())) / 1000)
+        : 0;
+
+      console.log(
+        `[LocationManager] LIVE GPS -> lat:${rawGps.latitude} lon:${rawGps.longitude} accuracy:${rawGps.accuracy ?? 0}m speed:${rawGps.speed ?? 0} heading:${rawGps.heading ?? 0} timestamp:${timestamp}`
+      );
+
+      console.log(
+        `[LocationManager] incoming sample -> accuracy:${rawGps.accuracy ?? 0}m age:${ageSeconds.toFixed(1)}s speed:${rawGps.speed ?? 0} hasLast:${previousLocationRef.current ? 'true' : 'false'}`
+      );
+
       setLocation({
         coords: {
           latitude: rawGps.latitude,
@@ -398,24 +352,37 @@ export default function MapScreen() {
           heading: rawGps.heading ?? null,
           speed: rawGps.speed ?? null,
         },
-        timestamp: timestamp,
+        timestamp,
       });
 
       setAccuracy(rawGps.accuracy ?? null);
 
-      // Get processor and queue
       const processor = pathProcessorRef.current;
-      const queue = queueRef.current;
 
-      if (!processor || !queue) return;
+      if (!processor) return;
 
-      // Process the GPS point through PathProcessor
-      const retained = processor.ingest(rawGps);
+      const activityDetection = activityDetectionRef.current;
+      if (activityDetection) {
+        console.log(
+          `[LocationManager] Activity: ${activityDetection.getCurrentActivity()} (classification only; live raw point retained)`
+        );
+      }
+
+      const retained = processor.ingestRaw(rawGps);
 
       if (retained) {
-        // Use the retained route coordinate, not the raw sample, to keep distance aligned with trajectory retention.
+        const liveCoordinates = processor.getDisplayPoints().map((point: RunningGpsPoint) => ({
+          latitude: point.latitude,
+          longitude: point.longitude,
+        }));
+
+        setRouteCoordinates(liveCoordinates);
+        console.log(`[WorkoutMapView] Polyline updated: ${liveCoordinates.length} display points`);
+        console.log(`[LocationManager] Tiers -> raw:${processor.getRawPoints().length} display:${processor.getDisplayPoints().length}`);
+        addLog(`? Live GPS retained: ${liveCoordinates.length} points`);
+
         if (lastRetainedCoordinateRef.current) {
-          const movementDistance = calculateDistance(
+          const movementDistance = calculateDistanceMeters(
             lastRetainedCoordinateRef.current,
             { latitude: retained.latitude, longitude: retained.longitude }
           );
@@ -432,50 +399,19 @@ export default function MapScreen() {
           longitude: retained.longitude,
         };
 
-        // Add to queue for uploading
-        queue.enqueue(retained);
-
-        // Update stats
-        const snapshot = processor.getSnapshot();
-        setOptimizedStats({
-          rawPointCount: snapshot.rawPointCount,
-          optimizedPointCount: snapshot.optimizedPointCount,
-          reductionPercent: snapshot.reductionPercent,
-        });
-
-        // Get optimized points for the polyline
-        const optimized = processor.getOptimizedPoints();
-        const coordinates = optimized.map((point: RunningPathPoint) => ({
-          latitude: point.latitude,
-          longitude: point.longitude,
-        }));
-
-        setRouteCoordinates(coordinates);
-        fitMapToRoute(coordinates);
-        console.log("[Live Route]", JSON.stringify(coordinates, null, 2));
-        console.log(`[Live GPS] retained ${coordinates.length} optimized route points`);
-        addLog(`✅ Path retained: ${coordinates.length} points`);
-
-        // Upload batch if needed
-        if (queue.getPendingCount() >= BATCH_UPLOAD_SIZE) {
-          const batch = queue.drainBatch();
-          if (runIdRef.current && apiClientRef.current) {
-            uploadBatch(batch);
-          }
-        }
+        // Live route points stay on-device and unfiltered. They are filtered,
+        // simplified, and uploaded once only when the user saves the workout.
       } else {
-        addLog("❌ GPS point rejected");
+        console.log('[LocationManager] Rejected: GPS sample did not pass live validation');
+        addLog('? GPS point rejected');
       }
 
-      // Follow the runner on the map
-      followRunner(rawGps.latitude, rawGps.longitude);
+      previousLocationRef.current = rawGps;
+      console.log(`[WorkoutMapView] Current location: lat=${rawGps.latitude} lon=${rawGps.longitude}`);
+      moveMapToLocation(rawGps.latitude, rawGps.longitude);
     },
-    [addLog, followRunner, uploadBatch]
+    [addLog, fitMapToRoute, moveMapToLocation, uploadBatch]
   );
-
-  /* =======================================================
-     START LIVE GPS
-  ======================================================= */
 
   const startLiveGPS = useCallback(async () => {
     if (locationSubscription.current) {
@@ -483,129 +419,179 @@ export default function MapScreen() {
       locationSubscription.current = null;
     }
 
-    locationSubscription.current = await LocationService.watchLocation(
-      handleLocationUpdate
-    );
-
-    addLog("📡 Live GPS tracking started");
+    locationSubscription.current = await LocationService.watchLocation(handleLocationUpdate);
+    addLog('?? Live GPS tracking started');
   }, [addLog, handleLocationUpdate]);
 
-  /* =======================================================
-     START RUN
-  ======================================================= */
-
   const startRun = async () => {
+    if (isStartingRef.current || isRunningRef.current) {
+      console.log('[RecordView] Start request ignored: a run is already starting or active');
+      return;
+    }
+
+    isStartingRef.current = true;
     try {
       if (!permissionGranted) {
         await requestLocation();
         return;
       }
 
-      // Reset state
       setRouteCoordinates([]);
       distanceRef.current = 0;
       setDistance(0);
       setElapsedSeconds(0);
-      setOptimizedStats({
-        rawPointCount: 0,
-        optimizedPointCount: 0,
-        reductionPercent: 0,
-      });
+      setStepCount(0);
+      setOptimizedStats({ rawPointCount: 0, optimizedPointCount: 0, reductionPercent: 0 });
       setLogs([]);
       previousLocationRef.current = null;
       lastRetainedCoordinateRef.current = null;
 
-      // Create API client
       const apiClient = new RunningApiClient();
       apiClientRef.current = apiClient;
 
-      // Start run in backend
       const startedAt = new Date().toISOString();
+      startTimeRef.current = Date.now();
       const startResponse = await apiClient.startRun(RUNNING_USER_ID, startedAt);
 
       if (!startResponse.success || !startResponse.run_id) {
-        Alert.alert("Error", "Failed to start run");
+        Alert.alert('Error', 'Failed to start run');
         return;
       }
 
       const runId = startResponse.run_id;
       runIdRef.current = runId;
 
-      // Get current location
+      const startPayload = {
+        user_id: RUNNING_USER_ID,
+        started_at: startedAt,
+        run_id: runId,
+      };
+
+      console.log('[Start Run Payload JSON]', JSON.stringify(startPayload, null, 2));
+
       const currentLocation = await LocationService.getCurrentLocation();
+      console.log(
+        `[LocationManager] First strict point recorded: lat:${currentLocation.latitude}, lon:${currentLocation.longitude}, acc:${currentLocation.accuracy ?? 0}m`
+      );
+
       const startingPoint: Coordinate = {
         latitude: currentLocation.latitude,
         longitude: currentLocation.longitude,
       };
 
-      // Initialize PathProcessor with the run ID
       const pathProcessor = new PathProcessor(runId);
       pathProcessorRef.current = pathProcessor;
       pathProcessor.reset();
 
-      // Initialize Queue
+      // The fresh fix acquired at Start is a genuine route sample. Retaining
+      // it means Stop can always create a valid final payload even if Android
+      // produces no additional indoor fixes during a short workout.
+      const startRawPoint = pathProcessor.ingestRaw(currentLocation);
+      if (startRawPoint) {
+        const initialRoute = pathProcessor.getDisplayPoints().map((point) => ({
+          latitude: point.latitude,
+          longitude: point.longitude,
+        }));
+        setRouteCoordinates(initialRoute);
+        lastRetainedCoordinateRef.current = {
+          latitude: startRawPoint.latitude,
+          longitude: startRawPoint.longitude,
+        };
+        console.log('[LocationManager] Start coordinate retained as raw point for final payload');
+      }
+
+      const activityDetection = new ActivityDetectionService();
+      activityDetectionRef.current = activityDetection;
+      const stepDetection = new StepDetectionService();
+      stepDetectionRef.current = stepDetection;
+
       const queue = new LocationQueue();
       queueRef.current = queue;
 
-      // Set initial point for polyline
-      setRouteCoordinates([startingPoint]);
-      console.log("[Run Start Coordinate]", JSON.stringify([startingPoint], null, 2));
-      console.log("[Run Start Payload]", JSON.stringify({
-        user_id: RUNNING_USER_ID,
-        started_at: startedAt,
-        run_id: runId,
-      }));
+      console.log('[Run Start Coordinate]', JSON.stringify([startingPoint], null, 2));
+      console.log('[Run Start Payload]', JSON.stringify({ user_id: RUNNING_USER_ID, started_at: startedAt, run_id: runId }, null, 2));
 
-      // Start run state
-      startTimeRef.current = Date.now();
+      console.log('[LocationManager] RUN STARTED');
+      console.log(`[RecordView] Recording started at ${startedAt}`);
       isRunningRef.current = true;
       setIsRunning(true);
 
-      addLog(`🏃 Run ${runId} started`);
-      addLog("📡 GPS tracking enabled");
-
-      // Move map to starting position
+      addLog(`?? Run ${runId} started`);
+      addLog('?? GPS tracking enabled');
       moveMapToLocation(startingPoint.latitude, startingPoint.longitude);
 
-      // Start GPS tracking
-      await startLiveGPS();
+      // GPS is the primary source of truth. Do not await motion activity
+      // recognition (or the location watcher setup) before showing the active
+      // recording UI: either native request can be slow on Android.
+      void startLiveGPS()
+        .then(() => console.log('RUN STARTED:', runId))
+        .catch((error) => {
+          console.error('[LocationManager] GPS watcher failed to start', error);
+          addLog('GPS watcher failed to start');
+        });
 
-      console.log("RUN STARTED:", runId);
+      void activityDetection.start(startTimeRef.current).catch((error) => {
+        console.warn('[LocationManager] Activity monitoring startup failed; GPS recording continues', error);
+      });
+      void stepDetection.start(setStepCount).catch((error) => {
+        console.warn('[LocationManager] Pedometer startup failed; GPS-only tracking continues', error);
+      });
     } catch (error) {
-      console.error("Start run error:", error);
+      console.error('Start run error:', error);
+      activityDetectionRef.current?.stop();
+      activityDetectionRef.current = null;
+      stepDetectionRef.current?.stop();
+      stepDetectionRef.current = null;
       isRunningRef.current = false;
       setIsRunning(false);
-      Alert.alert(
-        "Error",
-        "Failed to start run. Please check your location settings."
-      );
+      Alert.alert('Error', 'Failed to start run. Please check your location settings.');
+    } finally {
+      isStartingRef.current = false;
     }
   };
 
-  /* =======================================================
-     STOP RUN
-  ======================================================= */
-
   const stopRun = async () => {
+    if (isStoppingRef.current) {
+      console.log('[RecordView] Stop request ignored: finalization already in progress');
+      return;
+    }
+
+    isStoppingRef.current = true;
     try {
-      // Stop processing new GPS
+      const stoppedAt = new Date();
+      const detectedActivity = activityDetectionRef.current?.getCurrentActivity();
+      const workoutType = detectedActivity === 'walking' ? 'walk' : 'run';
+      const activityType = workoutType === 'walk' ? 'WALK' : 'RUN';
+      console.log(`[RecordView] Recording stopped at ${stoppedAt.toISOString()}`);
+      console.log('[RecordView] Stop finalization started');
       isRunningRef.current = false;
 
-      // Stop GPS watcher
       if (locationSubscription.current) {
         locationSubscription.current.remove();
         locationSubscription.current = null;
       }
+      activityDetectionRef.current?.stop();
+      activityDetectionRef.current = null;
+      stepDetectionRef.current?.stop();
+      stepDetectionRef.current = null;
 
       const processor = pathProcessorRef.current;
-      const queue = queueRef.current;
 
-      if (processor && queue) {
-        // Finalize the path using RDP simplification
-        const finalOptimized = processor.simplifyFinal();
-        queue.enqueueMany(finalOptimized);
+      if (processor) {
+        console.log('[LocationManager] Raw points collected:', processor.getRawPoints().length);
+        console.log('[LocationManager] Filtering started');
+        const filteredPoints = processor.filterRawPoints();
+        console.log(`[LocationManager] Filtered points: ${filteredPoints.length}`);
 
-        // Update polyline with the final simplified route instead of the unfiltered working list.
+        console.log('[LocationManager] RDP optimization started');
+        const finalOptimized = processor.simplifyFinal(filteredPoints);
+        const rawPointCount = processor.getRawPoints().length;
+        const optimizedCount = finalOptimized.length;
+        const reductionPercent = rawPointCount > 0 ? Math.round(((rawPointCount - optimizedCount) / rawPointCount) * 100) : 0;
+
+        console.log(`[LocationManager] Optimized points: ${optimizedCount}`);
+        console.log(`[LocationManager] Reduction: ${reductionPercent}%`);
+
         const finalCoordinates = finalOptimized.map((point: RunningPathPoint) => ({
           latitude: point.latitude,
           longitude: point.longitude,
@@ -613,10 +599,9 @@ export default function MapScreen() {
         setRouteCoordinates(finalCoordinates);
         fitMapToRoute(finalCoordinates);
 
-        console.log("[Route Saved]", JSON.stringify(finalCoordinates, null, 2));
+        console.log('[Route Saved]', JSON.stringify(finalCoordinates, null, 2));
         console.log(`[Route Saved] ${finalCoordinates.length} coordinate points finalized`);
 
-        // Final stats
         const snapshot = processor.getSnapshot();
         setOptimizedStats({
           rawPointCount: snapshot.rawPointCount,
@@ -624,63 +609,127 @@ export default function MapScreen() {
           reductionPercent: snapshot.reductionPercent,
         });
 
-        addLog(`🏁 Final optimization: ${finalOptimized.length} points`);
+        addLog(`?? Final optimization: ${finalOptimized.length} points`);
 
-        // Upload remaining points
-        if (runIdRef.current && apiClientRef.current) {
-          const finalBatch = queue.drainBatch();
-          if (finalBatch.length > 0) {
-            await uploadBatch(finalBatch);
+        const routePayload = {
+          workout_type: workoutType,
+          start_time: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : new Date().toISOString(),
+          end_time: new Date().toISOString(),
+          coordinates: finalCoordinates,
+          distance: distanceRef.current,
+          duration: elapsedSeconds,
+          route_points: finalCoordinates.length,
+        };
+
+        console.log('[LocationManager] FINAL BACKEND PAYLOAD:');
+        console.log(JSON.stringify(routePayload, null, 2));
+
+        // Keep a console payload equivalent to the iOS Activity Payload log.
+        // It contains only the points that survived the save-time filtering and
+        // optimization, never the unfiltered live-display samples.
+        const iosStyleActivityPayload: ActivitySubmissionPayload = {
+          gps_points: finalOptimized.map((point) => ({
+            longitude: point.longitude,
+            latitude: point.latitude,
+            heading: point.heading,
+            timestamp: new Date(point.timestamp).toISOString(),
+            speed: point.speed,
+            accuracy: point.accuracy,
+            altitude: point.altitude,
+          })),
+          start_time: startTimeRef.current
+            ? new Date(startTimeRef.current).toISOString()
+            : new Date().toISOString(),
+          end_time: stoppedAt.toISOString(),
+          activity_type: activityType,
+        };
+        console.log('📤 ACTIVITY PAYLOAD (to backend):');
+        console.log(JSON.stringify(iosStyleActivityPayload, null, 2));
+
+        if (apiClientRef.current) {
+          // Submit the actual final payload in the iOS-compatible shape.
+          const activitySubmitted = await apiClientRef.current.submitActivity(iosStyleActivityPayload);
+
+          const stopSucceeded = runIdRef.current
+            ? await apiClientRef.current.stopRun({
+              run_id: runIdRef.current,
+              ended_at: stoppedAt.toISOString(),
+              final_sequence: finalOptimized.length,
+            })
+            : true;
+
+          if (activitySubmitted && stopSucceeded) {
+            console.log('Activity submitted successfully');
+            console.log('Response:', JSON.stringify({
+              success: true,
+              run_id: runIdRef.current ?? null,
+              route_points: finalOptimized.length,
+              distance: distanceRef.current,
+              duration: elapsedSeconds,
+            }, null, 2));
           }
 
-          // Finalize run in backend
-          await apiClientRef.current.stopRun({
-            run_id: runIdRef.current,
-            ended_at: new Date().toISOString(),
-            final_sequence: processor.getOptimizedPoints().length,
-          });
-
-          addLog(`✅ Run ${runIdRef.current} completed`);
+          addLog(`Run ${runIdRef.current ?? 'activity'} completed`);
         }
       }
 
-      // Reset state
       setIsRunning(false);
       isRunningRef.current = false;
       startTimeRef.current = null;
       previousLocationRef.current = null;
+      lastRetainedCoordinateRef.current = null;
+      runIdRef.current = null;
+      queueRef.current = null;
+      pathProcessorRef.current = null;
+      apiClientRef.current = null;
 
-      const finalDistance = distanceRef.current;
-      const finalRouteCount = routeCoordinates.length;
-
-      const routePayload = {
-        run_id: runIdRef.current,
-        start_time: startTimeRef.current,
-        end_time: new Date().toISOString(),
-        duration: elapsedSeconds,
-        distance: finalDistance,
-        route_points: finalRouteCount,
-        coordinates: routeCoordinates.map((point) => [point.latitude, point.longitude]),
-      };
-
-      console.log("[Route Final Payload]", JSON.stringify(routePayload, null, 2));
-
-      // Show completion alert without dumping distance or route summary to the frontend UI.
-      Alert.alert(
-        "🎉 Run Completed!",
-        "Your route has been finalized and saved for upload."
-      );
+      Alert.alert('?? Run Completed!', 'Your route has been finalized and saved for upload.');
     } catch (error) {
-      console.error("Stop run error:", error);
+      console.error('Stop run error:', error);
       setIsRunning(false);
       isRunningRef.current = false;
-      Alert.alert("Error", "Failed to stop run properly.");
+      Alert.alert('Error', 'Failed to stop run properly.');
+    } finally {
+      isStoppingRef.current = false;
     }
   };
 
-  /* =======================================================
-     LOADING
-  ======================================================= */
+  // A physical Android Back press is a reliable escape hatch if an OEM map
+  // implementation ever consumes the visible Stop control's touch.
+  useEffect(() => {
+    stopRunRef.current = () => {
+      void stopRun();
+    };
+  }, [stopRun]);
+
+  // This exposes a React/Fast Refresh state reset immediately in the Metro log.
+  // The recorder ref remains the authoritative source for the button action.
+  useEffect(() => {
+    console.log(`[RecordView] UI recording state -> ${isRunning ? 'LIVE' : 'READY'}; recorder ref -> ${isRunningRef.current ? 'LIVE' : 'READY'}`);
+  }, [isRunning]);
+
+  const handleRunAction = () => {
+    const recorderIsActive = isRunningRef.current || pathProcessorRef.current !== null;
+    console.log(`[RecordView] Primary run action pressed; recorder active: ${recorderIsActive}`);
+
+    if (recorderIsActive) {
+      void stopRun();
+      return;
+    }
+
+    void startRun();
+  };
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!isRunningRef.current) return false;
+      console.log('[RecordView] Hardware Back pressed; saving active run');
+      stopRunRef.current();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, []);
 
   if (loading) {
     return (
@@ -692,62 +741,8 @@ export default function MapScreen() {
     );
   }
 
-  /* =======================================================
-     PERMISSION
-  ======================================================= */
-
-  if (!permissionGranted) {
-    return (
-      <View style={styles.centerContainer}>
-        <View style={styles.permissionIconContainer}>
-          <Text style={styles.permissionIcon}>📍</Text>
-        </View>
-        <Text style={styles.permissionTitle}>Location Permission Required</Text>
-        <Text style={styles.permissionDescription}>
-          This app needs precise location access to track your running routes accurately.
-        </Text>
-        <TouchableOpacity style={styles.permissionButton} onPress={requestLocation}>
-          <Text style={styles.permissionButtonText}>Allow Precise Location</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  /* =======================================================
-     WAITING FOR LOCATION
-  ======================================================= */
-
-  if (!location) {
-    return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#20D000" />
-        <Text style={styles.loadingText}>Waiting for GPS signal...</Text>
-        <Text style={styles.loadingSubText}>Make sure you're outside with clear sky view</Text>
-      </View>
-    );
-  }
-
-  /* =======================================================
-     INITIAL MAP REGION
-  ======================================================= */
-
-  const region: Region = {
-    latitude: location.coords.latitude,
-    longitude: location.coords.longitude,
-    latitudeDelta: DEFAULT_LATITUDE_DELTA,
-    longitudeDelta: DEFAULT_LONGITUDE_DELTA,
-  };
-
-  /* =======================================================
-     MAIN UI
-  ======================================================= */
-
   return (
     <View style={styles.container}>
-      {/* =================================================
-          MAP CONTAINER - Full screen with proper layout
-      ================================================== */}
-
       <View style={styles.mapContainer}>
         <MapView
           ref={mapRef}
@@ -764,80 +759,61 @@ export default function MapScreen() {
           zoomEnabled={true}
           scrollEnabled={true}
           zoomControlEnabled={false}
-          onMapReady={() => setIsMapReady(true)}
+          onMapReady={() => {
+            setIsMapReady(true);
+            if (location && mapRef.current) {
+              lastCameraUpdateRef.current = Date.now();
+              mapRef.current.animateCamera(
+                {
+                  center: {
+                    latitude: location.coords.latitude,
+                    longitude: location.coords.longitude,
+                  },
+                  zoom: 20,
+                },
+                { duration: 0 }
+              );
+              console.log('[WorkoutMapView] Camera initialized at close tracking zoom (20)');
+            }
+          }}
           minZoomLevel={10}
           maxZoomLevel={20}
         >
-          {/* Current Location Marker */}
-          <Marker
-            coordinate={{
-              latitude: location.coords.latitude,
-              longitude: location.coords.longitude,
-            }}
-            title={isRunning ? "🏃 Running" : "📍 Current Location"}
-            description={
-              isRunning
-                ? `Speed: ${(location.coords.speed ?? 0).toFixed(1)} m/s`
-                : "Tap START RUN to begin tracking"
-            }
+          {/*
+            Keep the route overlay mounted for the map's full lifetime. Android
+            Fabric can crash when a Polyline is conditionally inserted while
+            native GPS updates are being processed (addViewAt index/count).
+          */}
+          <Polyline
+            coordinates={routeCoordinates}
+            strokeWidth={6}
+            strokeColor="#20D000"
+            lineCap="round"
+            lineJoin="round"
+            geodesic={true}
           />
-
-          {/* Running Path Polyline - This shows the optimized route */}
-          {routeCoordinates.length > 1 && (
-            <Polyline
-              coordinates={routeCoordinates}
-              strokeWidth={6}
-              strokeColor="#20D000"
-              lineCap="round"
-              lineJoin="round"
-              geodesic={true}
-            />
-          )}
         </MapView>
 
-        {/* =================================================
-            ZOOM CONTROLS - Overlay on map
-        ================================================== */}
-
         <View style={styles.zoomControls}>
-          <TouchableOpacity style={styles.zoomButton} onPress={zoomIn}>
+          <Pressable style={styles.zoomButton} onPress={zoomIn}>
             <Text style={styles.zoomButtonText}>+</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.zoomButton} onPress={zoomOut}>
-            <Text style={styles.zoomButtonText}>−</Text>
-          </TouchableOpacity>
+          </Pressable>
+          <Pressable style={styles.zoomButton} onPress={zoomOut}>
+            <Text style={styles.zoomButtonText}>-</Text>
+          </Pressable>
         </View>
-
-        {/* =================================================
-            GPS STATUS - Top right
-        ================================================== */}
 
         <View style={styles.gpsStatusContainer}>
           <View style={styles.gpsStatus}>
-            <View
-              style={[
-                styles.gpsDot,
-                {
-                  backgroundColor: isRunning ? "#20D000" : "#FFA500",
-                },
-              ]}
-            />
-            <Text style={styles.gpsStatusText}>
-              {isRunning ? "LIVE TRACKING" : "GPS READY"}
+            <View style={[styles.gpsDot, { backgroundColor: isRunning ? '#20D000' : '#FFA500' }]} />
+            <Text style={styles.gpsStatusText}>{isRunning ? 'LIVE TRACKING' : 'GPS READY'}</Text>
+            <Text style={styles.gpsAccuracyText}>
+              {accuracy === null ? 'Locating' : accuracy.toFixed(1) + 'm'}
             </Text>
-            {accuracy !== null && (
-              <Text style={styles.gpsAccuracyText}>
-                ±{accuracy.toFixed(1)}m
-              </Text>
-            )}
           </View>
         </View>
 
-        {/* =================================================
-            RECENTER BUTTON
-        ================================================== */}
-
-        <TouchableOpacity
+        <Pressable
           style={styles.recenterButton}
           onPress={() => {
             if (location) {
@@ -845,301 +821,81 @@ export default function MapScreen() {
             }
           }}
         >
-          <Text style={styles.recenterText}>📍</Text>
-        </TouchableOpacity>
+          <Text style={styles.recenterText}>??</Text>
+        </Pressable>
       </View>
-
-      {/* =================================================
-          CLEAN MAP CONTROL BAR - Bottom overlay only
-      ================================================== */}
 
       <View style={styles.controlBar}>
         <View style={styles.controlBarContent}>
           <View style={styles.controlStatus}>
             <Text style={styles.controlStatusTitle}>Run</Text>
-            <Text style={styles.controlStatusValue}>
-              {isRunning ? "Live" : "Ready"}
-            </Text>
+            <Text style={styles.controlStatusValue}>{isRunning ? 'Live' : 'Ready'}</Text>
+            <Text style={styles.stepStatus}>Steps {isRunning ? stepCount : 0}</Text>
           </View>
 
-          {!isRunning ? (
-            <TouchableOpacity
-              style={styles.startButton}
-              onPress={startRun}
-              activeOpacity={0.8}
+          <View style={styles.actionButtonSlot}>
+            <Pressable
+              // Keep exactly one native child mounted. This avoids both the
+              // Android MapView touch-overlap issue and Fabric addViewAt races.
+              style={isRunning ? styles.stopButton : styles.startButton}
+              hitSlop={16}
+              android_disableSound
+              onPressIn={() => {
+                console.log('[RecordView] START / SAVE touch received');
+              }}
+              onPress={() => {
+                console.log('[RecordView] START / SAVE button pressed');
+                handleRunAction();
+              }}
+              onTouchEnd={() => {
+                console.log('[RecordView] START / SAVE touch ended');
+              }}
             >
-              <Text style={styles.startButtonText}>▶  START RUN</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={styles.stopButton}
-              onPress={stopRun}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.stopButtonText}>■  STOP RUN</Text>
-            </TouchableOpacity>
-          )}
+              <Text style={styles.startButtonText}>{isRunning ? 'STOP & SAVE' : 'START RUN'}</Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     </View>
   );
 }
 
-/* =========================================================
-   STYLES
-========================================================= */
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#000000",
-  },
-
-  mapContainer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-
-  map: {
-    ...StyleSheet.absoluteFill,
-  },
-
-  centerContainer: {
-    flex: 1,
-    backgroundColor: "#0B0E0F",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 30,
-  },
-
-  loadingText: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "600",
-    marginTop: 20,
-    textAlign: "center",
-  },
-
-  loadingSubText: {
-    color: "#888888",
-    fontSize: 14,
-    marginTop: 8,
-    textAlign: "center",
-  },
-
-  permissionIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "rgba(32, 208, 0, 0.1)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 20,
-  },
-
-  permissionIcon: {
-    fontSize: 40,
-  },
-
-  permissionTitle: {
-    color: "#FFFFFF",
-    fontSize: 22,
-    fontWeight: "700",
-    textAlign: "center",
-    marginBottom: 10,
-  },
-
-  permissionDescription: {
-    color: "#AAAAAA",
-    fontSize: 16,
-    textAlign: "center",
-    marginBottom: 30,
-    lineHeight: 24,
-  },
-
-  permissionButton: {
-    backgroundColor: "#20D000",
-    paddingHorizontal: 40,
-    paddingVertical: 16,
-    borderRadius: 12,
-    marginBottom: 15,
-  },
-
-  permissionButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-
-  gpsStatusContainer: {
-    position: "absolute",
-    top: 55,
-    right: 20,
-    zIndex: 10,
-  },
-
-  gpsStatus: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.75)",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
-  },
-
-  gpsDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 8,
-  },
-
-  gpsStatusText: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "700",
-    marginRight: 8,
-  },
-
-  gpsAccuracyText: {
-    color: "#AAAAAA",
-    fontSize: 11,
-    fontWeight: "500",
-  },
-
-  zoomControls: {
-    position: "absolute",
-    right: 20,
-    bottom: 320,
-    zIndex: 10,
-  },
-
-  zoomButton: {
-    width: 44,
-    height: 44,
-    backgroundColor: "rgba(255, 255, 255, 0.95)",
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 5,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-
-  zoomButtonText: {
-    fontSize: 28,
-    color: "#222222",
-    fontWeight: "300",
-    lineHeight: 30,
-  },
-
-  recenterButton: {
-    position: "absolute",
-    right: 20,
-    bottom: 270,
-    width: 44,
-    height: 44,
-    backgroundColor: "rgba(255, 255, 255, 0.95)",
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
-    zIndex: 10,
-  },
-
-  recenterText: {
-    fontSize: 20,
-    color: "#222222",
-  },
-
+  container: { flex: 1, backgroundColor: '#000000' },
+  // The map and controls are normal vertical siblings. Do not use overlapping
+  // absolute layout here: Android's native map surface can otherwise consume
+  // a touch intended for the Stop button.
+  mapContainer: { flex: 1, position: 'relative' },
+  map: { flex: 1 },
+  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { color: '#fff', fontSize: 16, marginTop: 16 },
+  loadingSubText: { color: '#bbb', fontSize: 12, marginTop: 6 },
+  zoomControls: { position: 'absolute', right: 22, bottom: 24, flexDirection: 'column' },
+  zoomButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+  zoomButtonText: { color: '#fff', fontSize: 30, fontWeight: '700', lineHeight: 30 },
+  gpsStatusContainer: { position: 'absolute', top: 26, right: 22, flexDirection: 'row' },
+  gpsStatus: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8 },
+  gpsDot: { width: 9, height: 9, borderRadius: 999, marginRight: 8 },
+  gpsStatusText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  gpsAccuracyText: { marginLeft: 10, color: '#8BE9A8', fontSize: 11, fontWeight: '700' },
+  recenterButton: { position: 'absolute', right: 18, bottom: 126, width: 40, height: 40, borderRadius: 20, backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center' },
+  recenterText: { fontSize: 24 },
   controlBar: {
-    position: "absolute",
-    left: 15,
-    right: 15,
-    bottom: 15,
-    zIndex: 10,
+    position: 'relative',
+    height: 112,
+    paddingHorizontal: 16,
+    paddingBottom: 18,
+    paddingTop: 14,
+    backgroundColor: '#000000',
   },
-
-  controlBarContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "rgba(16, 21, 20, 0.95)",
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-  },
-
-  controlStatus: {
-    flexDirection: "column",
-  },
-
-  controlStatusTitle: {
-    color: "#9CA3AF",
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-  },
-
-  controlStatusValue: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "800",
-    marginTop: 2,
-  },
-
-  startButton: {
-    backgroundColor: "#20D000",
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 28,
-    alignItems: "center",
-    shadowColor: "#20D000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-
-  startButtonText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "800",
-    letterSpacing: 1,
-  },
-
-  stopButton: {
-    backgroundColor: "#D00000",
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 28,
-    alignItems: "center",
-    shadowColor: "#D00000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-
-  stopButtonText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "800",
-    letterSpacing: 1,
-  },
+  controlBarContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(20,20,20,0.96)', borderRadius: 24, paddingVertical: 12, paddingHorizontal: 20 },
+  actionButtonSlot: { width: 174, height: 48, position: 'relative' },
+  controlStatus: { flexDirection: 'column' },
+  controlStatusTitle: { color: '#9BA3AF', fontSize: 11, fontWeight: '700' },
+  controlStatusValue: { color: '#fff', fontSize: 17, fontWeight: '800' },
+  stepStatus: { color: '#8BE9A8', fontSize: 11, fontWeight: '700', marginTop: 2 },
+  startButton: { position: 'absolute', inset: 0, backgroundColor: '#20D000', borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
+  startButtonText: { color: '#fff', fontWeight: '900', fontSize: 15 },
+  stopButton: { position: 'absolute', inset: 0, backgroundColor: '#F04444', borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
+  stopButtonText: { color: '#fff', fontWeight: '900', fontSize: 15 },
 });

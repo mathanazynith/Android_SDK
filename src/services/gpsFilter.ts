@@ -9,10 +9,15 @@ export interface GpsFilterConfig {
 }
 
 export const DEFAULT_GPS_FILTER_CONFIG: GpsFilterConfig = {
-  maxAccuracyMeters: 30,
-  minMovementDistanceMeters: 2,
+  // A 2000m acceptance band is too wide for a live running/route screen. It lets
+  // coarse network/last-known samples through the config gate and makes the UI
+  // behave as if the route is live while the path data is effectively untrusted.
+  // Use a tighter live tracking threshold so the map only keeps points up to a
+  // meaningful GPS accuracy radius.
+  maxAccuracyMeters: 50,
+  minMovementDistanceMeters: 0.5,
   maxReasonableRunningSpeedMetersPerSecond: 16,
-  maxJumpDistanceMeters: 50,
+  maxJumpDistanceMeters: 80,
 };
 
 export class GpsFilter {

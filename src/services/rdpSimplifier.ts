@@ -8,7 +8,7 @@ export interface RdpSimplifierConfig {
 }
 
 export const DEFAULT_RDP_SIMPLIFIER_CONFIG: RdpSimplifierConfig = {
-  straightToleranceMeters: 12,
+  straightToleranceMeters: 5,
   curveToleranceMeters: 4,
   turnToleranceMeters: 2,
 };
