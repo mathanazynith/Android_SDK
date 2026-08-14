@@ -5,6 +5,7 @@
   "dependencies": {
     "@expo/ui": "~57.0.9",
     "@expo/vector-icons": "^15.0.2",
+    "@mapbox/polyline": "^1.2.1",
     "@react-native-community/datetimepicker": "9.1.0",
     "axios": "^1.18.1",
     "babel-preset-expo": "^57.0.2",

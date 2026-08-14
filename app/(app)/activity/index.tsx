@@ -1,131 +1,232 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
-import { Modal, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Colors } from '../../../constants/theme';
-import { ActivityRecord, ActivityStore } from '../../../src/services/activityStore';
+import { Feather } from '@expo/vector-icons';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
-function ActivityCard({ item, onPress }: { item: ActivityRecord; onPress: (it: ActivityRecord) => void }) {
-  const hasRoute = item.routeCoordinates && item.routeCoordinates.length > 0;
+import { getBackendErrorMessage } from '../../../service/api';
+import { activityAPI, BackendActivity } from '../../../src/services/activityApi';
+import ActivityRouteMap from '../../../components/ActivityRouteMap';
+
+const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
+
+const formatDuration = (seconds: number) => {
+  const minutes = Math.max(0, Math.floor(seconds / 60));
+  const hours = Math.floor(minutes / 60);
+  return hours > 0 ? `${hours} hr ${minutes % 60} min` : `${minutes} min`;
+};
+
+const formatPace = (secondsPerKm: number) => {
+  if (!Number.isFinite(secondsPerKm) || secondsPerKm <= 0) return '-- /km';
+  const totalSeconds = Math.round(secondsPerKm);
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')} /km`;
+};
+
+const formatActivityType = (activityType: string) =>
+  activityType.toLowerCase() === 'walk' ? 'Walk' : 'Run';
+
+const getSectionLabel = (startTime: string) => {
+  const date = new Date(startTime);
+  const now = new Date();
+  const weekStart = new Date(now);
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+
+  if (date >= weekStart) return 'This Week';
+  return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+};
+
+function ActivityCard({ activity, onPress }: {
+  activity: BackendActivity;
+  onPress: () => void;
+}) {
+  const activityName = formatActivityType(activity.activity_type);
+  const duration = activity.moving_time || activity.elapsed_time;
+  const [encodedPolyline, setEncodedPolyline] = useState(activity.encoded_polyline);
+
+  useEffect(() => {
+    if (encodedPolyline) return;
+
+    let isMounted = true;
+    void activityAPI.get(activity.id)
+      .then((detail) => {
+        if (isMounted) setEncodedPolyline(detail.encoded_polyline);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activity.id, encodedPolyline]);
+
   return (
-    <TouchableOpacity style={styles.card} onPress={() => onPress(item)}>
-      <View style={styles.cardLeft}>
-        <Text style={styles.dayLabel}>Day: {item.displayDate}</Text>
-        <Text style={styles.workoutTitle}>{item.workoutName}</Text>
-        <View style={styles.cardStats}>
-          <Text style={styles.statLine}>Distance
-            <Text style={styles.statValue}> {(item.distanceMeters/1000).toFixed(2)} km</Text>
+    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.82}>
+      <View style={styles.cardContent}>
+        <View style={styles.cardDetails}>
+          <Text style={styles.activityType}>{activityName}</Text>
+          <Text style={styles.activityDate}>
+            {new Date(activity.start_time).toLocaleDateString(undefined, {
+              weekday: 'short', month: 'short', day: 'numeric',
+            })}
           </Text>
-          <Text style={styles.statLine}>Pace/km
-            <Text style={styles.statValue}> {Math.floor(item.paceSecondsPerKm/60)}:{String(Math.round(item.paceSecondsPerKm%60)).padStart(2,'0')} /km</Text>
-          </Text>
-          <Text style={styles.statLine}>Total Time
-            <Text style={styles.statValue}> {Math.floor(item.durationSeconds/3600)>0?`${Math.floor(item.durationSeconds/3600)}:`:''}{String(Math.floor((item.durationSeconds%3600)/60)).padStart(2,'0')}:{String(item.durationSeconds%60).padStart(2,'0')}</Text>
-          </Text>
-          <Text style={styles.statLine}>Total Calories
-            <Text style={styles.statValue}> {item.calories} kcal</Text>
-          </Text>
+          <Text style={styles.distance}>{formatDistance(activity.distance)}</Text>
+
+          <View style={styles.metrics}>
+            <View style={styles.metric}>
+              <Feather name="clock" size={18} color="#35C72B" />
+              <Text style={styles.metricValue}>{formatDuration(duration)}</Text>
+              <Text style={styles.metricLabel}>Time</Text>
+            </View>
+            <View style={styles.metric}>
+              <Feather name="compass" size={18} color="#35C72B" />
+              <Text style={styles.metricValue}>{formatPace(activity.avg_pace)}</Text>
+              <Text style={styles.metricLabel}>Pace</Text>
+            </View>
+          </View>
         </View>
-      </View>
-      <View style={styles.cardRight}>
-        {hasRoute ? (
-          <View style={styles.mapPlaceholder}><Text style={styles.mapText}>Map</Text></View>
-        ) : (
-          <View style={styles.placeholder}><Ionicons name="calendar-outline" size={36} color={Colors.primary} /><Text style={styles.placeholderText}>Rest Day</Text></View>
-        )}
-        <View style={styles.mapMeta}><Text style={styles.mapMetaText}>{(item.distanceMeters/1000).toFixed(2)} km</Text><Text style={styles.mapMetaText}>{Math.floor(item.paceSecondsPerKm/60)}:{String(Math.round(item.paceSecondsPerKm%60)).padStart(2,'0')} /km</Text></View>
+
+        <View pointerEvents="none" style={styles.routePreview}>
+          <ActivityRouteMap encodedPolyline={encodedPolyline} variant="preview" />
+        </View>
       </View>
     </TouchableOpacity>
   );
 }
 
 export default function ActivityScreen() {
-  const activities = useMemo(() => ActivityStore.list(), []);
-  const [selected, setSelected] = useState<ActivityRecord | null>(null);
+  const [activities, setActivities] = useState<BackendActivity[]>([]);
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadActivities = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+
+    try {
+      setError(null);
+      setActivities(await activityAPI.list());
+    } catch (requestError) {
+      setError(getBackendErrorMessage(requestError, 'Unable to load workout history.'));
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadActivities();
+    }, [loadActivities]),
+  );
+
+  const groupedActivities = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    const filtered = query
+      ? activities.filter((activity) => formatActivityType(activity.activity_type).toLowerCase().includes(query))
+      : activities;
+
+    return filtered.reduce<Record<string, BackendActivity[]>>((groups, activity) => {
+      const section = getSectionLabel(activity.start_time);
+      (groups[section] ??= []).push(activity);
+      return groups;
+    }, {});
+  }, [activities, search]);
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
-      <Text style={styles.header}>Running History</Text>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.timelineContainer}>
-          {activities.map((item, idx) => (
-            <View key={item.id} style={styles.row}>
-              <View style={styles.leftRail}>
-                <View style={styles.node} />
-                {idx < activities.length - 1 && <View style={styles.line} />}
-              </View>
-              <View style={styles.cardWrapper}>
-                <ActivityCard item={item} onPress={setSelected} />
-              </View>
+      <View style={styles.heading}>
+        <Text style={styles.title}>Workout History</Text>
+        <Text style={styles.subtitle}>Your completed runs and walks</Text>
+      </View>
+
+      <View style={styles.searchBox}>
+        <Feather name="search" size={22} color="#A9ADAF" />
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search workouts..."
+          placeholderTextColor="#74787B"
+          style={styles.searchInput}
+          accessibilityLabel="Search workout history"
+        />
+      </View>
+
+      {loading ? (
+        <View style={styles.centerState}>
+          <ActivityIndicator size="large" color="#35C72B" />
+          <Text style={styles.stateText}>Loading workout history...</Text>
+        </View>
+      ) : error ? (
+        <View style={styles.centerState}>
+          <Feather name="alert-circle" size={32} color="#FFB020" />
+          <Text style={styles.stateText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => void loadActivities()}>
+            <Text style={styles.retryText}>Try again</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadActivities(true)} tintColor="#35C72B" />}
+        >
+          {Object.entries(groupedActivities).map(([section, sectionActivities]) => (
+            <View key={section} style={styles.section}>
+              <Text style={styles.sectionTitle}>{section}</Text>
+              {sectionActivities.map((activity) => (
+                <ActivityCard
+                  key={String(activity.id)}
+                  activity={activity}
+                  onPress={() => router.push(`/(app)/activity/${activity.id}` as any)}
+                />
+              ))}
             </View>
           ))}
-          {activities.length === 0 && <Text style={styles.empty}>No activities yet — finish a run to see history here.</Text>}
-        </View>
-      </ScrollView>
-
-      <Modal visible={!!selected} transparent animationType="slide" onRequestClose={() => setSelected(null)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <TouchableOpacity onPress={() => setSelected(null)} style={styles.modalClose}><Text style={{color: Colors.primary}}>Close</Text></TouchableOpacity>
-            {selected && (
-              <ScrollView>
-                <Text style={styles.modalTitle}>{selected.workoutName}</Text>
-                <Text style={styles.modalDate}>{selected.displayDate}</Text>
-                <View style={styles.modalStats}>
-                  <Text style={styles.modalStatLabel}>Distance</Text>
-                  <Text style={styles.modalStatValue}>{(selected.distanceMeters/1000).toFixed(2)} km</Text>
-                </View>
-                <View style={styles.modalStats}>
-                  <Text style={styles.modalStatLabel}>Average Pace</Text>
-                  <Text style={styles.modalStatValue}>{Math.floor(selected.paceSecondsPerKm/60)}:{String(Math.round(selected.paceSecondsPerKm%60)).padStart(2,'0')} /km</Text>
-                </View>
-                <View style={styles.modalStats}>
-                  <Text style={styles.modalStatLabel}>Total Time</Text>
-                  <Text style={styles.modalStatValue}>{Math.floor((selected.durationSeconds%3600)/60).toString().padStart(2,'0')}:{String(selected.durationSeconds%60).padStart(2,'0')}</Text>
-                </View>
-                <View style={{height:220, borderRadius:14, backgroundColor:'rgba(255,255,255,0.03)', marginTop:12, justifyContent:'center', alignItems:'center'}}>
-                  <Text style={{color:Colors.textSecondary}}>Map preview</Text>
-                </View>
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
+          {activities.length === 0 && <Text style={styles.empty}>No completed workouts yet.</Text>}
+          {activities.length > 0 && Object.keys(groupedActivities).length === 0 && <Text style={styles.empty}>No workouts match your search.</Text>}
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#06090B', paddingHorizontal: 18, paddingTop: 18 },
-  header: { color: '#FFF', fontSize: 28, fontWeight: '700', marginBottom: 12 },
-  scroll: { paddingBottom: 60 },
-  timelineContainer: { marginTop: 8 },
-  row: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
-  leftRail: { width: 36, alignItems: 'center', paddingTop: 6 },
-  node: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#5B5B5B', borderWidth: 1, borderColor: '#717171' },
-  line: { flex: 1, width: 2, backgroundColor: 'rgba(255,255,255,0.12)', marginTop: 6 },
-  cardWrapper: { flex: 1 },
-  card: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-  cardLeft: { flex: 1 },
-  dayLabel: { color: '#B9C0C2', fontSize: 13, marginBottom: 4 },
-  workoutTitle: { color: '#FFF', fontSize: 18, fontWeight: '700', marginBottom: 6 },
-  cardStats: {},
-  statLine: { color: '#AEB0B2', fontSize: 13, marginBottom: 4 },
-  statValue: { color: '#FFF', fontWeight: '700' },
-  cardRight: { width: 120, marginLeft: 10, alignItems: 'center' },
-  mapPlaceholder: { width: 110, height: 80, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', justifyContent: 'center', alignItems: 'center' },
-  mapText: { color: '#CFCFCF' },
-  placeholder: { width: 110, height: 80, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.02)', justifyContent: 'center', alignItems: 'center' },
-  placeholderText: { color: '#9FBF9A', marginTop: 6 },
-  mapMeta: { flexDirection: 'row', justifyContent: 'space-between', width: 110, marginTop: 8 },
-  mapMetaText: { color: '#CFCFCF', fontSize: 12 },
-  empty: { color: '#B0B0B0', textAlign: 'center', marginTop: 40 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: 18 },
-  modalCard: { backgroundColor: '#0A0D0E', borderRadius: 18, padding: 16, maxHeight: '86%' },
-  modalClose: { alignSelf: 'flex-end' },
-  modalTitle: { color: '#FFF', fontSize: 22, fontWeight: '700', marginBottom: 6 },
-  modalDate: { color: '#AEB0B2', marginBottom: 10 },
-  modalStats: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  modalStatLabel: { color: '#AEB0B2' },
-  modalStatValue: { color: '#FFF', fontWeight: '700' },
+  container: { flex: 1, backgroundColor: '#0B0E0F', paddingHorizontal: 22 },
+  heading: { paddingTop: 20, paddingBottom: 18 },
+  title: { color: '#F7F7F7', fontSize: 31, fontWeight: '700' },
+  subtitle: { color: '#A9ADAF', fontSize: 15, marginTop: 4 },
+  searchBox: { height: 58, backgroundColor: '#242627', borderRadius: 18, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, marginBottom: 24 },
+  searchInput: { flex: 1, color: '#F7F7F7', fontSize: 17, marginLeft: 12, height: '100%' },
+  scrollContent: { paddingBottom: 36 },
+  section: { marginBottom: 24 },
+  sectionTitle: { color: '#F7F7F7', fontSize: 24, fontWeight: '700', marginBottom: 13 },
+  card: { backgroundColor: '#242627', borderRadius: 26, padding: 21, marginBottom: 14, borderWidth: 1, borderColor: '#393C3E' },
+  cardContent: { flexDirection: 'row', alignItems: 'stretch' },
+  cardDetails: { flex: 1, minWidth: 0, paddingRight: 14 },
+  activityType: { color: '#F7F7F7', fontSize: 21, fontWeight: '700' },
+  activityDate: { color: '#A9ADAF', fontSize: 14, marginTop: 4 },
+  distance: { color: '#35C72B', fontSize: 31, lineHeight: 38, fontWeight: '700', marginTop: 16 },
+  metrics: { flexDirection: 'row', marginTop: 18, gap: 10 },
+  metric: { flex: 1 },
+  metricValue: { color: '#F7F7F7', fontSize: 15, fontWeight: '700', marginTop: 7 },
+  metricLabel: { color: '#A9ADAF', fontSize: 13, marginTop: 4 },
+  routePreview: { width: 124, alignSelf: 'stretch' },
+  centerState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28 },
+  stateText: { color: '#C4C8C5', fontSize: 16, textAlign: 'center', marginTop: 13 },
+  retryButton: { backgroundColor: '#35C72B', borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, marginTop: 18 },
+  retryText: { color: '#0B0E0F', fontSize: 16, fontWeight: '700' },
+  empty: { color: '#A9ADAF', textAlign: 'center', fontSize: 16, marginTop: 40 },
 });
