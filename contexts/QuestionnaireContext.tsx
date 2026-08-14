@@ -11,6 +11,7 @@ import React, {
 import { useAuth } from "../service/auth";
 import { assessmentService } from "../service/questionnaire/questionnaireService";
 import { getBackendErrorMessage } from "../service/api";
+import { CurrentWorkoutPlan, workoutPlanService } from "../service/workoutPlan";
 import { validateAnswer, ValidationError } from "../service/validation/AssessmentValidator";
 import type {
   Question,
@@ -48,6 +49,10 @@ interface QuestionnaireContextType {
   assessmentResult: any | null;
   isAssessmentResultLoading: boolean;
   fetchAssessmentResult: () => Promise<any | null>;
+  workoutPlan: CurrentWorkoutPlan | null;
+  workoutPlanError: string | null;
+  isWorkoutPlanLoading: boolean;
+  fetchWorkoutPlan: (force?: boolean) => Promise<CurrentWorkoutPlan | null>;
   canGoBack: boolean;
   loadQuestions: () => Promise<void>;
   startAssessment: () => Promise<void>;
@@ -87,6 +92,9 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
   const [assessmentResult, setAssessmentResult] = useState<any | null>(null);
   const [assessmentResultLoaded, setAssessmentResultLoaded] = useState(false);
   const [isAssessmentResultLoading, setIsAssessmentResultLoading] = useState(false);
+  const [workoutPlan, setWorkoutPlan] = useState<CurrentWorkoutPlan | null>(null);
+  const [workoutPlanError, setWorkoutPlanError] = useState<string | null>(null);
+  const [isWorkoutPlanLoading, setIsWorkoutPlanLoading] = useState(false);
 
   // Navigation history for back and forward navigation
   const navigationHistory = useRef<PageState[]>([]);
@@ -208,6 +216,9 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     setAssessmentResult(null);
     setAssessmentResultLoaded(false);
     setIsAssessmentResultLoading(false);
+    setWorkoutPlan(null);
+    setWorkoutPlanError(null);
+    setIsWorkoutPlanLoading(false);
     navigationHistory.current = [];
     assessmentService.clearCache();
   };
@@ -243,6 +254,24 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setAssessmentResultLoaded(true);
     }
   }, [assessmentId, assessmentResult, assessmentResultLoaded, isComplete]);
+
+  const fetchWorkoutPlan = useCallback(async (force = false) => {
+    if (workoutPlan && !force) return workoutPlan;
+
+    setIsWorkoutPlanLoading(true);
+    setWorkoutPlanError(null);
+    try {
+      const plan = await workoutPlanService.getCurrent();
+      setWorkoutPlan(plan);
+      return plan;
+    } catch (err: any) {
+      setWorkoutPlan(null);
+      setWorkoutPlanError(getBackendErrorMessage(err, "Failed to load your training plan."));
+      return null;
+    } finally {
+      setIsWorkoutPlanLoading(false);
+    }
+  }, [workoutPlan]);
 
   useEffect(() => {
     if (assessmentId && isComplete && !assessmentResultLoaded && !isAssessmentResultLoading) {
@@ -568,6 +597,10 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
         assessmentResult,
         isAssessmentResultLoading,
         fetchAssessmentResult,
+        workoutPlan,
+        workoutPlanError,
+        isWorkoutPlanLoading,
+        fetchWorkoutPlan,
         canGoBack,
         loadQuestions,
         startAssessment,

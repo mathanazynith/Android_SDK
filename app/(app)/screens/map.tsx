@@ -19,6 +19,7 @@ import { LocationQueue } from '../../../src/services/locationQueue';
 import { PathProcessor } from '../../../src/services/pathProcessor';
 import { ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
 import { calculateDistanceMeters } from '../../../src/utils/distance';
+import { useLocalSearchParams } from 'expo-router';
 
 const RUNNING_USER_ID = 'USER-1001';
 
@@ -41,6 +42,7 @@ interface LocationState {
 }
 
 export default function MapScreen() {
+  const plannedWorkout = useLocalSearchParams<{ workoutTitle?: string }>();
   const [loading, setLoading] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [permissionGranted, setPermissionGranted] = useState(false);
@@ -520,6 +522,7 @@ export default function MapScreen() {
       setIsRunning(true);
 
       addLog(`?? Run ${runId} started`);
+      if (plannedWorkout.workoutTitle) addLog(`Planned workout: ${plannedWorkout.workoutTitle}`);
       addLog('?? GPS tracking enabled');
       moveMapToLocation(startingPoint.latitude, startingPoint.longitude);
 

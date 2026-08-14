@@ -265,23 +265,6 @@ export default function DashboardScreen() {
 
         break;
 
-      case 'Use Mock Calendar':
-
-        (async () => {
-          try {
-            const current = await storage.getItem(storage.KEYS.USE_MOCK_CALENDAR);
-            const newVal = current === 'false' ? 'true' : 'false';
-            await storage.setItem(storage.KEYS.USE_MOCK_CALENDAR, newVal);
-            Alert.alert('Settings', `Use Mock Calendar: ${newVal === 'true' ? 'ON' : 'OFF'}`);
-          } catch (err) {
-            console.error('Failed to toggle mock calendar', err);
-            Alert.alert('Settings', 'Failed to toggle mock calendar');
-          }
-        })();
-
-        break;
-
-
       case 'Logout':
 
         Alert.alert(
@@ -581,7 +564,7 @@ export default function DashboardScreen() {
               hasSavedPlan
                 ? () =>
                     router.push(
-                      '/(app)/training-plan'
+                      '/(app)/running-plan'
                     )
                 : handleGetPlan
             }

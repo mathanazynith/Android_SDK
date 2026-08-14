@@ -12,7 +12,7 @@ export default function RunningPlanHeader({ planName, focusLabel, userName }: Ru
     <View style={styles.container}>
       <Text style={styles.title}>Running Plan</Text>
       <Text style={styles.sectionText}><Text style={styles.label}>Plan: </Text><Text style={styles.value}>{planName}</Text></Text>
-      <Text style={styles.sectionText}><Text style={styles.label}>Focus: </Text><Text style={styles.value}>{focusLabel}</Text></Text>
+      {focusLabel ? <Text style={styles.sectionText}><Text style={styles.label}>Focus: </Text><Text style={styles.value}>{focusLabel}</Text></Text> : null}
       <Text style={styles.greeting}>Let&apos;s push your limits, {userName}!</Text>
     </View>
   );

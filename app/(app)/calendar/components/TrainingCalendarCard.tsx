@@ -20,7 +20,7 @@ export default function TrainingCalendarCard({ weekLabel, rangeLabel, statusText
         <View style={styles.centerContent}><Text style={styles.counterText}>{weekLabel}</Text><Text style={styles.rangeText}>{rangeLabel}</Text></View>
         <TouchableOpacity onPress={nextDisabled ? undefined : onNext} disabled={nextDisabled} accessibilityLabel="Next week" style={styles.navButton}><Text style={[styles.navText, styles.next, nextDisabled && styles.navDisabled]}>›</Text></TouchableOpacity>
       </View>
-      <Text style={styles.statusText}>{statusText}</Text>
+      {statusText ? <Text style={styles.statusText}>{statusText}</Text> : null}
     </View>
   );
 }

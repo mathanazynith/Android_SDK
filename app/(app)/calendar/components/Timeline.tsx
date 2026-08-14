@@ -5,7 +5,7 @@ import { WorkoutDetail } from './types';
 interface TimelineProps {
   workouts: WorkoutDetail[];
   onSelectWorkout: (workout: WorkoutDetail) => void;
-  onSwapWorkout: (workout: WorkoutDetail) => void;
+  onSwapWorkout?: (workout: WorkoutDetail) => void;
 }
 
 export default function Timeline({ workouts, onSelectWorkout, onSwapWorkout }: TimelineProps) {

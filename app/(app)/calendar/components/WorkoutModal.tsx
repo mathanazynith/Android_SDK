@@ -41,19 +41,19 @@ export default function WorkoutModal({ visible, workout, onClose }: WorkoutModal
     <Text style={[styles.sectionLabel, styles.statsTitle]}>Stats</Text>
     <View style={styles.statsRow}><Stat label="Est Calories" value={activeWorkout.estimatedCalories} /><Stat label="Duration" value={activeWorkout.estimatedDuration} /><Stat label="HR Zone" value={activeWorkout.heartRateZone} /></View>
     <View style={styles.statsRow}><Stat label="Target Pace" value={activeWorkout.targetPace} /><Stat label="Distance" value={activeWorkout.distance} /><Stat label="Notes" value={activeWorkout.notes} /></View>
-    <TouchableOpacity
+    {!activeWorkout.isRest && <TouchableOpacity
       style={styles.startButton}
       onPress={() => {
         // Planned sessions are the entry point to the live map tracker.
         onClose();
         router.push({
           pathname: '/(app)/run',
-          params: { workoutId: activeWorkout.id, workoutTitle: activeWorkout.title },
+          params: { workoutId: activeWorkout.id, workoutTitle: activeWorkout.title, workoutType: activeWorkout.workoutType, workoutDuration: activeWorkout.estimatedDuration, workoutDistance: activeWorkout.distance, workoutPace: activeWorkout.targetPace },
         });
       }}
     >
       <Text style={styles.startButtonText}>▶ Start Run</Text>
-    </TouchableOpacity>
+    </TouchableOpacity>}
   </ScrollView>;
 
   return <Modal transparent visible={rendered} animationType="none" onRequestClose={onClose}><Animated.View style={[styles.overlay, { opacity }]}><BlurView intensity={24} tint="dark" style={StyleSheet.absoluteFill} /><Pressable style={StyleSheet.absoluteFill} onPress={onClose} /><Animated.View style={[styles.cardWrapper, { transform: [{ translateY }] }]}>{Platform.OS === 'ios' ? <GlassView style={styles.glassCard} glassEffectStyle="regular" tintColor="rgba(18, 42, 29, 0.68)" colorScheme="dark"><LinearGradient pointerEvents="none" colors={['rgba(104,199,71,0.22)', 'rgba(8,18,14,0.84)']} style={StyleSheet.absoluteFill} />{content}</GlassView> : <View style={styles.androidCard}><LinearGradient pointerEvents="none" colors={['rgba(104,199,71,0.25)', 'rgba(8,18,14,0.94)']} style={StyleSheet.absoluteFill} />{content}</View>}</Animated.View></Animated.View></Modal>;

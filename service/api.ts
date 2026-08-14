@@ -341,5 +341,12 @@ export const assessmentAPI = {
     api.get(`/assessments/${assessmentId}/results/`),
 };
 
+// The server generates and persists the user's Couch-to-5K calendar after a
+// completed assessment.  This is deliberately separate from the assessment
+// result, which only contains recommendation metadata.
+export const workoutPlanAPI = {
+  getCurrent: () => api.get("/workout-plans/current/"),
+};
+
 export default api;
 
