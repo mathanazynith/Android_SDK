@@ -302,7 +302,7 @@ export default function DashboardScreen() {
     {
       label: 'Start Run',
       icon: '▶️',
-      route: '/(app)/run',
+      route: '/(app)/calendar',
     },
 
     {
@@ -404,64 +404,6 @@ export default function DashboardScreen() {
           </Text>
 
         </View>
-
-
-        {/* =================================================
-            LIVE MAP
-            ================================================= */}
-
-        <View style={styles.mapCard}>
-
-          <View style={styles.mapHeader}>
-
-            <View>
-
-              <Text
-                style={styles.mapTitle}
-              >
-                Live Run Map
-              </Text>
-
-              <Text
-                style={styles.mapSubtitle}
-              >
-                Track your current location
-              </Text>
-
-            </View>
-
-            <View
-              style={styles.liveBadge}
-            >
-
-              <View
-                style={styles.liveDot}
-              />
-
-              <Text
-                style={styles.liveText}
-              >
-                GPS
-              </Text>
-
-            </View>
-
-          </View>
-
-
-          <TouchableOpacity
-            style={styles.mapWrapper}
-            activeOpacity={0.85}
-            onPress={() => router.push('/(app)/run' as any)}
-          >
-            <Text style={styles.mapLaunchTitle}>Open full-screen run tracker</Text>
-            <Text style={styles.mapLaunchSubtitle}>
-              Start, stop, close GPS zoom, route processing, and final payload are available here.
-            </Text>
-          </TouchableOpacity>
-
-        </View>
-
 
         {/* Account status */}
 
@@ -711,7 +653,7 @@ export default function DashboardScreen() {
 
           onPress={() =>
             router.push(
-              '/(app)/run' as any
+              '/(app)/calendar' as any
             )
           }
         >
@@ -737,7 +679,7 @@ export default function DashboardScreen() {
               styles.tabLabelActive,
             ]}
           >
-            Record
+            Plans
           </Text>
 
         </TouchableOpacity>
@@ -997,134 +939,6 @@ const styles = StyleSheet.create({
 
     marginTop: 2,
   },
-
-
-  // --------------------------------------------------
-  // MAP CARD
-  // --------------------------------------------------
-
-  mapCard: {
-    backgroundColor: '#242627',
-
-    borderWidth: 1.25,
-
-    borderColor: '#65686A',
-
-    borderRadius: 28,
-
-    padding: 12,
-
-    marginBottom: 18,
-
-    overflow: 'hidden',
-
-    shadowColor: '#000',
-
-    shadowOffset: {
-      width: 0,
-      height: 8,
-    },
-
-    shadowOpacity: 0.22,
-
-    shadowRadius: 14,
-
-    elevation: 5,
-  },
-
-  mapHeader: {
-    paddingHorizontal: 10,
-
-    paddingTop: 7,
-
-    paddingBottom: 12,
-
-    flexDirection: 'row',
-
-    alignItems: 'center',
-
-    justifyContent:
-      'space-between',
-  },
-
-  mapTitle: {
-    color: '#F7F7F7',
-
-    fontSize: 20,
-
-    fontWeight: '700',
-  },
-
-  mapSubtitle: {
-    color: '#AEB0B2',
-
-    fontSize: 13,
-
-    marginTop: 3,
-  },
-
-  liveBadge: {
-    flexDirection: 'row',
-
-    alignItems: 'center',
-
-    backgroundColor:
-      'rgba(43,214,79,0.12)',
-
-    paddingHorizontal: 10,
-
-    paddingVertical: 6,
-
-    borderRadius: 12,
-  },
-
-  liveDot: {
-    width: 7,
-
-    height: 7,
-
-    borderRadius: 4,
-
-    backgroundColor: '#2BD64F',
-
-    marginRight: 5,
-  },
-
-  liveText: {
-    color: '#2BD64F',
-
-    fontSize: 11,
-
-    fontWeight: '700',
-  },
-
-  mapWrapper: {
-    height: 390,
-
-    borderRadius: 20,
-
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 28,
-    backgroundColor: '#161819',
-    overflow: 'hidden',
-  },
-
-  mapLaunchTitle: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-
-  mapLaunchSubtitle: {
-    color: '#A8AFB8',
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 10,
-    textAlign: 'center',
-  },
-
 
   // --------------------------------------------------
   // EXISTING DASHBOARD

@@ -1,8 +1,9 @@
 import { BlurView } from 'expo-blur';
 import { GlassView } from 'expo-glass-effect';
 import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WorkoutDetail } from './types';
 
 interface WorkoutModalProps { visible: boolean; workout: WorkoutDetail | null; onClose: () => void; }
@@ -40,7 +41,17 @@ export default function WorkoutModal({ visible, workout, onClose }: WorkoutModal
     <Text style={[styles.sectionLabel, styles.statsTitle]}>Stats</Text>
     <View style={styles.statsRow}><Stat label="Est Calories" value={activeWorkout.estimatedCalories} /><Stat label="Duration" value={activeWorkout.estimatedDuration} /><Stat label="HR Zone" value={activeWorkout.heartRateZone} /></View>
     <View style={styles.statsRow}><Stat label="Target Pace" value={activeWorkout.targetPace} /><Stat label="Distance" value={activeWorkout.distance} /><Stat label="Notes" value={activeWorkout.notes} /></View>
-    <TouchableOpacity style={styles.startButton} onPress={() => Alert.alert('Start Run', `Mock starting ${activeWorkout.title}.`)}>
+    <TouchableOpacity
+      style={styles.startButton}
+      onPress={() => {
+        // Planned sessions are the entry point to the live map tracker.
+        onClose();
+        router.push({
+          pathname: '/(app)/run',
+          params: { workoutId: activeWorkout.id, workoutTitle: activeWorkout.title },
+        });
+      }}
+    >
       <Text style={styles.startButtonText}>▶ Start Run</Text>
     </TouchableOpacity>
   </ScrollView>;

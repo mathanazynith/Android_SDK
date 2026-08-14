@@ -1,4 +1,11 @@
 import { ActivitySubmissionPayload, RunSessionStartResponse, RunSessionStartPayload, RunStopPayload, UploadBatchPayload } from '../types/running';
+import api from '../../service/api';
+
+// `service/api.ts` supplies the /api/v1 base URL and authenticated Bearer
+// token, so this resolves to POST /api/v1/rundata/upload/ by default.
+const ACTIVITY_UPLOAD_PATH = (
+  process.env.EXPO_PUBLIC_ACTIVITY_UPLOAD_PATH || '/rundata/upload/'
+).trim();
 
 export class RunningApiClient {
   public async startRun(userId: string, startedAtIso: string): Promise<RunSessionStartResponse> {
@@ -32,10 +39,15 @@ export class RunningApiClient {
     return true;
   }
 
-  /** Final iOS-compatible workout submission (currently logged by the mock client). */
+  /** Send the optimized final activity as JSON to Django's UploadActivityAPIView. */
   public async submitActivity(payload: ActivitySubmissionPayload): Promise<boolean> {
-    console.log('[RunningApiClient] POST /activities', JSON.stringify(payload, null, 2));
-    console.log('[RunningApiClient] Activity request body', JSON.stringify(payload, null, 2));
-    return true;
+    console.log(`[RunningApiClient] POST ${ACTIVITY_UPLOAD_PATH}`, JSON.stringify(payload, null, 2));
+
+    const response = await api.post(ACTIVITY_UPLOAD_PATH, payload, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    console.log('[RunningApiClient] Activity upload response', JSON.stringify(response.data, null, 2));
+    return response.status >= 200 && response.status < 300;
   }
 }
