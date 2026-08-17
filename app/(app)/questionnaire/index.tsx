@@ -698,6 +698,61 @@ export default function QuestionnaireScreen() {
     return 42.2;
   })();
 
+  const getLiveDateValidationMessages = (question: Question): string[] => {
+    const slug = String(question.slug ?? "").toUpperCase();
+    const answer = getAnswerForQuestion(question).value;
+    if (!answer || !["EVENT_DATE", "GOAL_ACHIEVEMENT_DATE", "TRAINING_START_DATE", "START_TRAINING_DATE"].includes(slug)) {
+      return [];
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const selectedDate = new Date(`${answer}T00:00:00`);
+    if (Number.isNaN(selectedDate.getTime())) return [];
+
+    if (slug === "TRAINING_START_DATE" || slug === "START_TRAINING_DATE") {
+      if (selectedDate < today) return ["The running start date cannot be in the past."];
+      const latestStart = new Date(today);
+      latestStart.setDate(latestStart.getDate() + (slug === "TRAINING_START_DATE" ? 9 : 10));
+      if (selectedDate > latestStart) {
+        return [slug === "TRAINING_START_DATE"
+          ? "Please choose a running start date within the next 10 days."
+          : "The start training date should be within 10 days from joining."];
+      }
+      return [];
+    }
+
+    const isEventDate = slug === "EVENT_DATE";
+    const distanceQuestion = questions.find((item) => String(item.slug ?? "").toUpperCase() === (isEventDate ? "EVENT_DISTANCE" : "RUNNING_GOAL"));
+    const startDateQuestion = questions.find((item) => String(item.slug ?? "").toUpperCase() === (isEventDate ? "TRAINING_START_DATE" : "START_TRAINING_DATE"));
+    if (!distanceQuestion || !startDateQuestion) return [];
+
+    const distanceAnswer = getAnswerForQuestion(distanceQuestion);
+    const option = distanceQuestion.options?.find((item) => String(item.id) === String(distanceAnswer.value));
+    let distanceKm = getDistanceInKilometers(option);
+    if (!distanceKm && option?.requires_input) {
+      const customDistance = Number(distanceAnswer.customValues?.distance ?? distanceAnswer.customValues?.targetDistance);
+      if (Number.isFinite(customDistance) && customDistance > 0) {
+        distanceKm = getDistanceUnitCode(distanceAnswer.customValues?.unit) === "mile" ? customDistance * 1.60934 : customDistance;
+      }
+    }
+    const startValue = getAnswerForQuestion(startDateQuestion).value;
+    if (!distanceKm || !startValue) return [];
+    const startDate = new Date(`${startValue}T00:00:00`);
+    if (Number.isNaN(startDate.getTime())) return [];
+
+    const minimumDays = distanceKm <= 5 ? 28 : distanceKm <= 10 ? 56 : distanceKm <= 15 ? 70 : distanceKm <= 21.1 ? (isEventDate ? 98 : 84) : 126;
+    const earliestDate = new Date(startDate);
+    earliestDate.setDate(earliestDate.getDate() + minimumDays);
+    if (selectedDate >= earliestDate) return [];
+
+    const label = distanceKm <= 5 ? "5K" : distanceKm <= 10 ? "10K" : distanceKm <= 15 ? "15K" : distanceKm <= 21.1 ? "Half Marathon" : "Full Marathon";
+    const weeks = minimumDays / 7;
+    return [isEventDate
+      ? `For a ${label} event, the event date must be at least ${weeks} weeks from start date.`
+      : `The goal achievable date must be at least ${minimumDays} days from start date.`];
+  };
+
   const getDerivedComputedValue = (question: Question) => {
     const normalizedSlug = String(question.slug ?? question.question ?? "").toLowerCase();
 
@@ -801,12 +856,10 @@ export default function QuestionnaireScreen() {
     return true;
   };
 
-  // A server field error is authoritative: keep Next disabled until the user
-  // changes an answer, then submit again for the backend to revalidate it.
-  const isPageReadyToSubmit =
-    displayQuestions.every(isRequiredQuestionComplete) &&
-    Object.keys(validationErrors).length === 0 &&
-    validationErrorQuestionId === null;
+  // Next is available as soon as all required answers on the current page are
+  // complete. Inline validation communicates invalid values as they are edited;
+  // the backend remains the final check when Next is pressed.
+  const isPageReadyToSubmit = displayQuestions.every(isRequiredQuestionComplete);
 
   const recentLongRunSelectedValue = recentLongRunGroup
     ? currentPageAnswers[
@@ -908,9 +961,9 @@ export default function QuestionnaireScreen() {
               maxDistanceKm={maxTargetDistanceKm}
               validationMessages={{
                 eventName: getQuestionValidationMessages(eventRegistrationGroup.eventNameQuestion),
-                eventDate: getQuestionValidationMessages(eventRegistrationGroup.eventDateQuestion),
+                eventDate: [...getQuestionValidationMessages(eventRegistrationGroup.eventDateQuestion), ...getLiveDateValidationMessages(eventRegistrationGroup.eventDateQuestion)],
                 trainingStartDate: eventRegistrationGroup.trainingStartDateQuestion
-                  ? getQuestionValidationMessages(eventRegistrationGroup.trainingStartDateQuestion)
+                  ? [...getQuestionValidationMessages(eventRegistrationGroup.trainingStartDateQuestion), ...getLiveDateValidationMessages(eventRegistrationGroup.trainingStartDateQuestion)]
                   : [],
                 distance: eventRegistrationGroup.distanceQuestion
                   ? getQuestionValidationMessages(eventRegistrationGroup.distanceQuestion)
@@ -968,7 +1021,10 @@ export default function QuestionnaireScreen() {
                 ...answerData.customValues,
                 ...(computedOverride !== undefined ? { derivedValue: computedOverride } : {}),
               };
-              const validationMessages = getQuestionValidationMessages(question);
+              const validationMessages = [
+                ...getQuestionValidationMessages(question),
+                ...getLiveDateValidationMessages(question),
+              ];
 
               return (
                 <View key={question.id}>
