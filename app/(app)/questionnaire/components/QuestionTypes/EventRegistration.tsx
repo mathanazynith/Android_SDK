@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useRef } from "react";
 import { View, Text, TextInput, StyleSheet, TouchableOpacity } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import DatePicker from "../../QuestionTypes/DatePicker";
@@ -20,6 +20,14 @@ interface EventRegistrationProps {
   customValues?: Record<string, any>;
   onChange: (value: any) => void;
   trainingDaysComputed?: number | string;
+  maxDistanceKm?: number | null;
+  validationMessages?: {
+    eventName?: string[];
+    eventDate?: string[];
+    trainingStartDate?: string[];
+    distance?: string[];
+    targetTime?: string[];
+  };
 }
 
 const EventRegistration: React.FC<EventRegistrationProps> = ({
@@ -29,6 +37,8 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   customValues,
   onChange,
   trainingDaysComputed,
+  maxDistanceKm,
+  validationMessages,
 }) => {
   const [eventName, setEventName] = useState(value?.eventName || "");
   const [eventDate, setEventDate] = useState(value?.eventDate || "");
@@ -36,9 +46,14 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   const [distanceState, setDistanceState] = useState(value?.targetDistance || value?.distance || customValues?.distance || "");
   const [targetTime, setTargetTime] = useState(value?.targetTime || customValues?.targetTime || "");
   const [selectedDistanceValue, setSelectedDistanceValue] = useState<string | undefined>(selectedValue);
+  // Selecting a preset triggers both onSelect and onCustomChange. State does
+  // not update between those callbacks, so this preserves the new option ID
+  // instead of allowing onCustomChange to write the old one back.
+  const selectedDistanceValueRef = useRef<string | undefined>(selectedValue);
 
   React.useEffect(() => {
     setSelectedDistanceValue(selectedValue);
+    selectedDistanceValueRef.current = selectedValue;
   }, [selectedValue]);
 
   React.useEffect(() => {
@@ -100,6 +115,9 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
           placeholder="Enter event name"
           placeholderTextColor="#999"
         />
+        {validationMessages?.eventName?.map((message) => (
+          <Text key={message} style={styles.validationText}>{message}</Text>
+        ))}
       </View>
 
       {/* 2. Event Date Picker */}
@@ -112,6 +130,9 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             emitChange({ eventDate: date });
           }}
         />
+        {validationMessages?.eventDate?.map((message) => (
+          <Text key={message} style={styles.validationText}>{message}</Text>
+        ))}
       </View>
 
       {/* 3. Training Start Date Picker */}
@@ -124,6 +145,9 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             emitChange({ trainingStartDate: date });
           }}
         />
+        {validationMessages?.trainingStartDate?.map((message) => (
+          <Text key={message} style={styles.validationText}>{message}</Text>
+        ))}
       </View>
 
       {/* 4. Training Days Available (Computed) */}
@@ -148,6 +172,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
           const isCustom = selectedOption?.requires_input === true;
 
           setSelectedDistanceValue(val);
+          selectedDistanceValueRef.current = val;
 
           if (isCustom) {
             setDistanceState(String(nextCustomValues?.distance ?? nextCustomValues?.targetDistance ?? distanceState));
@@ -181,7 +206,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
           };
 
           emitChange({
-            eventDistanceValue: selectedDistanceValue,
+            eventDistanceValue: selectedDistanceValueRef.current,
             eventDistanceCustomValues: updatedCustomValues,
             distance: field === "distance" || field === "targetDistance" ? val : distanceState,
             targetDistance: field === "distance" || field === "targetDistance" ? val : distanceState,
@@ -196,7 +221,11 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         customDistanceLabel="Enter Distance"
         timeHint="Enter HH:MM:SS"
         optionsHint="Select a common distance or custom option"
+        maxDistanceKm={maxDistanceKm}
       />
+      {[...(validationMessages?.distance ?? []), ...(validationMessages?.targetTime ?? [])].map((message) => (
+        <Text key={message} style={styles.validationText}>{message}</Text>
+      ))}
     </View>
   );
 };
@@ -248,6 +277,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#34C759",
     fontWeight: "500",
+  },
+  validationText: {
+    color: "#FF6B6B",
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20,
   },
 });
 

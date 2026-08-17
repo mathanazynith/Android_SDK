@@ -6,6 +6,7 @@ interface RunTypeOption {
   id: string;
   label: string;
   value: string;
+  disabled?: boolean;
 }
 
 interface RunTypeSelectorProps {
@@ -46,13 +47,14 @@ export const RunTypeSelector: React.FC<RunTypeSelectorProps> = ({ label, options
                 return (
                   <TouchableOpacity
                     key={option.id}
-                    style={[styles.option, isSelected ? styles.optionSelected : null]}
+                    style={[styles.option, isSelected ? styles.optionSelected : null, option.disabled ? styles.optionDisabled : null]}
+                    disabled={option.disabled}
                     onPress={() => {
                       onSelect(option.value);
                       setVisible(false);
                     }}
                   >
-                    <Text style={[styles.optionText, isSelected ? styles.optionTextSelected : null]}>{option.label}</Text>
+                    <Text style={[styles.optionText, isSelected ? styles.optionTextSelected : null, option.disabled ? styles.optionTextDisabled : null]}>{option.label}</Text>
                     {isSelected ? <Feather name="check" size={18} color="#34C759" /> : null}
                   </TouchableOpacity>
                 );
@@ -100,6 +102,8 @@ const styles = StyleSheet.create({
     borderColor: '#3D4044',
   },
   optionSelected: { borderColor: '#34C759', backgroundColor: '#293C29' },
+  optionDisabled: { opacity: 0.32 },
   optionText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
+  optionTextDisabled: { color: '#8E8E93' },
   optionTextSelected: { color: '#34C759' },
 });

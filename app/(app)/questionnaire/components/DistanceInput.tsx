@@ -8,10 +8,11 @@ interface DistanceInputProps {
   unitLabel?: string;
   hint?: string;
   error?: string;
+  maxValue?: number;
   onChange: (value: string) => void;
 }
 
-export const DistanceInput: React.FC<DistanceInputProps> = ({ label, value, unitLabel, hint, error, onChange }) => {
+export const DistanceInput: React.FC<DistanceInputProps> = ({ label, value, unitLabel, hint, error, maxValue, onChange }) => {
   const [localValue, setLocalValue] = useState(value || '');
 
   React.useEffect(() => {
@@ -19,7 +20,8 @@ export const DistanceInput: React.FC<DistanceInputProps> = ({ label, value, unit
   }, [value]);
 
   const validation = useMemo(() => validateDistance(localValue || ''), [localValue]);
-  const resolvedError = error || (!validation.valid && localValue ? validation.error : undefined);
+  const exceedsMaximum = Number.isFinite(maxValue) && Number(localValue) > Number(maxValue);
+  const resolvedError = error || (exceedsMaximum ? `Maximum allowed distance is ${maxValue} ${unitLabel || ""}.` : !validation.valid && localValue ? validation.error : undefined);
 
   return (
     <View style={styles.card}>
@@ -34,7 +36,9 @@ export const DistanceInput: React.FC<DistanceInputProps> = ({ label, value, unit
             const decimalCount = (nextValue.match(/\./g) || []).length;
             const sanitizedValue = decimalCount > 1 ? nextValue.replace(/\.(?=.*\.)/g, '') : nextValue;
             setLocalValue(sanitizedValue);
-            onChange(sanitizedValue);
+            if (!(Number.isFinite(maxValue) && Number(sanitizedValue) > Number(maxValue))) {
+              onChange(sanitizedValue);
+            }
           }}
           placeholder=""
           placeholderTextColor="#8E8E93"

@@ -35,6 +35,55 @@ interface PageState {
   complete: boolean;
 }
 
+type BackendValidationPayload = {
+  validation_errors?: Array<{
+    target_question?: string;
+    question_slug?: string;
+    question?: string;
+    slug?: string;
+    message?: string;
+    error?: string;
+    detail?: string;
+    metadata?: {
+      target_question?: string;
+      targetQuestion?: string;
+      question_slug?: string;
+      question?: string;
+      slug?: string;
+    };
+  }>;
+};
+
+const extractQuestionValidationErrors = (
+  payload: BackendValidationPayload | null | undefined
+): Record<string, string[]> => {
+  const result: Record<string, string[]> = {};
+
+  if (!payload || !Array.isArray(payload.validation_errors)) return result;
+
+  for (const item of payload.validation_errors) {
+    const questionKey =
+      item?.target_question ??
+      item?.metadata?.target_question ??
+      item?.metadata?.targetQuestion ??
+      item?.question_slug ??
+      item?.metadata?.question_slug ??
+      item?.question ??
+      item?.metadata?.question ??
+      item?.slug ??
+      item?.metadata?.slug;
+    const message = item?.message ?? item?.error ?? item?.detail;
+    const normalizedKey = String(questionKey ?? "").trim().toLowerCase();
+    const cleanMessage = String(message ?? "").trim();
+
+    if (!normalizedKey || !cleanMessage) continue;
+    if (!result[normalizedKey]) result[normalizedKey] = [];
+    if (!result[normalizedKey].includes(cleanMessage)) result[normalizedKey].push(cleanMessage);
+  }
+
+  return result;
+};
+
 interface QuestionnaireContextType {
   questions: Question[];
   currentNavigation: Navigation | null;
@@ -43,6 +92,8 @@ interface QuestionnaireContextType {
   allAnswers: Record<string, AnswerData>;
   isLoading: boolean;
   error: string | null;
+  validationErrors: Record<string, string[]>;
+  clearValidationErrors: () => void;
   isComplete: boolean;
   computedResponses: any;
   assessmentId: number | null;
@@ -84,6 +135,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
   const [currentNavigation, setCurrentNavigation] = useState<Navigation | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string[]>>({});
   const [isComplete, setIsComplete] = useState(false);
   const [computedResponses, setComputedResponses] = useState<any>({});
 
@@ -95,6 +147,11 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
   const [workoutPlan, setWorkoutPlan] = useState<CurrentWorkoutPlan | null>(null);
   const [workoutPlanError, setWorkoutPlanError] = useState<string | null>(null);
   const [isWorkoutPlanLoading, setIsWorkoutPlanLoading] = useState(false);
+
+  const clearValidationErrors = useCallback(() => {
+    setValidationErrors({});
+    setError(null);
+  }, []);
 
   // Navigation history for back and forward navigation
   const navigationHistory = useRef<PageState[]>([]);
@@ -227,6 +284,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     try {
       setIsLoading(true);
       setError(null);
+      setValidationErrors({});
       const qs = await assessmentService.fetchQuestions();
       setQuestions(qs);
     } catch (err: any) {
@@ -288,6 +346,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       isStartingAssessment.current = true;
       setIsLoading(true);
       setError(null);
+      setValidationErrors({});
       const result = await assessmentService.startAssessment();
       setAssessmentId(result.assessmentId);
       setCurrentNavigation(result.navigation);
@@ -348,6 +407,10 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       if (!validationResult.valid) {
         return;
       }
+
+      // Server-side errors describe the previously submitted values. Once the
+      // user edits an answer, wait for the next submission before showing them.
+      setValidationErrors({});
 
       setAllAnswers((prev) => {
         const existing = prev[key] || { value: undefined, unit: null, customValues: {} };
@@ -506,6 +569,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     try {
       setIsLoading(true);
       setError(null);
+      setValidationErrors({});
 
       const previousNavigation = currentNavigation;
 
@@ -548,7 +612,13 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       // Answers remain in allAnswers - no clearing!
 
     } catch (err: any) {
-      setError(getBackendErrorMessage(err, "Failed to submit answers"));
+      const fieldErrors = extractQuestionValidationErrors(err?.response?.data);
+      setValidationErrors(fieldErrors);
+      setError(
+        Object.keys(fieldErrors).length > 0
+          ? null
+          : getBackendErrorMessage(err, "Failed to submit answers")
+      );
     } finally {
       setIsLoading(false);
     }
@@ -591,6 +661,8 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
         allAnswers,
         isLoading,
         error,
+        validationErrors,
+        clearValidationErrors,
         isComplete,
         computedResponses,
         assessmentId,

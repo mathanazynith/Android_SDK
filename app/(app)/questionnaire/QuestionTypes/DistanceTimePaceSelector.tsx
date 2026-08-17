@@ -33,6 +33,7 @@ interface DistanceTimePaceSelectorProps {
   showHeader?: boolean;
   showTimeInput?: boolean;
   showPace?: boolean;
+  maxDistanceKm?: number | null;
 }
 
 interface DistanceOption {
@@ -89,6 +90,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
   showHeader = true,
   showTimeInput = true,
   showPace = true,
+  maxDistanceKm,
 }) => {
   const { user } = useAuth();
   const [displayPace, setDisplayPace] = useState("");
@@ -125,6 +127,11 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
   const distanceUnitLabel = useMemo(() => {
     return getDistanceUnitDisplayLabel(user?.profile?.distance_unit || customValues?.unit);
   }, [user?.profile?.distance_unit, customValues?.unit]);
+  const maxDistanceForInput = maxDistanceKm && maxDistanceKm > 0
+    ? (getDistanceUnitCode(user?.profile?.distance_unit || customValues?.unit) === "mile"
+        ? maxDistanceKm / 1.60934
+        : maxDistanceKm)
+    : undefined;
 
   const paceUnitLabel = useMemo(() => {
     return getDistanceUnitPaceLabel(user?.profile?.distance_unit || customValues?.unit);
@@ -244,6 +251,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
           id: option.id,
           label: option.text ?? option.label ?? option.id,
           value: option.id,
+          disabled: !isCustomOption(option) && Boolean(maxDistanceKm && (getDistanceInKilometers(option) ?? 0) > maxDistanceKm),
         }))}
         selectedValue={selectedValue}
         hint={optionsHint}
@@ -258,6 +266,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
             unitLabel={distanceUnitLabel}
             hint={`Distance will be shown in ${distanceUnitLabel}`}
             onChange={(value) => onCustomChange?.(distanceField, value)}
+            maxValue={maxDistanceForInput}
           />
         ) : null}
 

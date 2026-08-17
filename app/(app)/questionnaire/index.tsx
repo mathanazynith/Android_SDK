@@ -65,6 +65,7 @@ const QuestionField = ({
   onCustomChange,
   computedResponses,
   goalPacePreview,
+  maxDistanceKm,
 }: any) => {
   const {
     id,
@@ -139,6 +140,7 @@ const QuestionField = ({
           showHeader={false}
           showTimeInput={false}
           showPace={false}
+          maxDistanceKm={maxDistanceKm}
         />
       </View>
     );
@@ -375,6 +377,8 @@ export default function QuestionnaireScreen() {
     allAnswers,
     isLoading,
     error,
+    validationErrors,
+    clearValidationErrors,
     isComplete,
     computedResponses,
     assessmentId,
@@ -388,6 +392,18 @@ export default function QuestionnaireScreen() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrorQuestionId, setValidationErrorQuestionId] = useState<string | null>(null);
+
+  const getQuestionValidationMessages = (question: Question): string[] => {
+    const keys = [
+      question.slug,
+      question.backendId,
+      question.id,
+    ]
+      .map((key) => String(key ?? "").trim().toLowerCase())
+      .filter(Boolean);
+
+    return keys.flatMap((key) => validationErrors[key] ?? []);
+  };
 
   const goalPacePreview = useMemo(() => {
     const goalQuestion = questions.find((question) =>
@@ -472,6 +488,9 @@ export default function QuestionnaireScreen() {
       }
     }
 
+    // The replacement answer supersedes the rejected value. Clear the old
+    // server response now so it cannot keep Next disabled.
+    clearValidationErrors();
     setValidationErrorQuestionId(null);
     setAnswer(questionId, value, unit, customValues);
   };
@@ -493,6 +512,7 @@ export default function QuestionnaireScreen() {
       );
 
     if (isEmptyCustom) {
+      clearValidationErrors();
       setValidationErrorQuestionId(null);
       setAnswer(questionId, undefined, undefined, null);
       return;
@@ -512,6 +532,7 @@ export default function QuestionnaireScreen() {
       }
     }
 
+    clearValidationErrors();
     setValidationErrorQuestionId(null);
     setAnswer(questionId, undefined, undefined, updatedCustomValues);
   };
@@ -647,6 +668,36 @@ export default function QuestionnaireScreen() {
     return undefined;
   };
 
+  // Frontend availability rule: a runner can select shorter targets, plus the
+  // next configured progression distance. The backend still validates the
+  // submitted option as the source of truth.
+  const maxTargetDistanceKm = (() => {
+    const currentDistanceQuestion = questions.find((question) =>
+      /current.*running.*distance|current.*distance|recent.*long.*run/i.test(
+        `${question.question} ${question.slug ?? ""}`
+      )
+    );
+    if (!currentDistanceQuestion) return null;
+
+    const answer = allAnswers[String(currentDistanceQuestion.backendId ?? getNumericId(currentDistanceQuestion.id))];
+    const option = currentDistanceQuestion.options?.find((item) => String(item.id) === String(answer?.value));
+    let currentDistance = getDistanceInKilometers(option);
+    if (!currentDistance && option?.requires_input) {
+      const enteredDistance = Number(answer?.customValues?.distance ?? answer?.customValues?.targetDistance);
+      if (Number.isFinite(enteredDistance) && enteredDistance > 0) {
+        currentDistance = getDistanceUnitCode(answer?.customValues?.unit) === "mile"
+          ? enteredDistance * 1.60934
+          : enteredDistance;
+      }
+    }
+    if (!currentDistance) return null;
+    if (currentDistance <= 5) return 10;
+    if (currentDistance <= 10) return 15;
+    if (currentDistance <= 15) return 21.1;
+    if (currentDistance <= 21.1) return 42.2;
+    return 42.2;
+  })();
+
   const getDerivedComputedValue = (question: Question) => {
     const normalizedSlug = String(question.slug ?? question.question ?? "").toLowerCase();
 
@@ -719,6 +770,43 @@ export default function QuestionnaireScreen() {
         ...(eventRegistrationGroup.paceQuestion ? [eventRegistrationGroup.paceQuestion.id] : []),
       ])
     : new Set<string>();
+
+  const isRequiredQuestionComplete = (question: Question) => {
+    if (!question.isRequired || question.type === "computed") return true;
+
+    const answer = getAnswerForQuestion(question);
+    const value = answer?.value;
+    if (
+      value === undefined ||
+      value === null ||
+      value === "" ||
+      (Array.isArray(value) && value.length === 0)
+    ) {
+      return false;
+    }
+
+    const selectedOption = question.options?.find(
+      (option) => String(option.id) === String(value)
+    );
+    const requiresCustomDistance =
+      selectedOption?.requires_input === true ||
+      /custom/i.test(String(selectedOption?.label ?? selectedOption?.text ?? ""));
+
+    if (requiresCustomDistance) {
+      const distance = answer?.customValues?.distance ?? answer?.customValues?.targetDistance;
+      const distanceValue = Number(distance);
+      return Number.isFinite(distanceValue) && distanceValue > 0;
+    }
+
+    return true;
+  };
+
+  // A server field error is authoritative: keep Next disabled until the user
+  // changes an answer, then submit again for the backend to revalidate it.
+  const isPageReadyToSubmit =
+    displayQuestions.every(isRequiredQuestionComplete) &&
+    Object.keys(validationErrors).length === 0 &&
+    validationErrorQuestionId === null;
 
   const recentLongRunSelectedValue = recentLongRunGroup
     ? currentPageAnswers[
@@ -817,6 +905,20 @@ export default function QuestionnaireScreen() {
               options={eventRegistrationGroup.distanceQuestion?.options || []}
               selectedValue={eventRegistrationGroup.distanceQuestion ? currentPageAnswers[String(eventRegistrationGroup.distanceQuestion.backendId ?? getNumericId(eventRegistrationGroup.distanceQuestion.id))]?.value : undefined}
               customValues={eventRegistrationGroup.distanceQuestion ? currentPageAnswers[String(eventRegistrationGroup.distanceQuestion.backendId ?? getNumericId(eventRegistrationGroup.distanceQuestion.id))]?.customValues || {} : {}}
+              maxDistanceKm={maxTargetDistanceKm}
+              validationMessages={{
+                eventName: getQuestionValidationMessages(eventRegistrationGroup.eventNameQuestion),
+                eventDate: getQuestionValidationMessages(eventRegistrationGroup.eventDateQuestion),
+                trainingStartDate: eventRegistrationGroup.trainingStartDateQuestion
+                  ? getQuestionValidationMessages(eventRegistrationGroup.trainingStartDateQuestion)
+                  : [],
+                distance: eventRegistrationGroup.distanceQuestion
+                  ? getQuestionValidationMessages(eventRegistrationGroup.distanceQuestion)
+                  : [],
+                targetTime: eventRegistrationGroup.targetTimeQuestion
+                  ? getQuestionValidationMessages(eventRegistrationGroup.targetTimeQuestion)
+                  : [],
+              }}
               onChange={(nextValue: Record<string, any>) => {
                 // Set event name
                 if (nextValue.eventName !== undefined) {
@@ -866,27 +968,35 @@ export default function QuestionnaireScreen() {
                 ...answerData.customValues,
                 ...(computedOverride !== undefined ? { derivedValue: computedOverride } : {}),
               };
+              const validationMessages = getQuestionValidationMessages(question);
 
               return (
-                <QuestionField
-                  key={question.id}
-                  question={question}
-                  value={value}
-                  unit={unit}
-                  customValues={customValues}
-                  computedResponses={computedResponses}
-                  goalPacePreview={goalPacePreview}
-                  onAnswer={(
-                    questionKey: string,
-                    val: any,
-                    unitVal?: string | null,
-                    customValues?: any
-                  ) => handleAnswer(questionKey, val, unitVal, customValues)}
-                  onCustomChange={(questionKey: string, field: string, val: string) =>
-                    handleCustomChange(questionKey, field, val)
-                  }
-                  isInvalid={validationErrorQuestionId === String(question.backendId ?? getNumericId(question.id))}
-                />
+                <View key={question.id}>
+                  <QuestionField
+                    question={question}
+                    value={value}
+                    unit={unit}
+                    customValues={customValues}
+                    computedResponses={computedResponses}
+                    goalPacePreview={goalPacePreview}
+                    maxDistanceKm={maxTargetDistanceKm}
+                    onAnswer={(
+                      questionKey: string,
+                      val: any,
+                      unitVal?: string | null,
+                      customValues?: any
+                    ) => handleAnswer(questionKey, val, unitVal, customValues)}
+                    onCustomChange={(questionKey: string, field: string, val: string) =>
+                      handleCustomChange(questionKey, field, val)
+                    }
+                    isInvalid={validationErrorQuestionId === String(question.backendId ?? getNumericId(question.id))}
+                  />
+                  {validationMessages.map((message) => (
+                    <Text key={message} style={styles.questionValidationText}>
+                      {message}
+                    </Text>
+                  ))}
+                </View>
               );
             })}
 
@@ -922,9 +1032,13 @@ export default function QuestionnaireScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.button, styles.nextButton]}
+          style={[
+            styles.button,
+            styles.nextButton,
+            (!isPageReadyToSubmit || isSubmitting || isLoading) && styles.nextButtonDisabled,
+          ]}
           onPress={handleNext}
-          disabled={isSubmitting || isLoading}
+          disabled={!isPageReadyToSubmit || isSubmitting || isLoading}
         >
           <Text style={styles.buttonText}>
             {isSubmitting ? "Submitting..." : "Next"}
@@ -977,6 +1091,15 @@ const styles = StyleSheet.create({
     color: "#D93025",
     fontSize: 14,
     fontWeight: "600",
+  },
+  questionValidationText: {
+    color: "#FF6B6B",
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20,
+    marginTop: -16,
+    marginBottom: 20,
+    paddingHorizontal: 4,
   },
   retryButton: {
     paddingHorizontal: 24,
@@ -1046,6 +1169,10 @@ const styles = StyleSheet.create({
   },
   nextButton: {
     backgroundColor: "#34C759",
+  },
+  nextButtonDisabled: {
+    backgroundColor: "#4A4D50",
+    opacity: 0.7,
   },
   buttonText: {
     fontSize: 17,

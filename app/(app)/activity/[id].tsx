@@ -4,8 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Platform,
-  SafeAreaView,
+  Platform, 
+  SafeAreaView, 
   ScrollView,
   StatusBar,
   StyleSheet,
