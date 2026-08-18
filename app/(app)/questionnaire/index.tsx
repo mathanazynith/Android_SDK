@@ -157,7 +157,7 @@ const QuestionField = ({
           {questionText}
           {isRequired && <Text style={styles.requiredStar}> *</Text>}
         </Text>
-        <ScrollTimePicker value={value || "00:00:00"} onChange={(nextValue) => onAnswer(id, nextValue)} />
+        <ScrollTimePicker value={value} onChange={(nextValue) => onAnswer(id, nextValue)} />
       </View>
     );
   }

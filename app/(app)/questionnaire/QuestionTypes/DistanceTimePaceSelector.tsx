@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useAuth } from "../../../../service/auth";
@@ -93,7 +93,6 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
   maxDistanceKm,
 }) => {
   const { user } = useAuth();
-  const [displayPace, setDisplayPace] = useState("");
 
   const normalizeDistanceOption = (option: any): DistanceOption => ({
     id: String(option.id),
@@ -105,8 +104,14 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
     input_type: option.input_type ?? "",
   });
 
-  const distanceOptions: DistanceOption[] = (options ?? []).map(normalizeDistanceOption);
-  const selectedOption = distanceOptions.find((option) => option.id === selectedValue);
+  const distanceOptions = useMemo<DistanceOption[]>(
+    () => (options ?? []).map(normalizeDistanceOption),
+    [options]
+  );
+  const selectedOption = useMemo(
+    () => distanceOptions.find((option) => option.id === selectedValue),
+    [distanceOptions, selectedValue]
+  );
   
   const isCustomOption = (option?: DistanceOption) => {
     if (!option) return false;
@@ -117,6 +122,9 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
   };
   
   const isCustomSelected = isCustomOption(selectedOption);
+  const selectedDistanceInput = customValues?.[distanceField];
+  const selectedTimeValue = customValues?.[timeField];
+  const selectedUnit = customValues?.unit;
 
   // Find the custom option ID from the options list
   const customOptionId = useMemo(() => {
@@ -137,50 +145,49 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
     return getDistanceUnitPaceLabel(user?.profile?.distance_unit || customValues?.unit);
   }, [user?.profile?.distance_unit, customValues?.unit]);
 
-  useEffect(() => {
-    const distanceInput = String(customValues?.[distanceField] ?? "").trim();
-    const timeValue = String(customValues?.[timeField] ?? "").trim();
+  const displayPace = useMemo(() => {
+    const distanceInput = String(selectedDistanceInput ?? "").trim();
+    const timeValue = String(selectedTimeValue ?? "").trim();
     const customDistance = Number(distanceInput);
     const distanceForSelection = isCustomSelected
       ? (Number.isFinite(customDistance) && customDistance > 0
-          ? (getDistanceUnitCode(user?.profile?.distance_unit || customValues?.unit) === "mile"
+          ? (getDistanceUnitCode(user?.profile?.distance_unit || selectedUnit) === "mile"
               ? customDistance * 1.60934
               : customDistance)
           : null)
       : getDistanceInKilometers(selectedOption);
 
     if (!distanceForSelection || !timeValue) {
-      setDisplayPace("");
-      return;
+      return "";
     }
 
     const seconds = timeToSeconds(timeValue);
-    const distanceCode = getDistanceUnitCode(customValues?.unit || distanceUnitLabel || "km");
+    const distanceCode = getDistanceUnitCode(selectedUnit || distanceUnitLabel || "km");
     if (
       !Number.isFinite(distanceForSelection) ||
       distanceForSelection <= 0 ||
       seconds === null ||
       seconds <= 0
     ) {
-      setDisplayPace("");
-      return;
+      return "";
     }
 
     const pace = calculatePace(seconds, distanceForSelection, distanceCode);
-    setDisplayPace(pace);
+    return pace;
   }, [
     isCustomSelected,
     selectedOption,
-    customValues?.[distanceField],
-    customValues?.[timeField],
-    customValues?.unit,
+    selectedDistanceInput,
+    selectedTimeValue,
+    selectedUnit,
     distanceUnitLabel,
+    user?.profile?.distance_unit,
   ]);
 
   // ------------------------------------------------------------
   // FIXED: handleOptionSelect – always use the correct custom option ID
   // ------------------------------------------------------------
-  const handleOptionSelect = (optionId: string) => {
+  const handleOptionSelect = useCallback((optionId: string) => {
     // Debug: inspect actual question options when selecting a custom type
     if (__DEV__) {
       console.log("[DEBUG] question.options for this field:", JSON.stringify(options));
@@ -231,7 +238,18 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
       onCustomChange?.(distanceField, "");
       onCustomChange?.("unit", distanceUnitLabel);
     }
-  };
+  }, [
+    customOptionId,
+    customValues,
+    distanceField,
+    distanceOptions,
+    distanceUnitLabel,
+    onCustomChange,
+    onSelect,
+    options,
+    paceField,
+    timeField,
+  ]);
 
   return (
     <FormCard style={styles.card}>
@@ -273,7 +291,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
         {showTimeInput ? (
           <ScrollTimePicker
             label={timeLabel}
-            value={customValues?.[timeField] || "00:00:00"}
+            value={customValues?.[timeField]}
             hint={timeHint}
             onChange={(value) => onCustomChange?.(timeField, value)}
             maxHours={99}

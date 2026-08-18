@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -18,6 +18,27 @@ interface ScrollTimePickerProps {
 const ITEM_HEIGHT = 50;
 const VISIBLE_ITEMS = 3;
 const SCROLL_VIEW_HEIGHT = ITEM_HEIGHT * VISIBLE_ITEMS;
+export const DEFAULT_TIME_VALUE = '01:00:00';
+
+type TimeAxis = 'hours' | 'minutes' | 'seconds';
+type TimeParts = { hours: number; minutes: number; seconds: number };
+
+const parseTimeComponent = (part: string, maxValue: number) => {
+  const parsed = Number.parseInt(part, 10);
+  return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), maxValue) : 0;
+};
+
+const parseTimeValue = (timeValue: string | undefined, maxHours: number): TimeParts => {
+  const parts = String(timeValue || DEFAULT_TIME_VALUE).split(':');
+  return {
+    hours: parseTimeComponent(parts[0] || '0', maxHours),
+    minutes: parseTimeComponent(parts[1] || '0', 59),
+    seconds: parseTimeComponent(parts[2] || '0', 59),
+  };
+};
+
+const formatTimeValue = ({ hours, minutes, seconds }: TimeParts) =>
+  `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 
 /**
  * ScrollTimePicker Component
@@ -32,46 +53,20 @@ const SCROLL_VIEW_HEIGHT = ITEM_HEIGHT * VISIBLE_ITEMS;
  */
 export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
   label,
-  value = '00:00:00',
+  value,
   hint,
   error,
   onChange,
   maxHours = 99,
 }) => {
-  // Parse initial value
-  const parseTimeComponent = (part: string, maxValue: number) => {
-    const parsed = Number.parseInt(part, 10);
-    return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), maxValue) : 0;
-  };
-
-  const parseTimeValue = (timeValue: string) => {
-    const parts = timeValue.split(':');
-    return [
-      parseTimeComponent(parts[0] || '0', maxHours),
-      parseTimeComponent(parts[1] || '0', 59),
-      parseTimeComponent(parts[2] || '0', 59),
-    ] as const;
-  };
-
-  const [hours, setHours] = useState<number>(() => {
-    return parseTimeValue(value)[0];
-  });
-
-  const [minutes, setMinutes] = useState<number>(() => {
-    return parseTimeValue(value)[1];
-  });
-
-  const [seconds, setSeconds] = useState<number>(() => {
-    return parseTimeValue(value)[2];
-  });
+  const [time, setTime] = useState<TimeParts>(() => parseTimeValue(value, maxHours));
+  const timeRef = useRef(time);
+  const didApplyDefaultRef = useRef(false);
 
   // Refs for scroll views
   const hoursScrollRef = useRef<ScrollView>(null);
   const minutesScrollRef = useRef<ScrollView>(null);
   const secondsScrollRef = useRef<ScrollView>(null);
-
-  // Track if we've scrolled to initial position
-  const initialScrollDoneRef = useRef(false);
 
   // Generate range arrays
   const hoursArray = useMemo(() => {
@@ -86,97 +81,84 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
     return Array.from({ length: 60 }, (_, i) => i);
   }, []);
 
-  const [hasMounted, setHasMounted] = useState(false);
+  const selectedTime = useMemo(() => formatTimeValue(time), [time]);
 
-  // Format selected time
-  const selectedTime = useMemo(() => {
-    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-  }, [hours, minutes, seconds]);
-
-  // Keep internal state aligned with the external value prop and update scroll position.
-  useEffect(() => {
-    const [nextHours, nextMinutes, nextSeconds] = parseTimeValue(value);
-
-    setHours(nextHours);
-    setMinutes(nextMinutes);
-    setSeconds(nextSeconds);
-
-    if (hasMounted) {
-      scrollToHour(nextHours, false);
-      scrollToMinute(nextMinutes, false);
-      scrollToSecond(nextSeconds, false);
-    } else {
-      const timer = setTimeout(() => {
-        scrollToHour(nextHours, false);
-        scrollToMinute(nextMinutes, false);
-        scrollToSecond(nextSeconds, false);
-        setHasMounted(true);
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [value, maxHours]);
-
-  const scrollIndexFromOffset = (offsetY: number, length: number) => {
+  const scrollIndexFromOffset = useCallback((offsetY: number, length: number) => {
     const index = Math.round(offsetY / ITEM_HEIGHT);
     return Math.max(0, Math.min(index, length - 1));
-  };
-
-  const finalizeScroll = (axis: 'hours' | 'minutes' | 'seconds', offsetY: number) => {
-    if (axis === 'hours') {
-      const index = scrollIndexFromOffset(offsetY, hoursArray.length);
-      const nextHours = hoursArray[index];
-      setHours(nextHours);
-      scrollToHour(nextHours, true);
-      onChange(`${String(nextHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
-      return;
-    }
-
-    if (axis === 'minutes') {
-      const index = scrollIndexFromOffset(offsetY, minutesArray.length);
-      const nextMinutes = minutesArray[index];
-      setMinutes(nextMinutes);
-      scrollToMinute(nextMinutes, true);
-      onChange(`${String(hours).padStart(2, '0')}:${String(nextMinutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
-      return;
-    }
-
-    const index = scrollIndexFromOffset(offsetY, secondsArray.length);
-    const nextSeconds = secondsArray[index];
-    setSeconds(nextSeconds);
-    scrollToSecond(nextSeconds, true);
-    onChange(`${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(nextSeconds).padStart(2, '0')}`);
-  };
+  }, []);
 
   // Helper functions to scroll to specific values
-  const scrollToHour = (targetHour: number, animated: boolean = true) => {
-    const index = hoursArray.indexOf(targetHour);
-    if (index >= 0 && hoursScrollRef.current) {
+  const scrollToHour = useCallback((targetHour: number, animated: boolean = true) => {
+    if (hoursScrollRef.current) {
       hoursScrollRef.current.scrollTo({
-        y: Math.max(0, index * ITEM_HEIGHT),
+        y: Math.max(0, targetHour * ITEM_HEIGHT),
         animated,
       });
     }
-  };
+  }, []);
 
-  const scrollToMinute = (targetMinute: number, animated: boolean = true) => {
-    const index = minutesArray.indexOf(targetMinute);
-    if (index >= 0 && minutesScrollRef.current) {
+  const scrollToMinute = useCallback((targetMinute: number, animated: boolean = true) => {
+    if (minutesScrollRef.current) {
       minutesScrollRef.current.scrollTo({
-        y: Math.max(0, index * ITEM_HEIGHT),
+        y: Math.max(0, targetMinute * ITEM_HEIGHT),
         animated,
       });
     }
-  };
+  }, []);
 
-  const scrollToSecond = (targetSecond: number, animated: boolean = true) => {
-    const index = secondsArray.indexOf(targetSecond);
-    if (index >= 0 && secondsScrollRef.current) {
+  const scrollToSecond = useCallback((targetSecond: number, animated: boolean = true) => {
+    if (secondsScrollRef.current) {
       secondsScrollRef.current.scrollTo({
-        y: Math.max(0, index * ITEM_HEIGHT),
+        y: Math.max(0, targetSecond * ITEM_HEIGHT),
         animated,
       });
     }
-  };
+  }, []);
+
+  const scrollToTime = useCallback((nextTime: TimeParts, animated = false) => {
+    scrollToHour(nextTime.hours, animated);
+    scrollToMinute(nextTime.minutes, animated);
+    scrollToSecond(nextTime.seconds, animated);
+  }, [scrollToHour, scrollToMinute, scrollToSecond]);
+
+  // A parent update after a user selection must not reset the wheels. Only
+  // synchronize when an externally supplied value actually differs.
+  useEffect(() => {
+    const nextTime = parseTimeValue(value, maxHours);
+    if (formatTimeValue(timeRef.current) === formatTimeValue(nextTime)) return;
+
+    timeRef.current = nextTime;
+    setTime(nextTime);
+    requestAnimationFrame(() => scrollToTime(nextTime));
+  }, [maxHours, scrollToTime, value]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => scrollToTime(timeRef.current));
+    return () => cancelAnimationFrame(frame);
+  }, [scrollToTime]);
+
+  // Keep the displayed default, parent answer, validation, and pace in sync
+  // even when a time question is opened with no saved value yet.
+  useEffect(() => {
+    if (!value && !didApplyDefaultRef.current) {
+      didApplyDefaultRef.current = true;
+      onChange(formatTimeValue(timeRef.current));
+    }
+  }, [onChange, value]);
+
+  const finalizeScroll = useCallback((axis: TimeAxis, offsetY: number) => {
+    const length = axis === 'hours' ? hoursArray.length : 60;
+    const nextValue = scrollIndexFromOffset(offsetY, length);
+    const currentTime = timeRef.current;
+    const nextTime = { ...currentTime, [axis]: nextValue } as TimeParts;
+
+    if (formatTimeValue(nextTime) === formatTimeValue(currentTime)) return;
+
+    timeRef.current = nextTime;
+    setTime(nextTime);
+    onChange(formatTimeValue(nextTime));
+  }, [hoursArray.length, onChange, scrollIndexFromOffset]);
 
 
   return (
@@ -207,7 +189,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
                 <Text
                   style={[
                     styles.itemText,
-                    hour === hours && styles.itemTextSelected,
+                    hour === time.hours && styles.itemTextSelected,
                   ]}
                 >
                   {String(hour).padStart(2, '0')}h
@@ -241,7 +223,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
                 <Text
                   style={[
                     styles.itemText,
-                    minute === minutes && styles.itemTextSelected,
+                    minute === time.minutes && styles.itemTextSelected,
                   ]}
                 >
                   {String(minute).padStart(2, '0')}m
@@ -275,7 +257,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
                 <Text
                   style={[
                     styles.itemText,
-                    second === seconds && styles.itemTextSelected,
+                    second === time.seconds && styles.itemTextSelected,
                   ]}
                 >
                   {String(second).padStart(2, '0')}s
