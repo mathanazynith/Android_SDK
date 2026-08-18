@@ -6,12 +6,62 @@ interface YesNoProps {
   onChange: (value: boolean) => void;
 }
 
+type YesNoOption = {
+  id?: string | number;
+  label?: string;
+  text?: string;
+  value?: string | number;
+};
+
+export type YesNoOptionValues = {
+  yes: YesNoOption;
+  no: YesNoOption;
+};
+
+const optionLabel = (option: YesNoOption): string =>
+  String(option.label ?? option.text ?? option.value ?? "").trim().toLowerCase();
+
+/**
+ * Backend questions may be explicitly typed as `yesno` or supplied as a
+ * `single` question with exactly Yes and No options. Both shapes use this
+ * shared visual control.
+ */
+export const getYesNoOptionValues = (
+  options?: YesNoOption[]
+): YesNoOptionValues | null => {
+  if (!options || options.length !== 2) return null;
+
+  const yes = options.find((option) => optionLabel(option) === "yes");
+  const no = options.find((option) => optionLabel(option) === "no");
+
+  return yes && no ? { yes, no } : null;
+};
+
+export const getYesNoValue = (
+  value: unknown,
+  optionValues?: YesNoOptionValues | null
+): boolean | undefined => {
+  if (typeof value === "boolean") return value;
+  if (!optionValues) return undefined;
+
+  const valueAsString = String(value ?? "");
+  const matchesOption = (option: YesNoOption) =>
+    [option.id, option.value, option.label, option.text]
+      .filter((candidate) => candidate !== undefined && candidate !== null)
+      .some((candidate) => String(candidate) === valueAsString);
+
+  if (matchesOption(optionValues.yes)) return true;
+  if (matchesOption(optionValues.no)) return false;
+  return undefined;
+};
+
 const YesNo: React.FC<YesNoProps> = ({ value, onChange }) => {
   return (
     <View style={styles.container}>
       <TouchableOpacity
         style={[styles.button, value === true && styles.selectedYes]}
         onPress={() => onChange(true)}
+        activeOpacity={0.7}
       >
         <Text style={[styles.buttonText, value === true && styles.selectedText]}>
           Yes
@@ -20,6 +70,7 @@ const YesNo: React.FC<YesNoProps> = ({ value, onChange }) => {
       <TouchableOpacity
         style={[styles.button, value === false && styles.selectedNo]}
         onPress={() => onChange(false)}
+        activeOpacity={0.7}
       >
         <Text style={[styles.buttonText, value === false && styles.selectedText]}>
           No
@@ -32,32 +83,36 @@ const YesNo: React.FC<YesNoProps> = ({ value, onChange }) => {
 const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
-    gap: 12,
+    width: "100%",
+    gap: 18,
   },
   button: {
     flex: 1,
-    padding: 16,
-    backgroundColor: "#303236",
-    borderRadius: 10,
+    flexBasis: 0,
+    height: 68,
+    backgroundColor: "#050505",
+    borderRadius: 18,
     alignItems: "center",
+    justifyContent: "center",
     borderWidth: 2,
     borderColor: "transparent",
   },
   selectedYes: {
-    backgroundColor: "#253525",
+    backgroundColor: "#132e13",
     borderColor: "#34C759",
   },
   selectedNo: {
-    backgroundColor: "#303236",
-    borderColor: "#FF5A5F",
+    backgroundColor: "#132e13",
+    borderColor: "#34C759",
   },
   buttonText: {
-    fontSize: 16,
+    fontSize: 25,
     fontWeight: "600",
-    color: "#E8E8EA",
+    color: "#F4F4F5",
+    textAlign: "center",
   },
   selectedText: {
-    color: "#FFFFFF",
+    color: "#34C759",
   },
 });
 

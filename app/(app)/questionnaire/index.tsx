@@ -14,7 +14,10 @@ import DatePicker from "../../../app/(app)/questionnaire/QuestionTypes/DatePicke
 import DistanceTimePaceSelector, { getDistanceInKilometers } from "../../../app/(app)/questionnaire/QuestionTypes/DistanceTimePaceSelector";
 import PlanSelection from "../../../app/(app)/questionnaire/QuestionTypes/PlanSelection";
 import RecentLongRun from "../../../app/(app)/questionnaire/QuestionTypes/RecentLongRun";
-import YesNo from "../../../app/(app)/questionnaire/QuestionTypes/YesNo";
+import YesNo, {
+  getYesNoOptionValues,
+  getYesNoValue,
+} from "../../../app/(app)/questionnaire/QuestionTypes/YesNo";
 import EventRegistration from "../../../app/(app)/questionnaire/components/QuestionTypes/EventRegistration";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { useQuestionnaire } from "../../../contexts/QuestionnaireContext";
@@ -80,6 +83,7 @@ const QuestionField = ({
   const isPrimaryRunningGoal = question.isGoalQuestion === true || /primary\s+running\s+goal|what\s+is\s+your\s+goal/i.test(questionIdentifier);
   const isTargetFinishTime = /target\s+finish\s+time|goal[_\s-]*target[_\s-]*time|target.*time.*goal/i.test(questionIdentifier);
   const isGoalTargetPace = /goal[_\s-]*target[_\s-]*pace|goal.*target.*pace/i.test(questionIdentifier);
+  const yesNoOptionValues = getYesNoOptionValues(options);
 
   const resolveComputedValue = () => {
     const responseCandidates = [
@@ -160,6 +164,22 @@ const QuestionField = ({
 
   switch (type) {
     case "single":
+      if (yesNoOptionValues) {
+        return (
+          <View style={styles.questionContainer}>
+            <Text style={styles.questionText}>
+              {questionText}
+              {isRequired && <Text style={styles.requiredStar}> *</Text>}
+            </Text>
+            <YesNo
+              value={getYesNoValue(value, yesNoOptionValues)}
+              onChange={(isYes) =>
+                onAnswer(id, String((isYes ? yesNoOptionValues.yes : yesNoOptionValues.no).value))
+              }
+            />
+          </View>
+        );
+      }
       return (
         <View style={styles.questionContainer}>
           <Text style={styles.questionText}>
@@ -181,7 +201,10 @@ const QuestionField = ({
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
-          <YesNo value={Boolean(value)} onChange={(val: boolean) => onAnswer(id, val)} />
+          <YesNo
+            value={getYesNoValue(value)}
+            onChange={(val: boolean) => onAnswer(id, val)}
+          />
         </View>
       );
 
@@ -1055,17 +1078,6 @@ export default function QuestionnaireScreen() {
                 </View>
               );
             })}
-
-          {Object.keys(computedResponses).length > 0 && (
-            <View style={styles.computedContainer}>
-              <Text style={styles.computedTitle}>Computed Values:</Text>
-              {Object.entries(computedResponses).map(([key, value]) => (
-                <Text key={key} style={styles.computedItem}>
-                  {key}: {JSON.stringify(value)}
-                </Text>
-              ))}
-            </View>
-          )}
         </View>
       </ScrollView>
 
@@ -1322,20 +1334,6 @@ const styles = StyleSheet.create({
   ratingText: {
     fontSize: 16,
     fontWeight: "600",
-  },
-  computedContainer: {
-    marginTop: 16,
-    padding: 12,
-    backgroundColor: "#f0f8ff",
-    borderRadius: 8,
-  },
-  computedTitle: {
-    fontWeight: "600",
-    marginBottom: 4,
-  },
-  computedItem: {
-    fontSize: 14,
-    color: "#333",
   },
   computedValue: {
     fontSize: 36,
