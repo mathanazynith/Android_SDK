@@ -2,20 +2,20 @@ import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Platform, 
-  SafeAreaView, 
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Platform,
+    SafeAreaView,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 
-import { getBackendErrorMessage } from '../../../service/api';
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
+import { getBackendErrorMessage } from '../../../service/api';
 import { activityAPI, BackendActivity } from '../../../src/services/activityApi';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
@@ -48,11 +48,17 @@ function DetailMetric({ label, value }: { label: string; value: string }) {
 }
 
 export default function ActivityDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, cropStart, cropEnd } = useLocalSearchParams<{
+    id: string;
+    cropStart?: string;
+    cropEnd?: string;
+  }>();
   const [activity, setActivity] = useState<BackendActivity | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const cropStartIndex = cropStart === undefined ? undefined : Number(cropStart);
+  const cropEndIndex = cropEnd === undefined ? undefined : Number(cropEnd);
 
   const loadActivity = useCallback(async () => {
     if (!id) {
@@ -132,16 +138,25 @@ export default function ActivityDetailScreen() {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Activity Details</Text>
         {activity ? (
-          <TouchableOpacity
-            accessibilityLabel="Delete workout"
-            disabled={deleting}
-            onPress={confirmDelete}
-            style={styles.deleteButton}
-          >
-            {deleting
-              ? <ActivityIndicator size="small" color="#FF6B6B" />
-              : <Feather name="trash-2" size={20} color="#FF6B6B" />}
-          </TouchableOpacity>
+          <View style={styles.headerButtonsContainer}>
+            <TouchableOpacity
+              accessibilityLabel="Crop workout"
+              onPress={() => router.push(`/activity/crop/${activity.id}`)}
+              style={styles.cropButton}
+            >
+              <Feather name="crop" size={20} color="#FFB020" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityLabel="Delete workout"
+              disabled={deleting}
+              onPress={confirmDelete}
+              style={styles.deleteButton}
+            >
+              {deleting
+                ? <ActivityIndicator size="small" color="#FF6B6B" />
+                : <Feather name="trash-2" size={20} color="#FF6B6B" />}
+            </TouchableOpacity>
+          </View>
         ) : <View style={styles.headerSpacer} />}
       </View>
 
@@ -174,7 +189,11 @@ export default function ActivityDetailScreen() {
           </View>
 
           <Text style={styles.sectionTitle}>Route</Text>
-          <ActivityRouteMap encodedPolyline={activity.encoded_polyline} />
+          <ActivityRouteMap
+            encodedPolyline={activity.encoded_polyline}
+            cropStartIndex={Number.isFinite(cropStartIndex) ? cropStartIndex : undefined}
+            cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
+          />
 
           <Text style={styles.sectionTitle}>Performance</Text>
           <View style={styles.metricsCard}>
@@ -208,6 +227,8 @@ const styles = StyleSheet.create({
   },
   header: { height: 68, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   backButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
+  headerButtonsContainer: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  cropButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
   deleteButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
   headerTitle: { color: '#F7F7F7', fontSize: 19, fontWeight: '700' },
   headerSpacer: { width: 42 },
