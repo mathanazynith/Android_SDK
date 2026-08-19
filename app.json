@@ -62,6 +62,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "googleAndroidClientId": "1012302664400-ncmdep47qdvvh7eg8vrge88ak0qbcr79.apps.googleusercontent.com",
+      "googleWebClientId": "1012302664400-ncmdep47qdvvh7eg8vrge88ak0qbcr79.apps.googleusercontent.com",
+      "apiUrl": "http://18.61.143.223",
+      "googleMapsApiKey": "AIzaSyCbfFEhN28i6_DmvgUdRN6FUH9UVaTJoAk"
     }
   }
 }

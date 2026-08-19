@@ -1,26 +1,43 @@
-import polyline from '@mapbox/polyline';
 import { useMemo, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { decodePolyline } from '../src/utils/polylineDecoder';
 
 interface ActivityRouteMapProps {
   encodedPolyline?: string | null;
   variant?: 'detail' | 'preview';
+  cropStartIndex?: number;
+  cropEndIndex?: number;
 }
 
-export default function ActivityRouteMap({ encodedPolyline, variant = 'detail' }: ActivityRouteMapProps) {
+export default function ActivityRouteMap({
+  encodedPolyline,
+  variant = 'detail',
+  cropStartIndex,
+  cropEndIndex,
+}: ActivityRouteMapProps) {
   const mapRef = useRef<MapView | null>(null);
   const routePoints = useMemo(() => {
     if (!encodedPolyline?.trim()) return [];
 
     try {
-      return polyline.decode(encodedPolyline).map(([latitude, longitude]) => ({ latitude, longitude }));
+      return decodePolyline(encodedPolyline);
     } catch {
       return [];
     }
   }, [encodedPolyline]);
 
-  if (routePoints.length === 0) {
+  const visibleRoutePoints = useMemo(() => {
+    if (routePoints.length === 0 || cropStartIndex === undefined || cropEndIndex === undefined) {
+      return routePoints;
+    }
+
+    const start = Math.max(0, Math.min(Math.floor(cropStartIndex), routePoints.length - 1));
+    const end = Math.max(start, Math.min(Math.floor(cropEndIndex), routePoints.length - 1));
+    return routePoints.slice(start, end + 1);
+  }, [cropEndIndex, cropStartIndex, routePoints]);
+
+  if (visibleRoutePoints.length === 0) {
     return (
       <View style={styles.emptyRoute}>
         <Text style={styles.emptyRouteText}>No saved route is available for this workout.</Text>
@@ -28,8 +45,8 @@ export default function ActivityRouteMap({ encodedPolyline, variant = 'detail' }
     );
   }
 
-  const firstPoint = routePoints[0];
-  const lastPoint = routePoints[routePoints.length - 1];
+  const firstPoint = visibleRoutePoints[0];
+  const lastPoint = visibleRoutePoints[visibleRoutePoints.length - 1];
 
   return (
     <View style={[styles.mapContainer, variant === 'preview' && styles.previewMapContainer]}>
@@ -44,8 +61,8 @@ export default function ActivityRouteMap({ encodedPolyline, variant = 'detail' }
           longitudeDelta: 0.015,
         }}
         onMapReady={() => {
-          if (routePoints.length > 1) {
-            mapRef.current?.fitToCoordinates(routePoints, {
+          if (visibleRoutePoints.length > 1) {
+            mapRef.current?.fitToCoordinates(visibleRoutePoints, {
               edgePadding: variant === 'preview'
                 ? { top: 16, right: 16, bottom: 16, left: 16 }
                 : { top: 36, right: 36, bottom: 36, left: 36 },
@@ -54,8 +71,8 @@ export default function ActivityRouteMap({ encodedPolyline, variant = 'detail' }
           }
         }}
       >
-        {routePoints.length > 1 && (
-          <Polyline coordinates={routePoints} strokeColor="#35C72B" strokeWidth={variant === 'preview' ? 3 : 5} />
+        {visibleRoutePoints.length > 1 && (
+          <Polyline coordinates={visibleRoutePoints} strokeColor="#35C72B" strokeWidth={variant === 'preview' ? 3 : 5} />
         )}
         <Marker coordinate={firstPoint} pinColor="#35C72B" title="Start" />
         <Marker coordinate={lastPoint} pinColor="#FF5B5B" title="Finish" />

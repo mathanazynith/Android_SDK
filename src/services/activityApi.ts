@@ -74,4 +74,5 @@ export const activityAPI = {
       ? response.data.message
       : 'Activity deleted successfully.';
   },
+
 };

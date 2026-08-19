@@ -1,116 +1,103 @@
-// Suppress TS error when ambient types for expo-auth-session are missing
-// and load dynamically so runtime works even if types aren't installed.
+// Google Sign-In for Android using Android Client ID
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 const AuthSession: any = require("expo-auth-session");
-import * as WebBrowser from "expo-web-browser";
 import Constants from "expo-constants";
+import * as WebBrowser from "expo-web-browser";
 
 WebBrowser.maybeCompleteAuthSession();
 
-const GOOGLE_DISCOVERY = {
-  authorizationEndpoint:
-    "https://accounts.google.com/o/oauth2/v2/auth",
-  tokenEndpoint:
-    "https://oauth2.googleapis.com/token",
-  revocationEndpoint:
-    "https://oauth2.googleapis.com/revoke",
-};
-
 const extra = Constants.expoConfig?.extra ?? {};
 
-const WEB_CLIENT_ID = extra.googleWebClientId;
+// Use ONLY Android Client ID for native Android apps
 const ANDROID_CLIENT_ID = extra.googleAndroidClientId;
 
-const isExpoGo = Constants.appOwnership === "expo";
-const appScheme = Constants.expoConfig?.scheme ?? "frontend";
+console.log("🔑 Android Client ID loaded for native Android app");
 
-function getClientId() {
-  return isExpoGo ? WEB_CLIENT_ID : ANDROID_CLIENT_ID || WEB_CLIENT_ID;
-}
+const GOOGLE_DISCOVERY = {
+  authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+  tokenEndpoint: "https://oauth2.googleapis.com/token",
+  revocationEndpoint: "https://oauth2.googleapis.com/revoke",
+};
 
-const REDIRECT_URI = isExpoGo
-  ? AuthSession.makeRedirectUri({
-      useProxy: true,
-      projectNameForProxy: "@anishmetha/frontend",
-    })
-  : AuthSession.makeRedirectUri({ scheme: appScheme, path: "auth/google" });
+const SCOPES = ["openid", "profile", "email"];
 
-console.log("Google Client:", getClientId());
-console.log("Expo Go:", isExpoGo);
-console.log("Expo Config:", Constants.expoConfig);
-console.log("Redirect URI:", REDIRECT_URI);
-console.log(
-  "Expected Google Console redirect URI for Expo Go:",
-  "https://auth.expo.io/@anishmetha/frontend"
-);
+// For native Android, use the app's native scheme
+// This doesn't need to be registered in Google Console for Android apps
+const REDIRECT_URI = AuthSession.makeRedirectUri({
+  scheme: "com.zyapp",
+});
 
-const SCOPES = [
-  "openid",
-  "profile",
-  "email",
-];
+console.log("📍 Native Android Redirect URI:", REDIRECT_URI);
 
 class GoogleAuthService {
   private authRequest: any = null;
 
   isConfigured() {
-    const clientId = getClientId();
-    return Boolean(clientId && clientId.trim());
-  }
-
-  async initializeGoogleSignIn() {
-    const clientId = getClientId();
-
-    if (!this.isConfigured()) {
-      throw new Error("Google Client ID missing.");
-    }
-
-    this.authRequest = new AuthSession.AuthRequest({
-      clientId,
-      redirectUri: REDIRECT_URI,
-      scopes: SCOPES,
-      responseType: AuthSession.ResponseType.IdToken,
-      usePKCE: false,
-      extraParams: {
-        prompt: "select_account",
-      },
-    });
-
-    return this.authRequest;
+    return Boolean(ANDROID_CLIENT_ID && ANDROID_CLIENT_ID.trim());
   }
 
   async signInWithGoogle() {
+    if (!this.isConfigured()) {
+      throw new Error(
+        "Android Client ID not configured. Check app.json extra.googleAndroidClientId"
+      );
+    }
+
     await WebBrowser.warmUpAsync();
 
     try {
-      const request =
-        await this.initializeGoogleSignIn();
+      console.log("🚀 Starting Google Sign-In with Android Client ID...");
 
-      const result =
-        await request.promptAsync(GOOGLE_DISCOVERY, {
-          useProxy: isExpoGo,
-        });
+      // Create auth request with Authorization Code flow (proper for Android)
+      this.authRequest = new AuthSession.AuthRequest({
+        clientId: ANDROID_CLIENT_ID,
+        redirectUri: REDIRECT_URI,
+        scopes: SCOPES,
+        responseType: AuthSession.ResponseType.Code,
+        usePKCE: true,
+        extraParams: {
+          prompt: "select_account",
+          access_type: "offline",
+        },
+      });
 
-      console.log(result);
+      console.log("📱 Prompting user for Google Sign-In...");
+
+      // Use native redirect (no proxy needed for Android native apps)
+      const result = await this.authRequest.promptAsync(GOOGLE_DISCOVERY);
+
+      console.log("✅ Auth flow completed:", result.type);
 
       if (result.type !== "success") {
-        throw new Error("Google Login cancelled.");
+        throw new Error(`Google Sign-In was cancelled: ${result.type}`);
       }
 
-      const idToken = result.params.id_token;
+      if (!result.params.code) {
+        throw new Error("No authorization code received from Google");
+      }
+
+      console.log("📦 Exchanging authorization code for tokens...");
+
+      // Exchange the authorization code for tokens
+      const tokenResponse = await this.authRequest.performCodeExchangeAsync(result);
+
+      console.log("🎫 Tokens received successfully");
+
+      const idToken = tokenResponse.idToken;
 
       if (!idToken) {
-        throw new Error("id_token missing.");
+        throw new Error("No ID token received from Google");
       }
 
-      const payload = JSON.parse(
-        atob(idToken.split(".")[1])
-      );
+      // Decode the JWT to get user info
+      const payload = JSON.parse(atob(idToken.split(".")[1]));
+
+      console.log("👤 User authenticated:", payload.email);
 
       return {
         idToken,
-        accessToken: result.params.access_token ?? "",
+        accessToken: tokenResponse.accessToken ?? "",
         user: {
           email: payload.email,
           name: payload.name,
@@ -119,11 +106,16 @@ class GoogleAuthService {
           picture: payload.picture,
         },
       };
+    } catch (error: any) {
+      console.error("❌ Google Sign-In Error:", {
+        message: error?.message,
+        code: error?.code,
+      });
+      throw error;
     } finally {
       await WebBrowser.coolDownAsync();
     }
   }
 }
 
-export const googleAuthService =
-  new GoogleAuthService();
+export const googleAuthService = new GoogleAuthService();

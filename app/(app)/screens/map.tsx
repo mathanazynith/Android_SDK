@@ -1,25 +1,25 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as Location from 'expo-location';
+import { useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  BackHandler,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,    
-  View,
+    ActivityIndicator,
+    Alert,
+    BackHandler,
+    Platform,
+    Pressable,
+    StyleSheet,
+    Text,
+    View,
 } from 'react-native';
 import MapView, { Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
-import * as Location from 'expo-location';
-import { LocationService } from '../../../src/services/locationService';
 import { ActivityDetectionService } from '../../../src/services/activityDetectionService';
-import { StepDetectionService } from '../../../src/services/stepDetectionService';
-import { RunningApiClient } from '../../../src/services/runningApi';
 import { LocationQueue } from '../../../src/services/locationQueue';
+import { LocationService } from '../../../src/services/locationService';
 import { PathProcessor } from '../../../src/services/pathProcessor';
+import { RunningApiClient } from '../../../src/services/runningApi';
+import { StepDetectionService } from '../../../src/services/stepDetectionService';
 import { ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
 import { calculateDistanceMeters } from '../../../src/utils/distance';
-import { useLocalSearchParams } from 'expo-router';
 
 const RUNNING_USER_ID = 'USER-1001';
 
@@ -57,6 +57,8 @@ export default function MapScreen() {
     reductionPercent: 0,
   });
   const [stepCount, setStepCount] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [pace, setPace] = useState(0); // pace in minutes per km
 
   const mapRef = useRef<MapView | null>(null);
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
@@ -77,6 +79,11 @@ export default function MapScreen() {
   const stopRunRef = useRef<() => void>(() => {});
   const isStoppingRef = useRef(false);
   const isStartingRef = useRef(false);
+  const isPausedRef = useRef(false);
+  const pausedTimeRef = useRef<number | null>(null); // Tracks cumulative paused duration
+  const pauseStartTimeRef = useRef<number | null>(null); // When pause started
+  const isPausingRef = useRef(false);
+
 
   const [logs, setLogs] = useState<string[]>([]);
   const addLog = useCallback((value: string) => {
@@ -285,8 +292,24 @@ export default function MapScreen() {
 
     const timer = setInterval(() => {
       if (startTimeRef.current) {
-        const seconds = Math.floor((Date.now() - startTimeRef.current) / 1000);
-        setElapsedSeconds(seconds);
+        let elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        
+        // Subtract paused duration from elapsed time
+        if (pausedTimeRef.current) {
+          elapsed -= Math.floor(pausedTimeRef.current / 1000);
+        }
+        
+        setElapsedSeconds(elapsed);
+
+        // Calculate pace (minutes per km)
+        if (distanceRef.current > 0) {
+          const distanceInKm = distanceRef.current / 1000;
+          const elapsedMinutes = elapsed / 60;
+          if (elapsedMinutes > 0) {
+            const paceValue = elapsedMinutes / distanceInKm;
+            setPace(paceValue);
+          }
+        }
       }
     }, 1000);
 
@@ -446,10 +469,15 @@ export default function MapScreen() {
       setDistance(0);
       setElapsedSeconds(0);
       setStepCount(0);
+      setPace(0);
+      setIsPaused(false);
       setOptimizedStats({ rawPointCount: 0, optimizedPointCount: 0, reductionPercent: 0 });
       setLogs([]);
       previousLocationRef.current = null;
       lastRetainedCoordinateRef.current = null;
+      isPausedRef.current = false;
+      pausedTimeRef.current = null;
+      pauseStartTimeRef.current = null;
 
       const apiClient = new RunningApiClient();
       apiClientRef.current = apiClient;
@@ -553,6 +581,66 @@ export default function MapScreen() {
       Alert.alert('Error', 'Failed to start run. Please check your location settings.');
     } finally {
       isStartingRef.current = false;
+    }
+  };
+
+  const pauseRun = async () => {
+    if (isPausingRef.current || !isRunningRef.current || isPausedRef.current) {
+      console.log('[RecordView] Pause request ignored: run not active or already paused');
+      return;
+    }
+
+    isPausingRef.current = true;
+    try {
+      console.log('[RecordView] Pausing run...');
+
+      // Stop location updates
+      if (locationSubscription.current) {
+        locationSubscription.current.remove();
+        locationSubscription.current = null;
+      }
+
+      // Mark pause start time
+      pauseStartTimeRef.current = Date.now();
+      isPausedRef.current = true;
+      setIsPaused(true);
+
+      console.log('[RecordView] Run paused - tracking stopped');
+      addLog('⏸ Run paused - tracking stopped');
+    } catch (error) {
+      console.error('Pause run error:', error);
+      addLog('❌ Failed to pause run');
+    } finally {
+      isPausingRef.current = false;
+    }
+  };
+
+  const resumeRun = async () => {
+    if (!isPausedRef.current || !isRunningRef.current) {
+      console.log('[RecordView] Resume request ignored: run not paused');
+      return;
+    }
+
+    try {
+      console.log('[RecordView] Resuming run...');
+
+      // Add paused duration to total
+      if (pauseStartTimeRef.current) {
+        const pausedDuration = Date.now() - pauseStartTimeRef.current;
+        pausedTimeRef.current = (pausedTimeRef.current || 0) + pausedDuration;
+      }
+
+      isPausedRef.current = false;
+      setIsPaused(false);
+
+      // Restart location tracking
+      await startLiveGPS();
+
+      console.log('[RecordView] Run resumed - tracking restarted');
+      addLog('▶ Run resumed - tracking restarted');
+    } catch (error) {
+      console.error('Resume run error:', error);
+      addLog('❌ Failed to resume run');
     }
   };
 
@@ -696,6 +784,10 @@ export default function MapScreen() {
       queueRef.current = null;
       pathProcessorRef.current = null;
       apiClientRef.current = null;
+      isPausedRef.current = false;
+      pausedTimeRef.current = null;
+      pauseStartTimeRef.current = null;
+      setIsPaused(false);
 
       Alert.alert('?? Run Completed!', 'Your route has been finalized and saved for upload.');
     } catch (error) {
@@ -843,31 +935,97 @@ export default function MapScreen() {
         <View style={styles.controlBarContent}>
           <View style={styles.controlStatus}>
             <Text style={styles.controlStatusTitle}>Run</Text>
-            <Text style={styles.controlStatusValue}>{isRunning ? 'Live' : 'Ready'}</Text>
+            <Text style={styles.controlStatusValue}>{isRunning ? (isPaused ? 'Paused' : 'Live') : 'Ready'}</Text>
             <Text style={styles.stepStatus}>Steps {isRunning ? stepCount : 0}</Text>
+            {isRunning && distance > 0 && (
+              <Text style={styles.paceStatus}>
+                {(distance / 1000).toFixed(2)}km · {Math.floor(pace)}:{String(Math.round((pace % 1) * 60)).padStart(2, '0')}/km
+              </Text>
+            )}
           </View>
 
           <View style={styles.actionButtonSlot}>
-            <Pressable
-              // Keep exactly one native child mounted. This avoids both the
-              // Android MapView touch-overlap issue and Fabric addViewAt races.
-              style={isRunning ? styles.stopButton : styles.startButton}
-              hitSlop={16}
-              android_disableSound
-              onPressIn={() => {
-                console.log('[RecordView] START / SAVE touch received');
-              }}
-              onPress={() => {
-                console.log('[RecordView] START / SAVE button pressed');
-                handleRunAction();
-              }}
-              onTouchEnd={() => {
-                console.log('[RecordView] START / SAVE touch ended');
-              }}
-            >
-              <Text style={styles.startButtonText}>{isRunning ? 'STOP & SAVE' : 'START RUN'}</Text>
-            </Pressable>
+            {!isRunning ? (
+              // Start button when not running
+              <Pressable
+                style={styles.startButton}
+                hitSlop={16}
+                android_disableSound
+                onPressIn={() => {
+                  console.log('[RecordView] START touch received');
+                }}
+                onPress={() => {
+                  console.log('[RecordView] START button pressed');
+                  void startRun();
+                }}
+                onTouchEnd={() => {
+                  console.log('[RecordView] START touch ended');
+                }}
+              >
+                <Text style={styles.startButtonText}>START RUN</Text>
+              </Pressable>
+            ) : isPaused ? (
+              // Resume button when paused
+              <Pressable
+                style={styles.resumeButton}
+                hitSlop={16}
+                android_disableSound
+                onPressIn={() => {
+                  console.log('[RecordView] RESUME touch received');
+                }}
+                onPress={() => {
+                  console.log('[RecordView] RESUME button pressed');
+                  void resumeRun();
+                }}
+                onTouchEnd={() => {
+                  console.log('[RecordView] RESUME touch ended');
+                }}
+              >
+                <Text style={styles.resumeButtonText}>RESUME</Text>
+              </Pressable>
+            ) : (
+              // Pause button when running
+              <Pressable
+                style={styles.pauseButton}
+                hitSlop={16}
+                android_disableSound
+                onPressIn={() => {
+                  console.log('[RecordView] PAUSE touch received');
+                }}
+                onPress={() => {
+                  console.log('[RecordView] PAUSE button pressed');
+                  void pauseRun();
+                }}
+                onTouchEnd={() => {
+                  console.log('[RecordView] PAUSE touch ended');
+                }}
+              >
+                <Text style={styles.pauseButtonText}>PAUSE</Text>
+              </Pressable>
+            )}
           </View>
+
+          {isRunning && (
+            <View style={styles.stopButtonSlot}>
+              <Pressable
+                style={styles.stopButton}
+                hitSlop={16}
+                android_disableSound
+                onPressIn={() => {
+                  console.log('[RecordView] STOP & SAVE touch received');
+                }}
+                onPress={() => {
+                  console.log('[RecordView] STOP & SAVE button pressed');
+                  void stopRun();
+                }}
+                onTouchEnd={() => {
+                  console.log('[RecordView] STOP & SAVE touch ended');
+                }}
+              >
+                <Text style={styles.stopButtonText}>STOP & SAVE</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
       </View>
     </View>
@@ -902,14 +1060,20 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     backgroundColor: '#000000',
   },
-  controlBarContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(20,20,20,0.96)', borderRadius: 24, paddingVertical: 12, paddingHorizontal: 20 },
-  actionButtonSlot: { width: 174, height: 48, position: 'relative' },
-  controlStatus: { flexDirection: 'column' },
+  controlBarContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(20,20,20,0.96)', borderRadius: 24, paddingVertical: 12, paddingHorizontal: 20, gap: 10 },
+  actionButtonSlot: { width: 120, height: 48, position: 'relative' },
+  stopButtonSlot: { width: 120, height: 48, position: 'relative' },
+  controlStatus: { flexDirection: 'column', flex: 1 },
   controlStatusTitle: { color: '#9BA3AF', fontSize: 11, fontWeight: '700' },
   controlStatusValue: { color: '#fff', fontSize: 17, fontWeight: '800' },
   stepStatus: { color: '#8BE9A8', fontSize: 11, fontWeight: '700', marginTop: 2 },
+  paceStatus: { color: '#FFB800', fontSize: 10, fontWeight: '700', marginTop: 2 },
   startButton: { position: 'absolute', inset: 0, backgroundColor: '#20D000', borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
   startButtonText: { color: '#fff', fontWeight: '900', fontSize: 15 },
+  pauseButton: { position: 'absolute', inset: 0, backgroundColor: '#FFB800', borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
+  pauseButtonText: { color: '#fff', fontWeight: '900', fontSize: 15 },
+  resumeButton: { position: 'absolute', inset: 0, backgroundColor: '#20D000', borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
+  resumeButtonText: { color: '#fff', fontWeight: '900', fontSize: 15 },
   stopButton: { position: 'absolute', inset: 0, backgroundColor: '#F04444', borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
   stopButtonText: { color: '#fff', fontWeight: '900', fontSize: 15 },
 });
