@@ -35,14 +35,15 @@ const getNumericId = (id: number | string): number => {
 };
 
 // SingleChoice component
-const SingleChoice = ({ options, selectedValue, onSelect }: any) => {
+const SingleChoice = ({ options, selectedValue, onSelect, stacked = false }: any) => {
   return (
-    <View style={styles.optionsContainer}>
+    <View style={stacked ? styles.dayOptionsContainer : styles.optionsContainer}>
       {options.map((opt: any) => (
         <TouchableOpacity
           key={opt.id}
           style={[
             styles.optionButton,
+            stacked && styles.dayOptionButton,
             selectedValue === opt.value && styles.optionSelected,
           ]}
           onPress={() => {
@@ -69,6 +70,8 @@ const QuestionField = ({
   computedResponses,
   goalPacePreview,
   maxDistanceKm,
+  allQuestions,
+  allAnswers,
 }: any) => {
   const {
     id,
@@ -84,6 +87,48 @@ const QuestionField = ({
   const isTargetFinishTime = /target\s+finish\s+time|goal[_\s-]*target[_\s-]*time|target.*time.*goal/i.test(questionIdentifier);
   const isGoalTargetPace = /goal[_\s-]*target[_\s-]*pace|goal.*target.*pace/i.test(questionIdentifier);
   const yesNoOptionValues = getYesNoOptionValues(options);
+  const normalizedQuestionText = String(questionText ?? "").toLowerCase();
+  const isRunningDaysQuestion =
+    type === "multiple" && /which days of the week.*usually run/.test(normalizedQuestionText);
+  const isLongRunDayQuestion =
+    /which of your running days.*long run/.test(normalizedQuestionText);
+
+  const getStoredAnswer = (sourceQuestion: any) => {
+    if (!sourceQuestion) return undefined;
+    const key = String(sourceQuestion.backendId ?? getNumericId(sourceQuestion.id));
+    return allAnswers?.[key]?.value;
+  };
+
+  const runningDaysQuestion = allQuestions?.find((candidate: any) =>
+    String(candidate.type ?? "").toLowerCase() === "multiple" &&
+    /which days of the week.*usually run/.test(String(candidate.question ?? "").toLowerCase())
+  );
+  const selectedRunningDayValues = Array.isArray(getStoredAnswer(runningDaysQuestion))
+    ? getStoredAnswer(runningDaysQuestion)
+    : [];
+  const selectedRunningDayLabels = new Set(
+    (runningDaysQuestion?.options ?? [])
+      .filter((option: any) => selectedRunningDayValues.map(String).includes(String(option.value)))
+      .map((option: any) => String(option.label ?? option.text ?? "").trim().toLowerCase())
+  );
+  const visibleOptions = isLongRunDayQuestion
+    ? (options ?? []).filter((option: any) =>
+        selectedRunningDayLabels.has(String(option.label ?? option.text ?? "").trim().toLowerCase())
+      )
+    : options ?? [];
+
+  const runningDaysCountQuestion = allQuestions?.find((candidate: any) =>
+    /how many days per week.*run/.test(String(candidate.question ?? "").toLowerCase())
+  );
+  const selectedRunningDaysCountValue = getStoredAnswer(runningDaysCountQuestion);
+  const selectedRunningDaysCountOption = runningDaysCountQuestion?.options?.find(
+    (option: any) => String(option.value) === String(selectedRunningDaysCountValue)
+  );
+  const selectedRunningDaysLimit = Number(
+    selectedRunningDaysCountOption?.numeric_value ??
+      selectedRunningDaysCountOption?.label ??
+      selectedRunningDaysCountValue
+  );
 
   const resolveComputedValue = () => {
     const responseCandidates = [
@@ -162,6 +207,25 @@ const QuestionField = ({
     );
   }
 
+  // The long-run-day answer is intentionally single-select, even if legacy
+  // question metadata describes it as a multiple-choice field.
+  if (isLongRunDayQuestion) {
+    return (
+      <View style={styles.questionContainer}>
+        <Text style={styles.questionText}>
+          {questionText}
+          {isRequired && <Text style={styles.requiredStar}> *</Text>}
+        </Text>
+        <SingleChoice
+          options={visibleOptions}
+          selectedValue={value}
+          stacked
+          onSelect={(val: string) => onAnswer(id, val)}
+        />
+      </View>
+    );
+  }
+
   switch (type) {
     case "single":
       if (yesNoOptionValues) {
@@ -187,8 +251,9 @@ const QuestionField = ({
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
           <SingleChoice
-            options={options || []}
+            options={visibleOptions}
             selectedValue={value}
+            stacked={isLongRunDayQuestion}
             onSelect={(val: string) => onAnswer(id, val)}
           />
         </View>
@@ -215,17 +280,27 @@ const QuestionField = ({
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
-          <View style={styles.optionsContainer}>
-            {options?.map((opt: any) => {
+          <View style={isRunningDaysQuestion ? styles.dayOptionsContainer : styles.optionsContainer}>
+            {visibleOptions.map((opt: any) => {
               const selected = Array.isArray(value) && value.includes(opt.value);
               return (
                 <TouchableOpacity
                   key={opt.id}
-                  style={[styles.optionButton, selected && styles.optionSelected]}
+                  style={[
+                    styles.optionButton,
+                    isRunningDaysQuestion && styles.dayOptionButton,
+                    selected && styles.optionSelected,
+                  ]}
                   onPress={() => {
                     let newVal = Array.isArray(value) ? [...value] : [];
                     if (selected) {
                       newVal = newVal.filter(v => v !== opt.value);
+                    } else if (
+                      isRunningDaysQuestion &&
+                      Number.isFinite(selectedRunningDaysLimit) &&
+                      newVal.length >= selectedRunningDaysLimit
+                    ) {
+                      return;
                     } else {
                       newVal.push(opt.value);
                     }
@@ -415,6 +490,7 @@ export default function QuestionnaireScreen() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrorQuestionId, setValidationErrorQuestionId] = useState<string | null>(null);
+  const [daySelectionError, setDaySelectionError] = useState<string | null>(null);
 
   const getQuestionValidationMessages = (question: Question): string[] => {
     const keys = [
@@ -504,6 +580,7 @@ export default function QuestionnaireScreen() {
         answer: value,
         allAnswers,
         questions,
+        allowIncompleteSelectionCount: true,
       });
       if (!validationResult.valid) {
         setValidationErrorQuestionId(String(getNumericId(questionId)));
@@ -515,6 +592,7 @@ export default function QuestionnaireScreen() {
     // server response now so it cannot keep Next disabled.
     clearValidationErrors();
     setValidationErrorQuestionId(null);
+    setDaySelectionError(null);
     setAnswer(questionId, value, unit, customValues);
   };
 
@@ -631,6 +709,29 @@ export default function QuestionnaireScreen() {
   };
 
   const handleNext = async () => {
+    const runningDaysQuestion = currentPageQuestions.find(
+      (question) => /which days of the week.*usually run/i.test(question.question)
+    );
+    if (runningDaysQuestion) {
+      const selectedDays = getAnswerForQuestion(runningDaysQuestion).value;
+      const countQuestion = questions.find(
+        (question) => /how many days per week.*run/i.test(question.question)
+      );
+      const countAnswer = countQuestion ? getAnswerForQuestion(countQuestion).value : undefined;
+      const selectedCountOption = countQuestion?.options?.find(
+        (option) => String(option.value) === String(countAnswer)
+      );
+      const requiredCount = Number(
+        selectedCountOption?.numeric_value ?? selectedCountOption?.label ?? countAnswer
+      );
+
+      if (Number.isFinite(requiredCount) && (!Array.isArray(selectedDays) || selectedDays.length !== requiredCount)) {
+        setValidationErrorQuestionId(String(runningDaysQuestion.backendId ?? getNumericId(runningDaysQuestion.id)));
+        setDaySelectionError(`Please select exactly ${requiredCount} running days.`);
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     try {
       await goToNext();
@@ -940,9 +1041,9 @@ export default function QuestionnaireScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContainer} nestedScrollEnabled={true}>
         <View style={styles.pageContainer}>
-          {(error || validationErrorQuestionId) && (
+          {(error || validationErrorQuestionId || daySelectionError) && (
             <View style={styles.validationBanner}>
-              <Text style={styles.validationBannerText}>{error || "This answer does not meet the configured validation rules."}</Text>
+              <Text style={styles.validationBannerText}>{error || daySelectionError || "This answer does not meet the configured validation rules."}</Text>
             </View>
           )}
           {recentLongRunGroup && (
@@ -1059,6 +1160,8 @@ export default function QuestionnaireScreen() {
                     computedResponses={computedResponses}
                     goalPacePreview={goalPacePreview}
                     maxDistanceKm={maxTargetDistanceKm}
+                    allQuestions={questions}
+                    allAnswers={allAnswers}
                     onAnswer={(
                       questionKey: string,
                       val: any,
@@ -1278,6 +1381,9 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 10,
   },
+  dayOptionsContainer: {
+    gap: 10,
+  },
   optionButton: {
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -1286,6 +1392,10 @@ const styles = StyleSheet.create({
     borderColor: "#3D4044",
     backgroundColor: "#303236",
     marginBottom: 8,
+  },
+  dayOptionButton: {
+    width: "100%",
+    marginBottom: 0,
   },
   optionSelected: {
     borderColor: "#34C759",

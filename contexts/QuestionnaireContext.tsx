@@ -403,7 +403,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       const numericId = getNumericId(questionId);
       const key = String(numericId);
 
-      const validationResult = validateCurrentAnswer(key, value);
+      const validationResult = validateCurrentAnswer(key, value, true);
       if (!validationResult.valid) {
         return;
       }
@@ -458,7 +458,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
   );
 
   const validateCurrentAnswer = useCallback(
-    (questionId: string, value: any) => {
+    (questionId: string, value: any, allowIncompleteSelectionCount = false) => {
       const question = questions.find((item) => String(item.backendId ?? getNumericId(item.id)) === String(getNumericId(questionId)));
       if (!question) return { valid: true };
 
@@ -470,6 +470,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
         answer: value,
         allAnswers,
         questions,
+        allowIncompleteSelectionCount,
       });
 
       if (!validationResult.valid) {
