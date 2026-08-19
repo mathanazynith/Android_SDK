@@ -1,5 +1,6 @@
 import { RunningCoordinate } from '../types/running';
 import { calculateDistanceMeters } from '../utils/distance';
+import { calculateBearing, calculateHeadingChange } from '../utils/bearing';
 
 export interface RdpSimplifierConfig {
   straightToleranceMeters: number;
@@ -8,9 +9,11 @@ export interface RdpSimplifierConfig {
 }
 
 export const DEFAULT_RDP_SIMPLIFIER_CONFIG: RdpSimplifierConfig = {
-  straightToleranceMeters: 5,
-  curveToleranceMeters: 4,
-  turnToleranceMeters: 2,
+  // The saved Activity route is user-facing, so simplify only small GPS
+  // variation. A 5m tolerance can erase the shape of short walks entirely.
+  straightToleranceMeters: 1.5,
+  curveToleranceMeters: 1,
+  turnToleranceMeters: 0.5,
 };
 
 export class RdpSimplifier {
@@ -47,6 +50,51 @@ export class RdpSimplifier {
     return this.simplify(points, toleranceMap[pathType]);
   }
 
+  /**
+   * Keeps route direction changes as hard boundaries before simplifying each
+   * segment. This prevents RDP from drawing a diagonal across a real turn.
+   */
+  public simplifyPreservingTurns(points: RunningCoordinate[]): RunningCoordinate[] {
+    if (points.length <= 2) {
+      return [...points];
+    }
+
+    const protectedIndexes = [0];
+    for (let index = 1; index < points.length - 1; index += 1) {
+      const previous = points[index - 1];
+      const current = points[index];
+      const next = points[index + 1];
+      const previousDistance = calculateDistanceMeters(previous, current);
+      const nextDistance = calculateDistanceMeters(current, next);
+
+      // Very short segments are normally GPS noise and do not have a reliable
+      // direction. Meaningful segments retain their corner at 20° or more.
+      if (previousDistance < 1 || nextDistance < 1) {
+        continue;
+      }
+
+      const headingChange = calculateHeadingChange(
+        calculateBearing(previous, current),
+        calculateBearing(current, next)
+      );
+      if (headingChange >= 20) {
+        protectedIndexes.push(index);
+      }
+    }
+    protectedIndexes.push(points.length - 1);
+
+    const result: RunningCoordinate[] = [];
+    for (let index = 0; index < protectedIndexes.length - 1; index += 1) {
+      const start = protectedIndexes[index];
+      const end = protectedIndexes[index + 1];
+      const segment = points.slice(start, end + 1);
+      const simplified = this.simplify(segment, this.config.straightToleranceMeters);
+      result.push(...(index === 0 ? simplified : simplified.slice(1)));
+    }
+
+    return result;
+  }
+
   private findFarthestPoint(points: RunningCoordinate[], epsilonMeters: number): number {
     const start = points[0];
     const end = points[points.length - 1];
@@ -76,18 +124,28 @@ export class RdpSimplifier {
     end: RunningCoordinate,
     point: RunningCoordinate
   ): number {
-    const startToEnd = calculateDistanceMeters(start, end);
+    // Project into a local metre-based plane. Using start-to-point distance as
+    // the ratio is incorrect when a point is off the segment or behind it.
+    const metresPerLatitudeDegree = 111_320;
+    const metresPerLongitudeDegree = metresPerLatitudeDegree * Math.cos((start.latitude * Math.PI) / 180);
+    const toLocal = (coordinate: RunningCoordinate) => ({
+      x: (coordinate.longitude - start.longitude) * metresPerLongitudeDegree,
+      y: (coordinate.latitude - start.latitude) * metresPerLatitudeDegree,
+    });
+    const endLocal = toLocal(end);
+    const pointLocal = toLocal(point);
+    const segmentLengthSquared = endLocal.x ** 2 + endLocal.y ** 2;
 
-    if (startToEnd === 0) {
+    if (segmentLengthSquared === 0) {
       return calculateDistanceMeters(start, point);
     }
 
-    const ratio = Math.max(0, Math.min(1, calculateDistanceMeters(start, point) / startToEnd));
-    const projected = {
-      latitude: start.latitude + (end.latitude - start.latitude) * ratio,
-      longitude: start.longitude + (end.longitude - start.longitude) * ratio,
-    };
-
-    return calculateDistanceMeters(projected, point);
+    const ratio = Math.max(
+      0,
+      Math.min(1, (pointLocal.x * endLocal.x + pointLocal.y * endLocal.y) / segmentLengthSquared)
+    );
+    const deltaX = pointLocal.x - endLocal.x * ratio;
+    const deltaY = pointLocal.y - endLocal.y * ratio;
+    return Math.sqrt(deltaX ** 2 + deltaY ** 2);
   }
 }

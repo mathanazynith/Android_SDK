@@ -83,6 +83,8 @@ export default function MapScreen() {
   const pausedTimeRef = useRef<number | null>(null); // Tracks cumulative paused duration
   const pauseStartTimeRef = useRef<number | null>(null); // When pause started
   const isPausingRef = useRef(false);
+  const stepCountRef = useRef(0);
+  const movementConfirmedRef = useRef(false);
 
 
   const [logs, setLogs] = useState<string[]>([]);
@@ -387,32 +389,54 @@ export default function MapScreen() {
       if (!processor) return;
 
       const activityDetection = activityDetectionRef.current;
+      const detectedActivity = activityDetection?.getCurrentActivity() ?? 'unknown';
+      const hasDetectedMovement = detectedActivity === 'walking' || detectedActivity === 'running';
+      const hasStepEvidence = stepCountRef.current >= 3;
       if (activityDetection) {
         console.log(
-          `[LocationManager] Activity: ${activityDetection.getCurrentActivity()} (classification only; live raw point retained)`
+          `[LocationManager] Activity: ${detectedActivity} (live route requires movement confirmation)`
         );
       }
 
+      if (hasDetectedMovement || hasStepEvidence) {
+        movementConfirmedRef.current = true;
+      }
+
+      // GPS location changes are not movement proof indoors. Wait for Android
+      // activity recognition (walking/running) or several pedometer steps
+      // before turning fresh location fixes into a visible route.
+      if (!movementConfirmedRef.current) {
+        console.log(
+          `[LocationManager] Live point held: activity=${detectedActivity}, steps=${stepCountRef.current}; awaiting real movement`
+        );
+        previousLocationRef.current = rawGps;
+        moveMapToLocation(rawGps.latitude, rawGps.longitude);
+        return;
+      }
+
+      const displayCountBefore = processor.getDisplayPoints().length;
       const retained = processor.ingestRaw(rawGps);
 
       if (retained) {
-        // The map is a visual trace, not the backend route. Draw every raw
-        // coordinate received during this workout so saving cannot shorten or
-        // alter what the runner saw while walking.
+        // Match iOS: draw every fresh live location immediately, even when it
+        // is later rejected from the saved workout for being inaccurate.
+        // The strict save-time filter remains independent of this visual trace.
         const liveCoordinates = processor.getRawPoints().map((point: RunningGpsPoint) => ({
           latitude: point.latitude,
           longitude: point.longitude,
         }));
 
         setRouteCoordinates(liveCoordinates);
-        console.log(`[WorkoutMapView] Polyline updated: ${liveCoordinates.length} raw points`);
+        console.log(`[WorkoutMapView] 📌 Polyline updated: ${liveCoordinates.length} live points`);
         console.log(`[LocationManager] Tiers -> raw:${processor.getRawPoints().length} display:${processor.getDisplayPoints().length}`);
-        addLog(`? Live GPS retained: ${liveCoordinates.length} points`);
+        addLog(`📌 Live polyline: ${liveCoordinates.length} points`);
 
-        if (lastRetainedCoordinateRef.current) {
+        const displayPointWasAdded = processor.getDisplayPoints().length > displayCountBefore;
+        const latestDisplayPoint = processor.getDisplayPoints().at(-1);
+        if (displayPointWasAdded && latestDisplayPoint && lastRetainedCoordinateRef.current) {
           const movementDistance = calculateDistanceMeters(
             lastRetainedCoordinateRef.current,
-            { latitude: retained.latitude, longitude: retained.longitude }
+            { latitude: latestDisplayPoint.latitude, longitude: latestDisplayPoint.longitude }
           );
 
           if (movementDistance > 0 && movementDistance < 50) {
@@ -422,10 +446,12 @@ export default function MapScreen() {
           }
         }
 
-        lastRetainedCoordinateRef.current = {
-          latitude: retained.latitude,
-          longitude: retained.longitude,
-        };
+        if (displayPointWasAdded && latestDisplayPoint) {
+          lastRetainedCoordinateRef.current = {
+            latitude: latestDisplayPoint.latitude,
+            longitude: latestDisplayPoint.longitude,
+          };
+        }
 
         // Live route points stay on-device and unfiltered. They are filtered,
         // simplified, and uploaded once only when the user saves the workout.
@@ -469,6 +495,8 @@ export default function MapScreen() {
       setDistance(0);
       setElapsedSeconds(0);
       setStepCount(0);
+      stepCountRef.current = 0;
+      movementConfirmedRef.current = false;
       setPace(0);
       setIsPaused(false);
       setOptimizedStats({ rawPointCount: 0, optimizedPointCount: 0, reductionPercent: 0 });
@@ -567,7 +595,13 @@ export default function MapScreen() {
       void activityDetection.start(startTimeRef.current).catch((error) => {
         console.warn('[LocationManager] Activity monitoring startup failed; GPS recording continues', error);
       });
-      void stepDetection.start(setStepCount).catch((error) => {
+      void stepDetection.start((steps) => {
+        stepCountRef.current = steps;
+        if (steps >= 3) {
+          movementConfirmedRef.current = true;
+        }
+        setStepCount(steps);
+      }).catch((error) => {
         console.warn('[LocationManager] Pedometer startup failed; GPS-only tracking continues', error);
       });
     } catch (error) {
@@ -654,7 +688,12 @@ export default function MapScreen() {
     try {
       const stoppedAt = new Date();
       const detectedActivity = activityDetectionRef.current?.getCurrentActivity();
-      const workoutType = detectedActivity === 'walking' ? 'walk' : 'run';
+      const hasDetectedMovement = detectedActivity === 'walking' || detectedActivity === 'running';
+      const hasStepEvidence = stepCountRef.current >= 3;
+      const stationarySession = !movementConfirmedRef.current && !hasDetectedMovement && !hasStepEvidence;
+      // Never infer a run from an unknown or stationary state. A run is only
+      // submitted when Android activity recognition explicitly reports it.
+      const workoutType = detectedActivity === 'running' ? 'run' : 'walk';
       const activityType = workoutType === 'walk' ? 'WALK' : 'RUN';
       console.log(`[RecordView] Recording stopped at ${stoppedAt.toISOString()}`);
       console.log('[RecordView] Stop finalization started');
@@ -671,7 +710,24 @@ export default function MapScreen() {
 
       const processor = pathProcessorRef.current;
 
-      if (processor) {
+      if (stationarySession) {
+        console.log(
+          `[LocationManager] Stationary session discarded: activity=${detectedActivity ?? 'unknown'}, steps=${stepCountRef.current}; no route or activity upload`
+        );
+        setRouteCoordinates([]);
+        distanceRef.current = 0;
+        setDistance(0);
+        setOptimizedStats({ rawPointCount: 0, optimizedPointCount: 0, reductionPercent: 0 });
+        addLog('No movement detected — route was not saved');
+
+        if (apiClientRef.current && runIdRef.current) {
+          await apiClientRef.current.stopRun({
+            run_id: runIdRef.current,
+            ended_at: stoppedAt.toISOString(),
+            final_sequence: 0,
+          });
+        }
+      } else if (processor) {
         console.log('[LocationManager] Raw points collected:', processor.getRawPoints().length);
         console.log('[LocationManager] Filtering started');
         const filteredPoints = processor.filterRawPoints();
@@ -699,7 +755,7 @@ export default function MapScreen() {
           longitude: point.longitude,
         }));
         fitMapToRoute(displayedRawCoordinates);
-        console.log(`[WorkoutMapView] Raw polyline preserved after save: ${displayedRawCoordinates.length} points`);
+        console.log(`[WorkoutMapView] Live raw polyline preserved after save: ${displayedRawCoordinates.length} points`);
 
         console.log('[Route Saved]', JSON.stringify(finalCoordinates, null, 2));
         console.log(`[Route Saved] ${finalCoordinates.length} coordinate points finalized`);
@@ -789,7 +845,12 @@ export default function MapScreen() {
       pauseStartTimeRef.current = null;
       setIsPaused(false);
 
-      Alert.alert('?? Run Completed!', 'Your route has been finalized and saved for upload.');
+      Alert.alert(
+        stationarySession ? 'No movement detected' : 'Run Completed!',
+        stationarySession
+          ? 'No route was drawn or uploaded because the device remained stationary.'
+          : 'Your route has been finalized and saved for upload.'
+      );
     } catch (error) {
       console.error('Stop run error:', error);
       setIsRunning(false);

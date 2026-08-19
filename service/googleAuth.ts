@@ -68,44 +68,89 @@ class GoogleAuthService {
       const result = await this.authRequest.promptAsync(GOOGLE_DISCOVERY);
 
       console.log("✅ Auth flow completed:", result.type);
+      console.log("📍 Result details:", {
+        type: result.type,
+        hasCode: !!result.params?.code,
+        hasIdToken: !!result.params?.id_token,
+        hasAccessToken: !!result.params?.access_token,
+      });
 
-      if (result.type !== "success") {
-        throw new Error(`Google Sign-In was cancelled: ${result.type}`);
+      // First, check if we have any tokens/code before checking dismissal
+      // (Android native builds might return "dismiss" even on successful auth)
+
+      // Check if we have an authorization code to exchange
+      if (result.params?.code) {
+        console.log("📦 Authorization code received, exchanging for tokens...");
+
+        try {
+          // Exchange authorization code for tokens
+          const tokenResponse = await this.authRequest.performCodeExchangeAsync(result);
+          console.log("🎫 Tokens received successfully");
+
+          const idToken = tokenResponse.idToken;
+          if (!idToken) {
+            throw new Error("No ID token received from Google");
+          }
+
+          const payload = JSON.parse(atob(idToken.split(".")[1]));
+          console.log("👤 User authenticated:", payload.email);
+
+          return {
+            idToken,
+            accessToken: tokenResponse.accessToken ?? "",
+            user: {
+              email: payload.email,
+              name: payload.name,
+              given_name: payload.given_name,
+              family_name: payload.family_name,
+              picture: payload.picture,
+            },
+          };
+        } catch (codeExchangeError: any) {
+          console.warn("⚠️ Code exchange failed, attempting direct token extraction...", codeExchangeError?.message);
+          // Continue to check for direct tokens below
+        }
       }
 
-      if (!result.params.code) {
-        throw new Error("No authorization code received from Google");
+      // If code exchange didn't work or no code, try to extract tokens from result
+      if (result.params?.id_token || result.params?.access_token) {
+        console.log("✅ Using tokens directly from result");
+
+        const idToken = result.params.id_token;
+        const accessToken = result.params.access_token ?? "";
+
+        if (!idToken) {
+          throw new Error("No ID token in Google response");
+        }
+
+        const payload = JSON.parse(atob(idToken.split(".")[1]));
+        console.log("👤 User authenticated:", payload.email);
+
+        return {
+          idToken,
+          accessToken,
+          user: {
+            email: payload.email,
+            name: payload.name,
+            given_name: payload.given_name,
+            family_name: payload.family_name,
+            picture: payload.picture,
+          },
+        };
       }
 
-      console.log("📦 Exchanging authorization code for tokens...");
-
-      // Exchange the authorization code for tokens
-      const tokenResponse = await this.authRequest.performCodeExchangeAsync(result);
-
-      console.log("🎫 Tokens received successfully");
-
-      const idToken = tokenResponse.idToken;
-
-      if (!idToken) {
-        throw new Error("No ID token received from Google");
+      // If we reach here, check if it was actually dismissed or if it's an auth failure
+      if (result.type === "dismiss" || result.type === "cancel" || result.type === "closed") {
+        console.log("⚠️ Google Sign-In dialog was dismissed without completing authentication");
+        throw new Error("Google Sign-In was cancelled. Please try again and complete the authentication process.");
       }
 
-      // Decode the JWT to get user info
-      const payload = JSON.parse(atob(idToken.split(".")[1]));
-
-      console.log("👤 User authenticated:", payload.email);
-
-      return {
-        idToken,
-        accessToken: tokenResponse.accessToken ?? "",
-        user: {
-          email: payload.email,
-          name: payload.name,
-          given_name: payload.given_name,
-          family_name: payload.family_name,
-          picture: payload.picture,
-        },
-      };
+      // Generic auth failure
+      console.error("❌ Google auth result had no tokens:", {
+        type: result.type,
+        params: result.params,
+      });
+      throw new Error("Failed to authenticate with Google. Please try again.");
     } catch (error: any) {
       console.error("❌ Google Sign-In Error:", {
         message: error?.message,

@@ -111,7 +111,6 @@ export class LocationService {
 
     let lastEmittedTimestamp = 0;
     let isActive = true;
-    let activeCurrentPositionRequest = false;
     const emitLocation = (location: Location.LocationObject, source: 'watcher' | 'last-known') => {
       if (!isActive) return;
       if (location.timestamp <= lastEmittedTimestamp) {
@@ -145,9 +144,10 @@ export class LocationService {
     const subscription = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.BestForNavigation,
-        timeInterval: 500,
-        // Do not wait for a two-metre GPS change. Indoor walking can be below
-        // the GPS noise floor, but each raw update is needed for the live route.
+        // Match the iOS live-map behaviour: request fresh callbacks while the
+        // user is walking, including indoors. PathProcessor keeps these visual
+        // points separate from the stricter save-time route.
+        timeInterval: 1_000,
         distanceInterval: 0,
         mayShowUserSettingsDialog: true,
       },
@@ -158,57 +158,11 @@ export class LocationService {
         console.warn(`[LocationManager] GPS watcher error: ${reason}`);
       }
     );
-    console.log('[LocationManager] GPS watcher active; waiting for fresh Android location fixes');
-
-    // Fused-location watchers are sometimes passive indoors even while the
-    // device is moving. Requesting a navigation-grade current position prompts
-    // the provider for a fresh real fix. Timestamp de-duplication ensures this
-    // never manufactures route points from an old coordinate.
-    const requestFreshPosition = async () => {
-      if (!isActive || activeCurrentPositionRequest) return;
-      activeCurrentPositionRequest = true;
-      try {
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.BestForNavigation,
-          mayShowUserSettingsDialog: false,
-        });
-        emitLocation(location, 'watcher');
-      } catch (error) {
-        console.warn('[LocationManager] Active GPS refresh did not return a fresh fix', error);
-      } finally {
-        activeCurrentPositionRequest = false;
-      }
-    };
-
-    // On some Android devices the watcher is quiet indoors. Last-known reads
-    // are immediate and supply a newer provider fix when one is available;
-    // timestamp de-duplication prevents stale coordinates becoming fake route
-    // points.
-    const pollTimer = setInterval(async () => {
-      try {
-        const location = await Location.getLastKnownPositionAsync({
-          maxAge: 3_000,
-          requiredAccuracy: 50,
-        });
-        if (location) {
-          emitLocation(location, 'last-known');
-        } else {
-          console.log('[LocationManager] GPS fallback has no recent location fix yet');
-        }
-      } catch (error) {
-        console.warn('[LocationManager] GPS fallback read failed', error);
-      }
-    }, 1_000);
-    const activeRefreshTimer = setInterval(() => {
-      void requestFreshPosition();
-    }, 2_000);
-    void requestFreshPosition();
+    console.log('[LocationManager] GPS watcher active; requesting live updates at 1 second / 0 metres');
 
     return {
       remove: () => {
         isActive = false;
-        clearInterval(pollTimer);
-        clearInterval(activeRefreshTimer);
         subscription.remove();
         console.log('[LocationManager] GPS watcher stopped');
       },
