@@ -788,6 +788,9 @@ export default function DashboardScreen() {
 
           <Text
             style={styles.tabLabel}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.8}
           >
             Settings
           </Text>
