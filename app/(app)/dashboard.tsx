@@ -592,14 +592,14 @@ export default function DashboardScreen() {
         style={styles.floatingTabBar}
       >
 
-        {/* Record */}
+        {/* Home */}
 
         <TouchableOpacity
           style={styles.tabItem}
 
           onPress={() =>
             router.push(
-              '/(app)/calendar' as any
+              '/(app)/home' as any
             )
           }
         >
@@ -625,7 +625,7 @@ export default function DashboardScreen() {
               styles.tabLabelActive,
             ]}
           >
-            Plans
+            Home
           </Text>
 
         </TouchableOpacity>

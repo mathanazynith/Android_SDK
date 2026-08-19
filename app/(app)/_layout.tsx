@@ -4,6 +4,7 @@ export default function AppLayout() {
   return (
       <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="dashboard" />
+      <Stack.Screen name="home" />
       <Stack.Screen name="history" />
       <Stack.Screen name="run" />
       <Stack.Screen name="profile/edit" />
