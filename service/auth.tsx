@@ -25,6 +25,7 @@ interface User {
     phone_number?: string;
     distance_unit?: string;
     profile_picture?: string; // ✅ unified field
+    profile_picture_url?: string;
   };
 }
 
@@ -60,6 +61,7 @@ interface AuthContextType {
   resendOtp: (email: string, purpose: string) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (data: ProfileData) => Promise<void>;
+  uploadProfilePicture: (file: { uri: string; name: string; type: string }) => Promise<void>;
   changePassword: (current_password: string | undefined, password: string, password2: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
   googleLogin: () => Promise<{ requiresSignup: boolean }>;
@@ -163,6 +165,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(response.data.data);
   };
 
+  const uploadProfilePicture = async (file: { uri: string; name: string; type: string }) => {
+    const formData = new FormData();
+    formData.append("profile_picture", {
+      uri: file.uri,
+      name: file.name,
+      type: file.type,
+    } as any);
+
+    const response = await authAPI.uploadProfilePicture(formData);
+    const updatedUser = response.data?.data || response.data;
+    await storage.setItem(storage.KEYS.USER, JSON.stringify(updatedUser));
+    setUser(updatedUser);
+  };
+
   const changePassword = async (
     current_password: string | undefined,
     password: string,
@@ -260,6 +276,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         resendOtp,
         logout,
         updateProfile,
+        uploadProfilePicture,
         refreshProfile,
         changePassword,
         googleLogin,

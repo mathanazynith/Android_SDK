@@ -227,6 +227,11 @@ export const authAPI = {
 
   updateProfile: (data: any) => api.patch("/auth/profile/", data),
 
+  uploadProfilePicture: (data: FormData) =>
+    api.patch("/auth/profile/", data, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+
   changePassword: (data: {
     current_password?: string;
     password: string;

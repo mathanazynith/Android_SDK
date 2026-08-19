@@ -1,6 +1,8 @@
 import React from "react";
 import {
   Alert,
+  ActivityIndicator,
+  Image,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -13,8 +15,10 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../../../service/auth";
 import { Colors } from "../../../constants/theme";
+import { resolveApiUrl } from "../../../service/api";
 
 type DetailRowProps = { label: string; value: string };
 
@@ -52,7 +56,8 @@ const calculateAge = (dateOfBirth?: string) => {
 };
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuth();
+  const { user, logout, uploadProfilePicture } = useAuth();
+  const [isUploadingPicture, setIsUploadingPicture] = React.useState(false);
 
   const handleLogout = () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
@@ -65,6 +70,45 @@ export default function ProfileScreen() {
           router.replace("/(auth)/login");
         },
       },
+    ]);
+  };
+
+  const selectProfilePicture = async (source: "camera" | "gallery") => {
+    try {
+      const permission = source === "camera"
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert("Permission needed", `Allow ${source === "camera" ? "camera" : "photo library"} access to choose a profile picture.`);
+        return;
+      }
+
+      const result = source === "camera"
+        ? await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.85 })
+        : await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.85, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+
+      const asset = result.canceled ? null : result.assets[0];
+      if (!asset) return;
+
+      setIsUploadingPicture(true);
+      await uploadProfilePicture({
+        uri: asset.uri,
+        name: asset.fileName || `profile-${Date.now()}.jpg`,
+        type: asset.mimeType || "image/jpeg",
+      });
+    } catch (error: any) {
+      Alert.alert("Upload failed", error?.response?.data?.detail || "Unable to update your profile picture.");
+    } finally {
+      setIsUploadingPicture(false);
+    }
+  };
+
+  const openPictureOptions = () => {
+    Alert.alert("Profile picture", "Choose a source", [
+      { text: "Camera", onPress: () => selectProfilePicture("camera") },
+      { text: "Gallery", onPress: () => selectProfilePicture("gallery") },
+      { text: "Cancel", style: "cancel" },
     ]);
   };
 
@@ -81,6 +125,8 @@ export default function ProfileScreen() {
   const initials = `${user.first_name?.[0] || ""}${user.last_name?.[0] || ""}`.toUpperCase() || "U";
   const account = user as any;
   const memberSince = profile?.member_since || profile?.created_at || account?.date_joined || account?.created_at;
+  const profilePicture = profile?.profile_picture_url || profile?.profile_picture;
+  const profilePictureUri = resolveApiUrl(profilePicture);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -118,10 +164,11 @@ export default function ProfileScreen() {
 
           <View style={styles.profileIdentity}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initials}</Text>
-              <View style={styles.cameraBadge}>
+              {profilePictureUri ? <Image source={{ uri: profilePictureUri }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initials}</Text>}
+              {isUploadingPicture ? <View style={styles.uploadOverlay}><ActivityIndicator color="#FFFFFF" /></View> : null}
+              <TouchableOpacity accessibilityLabel="Change profile picture" accessibilityRole="button" onPress={openPictureOptions} style={styles.cameraBadge} disabled={isUploadingPicture}>
                 <Feather name="camera" size={16} color={Colors.primaryDark} />
-              </View>
+              </TouchableOpacity>
             </View>
             <Text style={styles.name}>{fullName}</Text>
             <Text style={styles.username}>@{user.username || "user"}</Text>
@@ -178,7 +225,9 @@ const styles = StyleSheet.create({
   editButtonText: { color: "#FFFFFF", fontSize: 17, fontWeight: "700" },
   profileIdentity: { flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: 15 },
   avatar: { width: 82, height: 82, borderRadius: 41, borderWidth: 3, borderColor: "#FFFFFF", alignItems: "center", justifyContent: "center", position: "relative", marginBottom: 7, backgroundColor: "rgba(255,255,255,0.16)" },
+  avatarImage: { width: "100%", height: "100%", borderRadius: 41 },
   avatarText: { color: "#FFFFFF", fontSize: 31, fontWeight: "600" },
+  uploadOverlay: { ...StyleSheet.absoluteFill, borderRadius: 41, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.42)" },
   cameraBadge: { position: "absolute", right: -6, bottom: -4, width: 29, height: 29, borderRadius: 15, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#26B705", backgroundColor: "#FFFFFF" },
   name: { color: "#FFFFFF", fontSize: 20, lineHeight: 25, fontWeight: "700", textAlign: "center" },
   username: { color: "rgba(255,255,255,0.72)", fontSize: 14, fontWeight: "500", marginTop: 0 },
