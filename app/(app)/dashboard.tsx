@@ -24,7 +24,7 @@ import {
 
 import SettingsMenu from '../../components/SettingsMenu';
 
-import { storage } from '../../service/storage';
+import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 
 
 
@@ -55,66 +55,19 @@ export default function DashboardScreen() {
     user,
     logout,
   } = useAuth();
+  const { workoutPlan, fetchWorkoutPlan } = useQuestionnaire();
 
   const [
     settingsVisible,
     setSettingsVisible,
   ] = useState(false);
 
-  const [
-    savedPlan,
-    setSavedPlan,
-  ] = useState<any>(null);
-
-  const [
-    hasSavedPlan,
-    setHasSavedPlan,
-  ] = useState(false);
-
-
-  // --------------------------------------------------
-  // Load training plan
-  // --------------------------------------------------
-
+  // A plan is shared by every plan-dependent screen through this context.
   useEffect(() => {
-    loadSavedPlan();
-  }, []);
+    fetchWorkoutPlan();
+  }, [fetchWorkoutPlan]);
 
-
-  const loadSavedPlan = async () => {
-
-    try {
-
-      const planData =
-        await storage.getItem(
-          storage.KEYS.TRAINING_PLAN
-        );
-
-      if (planData) {
-
-        setSavedPlan(
-          JSON.parse(planData)
-        );
-
-        setHasSavedPlan(true);
-
-      } else {
-
-        setHasSavedPlan(false);
-
-        setSavedPlan(null);
-      }
-
-    } catch (error) {
-
-      console.error(
-        'Error loading saved plan:',
-        error
-      );
-
-      setHasSavedPlan(false);
-    }
-  };
+  const hasSavedPlan = Boolean(workoutPlan);
 
 
   // --------------------------------------------------
@@ -145,27 +98,15 @@ export default function DashboardScreen() {
   const getTodayWorkout = () => {
 
     if (
-      !savedPlan ||
-      !savedPlan.weeklyWorkouts
+      !workoutPlan
     ) {
       return null;
     }
 
-    const days = [
-      'Sun',
-      'Mon',
-      'Tue',
-      'Wed',
-      'Thu',
-      'Fri',
-      'Sat',
-    ];
-
-    return savedPlan.weeklyWorkouts.find(
-      (w: WorkoutDay) =>
-        w.day ===
-        days[new Date().getDay()]
-    );
+    const today = new Date().toISOString().slice(0, 10);
+    return workoutPlan.weeks
+      .flatMap((week) => week.workouts)
+      .find((workout) => workout.workout_date === today);
   };
 
 
@@ -339,20 +280,19 @@ export default function DashboardScreen() {
     getTodayWorkout();
 
   const isRestDay =
-    todayWorkout?.workout ===
+    todayWorkout?.workout_type ===
       'Rest' ||
-    todayWorkout?.workout ===
+    todayWorkout?.workout_type ===
       'Rest Day';
 
   const completedProfile =
     isProfileComplete();
 
   const scheduledRuns =
-    savedPlan?.weeklyWorkouts?.filter(
-      (w: WorkoutDay) =>
-        w.workout !== 'Rest' &&
-        w.workout !== 'Rest Day'
-    ).length || 0;
+    workoutPlan?.weeks
+      .flatMap((week) => week.workouts)
+      .filter((workout) => workout.workout_type !== 'Rest' && workout.workout_type !== 'Rest Day')
+      .length || 0;
 
   const planLabel =
     hasSavedPlan
@@ -549,7 +489,7 @@ export default function DashboardScreen() {
 
                   ? 'Today is an active recovery day.'
 
-                  : `${todayWorkout.workout} · ${todayWorkout.distance}`
+                  : `${todayWorkout.title} · ${todayWorkout.distance}`
               )
 
               : 'Answer a few questions and generate\nyour personalized running plan.'}
@@ -634,7 +574,7 @@ export default function DashboardScreen() {
             <Text
               style={styles.statValue}
             >
-              {savedPlan
+              {workoutPlan
                 ? `${scheduledRuns} runs`
                 : 'N/A'}
             </Text>

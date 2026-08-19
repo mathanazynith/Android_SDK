@@ -12,6 +12,7 @@ import { useAuth } from "../service/auth";
 import { assessmentService } from "../service/questionnaire/questionnaireService";
 import { getBackendErrorMessage } from "../service/api";
 import { CurrentWorkoutPlan, workoutPlanService } from "../service/workoutPlan";
+import { storage } from "../service/storage";
 import { validateAnswer, ValidationError } from "../service/validation/AssessmentValidator";
 import type {
   Question,
@@ -104,6 +105,7 @@ interface QuestionnaireContextType {
   workoutPlanError: string | null;
   isWorkoutPlanLoading: boolean;
   fetchWorkoutPlan: (force?: boolean) => Promise<CurrentWorkoutPlan | null>;
+  endWorkoutPlan: () => Promise<void>;
   canGoBack: boolean;
   loadQuestions: () => Promise<void>;
   startAssessment: () => Promise<void>;
@@ -331,11 +333,43 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     }
   }, [workoutPlan]);
 
+  const endWorkoutPlan = useCallback(async () => {
+    setIsWorkoutPlanLoading(true);
+    setWorkoutPlanError(null);
+    try {
+      await workoutPlanService.endCurrent();
+      setWorkoutPlan(null);
+      setAssessmentResult(null);
+      setAssessmentResultLoaded(false);
+      setAssessmentId(null);
+      setCurrentNavigation(null);
+      setIsComplete(false);
+      setComputedResponses({});
+      setAllAnswers({});
+      navigationHistory.current = [];
+      await storage.removeItem(storage.KEYS.TRAINING_PLAN);
+    } catch (err: any) {
+      const message = getBackendErrorMessage(err, "Unable to end your training plan.");
+      setWorkoutPlanError(message);
+      throw new Error(message);
+    } finally {
+      setIsWorkoutPlanLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (assessmentId && isComplete && !assessmentResultLoaded && !isAssessmentResultLoading) {
       fetchAssessmentResult().catch(() => {});
     }
   }, [assessmentId, isComplete, assessmentResultLoaded, isAssessmentResultLoading, fetchAssessmentResult]);
+
+  useEffect(() => {
+    if (assessmentId && isComplete) {
+      // A completed assessment creates a new plan on the backend. Refresh the
+      // shared cache immediately so every plan-dependent screen sees it.
+      fetchWorkoutPlan(true).catch(() => {});
+    }
+  }, [assessmentId, isComplete]);
 
   const startAssessment = async () => {
     if (isStartingAssessment.current) {
@@ -352,6 +386,10 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setCurrentNavigation(result.navigation);
       setComputedResponses(result.computedResponses);
       setIsComplete(result.complete);
+      setAssessmentResult(null);
+      setAssessmentResultLoaded(false);
+      setWorkoutPlan(null);
+      setWorkoutPlanError(null);
       setAllAnswers({});
       navigationHistory.current = [];
     } catch (err: any) {
@@ -674,6 +712,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
         workoutPlanError,
         isWorkoutPlanLoading,
         fetchWorkoutPlan,
+        endWorkoutPlan,
         canGoBack,
         loadQuestions,
         startAssessment,

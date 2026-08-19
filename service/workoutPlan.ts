@@ -51,4 +51,7 @@ export const workoutPlanService = {
     const response = await workoutPlanAPI.getCurrent();
     return response.data as CurrentWorkoutPlan;
   },
+  async endCurrent(): Promise<void> {
+    await workoutPlanAPI.endCurrent();
+  },
 };

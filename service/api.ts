@@ -346,6 +346,7 @@ export const assessmentAPI = {
 // result, which only contains recommendation metadata.
 export const workoutPlanAPI = {
   getCurrent: () => api.get("/workout-plans/current/"),
+  endCurrent: () => api.post("/workout-plans/end/"),
 };
 
 export default api;
