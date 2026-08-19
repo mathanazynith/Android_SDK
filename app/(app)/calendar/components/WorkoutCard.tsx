@@ -21,7 +21,7 @@ export default function WorkoutCard({ workout, onPress, onSwap }: WorkoutCardPro
         onPress={() => onPress(workout)}
         onPressIn={() => animate(0.98)}
         onPressOut={() => animate(1)}
-        style={styles.card}
+        style={[styles.card, workout.isRest && styles.restCard]}
       >
         <View style={styles.iconBox}>
           <WorkoutIcon name={workout.iconName} backgroundColor="transparent" color={workout.accentColor} size={30} />
@@ -55,6 +55,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.16)',
     backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  restCard: {
+    backgroundColor: 'rgba(255,255,255,0.035)',
+    borderColor: 'rgba(255,255,255,0.10)',
   },
   iconBox: {
     width: 48,
