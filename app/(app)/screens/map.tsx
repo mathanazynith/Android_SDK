@@ -18,8 +18,12 @@ import { LocationService } from '../../../src/services/locationService';
 import { PathProcessor } from '../../../src/services/pathProcessor';
 import { RunningApiClient } from '../../../src/services/runningApi';
 import { StepDetectionService } from '../../../src/services/stepDetectionService';
+import { WorkoutEngine } from '../../../src/services/workoutEngine';
+import { WorkoutVoiceService } from '../../../src/services/workoutVoiceService';
 import { ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
+import { BackendWorkout, WorkoutEngineSnapshot } from '../../../src/types/workout';
 import { calculateDistanceMeters } from '../../../src/utils/distance';
+import { workoutPlanService } from '../../../service/workoutPlan';
 
 const RUNNING_USER_ID = 'USER-1001';
 
@@ -59,6 +63,8 @@ export default function MapScreen() {
   const [stepCount, setStepCount] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [pace, setPace] = useState(0); // pace in minutes per km
+  const [isPlannedWorkout, setIsPlannedWorkout] = useState(false);
+  const [workoutSnapshot, setWorkoutSnapshot] = useState<WorkoutEngineSnapshot | null>(null);
 
   const mapRef = useRef<MapView | null>(null);
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
@@ -85,6 +91,9 @@ export default function MapScreen() {
   const isPausingRef = useRef(false);
   const stepCountRef = useRef(0);
   const movementConfirmedRef = useRef(false);
+  const workoutEngineRef = useRef<WorkoutEngine | null>(null);
+  const workoutVoiceRef = useRef<WorkoutVoiceService | null>(null);
+  const isPlannedWorkoutRef = useRef(false);
 
 
   const [logs, setLogs] = useState<string[]>([]);
@@ -286,6 +295,11 @@ export default function MapScreen() {
       }
       activityDetectionRef.current?.stop();
       activityDetectionRef.current = null;
+      stepDetectionRef.current?.stop();
+      stepDetectionRef.current = null;
+      workoutVoiceRef.current?.stop();
+      workoutVoiceRef.current = null;
+      workoutEngineRef.current = null;
     };
   }, []);
 
@@ -311,6 +325,12 @@ export default function MapScreen() {
             const paceValue = elapsedMinutes / distanceInKm;
             setPace(paceValue);
           }
+        }
+
+        const workoutEngine = workoutEngineRef.current;
+        if (workoutEngine) {
+          workoutEngine.tick();
+          setWorkoutSnapshot(workoutEngine.getSnapshot());
         }
       }
     }, 1000);
@@ -402,9 +422,19 @@ export default function MapScreen() {
         movementConfirmedRef.current = true;
       }
 
+      // Retain every fresh real-device point before any display/activity gate.
+      // Save-time filtering remains the sole authority for the final route.
+      const displayCountBefore = processor.getDisplayPoints().length;
+      const retained = processor.ingestRaw(rawGps);
+
+      if (retained && workoutEngineRef.current) {
+        workoutEngineRef.current.ingestGpsPoint(retained);
+        setWorkoutSnapshot(workoutEngineRef.current.getSnapshot());
+      }
+
       // GPS location changes are not movement proof indoors. Wait for Android
       // activity recognition (walking/running) or several pedometer steps
-      // before turning fresh location fixes into a visible route.
+      // before drawing a visible route. Raw recording above is never delayed.
       if (!movementConfirmedRef.current) {
         console.log(
           `[LocationManager] Live point held: activity=${detectedActivity}, steps=${stepCountRef.current}; awaiting real movement`
@@ -413,9 +443,6 @@ export default function MapScreen() {
         moveMapToLocation(rawGps.latitude, rawGps.longitude);
         return;
       }
-
-      const displayCountBefore = processor.getDisplayPoints().length;
-      const retained = processor.ingestRaw(rawGps);
 
       if (retained) {
         // Match iOS: draw every fresh live location immediately, even when it
@@ -490,6 +517,22 @@ export default function MapScreen() {
         return;
       }
 
+      // A title is the only workout identifier currently passed by the card.
+      // Resolve it against the authenticated user's current backend plan before
+      // starting the single GPS session.
+      let selectedWorkout: BackendWorkout | null = null;
+      if (plannedWorkout.workoutTitle) {
+        const plan = await workoutPlanService.getCurrent();
+        selectedWorkout = plan.weeks
+          .flatMap((week) => week.workouts)
+          .find((workout) => workout.title === plannedWorkout.workoutTitle) ?? null;
+
+        if (!selectedWorkout) {
+          Alert.alert('Workout unavailable', 'The selected workout was not found in your current plan.');
+          return;
+        }
+      }
+
       setRouteCoordinates([]);
       distanceRef.current = 0;
       setDistance(0);
@@ -506,6 +549,12 @@ export default function MapScreen() {
       isPausedRef.current = false;
       pausedTimeRef.current = null;
       pauseStartTimeRef.current = null;
+      workoutEngineRef.current = null;
+      workoutVoiceRef.current?.stop();
+      workoutVoiceRef.current = null;
+      isPlannedWorkoutRef.current = selectedWorkout !== null;
+      setIsPlannedWorkout(selectedWorkout !== null);
+      setWorkoutSnapshot(null);
 
       const apiClient = new RunningApiClient();
       apiClientRef.current = apiClient;
@@ -561,6 +610,47 @@ export default function MapScreen() {
         console.log('[LocationManager] Start coordinate retained as raw point for final payload');
       }
 
+      if (selectedWorkout) {
+        const voice = new WorkoutVoiceService();
+        let engine: WorkoutEngine;
+
+        engine = new WorkoutEngine({
+          onSegmentStarted: (segment) => {
+            voice.segmentStarted(segment);
+            setWorkoutSnapshot(engine.getSnapshot());
+          },
+          onSegmentCompleted: (lap) => {
+            voice.segmentCompleted(lap);
+            setWorkoutSnapshot(engine.getSnapshot());
+          },
+          onRestStarted: (seconds) => {
+            voice.restStarted(seconds);
+            setWorkoutSnapshot(engine.getSnapshot());
+          },
+          onWorkoutCompleted: () => {
+            voice.workoutCompleted();
+            setWorkoutSnapshot(engine.getSnapshot());
+            // The only final Stop for a planned workout is triggered after its
+            // last configured segment has completed.
+            setTimeout(() => {
+              if (isRunningRef.current) {
+                void stopRun();
+              }
+            }, 0);
+          },
+        });
+
+        workoutVoiceRef.current = voice;
+        workoutEngineRef.current = engine;
+        engine.loadWorkout(selectedWorkout);
+        // This welcome message is built from the backend workout title/notes.
+        // Segment announcements are queued behind it without pausing GPS.
+        voice.workoutStarted(selectedWorkout);
+        engine.start(startRawPoint);
+        setWorkoutSnapshot(engine.getSnapshot());
+        addLog(`Workout loaded: ${selectedWorkout.title}`);
+      }
+
       const activityDetection = new ActivityDetectionService();
       activityDetectionRef.current = activityDetection;
       const stepDetection = new StepDetectionService();
@@ -608,6 +698,9 @@ export default function MapScreen() {
       console.error('Start run error:', error);
       activityDetectionRef.current?.stop();
       activityDetectionRef.current = null;
+      workoutVoiceRef.current?.stop();
+      workoutVoiceRef.current = null;
+      workoutEngineRef.current = null;
       stepDetectionRef.current?.stop();
       stepDetectionRef.current = null;
       isRunningRef.current = false;
@@ -627,6 +720,9 @@ export default function MapScreen() {
     isPausingRef.current = true;
     try {
       console.log('[RecordView] Pausing run...');
+
+      workoutEngineRef.current?.pause();
+      setWorkoutSnapshot(workoutEngineRef.current?.getSnapshot() ?? null);
 
       // Stop location updates
       if (locationSubscription.current) {
@@ -666,6 +762,9 @@ export default function MapScreen() {
 
       isPausedRef.current = false;
       setIsPaused(false);
+
+      workoutEngineRef.current?.resume();
+      setWorkoutSnapshot(workoutEngineRef.current?.getSnapshot() ?? null);
 
       // Restart location tracking
       await startLiveGPS();
@@ -840,6 +939,18 @@ export default function MapScreen() {
       queueRef.current = null;
       pathProcessorRef.current = null;
       apiClientRef.current = null;
+      // Let the queued completion/congratulations announcement finish after an
+      // automatic workout completion. GPS has already stopped independently.
+      const keepCompletionAnnouncement =
+        workoutEngineRef.current?.getState() === 'completed';
+      if (!keepCompletionAnnouncement) {
+        workoutVoiceRef.current?.stop();
+      }
+      workoutVoiceRef.current = null;
+      workoutEngineRef.current = null;
+      isPlannedWorkoutRef.current = false;
+      setIsPlannedWorkout(false);
+      setWorkoutSnapshot(null);
       isPausedRef.current = false;
       pausedTimeRef.current = null;
       pauseStartTimeRef.current = null;
@@ -880,6 +991,9 @@ export default function MapScreen() {
     console.log(`[RecordView] Primary run action pressed; recorder active: ${recorderIsActive}`);
 
     if (recorderIsActive) {
+      if (isPlannedWorkoutRef.current) {
+        return;
+      }
       void stopRun();
       return;
     }
@@ -890,6 +1004,10 @@ export default function MapScreen() {
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       if (!isRunningRef.current) return false;
+      if (isPlannedWorkoutRef.current) {
+        Alert.alert('Workout in progress', 'Pause the workout to leave it. It saves automatically after the final segment.');
+        return true;
+      }
       console.log('[RecordView] Hardware Back pressed; saving active run');
       stopRunRef.current();
       return true;
@@ -995,9 +1113,22 @@ export default function MapScreen() {
       <View style={styles.controlBar}>
         <View style={styles.controlBarContent}>
           <View style={styles.controlStatus}>
-            <Text style={styles.controlStatusTitle}>Run</Text>
-            <Text style={styles.controlStatusValue}>{isRunning ? (isPaused ? 'Paused' : 'Live') : 'Ready'}</Text>
+            <Text style={styles.controlStatusTitle}>
+              {isPlannedWorkout ? 'Workout' : 'Run'}
+            </Text>
+            <Text style={styles.controlStatusValue}>
+              {isPlannedWorkout && workoutSnapshot?.currentSegment
+                ? `${workoutSnapshot.currentSegment.segmentType} ${workoutSnapshot.currentSegment.repeatNumber}/${workoutSnapshot.currentSegment.totalRepeats}`
+                : isRunning ? (isPaused ? 'Paused' : 'Live') : 'Ready'}
+            </Text>
             <Text style={styles.stepStatus}>Steps {isRunning ? stepCount : 0}</Text>
+            {isPlannedWorkout && workoutSnapshot?.currentLap && (
+              <Text style={styles.paceStatus}>
+                {workoutSnapshot.currentLap.targetDistanceMeters !== null
+                  ? `${Math.round(workoutSnapshot.currentLap.distanceMeters)} / ${Math.round(workoutSnapshot.currentLap.targetDistanceMeters)}m`
+                  : `${Math.floor(workoutSnapshot.currentLap.durationSeconds)} / ${workoutSnapshot.currentLap.targetDurationSeconds ?? 0}s`}
+              </Text>
+            )}
             {isRunning && distance > 0 && (
               <Text style={styles.paceStatus}>
                 {(distance / 1000).toFixed(2)}km · {Math.floor(pace)}:{String(Math.round((pace % 1) * 60)).padStart(2, '0')}/km
@@ -1066,7 +1197,7 @@ export default function MapScreen() {
             )}
           </View>
 
-          {isRunning && (
+          {isRunning && !isPlannedWorkout && (
             <View style={styles.stopButtonSlot}>
               <Pressable
                 style={styles.stopButton}
