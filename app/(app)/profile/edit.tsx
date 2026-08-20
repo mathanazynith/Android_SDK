@@ -1,8 +1,8 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
-  ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Modal,
+  ActivityIndicator, Alert, FlatList, Image, Keyboard, KeyboardAvoidingView, Modal,
   Platform, Pressable, SafeAreaView, ScrollView, StatusBar, StyleSheet,
-  Text, TouchableOpacity, View,
+  Text, TouchableOpacity, TouchableWithoutFeedback, View,
 } from "react-native";
 import { router } from "expo-router";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
@@ -38,6 +38,7 @@ function Picker({ visible, onClose, data, selectedValue, onSelect, title }: { vi
 export default function EditProfileScreen() {
   const { user, updateProfile, uploadProfilePicture, refreshProfile } = useAuth();
   const insets = useSafeAreaInsets();
+  const scrollRef = useRef<ScrollView | null>(null);
   const [firstName, setFirstName] = useState(user?.first_name || "");
   const [lastName, setLastName] = useState(user?.last_name || "");
   const [username] = useState(user?.username || "");
@@ -99,9 +100,19 @@ export default function EditProfileScreen() {
 
   const profilePictureUri = resolveApiUrl(user?.profile?.profile_picture_url || user?.profile?.profile_picture);
   const initials = `${firstName[0] || ""}${lastName[0] || ""}`.toUpperCase() || "U";
+  const scrollToField = (offset: number) => {
+    scrollRef.current?.scrollTo({ y: offset, animated: true });
+  };
 
   return <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.screen}>
-    <SafeAreaView style={styles.safeArea}><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <SafeAreaView style={styles.safeArea}><ScrollView
+        ref={scrollRef}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        contentContainerStyle={styles.content}
+      >
       <Text style={styles.sectionLabel}>PROFILE PHOTO</Text><View style={styles.photoCard}><View style={styles.avatar}>
         {profilePictureUri ? <Image source={{ uri: profilePictureUri }} style={styles.avatarImage} /> : <Text style={styles.photoInitial}>{initials}</Text>}
         {isUploadingPicture && <View style={styles.uploadOverlay}><ActivityIndicator color="#FFFFFF" /></View>}
@@ -109,7 +120,7 @@ export default function EditProfileScreen() {
       </View></View>
 
       <Text style={styles.sectionLabel}>PERSONAL</Text><View style={styles.formCard}>
-        <AppInput label="Phone Number" value={phoneNumber} onChangeText={setPhoneNumber} keyboardType="phone-pad" containerStyle={styles.phoneInput} inputStyle={styles.flatInput} />
+        <AppInput label="Phone Number" value={phoneNumber} onChangeText={setPhoneNumber} onFocus={() => scrollToField(70)} keyboardType="phone-pad" containerStyle={styles.phoneInput} inputStyle={styles.flatInput} />
         <Pressable onPress={openDatePicker} style={styles.formRow}><Text style={styles.rowLabel}>Date of Birth</Text><View style={styles.datePill}><Text style={styles.dateText}>{dateValue(dateOfBirth) || "Select"}</Text></View></Pressable>
         <View style={styles.formRow}><Text style={styles.rowLabel}>Age</Text><Text style={styles.rowValueMuted}>{ageValue(dateOfBirth)}</Text></View>
         <Pressable onPress={() => setShowGenderModal(true)} style={styles.formRow}><Text style={styles.rowLabel}>Gender</Text><View style={styles.selectValue}><Text style={styles.rowValueMuted}>{gender || "Select"}</Text><Feather name="chevrons-down" size={18} color="#868686" /></View></Pressable>
@@ -118,15 +129,16 @@ export default function EditProfileScreen() {
 
       <Text style={styles.sectionLabel}>MEASUREMENTS</Text><View style={styles.formCard}>
         <Pressable onPress={() => setShowUnitModal(true)} style={styles.formRow}><Text style={styles.rowLabel}>Unit System</Text><View style={styles.selectValue}><Text style={styles.unitValue}>{getUnitSystemLabel(unitSystem)}</Text><Feather name="chevrons-down" size={18} color="#868686" /></View></Pressable>
-        <AppInput placeholder={`Height (${getHeightUnitLabel(unitSystem)})`} value={heightCm} onChangeText={setHeightCm} keyboardType="numeric" containerStyle={styles.measurementInput} inputStyle={styles.flatInput} />
-        <AppInput placeholder={`Weight (${getWeightUnitLabel(unitSystem)})`} value={weightKg} onChangeText={setWeightKg} keyboardType="numeric" containerStyle={styles.measurementInput} inputStyle={styles.lastInput} />
+        <AppInput placeholder={`Height (${getHeightUnitLabel(unitSystem)})`} value={heightCm} onChangeText={setHeightCm} onFocus={() => scrollToField(280)} keyboardType="numeric" containerStyle={styles.measurementInput} inputStyle={styles.flatInput} />
+        <AppInput placeholder={`Weight (${getWeightUnitLabel(unitSystem)})`} value={weightKg} onChangeText={setWeightKg} onFocus={() => scrollToField(340)} keyboardType="numeric" containerStyle={styles.measurementInput} inputStyle={styles.lastInput} />
       </View>
 
       <Text style={styles.sectionLabel}>ACCOUNT INFO</Text><View style={styles.accountCard}>
-        <View style={styles.accountRow}><AppInput label="First Name" value={firstName} onChangeText={setFirstName} containerStyle={styles.accountInput} /><AppInput label="Last Name" value={lastName} onChangeText={setLastName} containerStyle={styles.accountInput} /></View>
+        <View style={styles.accountRow}><AppInput label="First Name" value={firstName} onChangeText={setFirstName} onFocus={() => scrollToField(440)} containerStyle={styles.accountInput} /><AppInput label="Last Name" value={lastName} onChangeText={setLastName} onFocus={() => scrollToField(440)} containerStyle={styles.accountInput} /></View>
         <AppInput label="User Name" value={`@${username}`} editable={false} containerStyle={styles.usernameInput} inputStyle={styles.flatInput} /><Feather name="star" size={25} color="#9B9B9D" style={styles.sparkle} />
       </View><View style={styles.footerSpacer} />
     </ScrollView></SafeAreaView>
+    </TouchableWithoutFeedback>
     <View style={[styles.footer, { bottom: 12 + insets.bottom }]}><TouchableOpacity disabled={loading} onPress={handleUpdate} style={styles.saveButton}><Text style={styles.saveButtonText}>{loading ? "Saving..." : "Save Changes"}</Text></TouchableOpacity></View>
     {showDatePicker && Platform.OS !== "android" && <DateTimePicker value={dateOfBirth ? new Date(dateOfBirth) : new Date(2000, 0, 1)} mode="date" display="spinner" onChange={(_, date) => { setShowDatePicker(false); if (date) setDateOfBirth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`); }} />}
     <Picker visible={showGenderModal} onClose={() => setShowGenderModal(false)} data={GENDERS} selectedValue={gender} onSelect={setGender} title="Select Gender" /><Picker visible={showBloodModal} onClose={() => setShowBloodModal(false)} data={BLOOD_GROUPS} selectedValue={bloodGroup} onSelect={setBloodGroup} title="Select Blood Group" /><Picker visible={showUnitModal} onClose={() => setShowUnitModal(false)} data={UNIT_SYSTEMS} selectedValue={unitSystem} onSelect={(value) => setUnitSystem(value === "imperial" ? "imperial" : "standard")} title="Select Unit System" />

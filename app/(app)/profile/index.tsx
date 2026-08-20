@@ -3,10 +3,7 @@ import {
   Alert,
   ActivityIndicator,
   Image,
-  Platform,
-  SafeAreaView,
   ScrollView,
-  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -19,6 +16,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../../../service/auth";
 import { Colors } from "../../../constants/theme";
 import { resolveApiUrl } from "../../../service/api";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 type DetailRowProps = { label: string; value: string };
 
@@ -129,7 +127,7 @@ export default function ProfileScreen() {
   const profilePictureUri = resolveApiUrl(profilePicture);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView edges={[]} style={styles.safeArea}>
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
@@ -204,16 +202,15 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: "#090B0C",
-    paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight || 0) + 14 : 14,
   },
   container: { flex: 1, backgroundColor: "#090B0C" },
-  scrollContent: { paddingBottom: Platform.OS === "ios" ? 16 : 10 },
+  scrollContent: { paddingBottom: 10 },
   loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#090B0C" },
   loadingText: { color: Colors.text, fontSize: 16 },
   hero: {
-    minHeight: 198,
+    minHeight: 184,
     paddingHorizontal: 18,
-    paddingTop: 8,
+    paddingTop: 4,
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
     overflow: "hidden",
@@ -223,7 +220,7 @@ const styles = StyleSheet.create({
   circleButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)" },
   editButton: { minWidth: 68, height: 40, paddingHorizontal: 14, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.19)" },
   editButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
-  profileIdentity: { flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: 15 },
+  profileIdentity: { flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: 10 },
   avatar: { width: 76, height: 76, borderRadius: 38, borderWidth: 3, borderColor: "#FFFFFF", alignItems: "center", justifyContent: "center", position: "relative", marginBottom: 6, backgroundColor: "rgba(255,255,255,0.16)" },
   avatarImage: { width: "100%", height: "100%", borderRadius: 41 },
   avatarText: { color: "#FFFFFF", fontSize: 31, fontWeight: "600" },

@@ -6,7 +6,7 @@ import { QuestionnaireProvider } from '../contexts/QuestionnaireContext';
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <SafeAreaView edges={['top']} style={{ flex: 1, paddingTop: 16, backgroundColor: '#090B0C' }}>
+      <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: '#090B0C' }}>
         <AuthProvider>
           <QuestionnaireProvider>
             <Stack screenOptions={{ headerShown: false }}>

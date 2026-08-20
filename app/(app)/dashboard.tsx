@@ -833,11 +833,11 @@ const styles = StyleSheet.create({
   },
 
   topBar: {
-    minHeight: 108,
+    minHeight: 76,
 
     paddingHorizontal: 28,
 
-    paddingTop: 34,
+    paddingTop: 8,
 
     flexDirection: 'row',
 
@@ -868,9 +868,9 @@ const styles = StyleSheet.create({
   },
 
   welcomeSection: {
-    paddingTop: 23,
+    paddingTop: 14,
 
-    paddingBottom: 18,
+    paddingBottom: 12,
   },
 
   welcomeTitle: {
