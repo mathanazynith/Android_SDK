@@ -26,6 +26,7 @@ import type { Question } from "../../../service/questionnaire/questionnaireServi
 import { validateAnswer } from "../../../service/validation/AssessmentValidator";
 import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import { calculatePace, timeToSeconds } from "../../../utils/validators";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // Helper to get numeric ID
 const getNumericId = (id: number | string): number => {
@@ -487,6 +488,7 @@ export default function QuestionnaireScreen() {
     canGoBack,
   } = useQuestionnaire();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrorQuestionId, setValidationErrorQuestionId] = useState<string | null>(null);
@@ -1184,7 +1186,7 @@ export default function QuestionnaireScreen() {
         </View>
       </ScrollView>
 
-      <View style={styles.buttonContainer}>
+      <View style={[styles.buttonContainer, { paddingBottom: 12 + insets.bottom }]}>
         <TouchableOpacity
           style={[styles.button, styles.prevButton]}
           onPress={goToPrevious}
@@ -1322,7 +1324,7 @@ const styles = StyleSheet.create({
     gap: 16,
     paddingHorizontal: 30,
     paddingTop: 14,
-    paddingBottom: 24,
+    paddingBottom: 12,
     backgroundColor: "#0B0D0E",
   },
   button: {
@@ -1330,7 +1332,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    paddingVertical: 16,
+    paddingVertical: 13,
     paddingHorizontal: 12,
     borderRadius: 12,
     flex: 1,
@@ -1346,7 +1348,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   buttonText: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "500",
     color: "#FFFFFF",
   },
@@ -1358,19 +1360,19 @@ const styles = StyleSheet.create({
   },
   pageContainer: {
     paddingHorizontal: 30,
-    paddingTop: 4,
+    paddingTop: 2,
   },
   questionContainer: {
-    marginBottom: 24,
-    padding: 22,
+    marginBottom: 18,
+    padding: 18,
     borderRadius: 18,
     backgroundColor: "#202124",
   },
   questionText: {
-    fontSize: 23,
+    fontSize: 20,
     fontWeight: "700",
-    lineHeight: 31,
-    marginBottom: 20,
+    lineHeight: 27,
+    marginBottom: 16,
     color: "#F4F4F5",
   },
   requiredStar: {

@@ -25,6 +25,7 @@ import {
 import SettingsMenu from '../../components/SettingsMenu';
 
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 
 
@@ -56,6 +57,7 @@ export default function DashboardScreen() {
     logout,
   } = useAuth();
   const { workoutPlan, fetchWorkoutPlan } = useQuestionnaire();
+  const insets = useSafeAreaInsets();
 
   const [
     settingsVisible,
@@ -589,7 +591,7 @@ export default function DashboardScreen() {
       {/* Bottom navigation */}
 
       <View
-        style={styles.floatingTabBar}
+        style={[styles.floatingTabBar, { bottom: 12 + insets.bottom }]}
       >
 
         {/* Home */}
@@ -831,11 +833,11 @@ const styles = StyleSheet.create({
   },
 
   topBar: {
-    minHeight: 122,
+    minHeight: 108,
 
     paddingHorizontal: 28,
 
-    paddingTop: 45,
+    paddingTop: 34,
 
     flexDirection: 'row',
 
@@ -852,7 +854,7 @@ const styles = StyleSheet.create({
   pageTitle: {
     color: '#F7F7F7',
 
-    fontSize: 31,
+    fontSize: 28,
 
     fontWeight: '700',
 
@@ -862,7 +864,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 28,
 
-    paddingBottom: 130,
+    paddingBottom: 118,
   },
 
   welcomeSection: {
@@ -874,7 +876,7 @@ const styles = StyleSheet.create({
   welcomeTitle: {
     color: '#F7F7F7',
 
-    fontSize: 24,
+    fontSize: 21,
 
     lineHeight: 30,
 
@@ -884,7 +886,7 @@ const styles = StyleSheet.create({
   welcomeEmail: {
     color: '#ADAFB1',
 
-    fontSize: 17,
+    fontSize: 15,
 
     marginTop: 2,
   },
@@ -902,9 +904,9 @@ const styles = StyleSheet.create({
 
     borderRadius: 28,
 
-    padding: 22,
+    padding: 18,
 
-    marginBottom: 18,
+    marginBottom: 14,
 
     shadowColor: '#000',
 
@@ -932,7 +934,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     color: '#F2F2F2',
 
-    fontSize: 20,
+    fontSize: 18,
 
     fontWeight: '700',
   },
@@ -940,7 +942,7 @@ const styles = StyleSheet.create({
   cardSubtitle: {
     color: '#AEB0B2',
 
-    fontSize: 18,
+    fontSize: 16,
 
     marginTop: 4,
   },
@@ -994,11 +996,11 @@ const styles = StyleSheet.create({
 
     textAlign: 'center',
 
-    marginVertical: 20,
+    marginVertical: 14,
   },
 
   primaryCta: {
-    minHeight: 58,
+    minHeight: 52,
 
     borderRadius: 17,
 
@@ -1020,7 +1022,7 @@ const styles = StyleSheet.create({
   primaryCtaText: {
     color: '#FFFFFF',
 
-    fontSize: 19,
+    fontSize: 17,
 
     fontWeight: '700',
   },
@@ -1032,9 +1034,9 @@ const styles = StyleSheet.create({
 
     lineHeight: 24,
 
-    marginTop: 19,
+    marginTop: 14,
 
-    marginBottom: 19,
+    marginBottom: 14,
   },
 
   statsRow: {
@@ -1048,7 +1050,7 @@ const styles = StyleSheet.create({
   statCard: {
     flex: 1,
 
-    minHeight: 92,
+    minHeight: 78,
 
     borderRadius: 22,
 
@@ -1091,15 +1093,15 @@ const styles = StyleSheet.create({
 
     right: 38,
 
-    bottom: 18,
+    bottom: 12,
 
-    minHeight: 90,
+    minHeight: 78,
 
     borderRadius: 46,
 
     paddingHorizontal: 12,
 
-    paddingVertical: 8,
+    paddingVertical: 6,
 
     flexDirection: 'row',
 
@@ -1139,9 +1141,9 @@ const styles = StyleSheet.create({
   },
 
   tabIcon: {
-    width: 46,
+    width: 40,
 
-    height: 43,
+    height: 38,
 
     borderRadius: 23,
 
