@@ -261,7 +261,6 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
         <View style={styles.header}>
           <View style={styles.headerTextWrap}>
             <Text style={styles.title}>{title}</Text>
-            <Text style={styles.subtitle}>{subtitle}</Text>
           </View>
           {icon ?? <Feather name="activity" size={18} color="#34C759" />}
         </View>
@@ -276,7 +275,6 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
           disabled: !isCustomOption(option) && Boolean(maxDistanceKm && (getDistanceInKilometers(option) ?? 0) > maxDistanceKm),
         }))}
         selectedValue={selectedValue}
-        hint={optionsHint}
         onSelect={handleOptionSelect}
       />
 
@@ -286,7 +284,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
             label={customDistanceLabel}
             value={customValues?.[distanceField] || ""}
             unitLabel={distanceUnitLabel}
-            hint={`Distance will be shown in ${distanceUnitLabel}`}
+            hint={undefined}
             onChange={(value) => onCustomChange?.(distanceField, value)}
             maxValue={maxDistanceForInput}
           />
@@ -296,7 +294,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
           <ScrollTimePicker
             label={timeLabel}
             value={customValues?.[timeField]}
-            hint={timeHint}
+            hint={undefined}
             onChange={(value) => onCustomChange?.(timeField, value)}
             maxHours={99}
           />
@@ -315,7 +313,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
 
 const styles = StyleSheet.create({
   card: { paddingVertical: 18, marginVertical: 8 },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
   headerTextWrap: { flex: 1 },
   title: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
   subtitle: { color: "#8E8E93", fontSize: 12, marginTop: 4 },

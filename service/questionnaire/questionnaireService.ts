@@ -36,6 +36,7 @@ export interface Question {
   title?: string;
   label?: string;
   description?: string;
+  subTitle?: string;
   helperText?: string;
   fieldLabels?: Record<string, string>;
   subQuestions?: SubQuestion[];

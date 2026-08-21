@@ -25,7 +25,6 @@ export const RunTypeSelector: React.FC<RunTypeSelectorProps> = ({ label, options
   return (
     <View style={styles.wrapper}>
       <Text style={styles.label}>{label}</Text>
-      {hint ? <Text style={styles.hint}>{hint}</Text> : null}
       <TouchableOpacity style={[styles.trigger, error ? styles.triggerError : null]} onPress={() => setVisible(true)} activeOpacity={0.9}>
         <Text style={styles.triggerText}>{selectedOption?.label || 'Select an option'}</Text>
         <Feather name="chevron-down" size={18} color="#7F7F7F" />

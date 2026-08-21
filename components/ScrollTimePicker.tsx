@@ -40,6 +40,13 @@ const parseTimeValue = (timeValue: string | undefined, maxHours: number): TimePa
 const formatTimeValue = ({ hours, minutes, seconds }: TimeParts) =>
   `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 
+const WheelValue = ({ value, unit, selected }: { value: number; unit: string; selected: boolean }) => (
+  <Text style={[styles.itemText, selected && styles.itemTextSelected]}>
+    <Text>{String(value).padStart(2, '0')}</Text>
+    <Text style={selected ? styles.selectedUnit : styles.inactiveUnit}>{unit}</Text>
+  </Text>
+);
+
 /**
  * ScrollTimePicker Component
  *
@@ -164,10 +171,12 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
   return (
     <View style={styles.card}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
-      {hint ? <Text style={styles.hint}>{hint}</Text> : null}
-
       {/* Time Picker */}
       <View style={styles.pickerContainer}>
+        <View style={styles.highlightOverlay} pointerEvents="none">
+          <View style={styles.centerLine} />
+        </View>
+
         {/* Hours Column */}
         <View style={styles.columnWrapper}>
           <ScrollView
@@ -186,14 +195,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
           >
             {hoursArray.map((hour) => (
               <View key={`hour-${hour}`} style={styles.item}>
-                <Text
-                  style={[
-                    styles.itemText,
-                    hour === time.hours && styles.itemTextSelected,
-                  ]}
-                >
-                  {String(hour).padStart(2, '0')}h
-                </Text>
+                <WheelValue value={hour} unit="h" selected={hour === time.hours} />
               </View>
             ))}
           </ScrollView>
@@ -220,14 +222,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
           >
             {minutesArray.map((minute) => (
               <View key={`minute-${minute}`} style={styles.item}>
-                <Text
-                  style={[
-                    styles.itemText,
-                    minute === time.minutes && styles.itemTextSelected,
-                  ]}
-                >
-                  {String(minute).padStart(2, '0')}m
-                </Text>
+                <WheelValue value={minute} unit="m" selected={minute === time.minutes} />
               </View>
             ))}
           </ScrollView>
@@ -254,23 +249,11 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
           >
             {secondsArray.map((second) => (
               <View key={`second-${second}`} style={styles.item}>
-                <Text
-                  style={[
-                    styles.itemText,
-                    second === time.seconds && styles.itemTextSelected,
-                  ]}
-                >
-                  {String(second).padStart(2, '0')}s
-                </Text>
+                <WheelValue value={second} unit="s" selected={second === time.seconds} />
               </View>
             ))}
           </ScrollView>
         </View>
-      </View>
-
-      {/* Highlight overlay (center line) */}
-      <View style={styles.highlightOverlay} pointerEvents="none">
-        <View style={styles.centerLine} />
       </View>
 
       {/* Selected time display */}
@@ -321,6 +304,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: SCROLL_VIEW_HEIGHT,
     overflow: 'hidden',
+    zIndex: 1,
   },
 
   scrollColumn: {
@@ -337,7 +321,8 @@ const styles = StyleSheet.create({
   itemText: {
     fontSize: 18,
     fontWeight: '500',
-    color: '#6A6A6A',
+    color: '#9CA3AF',
+    opacity: 0.35,
     textAlign: 'center',
   },
 
@@ -345,14 +330,27 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '600',
     color: '#FFFFFF',
+    opacity: 1,
+  },
+
+  selectedUnit: {
+    color: '#4ADE80',
+  },
+
+  inactiveUnit: {
+    color: '#9CA3AF',
   },
 
   separator: {
     fontSize: 20,
     fontWeight: '600',
     color: '#FFFFFF',
+    height: ITEM_HEIGHT,
+    lineHeight: ITEM_HEIGHT,
+    textAlign: 'center',
+    textAlignVertical: 'center',
     marginHorizontal: 8,
-    marginTop: -ITEM_HEIGHT * 0.5,
+    zIndex: 1,
   },
 
   scrollContainer: {
@@ -362,22 +360,23 @@ const styles = StyleSheet.create({
 
   highlightOverlay: {
     position: 'absolute',
-    top: ITEM_HEIGHT,
+    top: '50%',
     left: 0,
     right: 0,
-    bottom: 0,
-    height: SCROLL_VIEW_HEIGHT,
-    justifyContent: 'center',
+    height: ITEM_HEIGHT,
+    transform: [{ translateY: -ITEM_HEIGHT / 2 }],
+    alignItems: 'stretch',
+    zIndex: 0,
     pointerEvents: 'none',
   },
 
   centerLine: {
-    height: ITEM_HEIGHT,
-    backgroundColor: 'rgba(52, 199, 89, 0.1)',
+    flex: 1,
+    backgroundColor: 'rgba(52, 199, 89, 0.07)',
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderTopColor: 'rgba(52, 199, 89, 0.2)',
-    borderBottomColor: 'rgba(52, 199, 89, 0.2)',
+    borderTopColor: 'rgba(52, 199, 89, 0.14)',
+    borderBottomColor: 'rgba(52, 199, 89, 0.14)',
   },
 
   selectedTimeContainer: {

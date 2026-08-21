@@ -166,7 +166,6 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
   return (
     <View style={styles.card}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
-      {hint ? <Text style={styles.hint}>{hint}</Text> : null}
       <View style={styles.row}>
         <View style={styles.fieldWrap}>
           <TextInput

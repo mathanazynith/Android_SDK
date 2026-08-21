@@ -26,7 +26,6 @@ export const DistanceInput: React.FC<DistanceInputProps> = ({ label, value, unit
   return (
     <View style={styles.card}>
       <Text style={styles.label}>{label}</Text>
-      {hint ? <Text style={styles.hint}>{hint}</Text> : null}
       <View style={styles.inputRow}>
         <TextInput
           style={[styles.input, resolvedError ? styles.inputError : null]}

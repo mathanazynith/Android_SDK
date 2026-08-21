@@ -170,8 +170,8 @@ const QuestionField = ({
           {isRequired && <Text style={styles.requiredStar}> *</Text>}
         </Text>
         <DistanceTimePaceSelector
-          title=""
-          subtitle=""
+          title={question.title || questionText}
+          subtitle={question.subTitle || question.description || question.helperText}
           options={options || []}
           selectedValue={value}
           onSelect={(val: string, nextCustomValues?: Record<string, any> | null) =>
@@ -184,9 +184,9 @@ const QuestionField = ({
           distanceField="distance"
           timeField="time"
           paceField="pace"
-          distanceLabel={question.fieldLabels?.distance || question.label || "Distance"}
-          customDistanceLabel="Enter Distance"
-          optionsHint={question.fieldLabels?.optionsHint || question.description || "Select a common distance or custom option"}
+          distanceLabel={question.fieldLabels?.distance || question.label}
+          customDistanceLabel={question.fieldLabels?.customDistance || question.label}
+          optionsHint={question.fieldLabels?.optionsHint || question.description}
           showHeader={false}
           showTimeInput={false}
           showPace={false}
@@ -344,7 +344,7 @@ const QuestionField = ({
               style={styles.textInput}
               value={value || ""}
               onChangeText={(text) => onAnswer(id, text)}
-              placeholder={placeholder || ""}
+              placeholder={placeholder || "Enter your answer..."}
               keyboardType={type === "number" ? "numeric" : "default"}
             />
           )}
@@ -414,10 +414,10 @@ const QuestionField = ({
           <RecentLongRun
             options={options || []}
             title={question.title || questionText}
-            subtitle={question.description || question.helperText}
+            subtitle={question.subTitle || question.description || question.helperText}
             distanceLabel={question.fieldLabels?.distance || question.label}
             timeLabel={question.fieldLabels?.time}
-            timeHint={question.fieldLabels?.timeHint || question.helperText}
+            timeHint={question.fieldLabels?.timeHint || question.helperText || question.placeholder}
             optionsHint={question.fieldLabels?.optionsHint || question.description}
             selectedValue={value}
             onSelect={(val: string, customValues?: Record<string, any> | null) =>
@@ -441,10 +441,10 @@ const QuestionField = ({
           <PlanSelection
             options={options || []}
             title={question.title || questionText}
-            subtitle={question.description || question.helperText}
+            subtitle={question.subTitle || question.description || question.helperText}
             distanceLabel={question.fieldLabels?.distance || question.label}
             timeLabel={question.fieldLabels?.time}
-            timeHint={question.fieldLabels?.timeHint || question.helperText}
+            timeHint={question.fieldLabels?.timeHint || question.helperText || question.placeholder}
             optionsHint={question.fieldLabels?.optionsHint || question.description}
             selectedValue={value}
             onSelect={(val: string, customValuesPayload?: Record<string, any> | null) =>
@@ -1064,7 +1064,7 @@ export default function QuestionnaireScreen() {
             <RecentLongRun
               options={recentLongRunGroup.singleQuestion.options || []}
               title={recentLongRunGroup.singleQuestion.title || recentLongRunGroup.singleQuestion.question}
-              subtitle={recentLongRunGroup.singleQuestion.description || recentLongRunGroup.singleQuestion.helperText}
+              subtitle={recentLongRunGroup.singleQuestion.subTitle || recentLongRunGroup.singleQuestion.description || recentLongRunGroup.singleQuestion.helperText}
               distanceLabel={recentLongRunGroup.singleQuestion.fieldLabels?.distance || recentLongRunGroup.singleQuestion.label}
               timeLabel={recentLongRunGroup.timeQuestion.label}
               timeHint={recentLongRunGroup.timeQuestion.helperText || recentLongRunGroup.timeQuestion.placeholder}
