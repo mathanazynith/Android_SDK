@@ -4,6 +4,12 @@ import DistanceTimePaceSelector from "./DistanceTimePaceSelector";
 
 interface RecentLongRunProps {
   options: any[];
+  title?: string;
+  subtitle?: string;
+  distanceLabel?: string;
+  timeLabel?: string;
+  timeHint?: string;
+  optionsHint?: string;
   selectedValue?: string;
   onSelect: (value: any, customValues?: Record<string, any> | null) => void;
   customValues?: {
@@ -17,6 +23,12 @@ interface RecentLongRunProps {
 
 const RecentLongRun: React.FC<RecentLongRunProps> = ({
   options,
+  title = "Recent long run",
+  subtitle = "Pick a preset distance or enter your own details",
+  distanceLabel = "Distance",
+  timeLabel = "Time taken",
+  timeHint = "Enter HH:MM:SS",
+  optionsHint = "Select a common distance or custom option",
   selectedValue,
   onSelect,
   customValues,
@@ -24,8 +36,8 @@ const RecentLongRun: React.FC<RecentLongRunProps> = ({
 }) => {
   return (
     <DistanceTimePaceSelector
-      title="Recent long run"
-      subtitle="Pick a preset distance or enter your own details"
+      title={title}
+      subtitle={subtitle}
       icon={<Feather name="activity" size={18} color="#34C759" />}
       options={options}
       selectedValue={selectedValue}
@@ -35,11 +47,11 @@ const RecentLongRun: React.FC<RecentLongRunProps> = ({
       distanceField="distance"
       timeField="time"
       paceField="pace"
-      distanceLabel="Distance"
-      timeLabel="Time taken"
+      distanceLabel={distanceLabel}
+      timeLabel={timeLabel}
       customDistanceLabel="Distance"
-      timeHint="Enter HH:MM:SS"
-      optionsHint="Select a common distance or custom option"
+      timeHint={timeHint}
+      optionsHint={optionsHint}
     />
   );
 };

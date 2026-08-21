@@ -28,6 +28,19 @@ interface EventRegistrationProps {
     distance?: string[];
     targetTime?: string[];
   };
+  labels?: {
+    eventName?: string;
+    eventNamePlaceholder?: string;
+    eventDate?: string;
+    trainingStartDate?: string;
+    trainingDays?: string;
+    detailsTitle?: string;
+    detailsDescription?: string;
+    distance?: string;
+    targetTime?: string;
+    timeHint?: string;
+    optionsHint?: string;
+  };
 }
 
 const EventRegistration: React.FC<EventRegistrationProps> = ({
@@ -39,6 +52,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   trainingDaysComputed,
   maxDistanceKm,
   validationMessages,
+  labels,
 }) => {
   const [eventName, setEventName] = useState(value?.eventName || "");
   const [eventDate, setEventDate] = useState(value?.eventDate || "");
@@ -104,7 +118,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
     <View style={styles.container}>
       {/* 1. Event Name Input */}
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>What is your event name?</Text>
+        <Text style={styles.sectionLabel}>{labels?.eventName || "What is your event name?"}</Text>
         <TextInput
           style={styles.input}
           value={eventName}
@@ -112,7 +126,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             setEventName(val);
             emitChange({ eventName: val });
           }}
-          placeholder="Enter event name"
+          placeholder={labels?.eventNamePlaceholder || "Enter event name"}
           placeholderTextColor="#999"
         />
         {validationMessages?.eventName?.map((message) => (
@@ -122,7 +136,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
 
       {/* 2. Event Date Picker */}
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>When is your event?</Text>
+        <Text style={styles.sectionLabel}>{labels?.eventDate || "When is your event?"}</Text>
         <DatePicker
           value={eventDate}
           onChange={(date) => {
@@ -137,7 +151,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
 
       {/* 3. Training Start Date Picker */}
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>When can you start training for this event?</Text>
+        <Text style={styles.sectionLabel}>{labels?.trainingStartDate || "When can you start training for this event?"}</Text>
         <DatePicker
           value={trainingStartDate}
           onChange={(date) => {
@@ -153,7 +167,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       {/* 4. Training Days Available (Computed) */}
       {trainingDaysComputed !== undefined && (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Training Days Available</Text>
+          <Text style={styles.sectionLabel}>{labels?.trainingDays || "Training Days Available"}</Text>
           <View style={styles.computedValueBox}>
             <Text style={styles.computedValue}>{trainingDaysComputed}</Text>
           </View>
@@ -162,8 +176,8 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
 
       {/* 5. Distance & Target Time Section - Reusing Page 2 Components */}
       <DistanceTimePaceSelector
-        title="Event Details"
-        subtitle="Pick a preset distance or enter your own details"
+        title={labels?.detailsTitle || "Event Details"}
+        subtitle={labels?.detailsDescription || "Pick a preset distance or enter your own details"}
         icon={<Feather name="flag" size={18} color="#34C759" />}
         options={options}
         selectedValue={selectedDistanceValue}
@@ -216,11 +230,11 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         distanceField="targetDistance"
         timeField="targetTime"
         paceField="targetPace"
-        distanceLabel="Distance"
-        timeLabel="Target time"
+        distanceLabel={labels?.distance || "Distance"}
+        timeLabel={labels?.targetTime || "Target time"}
         customDistanceLabel="Enter Distance"
-        timeHint="Enter HH:MM:SS"
-        optionsHint="Select a common distance or custom option"
+        timeHint={labels?.timeHint || "Enter HH:MM:SS"}
+        optionsHint={labels?.optionsHint || "Select a common distance or custom option"}
         maxDistanceKm={maxDistanceKm}
       />
       {[...(validationMessages?.distance ?? []), ...(validationMessages?.targetTime ?? [])].map((message) => (

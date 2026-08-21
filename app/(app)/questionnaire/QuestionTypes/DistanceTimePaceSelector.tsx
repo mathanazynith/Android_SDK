@@ -30,6 +30,8 @@ interface DistanceTimePaceSelectorProps {
   customDistanceLabel?: string;
   timeHint?: string;
   optionsHint?: string;
+  paceLabel?: string;
+  pacePlaceholder?: string;
   showHeader?: boolean;
   showTimeInput?: boolean;
   showPace?: boolean;
@@ -87,6 +89,8 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
   customDistanceLabel = "Distance",
   timeHint = "Enter HH:MM:SS",
   optionsHint = "Select a common distance or custom option",
+  paceLabel = "Estimated pace",
+  pacePlaceholder = "Enter distance and time to calculate pace",
   showHeader = true,
   showTimeInput = true,
   showPace = true,
@@ -300,8 +304,8 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
 
         {showPace ? (
           <View style={styles.paceCard}>
-            <Text style={styles.paceLabel}>Estimated pace ({paceUnitLabel})</Text>
-            <Text style={styles.paceValue}>{displayPace || "Enter distance and time to calculate pace"}</Text>
+            <Text style={styles.paceLabel}>{paceLabel} ({paceUnitLabel})</Text>
+            <Text style={styles.paceValue}>{displayPace || pacePlaceholder}</Text>
           </View>
         ) : null}
       </View>

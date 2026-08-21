@@ -33,6 +33,11 @@ export interface Question {
   options?: QuestionOption[];
   isRequired: boolean;
   placeholder?: string;
+  title?: string;
+  label?: string;
+  description?: string;
+  helperText?: string;
+  fieldLabels?: Record<string, string>;
   subQuestions?: SubQuestion[];
   validation?: {
     min?: number;
@@ -189,6 +194,11 @@ class AssessmentService {
     })),
     isRequired: Boolean(item.is_required ?? item.required ?? false),
     placeholder: item.placeholder ?? undefined,
+    title: item.title ?? item.heading ?? undefined,
+    label: item.label ?? item.field_label ?? undefined,
+    description: item.description ?? item.subtitle ?? undefined,
+    helperText: item.helper_text ?? item.help_text ?? item.hint ?? undefined,
+    fieldLabels: item.field_labels ?? item.labels ?? item.metadata?.field_labels ?? undefined,
     validation: {
       min: item.validation?.min,
       max: item.validation?.max,

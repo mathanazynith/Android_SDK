@@ -176,13 +176,13 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
             contentContainerStyle={styles.scrollContainer}
             scrollEventThrottle={16}
             onMomentumScrollEnd={(event) => finalizeScroll('hours', event.nativeEvent.contentOffset.y)}
-            onStartShouldSetResponderCapture={() => true}
+            onScrollEndDrag={(event) => finalizeScroll('hours', event.nativeEvent.contentOffset.y)}
             scrollEnabled={true}
             nestedScrollEnabled={true}
             showsVerticalScrollIndicator={false}
             snapToInterval={ITEM_HEIGHT}
             snapToAlignment="center"
-            decelerationRate="fast"
+            decelerationRate="normal"
           >
             {hoursArray.map((hour) => (
               <View key={`hour-${hour}`} style={styles.item}>
@@ -210,13 +210,13 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
             contentContainerStyle={styles.scrollContainer}
             scrollEventThrottle={16}
             onMomentumScrollEnd={(event) => finalizeScroll('minutes', event.nativeEvent.contentOffset.y)}
-            onStartShouldSetResponderCapture={() => true}
+            onScrollEndDrag={(event) => finalizeScroll('minutes', event.nativeEvent.contentOffset.y)}
             scrollEnabled={true}
             nestedScrollEnabled={true}
             showsVerticalScrollIndicator={false}
             snapToInterval={ITEM_HEIGHT}
             snapToAlignment="center"
-            decelerationRate="fast"
+            decelerationRate="normal"
           >
             {minutesArray.map((minute) => (
               <View key={`minute-${minute}`} style={styles.item}>
@@ -244,13 +244,13 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
             contentContainerStyle={styles.scrollContainer}
             scrollEventThrottle={16}
             onMomentumScrollEnd={(event) => finalizeScroll('seconds', event.nativeEvent.contentOffset.y)}
-            onStartShouldSetResponderCapture={() => true}
+            onScrollEndDrag={(event) => finalizeScroll('seconds', event.nativeEvent.contentOffset.y)}
             scrollEnabled={true}
             nestedScrollEnabled={true}
             showsVerticalScrollIndicator={false}
             snapToInterval={ITEM_HEIGHT}
             snapToAlignment="center"
-            decelerationRate="fast"
+            decelerationRate="normal"
           >
             {secondsArray.map((second) => (
               <View key={`second-${second}`} style={styles.item}>
@@ -362,7 +362,7 @@ const styles = StyleSheet.create({
 
   highlightOverlay: {
     position: 'absolute',
-    top: 0,
+    top: ITEM_HEIGHT,
     left: 0,
     right: 0,
     bottom: 0,

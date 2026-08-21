@@ -184,9 +184,9 @@ const QuestionField = ({
           distanceField="distance"
           timeField="time"
           paceField="pace"
-          distanceLabel="Distance"
+          distanceLabel={question.fieldLabels?.distance || question.label || "Distance"}
           customDistanceLabel="Enter Distance"
-          optionsHint="Select a common distance or custom option"
+          optionsHint={question.fieldLabels?.optionsHint || question.description || "Select a common distance or custom option"}
           showHeader={false}
           showTimeInput={false}
           showPace={false}
@@ -413,6 +413,12 @@ const QuestionField = ({
           </Text>
           <RecentLongRun
             options={options || []}
+            title={question.title || questionText}
+            subtitle={question.description || question.helperText}
+            distanceLabel={question.fieldLabels?.distance || question.label}
+            timeLabel={question.fieldLabels?.time}
+            timeHint={question.fieldLabels?.timeHint || question.helperText}
+            optionsHint={question.fieldLabels?.optionsHint || question.description}
             selectedValue={value}
             onSelect={(val: string, customValues?: Record<string, any> | null) =>
               onAnswer(id, val, undefined, customValues)
@@ -434,6 +440,12 @@ const QuestionField = ({
           </Text>
           <PlanSelection
             options={options || []}
+            title={question.title || questionText}
+            subtitle={question.description || question.helperText}
+            distanceLabel={question.fieldLabels?.distance || question.label}
+            timeLabel={question.fieldLabels?.time}
+            timeHint={question.fieldLabels?.timeHint || question.helperText}
+            optionsHint={question.fieldLabels?.optionsHint || question.description}
             selectedValue={value}
             onSelect={(val: string, customValuesPayload?: Record<string, any> | null) =>
               onAnswer(id, val, undefined, customValuesPayload)
@@ -1051,6 +1063,12 @@ export default function QuestionnaireScreen() {
           {recentLongRunGroup && (
             <RecentLongRun
               options={recentLongRunGroup.singleQuestion.options || []}
+              title={recentLongRunGroup.singleQuestion.title || recentLongRunGroup.singleQuestion.question}
+              subtitle={recentLongRunGroup.singleQuestion.description || recentLongRunGroup.singleQuestion.helperText}
+              distanceLabel={recentLongRunGroup.singleQuestion.fieldLabels?.distance || recentLongRunGroup.singleQuestion.label}
+              timeLabel={recentLongRunGroup.timeQuestion.label}
+              timeHint={recentLongRunGroup.timeQuestion.helperText || recentLongRunGroup.timeQuestion.placeholder}
+              optionsHint={recentLongRunGroup.singleQuestion.fieldLabels?.optionsHint || recentLongRunGroup.singleQuestion.description}
               selectedValue={recentLongRunSelectedValue}
               customValues={recentLongRunCustomValues}
               onSelect={(val: string, customValues?: Record<string, any> | null) =>
@@ -1097,6 +1115,19 @@ export default function QuestionnaireScreen() {
                 targetTime: eventRegistrationGroup.targetTimeQuestion
                   ? getQuestionValidationMessages(eventRegistrationGroup.targetTimeQuestion)
                   : [],
+              }}
+              labels={{
+                eventName: eventRegistrationGroup.eventNameQuestion.label || eventRegistrationGroup.eventNameQuestion.question,
+                eventNamePlaceholder: eventRegistrationGroup.eventNameQuestion.placeholder,
+                eventDate: eventRegistrationGroup.eventDateQuestion.label || eventRegistrationGroup.eventDateQuestion.question,
+                trainingStartDate: eventRegistrationGroup.trainingStartDateQuestion?.label || eventRegistrationGroup.trainingStartDateQuestion?.question,
+                trainingDays: eventRegistrationGroup.eventDateQuestion.fieldLabels?.trainingDays,
+                detailsTitle: eventRegistrationGroup.distanceQuestion?.title || eventRegistrationGroup.distanceQuestion?.question,
+                detailsDescription: eventRegistrationGroup.distanceQuestion?.description,
+                distance: eventRegistrationGroup.distanceQuestion?.fieldLabels?.distance || eventRegistrationGroup.distanceQuestion?.label,
+                targetTime: eventRegistrationGroup.targetTimeQuestion?.label || eventRegistrationGroup.targetTimeQuestion?.question,
+                timeHint: eventRegistrationGroup.targetTimeQuestion?.helperText || eventRegistrationGroup.targetTimeQuestion?.placeholder,
+                optionsHint: eventRegistrationGroup.distanceQuestion?.fieldLabels?.optionsHint || eventRegistrationGroup.distanceQuestion?.description,
               }}
               onChange={(nextValue: Record<string, any>) => {
                 // Set event name
