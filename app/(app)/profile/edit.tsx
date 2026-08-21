@@ -134,7 +134,7 @@ export default function EditProfileScreen() {
       </View>
 
       <Text style={styles.sectionLabel}>ACCOUNT INFO</Text><View style={styles.accountCard}>
-        <View style={styles.accountRow}><AppInput label="First Name" value={firstName} onChangeText={setFirstName} onFocus={() => scrollToField(440)} containerStyle={styles.accountInput} /><AppInput label="Last Name" value={lastName} onChangeText={setLastName} onFocus={() => scrollToField(440)} containerStyle={styles.accountInput} /></View>
+        <View style={styles.accountRow}><AppInput label="First Name" value={firstName} editable={false} onChangeText={setFirstName} onFocus={() => scrollToField(440)} containerStyle={styles.accountInput} /><AppInput label="Last Name" value={lastName} editable={false} onChangeText={setLastName} onFocus={() => scrollToField(440)} containerStyle={styles.accountInput} /></View>
         <AppInput label="User Name" value={`@${username}`} editable={false} containerStyle={styles.usernameInput} inputStyle={styles.flatInput} /><Feather name="star" size={25} color="#9B9B9D" style={styles.sparkle} />
       </View><View style={styles.footerSpacer} />
     </ScrollView></SafeAreaView>
