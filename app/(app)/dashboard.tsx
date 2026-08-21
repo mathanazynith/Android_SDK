@@ -161,6 +161,13 @@ export default function DashboardScreen() {
     );
   };
 
+  const handleTracePath = () => {
+    router.push({
+      pathname: '/(app)/run',
+      params: { workoutTitle: 'Trace Path' },
+    });
+  };
+
 
   // --------------------------------------------------
   // Settings
@@ -462,6 +469,45 @@ export default function DashboardScreen() {
               }
             >
               Start Assessment
+            </Text>
+
+          </TouchableOpacity>
+
+        </View>
+
+        {/* Trace Path */}
+
+        <View style={styles.card}>
+
+          <Text
+            style={styles.assessmentTitle}
+          >
+            Trace Path
+          </Text>
+
+          <Text
+            style={styles.assessmentDescription}
+          >
+            Record your route and save
+            {`\n`}
+            your activity to workout history
+          </Text>
+
+          <TouchableOpacity
+            style={styles.primaryCta}
+            onPress={handleTracePath}
+          >
+
+            <Feather
+              name="map"
+              size={22}
+              color="#FFFFFF"
+            />
+
+            <Text
+              style={styles.primaryCtaText}
+            >
+              Trace Path
             </Text>
 
           </TouchableOpacity>
