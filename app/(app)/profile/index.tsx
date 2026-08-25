@@ -145,7 +145,10 @@ export default function ProfileScreen() {
             <TouchableOpacity
               accessibilityLabel="Go back"
               accessibilityRole="button"
-              onPress={() => router.back()}
+              onPress={() => {
+                if (router.canGoBack()) router.back();
+                else router.replace('/(app)/dashboard');
+              }}
               style={styles.circleButton}
             >
               <Feather name="chevron-left" size={29} color="#FFFFFF" />

@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { SafeAreaView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { BorderRadius, Colors, Spacing } from '../../../constants/theme';
 // Local mock provider (keeps file self-contained so editor resolves types reliably).
 import { ActivityStore } from '../../../src/services/activityStore';
@@ -105,12 +106,16 @@ export default function RunningTrackerScreen() {
 
   const isActive = runState === 'running';
   const statusLabel = runState === 'idle' ? 'Ready' : runState === 'running' ? 'Running' : runState === 'paused' ? 'Paused' : 'Completed';
+  const handleBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(app)/dashboard');
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton} accessibilityLabel="Back to workout details">
+        <TouchableOpacity onPress={handleBack} style={styles.backButton} accessibilityLabel="Back to workout details">
           <Ionicons name="chevron-back" size={22} color={Colors.text} />
         </TouchableOpacity>
         <View style={styles.titleBlock}>
