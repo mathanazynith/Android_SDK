@@ -2,7 +2,7 @@
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
-API configuration now uses the deployed backend at http://18.61.143.223 via the Expo environment variable `EXPO_PUBLIC_API_URL`.
+API configuration now uses the deployed backend at https://zyrun.zynith-it.com via the Expo environment variable `EXPO_PUBLIC_API_URL`.
 
 ## Get started
 

@@ -325,6 +325,10 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setWorkoutPlan(plan);
       return plan;
     } catch (err: any) {
+      if (err?.response?.status === 404) {
+        setWorkoutPlan(null);
+        return null;
+      }
       setWorkoutPlan(null);
       setWorkoutPlanError(getBackendErrorMessage(err, "Failed to load your training plan."));
       return null;

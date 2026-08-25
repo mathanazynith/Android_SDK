@@ -52,7 +52,7 @@
       "reactCompiler": true
     },
     "extra": {
-      "apiUrl": "http://18.61.143.223",
+      "apiUrl": "https://zyrun.zynith-it.com",
       "googleMapsApiKey": "AIzaSyCbfFEhN28i6_DmvgUdRN6FUH9UVaTJoAk",
       "googleWebClientId": "1012302664400-6073m4mgphm1jtv0u10fc4sfff08ejoc.apps.googleusercontent.com",
       "googleAndroidClientId": "1012302664400-ncmdep47qdvvh7eg8vrge88ak0qbcr79.apps.googleusercontent.com"
