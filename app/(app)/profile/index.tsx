@@ -17,6 +17,7 @@ import { useAuth } from "../../../service/auth";
 import { Colors } from "../../../constants/theme";
 import { resolveApiUrl } from "../../../service/api";
 import { SafeAreaView } from "react-native-safe-area-context";
+import GlobalBottomNav from "../../../components/navigation/GlobalBottomNav";
 
 type DetailRowProps = { label: string; value: string };
 
@@ -194,6 +195,7 @@ export default function ProfileScreen() {
           <Text style={styles.logoutText}>Log out</Text>
         </TouchableOpacity>
       </ScrollView>
+      <GlobalBottomNav />
     </SafeAreaView>
   );
 }
@@ -204,7 +206,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#090B0C",
   },
   container: { flex: 1, backgroundColor: "#090B0C" },
-  scrollContent: { paddingBottom: 10 },
+  scrollContent: { paddingBottom: 118 },
   loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#090B0C" },
   loadingText: { color: Colors.text, fontSize: 16 },
   hero: {

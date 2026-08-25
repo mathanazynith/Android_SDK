@@ -36,8 +36,8 @@ export default function DashboardActivePlan({ todayWorkout, nextWorkout }: Dashb
         </View>
         <Text style={styles.description}>{todayDescription}</Text>
         <TouchableOpacity style={styles.button} onPress={() => router.push({ pathname: '/(app)/screens/map', params: { workoutTitle: todayWorkout?.title || 'Current Workout' } })}>
-          <Feather name="activity" size={21} color={Colors.primary} />
-          <Text style={styles.buttonText}>Record workout</Text>
+          <Feather name="activity" size={21} color="#081009" />
+          <Text style={styles.buttonText}>Record Workout</Text>
         </TouchableOpacity>
       </View>
 
@@ -65,7 +65,7 @@ const styles = StyleSheet.create({
   heading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   title: { flex: 1, color: '#F2F2F2', fontSize: 20, fontWeight: '800' },
   description: { color: '#E0E2E1', fontSize: 17, lineHeight: 24, marginVertical: 15 },
-  button: { minHeight: 51, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, borderRadius: 18, backgroundColor: '#151919', borderWidth: 1.5, borderColor: Colors.primary },
-  buttonText: { color: '#9BE2A8', fontSize: 17, fontWeight: '800' },
+  button: { minHeight: 51, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, borderRadius: 18, backgroundColor: Colors.primary },
+  buttonText: { color: '#081009', fontSize: 17, fontWeight: '800' },
   emptyTarget: { color: '#AEB0B2', fontSize: 16, marginTop: 15 },
 });
