@@ -1,0 +1,65 @@
+import { Feather } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { useState } from 'react';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Colors } from '../../../constants/theme';
+import { useCustomWorkout, type WorkoutStep } from './workout-context';
+
+const seconds = (value: string) => {
+  const parts = value.split(':').map(Number);
+  return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+};
+const distanceInKm = (step: WorkoutStep) => {
+  const value = Number.parseFloat(step.distance) || 0;
+  if (step.unit.includes('Meters')) return value / 1000;
+  if (step.unit.includes('Miles')) return value * 1.60934;
+  return value;
+};
+const paceInSeconds = (pace: string) => {
+  const match = pace.match(/(\d+)\s*:\s*(\d+(?:\.\d+)?)/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : 0;
+};
+const estimatedStepSeconds = (step: WorkoutStep) => {
+  const declaredTime = seconds(step.duration || '00:00:00');
+  if (declaredTime) return declaredTime;
+  const pace = paceInSeconds(step.pace);
+  return pace && step.distance ? pace * (distanceInKm(step) / (step.unit.includes('Miles') ? 1.60934 : 1)) : 0;
+};
+const estimatedRestSeconds = (step: WorkoutStep) => seconds(step.rest || '00:00:00') * (step.skipLastRest ? Math.max(step.repeat - 1, 0) : step.repeat);
+const displayTime = (value: number) => `${Math.floor(value / 3600)}:${String(Math.floor((value % 3600) / 60)).padStart(2, '0')}:${String(Math.round(value % 60)).padStart(2, '0')}`;
+const distanceText = (step: WorkoutStep) => step.distance ? `${step.distance} ${step.unit.includes('Miles') ? 'mi' : step.unit.includes('Meters') ? 'm' : 'km'}` : 'Lap Button Press';
+const stepTime = (step: WorkoutStep) => step.duration && step.duration !== '00:00:00' ? step.duration : step.pace && step.distance ? 'Calculated from pace' : 'Lap Button Press';
+
+function StepCard({ step, color, repeat, number, selected, onSelect, onDelete, onRepeat }: { step: WorkoutStep; color: string; repeat?: boolean; number?: number; selected?: boolean; onSelect?: () => void; onDelete: () => void; onRepeat?: () => void }) {
+  return <TouchableOpacity activeOpacity={0.9} onPress={onSelect} style={[styles.stepCard, selected && styles.selectedCard]}><View style={[styles.colorBar, { backgroundColor: color }]} /><View style={styles.stepContent}><View style={styles.titleRow}><Text style={styles.stepTitle}>{number ? `${number}. ${step.title}` : step.title}</Text><View style={styles.cardActions}>{repeat && onRepeat ? <TouchableOpacity onPress={onRepeat} style={styles.repeatBadge}><Text style={styles.repeatBadgeText}>{step.repeat}x</Text><Feather name="chevron-down" size={15} color={Colors.textSecondary} /></TouchableOpacity> : null}<TouchableOpacity onPress={onDelete} accessibilityLabel={`Delete ${step.title}`}><Feather name="trash-2" size={20} color={Colors.textSecondary} /></TouchableOpacity></View></View><Text style={styles.stepValue}>{distanceText(step)}</Text>{step.pace ? <Text style={styles.stepDetail}>Pace: {step.pace}</Text> : null}<Text style={styles.stepDetail}>{stepTime(step)}</Text>{repeat ? <Text style={styles.stepDetail}>Repeat: {step.repeat} times{step.rest ? ` | Rest ${step.rest}` : ''}</Text> : null}</View></TouchableOpacity>;
+}
+
+function RestCard({ duration }: { duration: string }) {
+  return <View style={styles.restCard}><View style={styles.restBar} /><View><Text style={styles.restTitle}>Rest</Text><Text style={styles.restValue}>{duration}</Text></View></View>;
+}
+
+export default function CustomWorkoutOverview() {
+  const { workout, reset, removeWarmUp, removeRun, removeCooldown, duplicateRunGroup, updateRunRepeat, updateGroupRepeat } = useCustomWorkout();
+  const [selectedRun, setSelectedRun] = useState<number | null>(workout.runs.length ? 0 : null);
+  const [repeatRun, setRepeatRun] = useState<number | null>(null);
+  const [repeatGroup, setRepeatGroup] = useState<string | null>(null);
+  const confirmDelete = (label: string, onDelete: () => void) => Alert.alert(`Delete ${label}?`, 'This step will be removed from the workout.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: onDelete }]);
+  const steps = [workout.warmUp, ...workout.runs, workout.cooldown].filter(Boolean) as WorkoutStep[];
+  const totalSeconds = steps.reduce((total, step) => { const groupRepeat = step.groupRepeat || 1; return total + ((estimatedStepSeconds(step) * step.repeat) + estimatedRestSeconds(step)) * groupRepeat; }, 0);
+  const totalDistance = steps.reduce((total, step) => total + distanceInKm(step) * step.repeat * (step.groupRepeat || 1), 0);
+  const runGroups = workout.runs.reduce<{ groupId?: string; items: { step: WorkoutStep; index: number }[] }[]>((groups, step, index) => {
+    const previous = groups[groups.length - 1];
+    if (step.groupId && previous?.groupId === step.groupId) previous.items.push({ step, index });
+    else groups.push({ groupId: step.groupId, items: [{ step, index }] });
+    return groups;
+  }, []);
+
+  return <SafeAreaView style={styles.safeArea}>
+    <View style={styles.header}><TouchableOpacity onPress={() => router.back()} style={styles.headerIcon}><Feather name="arrow-left" size={28} color={Colors.text} /></TouchableOpacity><Text style={styles.headerTitle}>Custom Workout</Text><TouchableOpacity onPress={() => { reset(); router.back(); }}><Text style={styles.done}>SAVE</Text></TouchableOpacity></View>
+    <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}><Text style={styles.overview}>Overview</Text><View style={styles.stats}><View><Text style={styles.statValue}>{displayTime(totalSeconds)}</Text><Text style={styles.statLabel}>Est Time</Text></View><View><Text style={styles.statValue}>{totalDistance.toFixed(2)} km</Text><Text style={styles.statLabel}>Est Distance</Text></View></View><Text style={styles.stepsTitle}>Steps</Text>{workout.warmUp ? <StepCard step={workout.warmUp} color="#FF1744" onDelete={() => confirmDelete('Warm Up', removeWarmUp)} /> : null}{runGroups.map((group) => group.groupId ? <View key={group.groupId} style={styles.groupBox}><View style={styles.groupHeader}><Text style={styles.groupTitle}>Repeat Group</Text><TouchableOpacity style={styles.groupRepeat} onPress={() => setRepeatGroup(group.groupId || null)}><Text style={styles.repeatBadgeText}>{group.items[0].step.groupRepeat || 1}x</Text><Feather name="chevron-down" size={15} color={Colors.textSecondary} /></TouchableOpacity></View>{group.items.map(({ step, index }) => <View key={`${step.title}-${index}`}><StepCard step={step} color="#1687E8" number={index + 1} selected={selectedRun === index} onSelect={() => setSelectedRun(index)} onDelete={() => confirmDelete(step.title, () => { removeRun(index); setSelectedRun(null); })} />{step.rest ? <RestCard duration={step.rest} /> : null}</View>)}</View> : <StepCard key={`run-${group.items[0].index}`} step={group.items[0].step} color="#1687E8" repeat number={group.items[0].index + 1} selected={selectedRun === group.items[0].index} onSelect={() => setSelectedRun(group.items[0].index)} onRepeat={() => setRepeatRun(group.items[0].index)} onDelete={() => confirmDelete(group.items[0].step.title, () => { removeRun(group.items[0].index); setSelectedRun(null); })} />)}{workout.cooldown ? <StepCard step={workout.cooldown} color="#55E91B" onDelete={() => confirmDelete('Cool Down', removeCooldown)} /> : null}<View style={styles.actions}><TouchableOpacity style={styles.action} onPress={() => router.push('/custom-workout/running-declaration')}><Feather name="plus" size={22} color={Colors.text} /><Text style={styles.actionText}>ADD STEP</Text></TouchableOpacity><TouchableOpacity style={styles.action} onPress={() => { if (selectedRun === null) { Alert.alert('Select a running step', 'Tap a Running card first.'); return; } duplicateRunGroup(selectedRun); setSelectedRun(selectedRun + 1); }}><Feather name="repeat" size={22} color={Colors.text} /><Text style={styles.actionText}>DUPLICATE SELECTED</Text></TouchableOpacity></View></ScrollView>
+    <Modal visible={repeatRun !== null} transparent animationType="fade" onRequestClose={() => setRepeatRun(null)}><Pressable style={styles.overlay} onPress={() => setRepeatRun(null)}><Pressable style={styles.modal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>REPEAT COUNT</Text><ScrollView style={styles.repeatScroll}>{Array.from({ length: 40 }, (_, index) => index + 1).map((value) => <TouchableOpacity key={value} style={styles.option} onPress={() => { if (repeatRun !== null) updateRunRepeat(repeatRun, value); setRepeatRun(null); }}><Text style={styles.optionText}>{value} times</Text>{repeatRun !== null && workout.runs[repeatRun]?.repeat === value ? <Feather name="check" size={20} color={Colors.primaryLight} /> : null}</TouchableOpacity>)}</ScrollView></Pressable></Pressable></Modal><Modal visible={repeatGroup !== null} transparent animationType="fade" onRequestClose={() => setRepeatGroup(null)}><Pressable style={styles.overlay} onPress={() => setRepeatGroup(null)}><Pressable style={styles.modal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>REPEAT GROUP</Text><ScrollView style={styles.repeatScroll}>{Array.from({ length: 40 }, (_, index) => index + 1).map((value) => <TouchableOpacity key={value} style={styles.option} onPress={() => { if (repeatGroup) updateGroupRepeat(repeatGroup, value); setRepeatGroup(null); }}><Text style={styles.optionText}>{value} times</Text>{repeatGroup && workout.runs.find((step) => step.groupId === repeatGroup)?.groupRepeat === value ? <Feather name="check" size={20} color={Colors.primaryLight} /> : null}</TouchableOpacity>)}</ScrollView></Pressable></Pressable></Modal>
+  </SafeAreaView>;
+}
+
+const styles = StyleSheet.create({ safeArea: { flex: 1, backgroundColor: Colors.background }, header: { minHeight: 76, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, backgroundColor: '#000' }, headerIcon: { width: 55 }, headerTitle: { color: Colors.text, fontSize: 22, fontWeight: '700' }, done: { color: Colors.primaryLight, fontSize: 15, fontWeight: '700' }, body: { flex: 1 }, bodyContent: { padding: 32, paddingBottom: 48 }, overview: { color: Colors.text, fontSize: 29, marginBottom: 32 }, stats: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 70, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#555' }, statValue: { color: Colors.text, fontSize: 34 }, statLabel: { color: Colors.textSecondary, fontSize: 16, marginTop: 5 }, stepsTitle: { color: Colors.text, fontSize: 22, fontWeight: '700', marginBottom: 16 }, groupBox: { marginBottom: 14, padding: 10, borderWidth: 1, borderColor: '#777', borderRadius: 8 }, groupHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 8 }, groupTitle: { color: Colors.text, fontSize: 19, fontWeight: '700' }, groupRepeat: { flexDirection: 'row', alignItems: 'center', gap: 4 }, stepCard: { minHeight: 116, flexDirection: 'row', marginBottom: 14, overflow: 'hidden', backgroundColor: '#272727', borderRadius: 8 }, selectedCard: { borderWidth: 1, borderColor: Colors.info }, colorBar: { width: 12 }, stepContent: { padding: 17, flex: 1 }, titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, cardActions: { flexDirection: 'row', alignItems: 'center', gap: 14 }, repeatBadge: { flexDirection: 'row', alignItems: 'center', gap: 3 }, repeatBadgeText: { color: Colors.primaryLight, fontSize: 15, fontWeight: '700' }, stepTitle: { flex: 1, color: Colors.text, fontSize: 22 }, stepValue: { color: Colors.textSecondary, fontSize: 16, marginTop: 4 }, stepDetail: { color: '#BDBDBD', fontSize: 14, marginTop: 6 }, restCard: { minHeight: 64, flexDirection: 'row', alignItems: 'center', marginBottom: 14, marginLeft: 22, overflow: 'hidden', backgroundColor: '#222', borderRadius: 8 }, restBar: { width: 8, height: '100%', backgroundColor: '#9E9E9E' }, restTitle: { color: Colors.text, fontSize: 17, marginLeft: 14 }, restValue: { color: Colors.textSecondary, fontSize: 15, marginLeft: 14, marginTop: 3 }, actions: { flexDirection: 'row', gap: 14, marginTop: 18 }, action: { flex: 1, minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#1976D2', borderRadius: 8 }, actionText: { color: Colors.text, fontSize: 15, fontWeight: '700' }, overlay: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: 'rgba(0,0,0,0.72)' }, modal: { overflow: 'hidden', backgroundColor: '#252525', borderRadius: 8 }, modalTitle: { padding: 20, color: Colors.textSecondary, fontSize: 14, fontWeight: '600' }, repeatScroll: { maxHeight: 420 }, option: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, borderTopWidth: 1, borderTopColor: '#3A3A3A' }, optionText: { color: Colors.text, fontSize: 17 } });

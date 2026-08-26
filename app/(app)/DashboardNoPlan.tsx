@@ -18,7 +18,7 @@ const popularWorkouts = [
 export default function DashboardNoPlan({ canStartAssessment, onStartAssessment }: DashboardNoPlanProps) {
   return (
     <>
-      <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(app)/questionnaire')}>
+      <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(app)/custom-workout')}>
         <Feather name="edit-3" size={26} color={Colors.primary} />
         <Text style={styles.actionTitle}>CREATE CUSTOM WORKOUT</Text>
       </TouchableOpacity>
