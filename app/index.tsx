@@ -19,7 +19,7 @@ export default function SplashScreen() {
   return (
     <View style={styles.container}>
       <ActivityIndicator size="large" color="#34C759" />
-      <Text style={styles.logo}>HRMS</Text>
+      <Text style={styles.logo}>Zy-Run</Text>
       <Text style={styles.subtitle}>Loading...</Text>
     </View>
   );

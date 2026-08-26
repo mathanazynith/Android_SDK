@@ -762,6 +762,8 @@ export default function QuestionnaireScreen() {
     label: currentNavigation.page_title || `Page ${currentNavigation.page_no}`,
   };
 
+  const isFirstAssessmentPage = stepInfo.current === 1;
+
   const getAnswerForQuestion = (question: Question) => {
     const key = String(question.backendId ?? getNumericId(question.id));
     return currentPageAnswers[key] || { value: undefined, unit: null, customValues: {} };
@@ -1036,7 +1038,20 @@ export default function QuestionnaireScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.progressHeader}>
-        <Text style={styles.assessmentTitle}>Assessment</Text>
+        <View style={styles.assessmentTitleRow}>
+          {isFirstAssessmentPage ? (
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => router.replace('/(app)/dashboard')}
+              accessibilityRole="button"
+              accessibilityLabel="Back to Dashboard"
+            >
+              <Feather name="arrow-left" size={22} color="#34C759" />
+            </TouchableOpacity>
+          ) : <View style={styles.backButtonPlaceholder} />}
+          <Text style={styles.assessmentTitle}>Assessment</Text>
+          <View style={styles.backButtonPlaceholder} />
+        </View>
         <View style={styles.progressHeaderRow}>
           <Text style={styles.progressHeaderText}>
             Page {stepInfo.current} of {stepInfo.total}
@@ -1218,22 +1233,24 @@ export default function QuestionnaireScreen() {
       </ScrollView>
 
       <View style={[styles.buttonContainer, { paddingBottom: 12 + insets.bottom }]}>
-        <TouchableOpacity
-          style={[styles.button, styles.prevButton]}
-          onPress={goToPrevious}
-          disabled={!canGoBack || isLoading}
-        >
-          <Feather name="arrow-left" size={18} color="#34C759" />
-          <Text
-            style={[
-              styles.buttonText,
-              styles.prevButtonText,
-              (!canGoBack || isLoading) && styles.disabledText,
-            ]}
+        {!isFirstAssessmentPage && (
+          <TouchableOpacity
+            style={[styles.button, styles.prevButton]}
+            onPress={goToPrevious}
+            disabled={!canGoBack || isLoading}
           >
-            Previous
-          </Text>
-        </TouchableOpacity>
+            <Feather name="arrow-left" size={18} color="#34C759" />
+            <Text
+              style={[
+                styles.buttonText,
+                styles.prevButtonText,
+                (!canGoBack || isLoading) && styles.disabledText,
+              ]}
+            >
+              Previous
+            </Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity
           style={[
@@ -1513,4 +1530,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   assessmentTitle: { color: "#F4F4F5", fontSize: 24, fontWeight: "700", textAlign: "center", marginBottom: 28 },
+  assessmentTitleRow: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  backButton: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#202A22", borderWidth: 1, borderColor: "#34C759" },
+  backButtonPlaceholder: { width: 44, height: 44 },
 });

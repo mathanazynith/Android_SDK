@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "frontend",
-    "slug": "frontend",
+    "name": "Zy-Run",
+    "slug": "zy-run",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "icon": "./assets/Zy-RunLOGO.png",
+    "scheme": "zy-run",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon"
@@ -13,10 +13,8 @@
     "android": {
       "package": "com.zyapp",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#FAFAFA",
+        "foregroundImage": "./assets/Zy-RunLOGO.png"
       },
       "predictiveBackGestureEnabled": false
     },
@@ -36,8 +34,8 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
+          "backgroundColor": "#FAFAFA",
+          "image": "./assets/splash.png",
           "imageWidth": 76
         }
       ],
