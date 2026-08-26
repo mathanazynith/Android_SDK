@@ -27,6 +27,7 @@ import { validateAnswer } from "../../../service/validation/AssessmentValidator"
 import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import { calculatePace, timeToSeconds } from "../../../utils/validators";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
 
 // Helper to get numeric ID
 const getNumericId = (id: number | string): number => {
@@ -74,6 +75,7 @@ const QuestionField = ({
   allQuestions,
   allAnswers,
 }: any) => {
+  const { colors } = useTheme();
   const {
     id,
     type: rawType,
@@ -83,6 +85,8 @@ const QuestionField = ({
     isRequired,
   } = question;
   const type = String(rawType ?? "").toLowerCase();
+  const questionSurface = { backgroundColor: colors.card, borderColor: colors.border };
+  const questionHeading = { color: colors.textPrimary };
   const questionIdentifier = `${questionText ?? ""} ${question.slug ?? ""}`;
   const isPrimaryRunningGoal = question.isGoalQuestion === true || /primary\s+running\s+goal|what\s+is\s+your\s+goal/i.test(questionIdentifier);
   const isTargetFinishTime = /target\s+finish\s+time|goal[_\s-]*target[_\s-]*time|target.*time.*goal/i.test(questionIdentifier);
@@ -164,8 +168,8 @@ const QuestionField = ({
   // identified questions through the same Page 2 primitives.
   if (isPrimaryRunningGoal) {
     return (
-      <View style={styles.questionContainer}>
-        <Text style={styles.questionText}>
+      <View style={[styles.questionContainer, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]}>
+        <Text style={[styles.questionText, { color: colors.text }]}>
           {questionText}
           {isRequired && <Text style={styles.requiredStar}> *</Text>}
         </Text>
@@ -198,8 +202,8 @@ const QuestionField = ({
 
   if (isTargetFinishTime) {
     return (
-      <View style={styles.questionContainer}>
-        <Text style={styles.questionText}>
+      <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+        <Text style={[styles.questionText, questionHeading]}>
           {questionText}
           {isRequired && <Text style={styles.requiredStar}> *</Text>}
         </Text>
@@ -212,8 +216,8 @@ const QuestionField = ({
   // question metadata describes it as a multiple-choice field.
   if (isLongRunDayQuestion) {
     return (
-      <View style={styles.questionContainer}>
-        <Text style={styles.questionText}>
+      <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+        <Text style={[styles.questionText, questionHeading]}>
           {questionText}
           {isRequired && <Text style={styles.requiredStar}> *</Text>}
         </Text>
@@ -231,8 +235,8 @@ const QuestionField = ({
     case "single":
       if (yesNoOptionValues) {
         return (
-          <View style={styles.questionContainer}>
-            <Text style={styles.questionText}>
+          <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+            <Text style={[styles.questionText, questionHeading]}>
               {questionText}
               {isRequired && <Text style={styles.requiredStar}> *</Text>}
             </Text>
@@ -246,8 +250,8 @@ const QuestionField = ({
         );
       }
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
@@ -262,8 +266,8 @@ const QuestionField = ({
 
     case "yesno":
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
@@ -276,8 +280,8 @@ const QuestionField = ({
 
     case "multiple":
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
@@ -322,8 +326,8 @@ const QuestionField = ({
     case "computed":
     case "calculated_pace":
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
@@ -341,7 +345,7 @@ const QuestionField = ({
             </Text>
           ) : (
             <RNTextInput
-              style={styles.textInput}
+              style={[styles.textInput, { backgroundColor: colors.surfaceRaised, borderColor: colors.border, color: colors.text }]}
               value={value || ""}
               onChangeText={(text) => onAnswer(id, text)}
               placeholder={placeholder || "Enter your answer..."}
@@ -353,8 +357,8 @@ const QuestionField = ({
 
     case "dropdown":
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
@@ -374,8 +378,8 @@ const QuestionField = ({
 
     case "rating":
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
@@ -395,8 +399,8 @@ const QuestionField = ({
 
     case "date":
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
@@ -406,8 +410,8 @@ const QuestionField = ({
 
     case "recent_long_run":
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
@@ -433,8 +437,8 @@ const QuestionField = ({
 
     case "plan_selection":
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
@@ -480,6 +484,7 @@ const QuestionField = ({
 };
 
 export default function QuestionnaireScreen() {
+  const { colors } = useTheme();
   const {
     questions,
     currentNavigation,
@@ -1036,8 +1041,8 @@ export default function QuestionnaireScreen() {
     : undefined;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.progressHeader}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.progressHeader, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <View style={styles.assessmentTitleRow}>
           {isFirstAssessmentPage ? (
             <TouchableOpacity
@@ -1046,23 +1051,23 @@ export default function QuestionnaireScreen() {
               accessibilityRole="button"
               accessibilityLabel="Back to Dashboard"
             >
-              <Feather name="arrow-left" size={22} color="#34C759" />
+              <Feather name="arrow-left" size={22} color={BRAND_GREEN} />
             </TouchableOpacity>
           ) : <View style={styles.backButtonPlaceholder} />}
-          <Text style={styles.assessmentTitle}>Assessment</Text>
+          <Text style={[styles.assessmentTitle, { color: colors.textPrimary }]}>Assessment</Text>
           <View style={styles.backButtonPlaceholder} />
         </View>
         <View style={styles.progressHeaderRow}>
-          <Text style={styles.progressHeaderText}>
+          <Text style={[styles.progressHeaderText, { color: colors.textSecondary }]}>
             Page {stepInfo.current} of {stepInfo.total}
           </Text>
-          <Text style={styles.progressLabel}>{stepInfo.label}</Text>
+          <Text style={[styles.progressLabel, { color: colors.textSecondary }]}>{stepInfo.label}</Text>
         </View>
-        <View style={styles.progressBar}>
+        <View style={[styles.progressBar, { backgroundColor: colors.surfaceRaised }]}>
           <View
             style={[
               styles.progressFill,
-              { width: `${Math.min((stepInfo.current / 10) * 100, 100)}%` },
+              { width: `${Math.min((stepInfo.current / 10) * 100, 100)}%`, backgroundColor: BRAND_GREEN },
             ]}
           />
         </View>
@@ -1232,14 +1237,14 @@ export default function QuestionnaireScreen() {
         </View>
       </ScrollView>
 
-      <View style={[styles.buttonContainer, { paddingBottom: 12 + insets.bottom }]}>
+      <View style={[styles.buttonContainer, { paddingBottom: 12 + insets.bottom, backgroundColor: colors.background }]}>
         {!isFirstAssessmentPage && (
           <TouchableOpacity
             style={[styles.button, styles.prevButton]}
             onPress={goToPrevious}
             disabled={!canGoBack || isLoading}
           >
-            <Feather name="arrow-left" size={18} color="#34C759" />
+            <Feather name="arrow-left" size={18} color={BRAND_GREEN} />
             <Text
               style={[
                 styles.buttonText,
@@ -1256,6 +1261,7 @@ export default function QuestionnaireScreen() {
           style={[
             styles.button,
             styles.nextButton,
+            { backgroundColor: BRAND_GREEN },
             (!isPageReadyToSubmit || isSubmitting || isLoading) && styles.nextButtonDisabled,
           ]}
           onPress={handleNext}

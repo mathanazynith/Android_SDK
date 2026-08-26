@@ -18,14 +18,16 @@ import { Colors } from "../../../constants/theme";
 import { resolveApiUrl } from "../../../service/api";
 import { SafeAreaView } from "react-native-safe-area-context";
 import GlobalBottomNav from "../../../components/navigation/GlobalBottomNav";
+import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
 
 type DetailRowProps = { label: string; value: string };
 
 function DetailRow({ label, value }: DetailRowProps) {
+  const { colors } = useTheme();
   return (
-    <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue} numberOfLines={1}>{value}</Text>
+    <View style={[styles.detailRow, { borderBottomColor: colors.border }]}>
+      <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{label}</Text>
+      <Text style={[styles.detailValue, { color: colors.text }]} numberOfLines={1}>{value}</Text>
     </View>
   );
 }
@@ -55,6 +57,7 @@ const calculateAge = (dateOfBirth?: string) => {
 };
 
 export default function ProfileScreen() {
+  const { colors } = useTheme();
   const { user, logout, uploadProfilePicture } = useAuth();
   const [isUploadingPicture, setIsUploadingPicture] = React.useState(false);
 
@@ -128,7 +131,7 @@ export default function ProfileScreen() {
   const profilePictureUri = resolveApiUrl(profilePicture);
 
   return (
-    <SafeAreaView edges={[]} style={styles.safeArea}>
+    <SafeAreaView edges={[]} style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
@@ -151,7 +154,7 @@ export default function ProfileScreen() {
               }}
               style={styles.circleButton}
             >
-              <Feather name="chevron-left" size={29} color="#FFFFFF" />
+              <Feather name="chevron-left" size={29} color={colors.text} />
             </TouchableOpacity>
             <Text style={styles.heroTitle}>Profile</Text>
             <TouchableOpacity
@@ -169,7 +172,7 @@ export default function ProfileScreen() {
               {profilePictureUri ? <Image source={{ uri: profilePictureUri }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initials}</Text>}
               {isUploadingPicture ? <View style={styles.uploadOverlay}><ActivityIndicator color="#FFFFFF" /></View> : null}
               <TouchableOpacity accessibilityLabel="Change profile picture" accessibilityRole="button" onPress={openPictureOptions} style={styles.cameraBadge} disabled={isUploadingPicture}>
-                <Feather name="camera" size={16} color={Colors.primaryDark} />
+                <Feather name="camera" size={16} color={BRAND_GREEN} />
               </TouchableOpacity>
             </View>
             <Text style={styles.name}>{fullName}</Text>
@@ -177,7 +180,7 @@ export default function ProfileScreen() {
           </View>
         </LinearGradient>
 
-        <View style={styles.detailsCard}>
+        <View style={[styles.detailsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <DetailRow label="Email" value={user.email || "--"} />
           <DetailRow label="Phone Number" value={user.phone_number || profile?.phone_number || "--"} />
           <DetailRow label="Date of Birth" value={formatDate(profile?.date_of_birth)} />
@@ -194,8 +197,8 @@ export default function ProfileScreen() {
           onPress={handleLogout}
           style={styles.logoutButton}
         >
-          <Feather name="log-out" size={17} color="#B8B8B8" />
-          <Text style={styles.logoutText}>Log out</Text>
+          <Feather name="log-out" size={17} color="#EF4444" />
+          <Text style={[styles.logoutText, { color: '#EF4444' }]}>Log out</Text>
         </TouchableOpacity>
       </ScrollView>
       <GlobalBottomNav />
@@ -210,7 +213,7 @@ const styles = StyleSheet.create({
   },
   container: { flex: 1, backgroundColor: "#090B0C" },
   scrollContent: { paddingBottom: 118 },
-  loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#090B0C" },
+  loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
   loadingText: { color: Colors.text, fontSize: 16 },
   hero: {
     minHeight: 184,

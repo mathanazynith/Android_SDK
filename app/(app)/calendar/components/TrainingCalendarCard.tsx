@@ -1,4 +1,5 @@
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useTheme } from '../../../../contexts/ThemeContext';
 
 interface TrainingCalendarCardProps {
   weekLabel: string;
@@ -12,15 +13,16 @@ interface TrainingCalendarCardProps {
   nextDisabled?: boolean;
 }
 export default function TrainingCalendarCard({ weekLabel, rangeLabel, statusText, totalWeeks, onPrevious, onNext, previousDisabled, nextDisabled }: TrainingCalendarCardProps) {
+  const { colors } = useTheme();
   return (
-    <View style={styles.card}>
-      <View style={styles.topRow}><Text style={styles.title}>Training Calendar</Text><Text style={styles.weeksCount}>{totalWeeks} weeks</Text></View>
+    <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <View style={styles.topRow}><Text style={[styles.title, { color: colors.text }]}>Training Calendar</Text><Text style={[styles.weeksCount, { color: colors.textSecondary }]}>{totalWeeks} weeks</Text></View>
       <View style={styles.mainRow}>
-        <TouchableOpacity onPress={previousDisabled ? undefined : onPrevious} disabled={previousDisabled} accessibilityLabel="Previous week" style={styles.navButton}><Text style={[styles.navText, styles.previous, previousDisabled && styles.navDisabled]}>‹</Text></TouchableOpacity>
-        <View style={styles.centerContent}><Text style={styles.counterText}>{weekLabel}</Text><Text style={styles.rangeText}>{rangeLabel}</Text></View>
-        <TouchableOpacity onPress={nextDisabled ? undefined : onNext} disabled={nextDisabled} accessibilityLabel="Next week" style={styles.navButton}><Text style={[styles.navText, styles.next, nextDisabled && styles.navDisabled]}>›</Text></TouchableOpacity>
+        <TouchableOpacity onPress={previousDisabled ? undefined : onPrevious} disabled={previousDisabled} accessibilityLabel="Previous week" style={styles.navButton}><Text style={[styles.navText, { color: previousDisabled ? colors.border : colors.textSecondary }]}>‹</Text></TouchableOpacity>
+        <View style={styles.centerContent}><Text style={[styles.counterText, { color: colors.text }]}>{weekLabel}</Text><Text style={[styles.rangeText, { color: colors.textSecondary }]}>{rangeLabel}</Text></View>
+        <TouchableOpacity onPress={nextDisabled ? undefined : onNext} disabled={nextDisabled} accessibilityLabel="Next week" style={styles.navButton}><Text style={[styles.navText, { color: nextDisabled ? colors.border : '#22C55E' }]}>›</Text></TouchableOpacity>
       </View>
-      {statusText ? <Text style={styles.statusText}>{statusText}</Text> : null}
+      {statusText ? <Text style={[styles.statusText, { color: colors.primary }]}>{statusText}</Text> : null}
     </View>
   );
 }

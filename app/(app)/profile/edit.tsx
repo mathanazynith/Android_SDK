@@ -11,6 +11,7 @@ import { Feather } from "@expo/vector-icons";
 import { useAuth } from "../../../service/auth";
 import { AppInput } from "../../../components/common/AppInput";
 import { Colors } from "../../../constants/theme";
+import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
 import { resolveApiUrl } from "../../../service/api";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { getDistanceUnitCode, getDistanceUnitPreference, getHeightUnitLabel, getWeightUnitLabel, getUnitSystemShortLabel } from "../../../utils/distanceUnit";
@@ -26,16 +27,18 @@ const ageValue = (value: string) => {
 };
 
 function Picker({ visible, onClose, data, selectedValue, onSelect, title }: { visible: boolean; onClose: () => void; data: PickerItem[]; selectedValue: string; onSelect: (value: string) => void; title: string }) {
+  const { colors } = useTheme();
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}><View style={styles.modalOverlay}><View style={styles.modalContent}>
-      <Text style={styles.modalTitle}>{title}</Text>
-      <FlatList data={data} keyExtractor={(item) => item.value} renderItem={({ item }) => <TouchableOpacity style={[styles.modalItem, selectedValue === item.value && styles.modalItemSelected]} onPress={() => { onSelect(item.value); onClose(); }}><Text style={[styles.modalItemText, selectedValue === item.value && styles.modalItemTextSelected]}>{item.label}</Text>{selectedValue === item.value && <Feather name="check" color={Colors.primary} size={20} />}</TouchableOpacity>} />
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}><View style={styles.modalOverlay}><View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+      <Text style={[styles.modalTitle, { color: colors.text }]}>{title}</Text>
+      <FlatList data={data} keyExtractor={(item) => item.value} renderItem={({ item }) => <TouchableOpacity style={[styles.modalItem, { borderBottomColor: colors.border }, selectedValue === item.value && { backgroundColor: colors.surfaceRaised }]} onPress={() => { onSelect(item.value); onClose(); }}><Text style={[styles.modalItemText, { color: colors.text }, selectedValue === item.value && { color: BRAND_GREEN }]}>{item.label}</Text>{selectedValue === item.value && <Feather name="check" color={BRAND_GREEN} size={20} />}</TouchableOpacity>} />
       <TouchableOpacity onPress={onClose} style={styles.modalClose}><Text style={styles.modalCloseText}>Cancel</Text></TouchableOpacity>
     </View></View></Modal>
   );
 }
 
 export default function EditProfileScreen() {
+  const { colors } = useTheme();
   const { user, updateProfile, uploadProfilePicture, refreshProfile } = useAuth();
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView | null>(null);
@@ -112,42 +115,42 @@ export default function EditProfileScreen() {
     scrollRef.current?.scrollTo({ y: offset, animated: true });
   };
 
-  return <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.screen}>
+  return <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={[styles.screen, { backgroundColor: colors.background }]}>
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <SafeAreaView style={styles.safeArea}><ScrollView
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}><ScrollView
         ref={scrollRef}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         contentContainerStyle={styles.content}
       >
-      <Text style={styles.sectionLabel}>PROFILE PHOTO</Text><View style={styles.photoCard}><View style={styles.avatar}>
+      <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>PROFILE PHOTO</Text><View style={[styles.photoCard, { backgroundColor: colors.surface }]}><View style={styles.avatar}>
         {profilePictureUri ? <Image source={{ uri: profilePictureUri }} style={styles.avatarImage} /> : <Text style={styles.photoInitial}>{initials}</Text>}
         {isUploadingPicture && <View style={styles.uploadOverlay}><ActivityIndicator color="#FFFFFF" /></View>}
         <TouchableOpacity accessibilityLabel="Change profile picture" accessibilityRole="button" onPress={openPictureOptions} style={styles.cameraBadge} disabled={isUploadingPicture}><Feather name="camera" size={18} color="#171717" /></TouchableOpacity>
       </View></View>
 
-      <Text style={styles.sectionLabel}>PERSONAL</Text><View style={styles.formCard}>
+      <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>PERSONAL</Text><View style={[styles.formCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <AppInput label="Phone Number" value={phoneNumber} onChangeText={setPhoneNumber} onFocus={() => scrollToField(70)} keyboardType="phone-pad" containerStyle={styles.phoneInput} inputStyle={styles.flatInput} />
-        <Pressable onPress={openDatePicker} style={styles.formRow}><Text style={styles.rowLabel}>Date of Birth</Text><View style={styles.datePill}><Text style={styles.dateText}>{dateValue(dateOfBirth) || "Select"}</Text></View></Pressable>
-        <View style={styles.formRow}><Text style={styles.rowLabel}>Age</Text><Text style={styles.rowValueMuted}>{ageValue(dateOfBirth)}</Text></View>
-        <Pressable onPress={() => setShowGenderModal(true)} style={styles.formRow}><Text style={styles.rowLabel}>Gender</Text><View style={styles.selectValue}><Text style={styles.rowValueMuted}>{gender || "Select"}</Text><Feather name="chevrons-down" size={18} color="#868686" /></View></Pressable>
-        <Pressable onPress={() => setShowBloodModal(true)} style={[styles.formRow, styles.lastRow]}><Text style={styles.rowLabel}>Blood Group</Text><View style={styles.selectValue}><Text style={styles.rowValueMuted}>{bloodGroup || "Select"}</Text><Feather name="chevrons-down" size={18} color="#868686" /></View></Pressable>
+        <Pressable onPress={openDatePicker} style={[styles.formRow, { borderBottomColor: colors.border }]}><Text style={[styles.rowLabel, { color: colors.text }]}>Date of Birth</Text><View style={[styles.datePill, { backgroundColor: colors.surfaceRaised }]}><Text style={[styles.dateText, { color: colors.text }]}>{dateValue(dateOfBirth) || "Select"}</Text></View></Pressable>
+        <View style={[styles.formRow, { borderBottomColor: colors.border }]}><Text style={[styles.rowLabel, { color: colors.text }]}>Age</Text><Text style={[styles.rowValueMuted, { color: colors.text }]}>{ageValue(dateOfBirth)}</Text></View>
+        <Pressable onPress={() => setShowGenderModal(true)} style={[styles.formRow, { borderBottomColor: colors.border }]}><Text style={[styles.rowLabel, { color: colors.text }]}>Gender</Text><View style={styles.selectValue}><Text style={[styles.rowValueMuted, { color: colors.text }]}>{gender || "Select"}</Text><Feather name="chevrons-down" size={18} color={colors.textSecondary} /></View></Pressable>
+        <Pressable onPress={() => setShowBloodModal(true)} style={[styles.formRow, styles.lastRow, { borderBottomColor: colors.border }]}><Text style={[styles.rowLabel, { color: colors.text }]}>Blood Group</Text><View style={styles.selectValue}><Text style={[styles.rowValueMuted, { color: colors.text }]}>{bloodGroup || "Select"}</Text><Feather name="chevrons-down" size={18} color={colors.textSecondary} /></View></Pressable>
       </View>
 
-      <Text style={styles.sectionLabel}>MEASUREMENTS</Text><View style={styles.formCard}>
-        <Pressable onPress={() => setShowUnitModal(true)} style={styles.formRow}><Text style={styles.rowLabel}>Unit System</Text><View style={styles.selectValue}><Text style={styles.unitValue}>{getUnitSystemShortLabel(unitSystem)}</Text><Feather name="chevrons-down" size={18} color="#868686" /></View></Pressable>
+      <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>MEASUREMENTS</Text><View style={[styles.formCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Pressable onPress={() => setShowUnitModal(true)} style={[styles.formRow, { borderBottomColor: colors.border }]}><Text style={[styles.rowLabel, { color: colors.text }]}>Unit System</Text><View style={styles.selectValue}><Text style={[styles.unitValue, { color: colors.text }]}>{getUnitSystemShortLabel(unitSystem)}</Text><Feather name="chevrons-down" size={18} color={colors.textSecondary} /></View></Pressable>
         <AppInput placeholder={`Height (${getHeightUnitLabel(unitSystem)})`} value={heightCm} onChangeText={setHeightCm} onFocus={() => scrollToField(280)} keyboardType="numeric" containerStyle={styles.measurementInput} inputStyle={styles.flatInput} />
         <AppInput placeholder={`Weight (${getWeightUnitLabel(unitSystem)})`} value={weightKg} onChangeText={setWeightKg} onFocus={() => scrollToField(340)} keyboardType="numeric" containerStyle={styles.measurementInput} inputStyle={styles.lastInput} />
       </View>
 
-      <Text style={styles.sectionLabel}>ACCOUNT INFO</Text><View style={styles.accountCard}>
+      <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ACCOUNT INFO</Text><View style={[styles.accountCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.accountRow}><AppInput label="First Name" value={firstName} editable={false} onChangeText={setFirstName} onFocus={() => scrollToField(440)} containerStyle={styles.accountInput} /><AppInput label="Last Name" value={lastName} editable={false} onChangeText={setLastName} onFocus={() => scrollToField(440)} containerStyle={styles.accountInput} /></View>
         <AppInput label="User Name" value={`@${username}`} editable={false} containerStyle={styles.usernameInput} inputStyle={styles.flatInput} /><Feather name="star" size={25} color="#9B9B9D" style={styles.sparkle} />
       </View><View style={styles.footerSpacer} />
     </ScrollView></SafeAreaView>
     </TouchableWithoutFeedback>
-    <View style={[styles.footer, { bottom: 12 + insets.bottom }]}><TouchableOpacity disabled={loading} onPress={handleUpdate} style={styles.saveButton}><Text style={styles.saveButtonText}>{loading ? "Saving..." : "Save Changes"}</Text></TouchableOpacity></View>
+    <View style={[styles.footer, { bottom: 12 + insets.bottom }]}><TouchableOpacity disabled={loading} onPress={handleUpdate} style={[styles.saveButton, { backgroundColor: BRAND_GREEN }]}><Text style={[styles.saveButtonText, { color: colors.background }]}>{loading ? "Saving..." : "Save Changes"}</Text></TouchableOpacity></View>
     {showDatePicker && Platform.OS !== "android" && <DateTimePicker value={dateOfBirth ? new Date(dateOfBirth) : new Date(2000, 0, 1)} mode="date" display="spinner" onChange={(_, date) => { setShowDatePicker(false); if (date) setDateOfBirth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`); }} />}
     <Picker visible={showGenderModal} onClose={() => setShowGenderModal(false)} data={GENDERS} selectedValue={gender} onSelect={setGender} title="Select Gender" /><Picker visible={showBloodModal} onClose={() => setShowBloodModal(false)} data={BLOOD_GROUPS} selectedValue={bloodGroup} onSelect={setBloodGroup} title="Select Blood Group" /><Picker visible={showUnitModal} onClose={() => setShowUnitModal(false)} data={UNIT_SYSTEMS} selectedValue={unitSystem} onSelect={(value) => setUnitSystem(value === "imperial" ? "imperial" : "standard")} title="Select Unit System" />
   </KeyboardAvoidingView>;

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import WorkoutIcon from './WorkoutIcon';
 import { WorkoutDetail } from './types';
+import { useTheme } from '../../../../contexts/ThemeContext';
 
 interface WorkoutCardProps {
   workout: WorkoutDetail;
@@ -11,6 +12,7 @@ interface WorkoutCardProps {
 }
 
 export default function WorkoutCard({ workout, onPress, onSwap }: WorkoutCardProps) {
+  const { colors } = useTheme();
   const [scale] = useState(() => new Animated.Value(1));
   const animate = (toValue: number) => Animated.spring(scale, { toValue, useNativeDriver: true, damping: 16, stiffness: 220 }).start();
 
@@ -21,24 +23,24 @@ export default function WorkoutCard({ workout, onPress, onSwap }: WorkoutCardPro
         onPress={() => onPress(workout)}
         onPressIn={() => animate(0.98)}
         onPressOut={() => animate(1)}
-        style={[styles.card, workout.isRest && styles.restCard]}
+        style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }, workout.isRest && { backgroundColor: colors.surfaceRaised }]}
       >
         <View style={styles.iconBox}>
           <WorkoutIcon name={workout.iconName} backgroundColor="transparent" color={workout.accentColor} size={30} />
         </View>
         <View style={styles.detailBlock}>
-          <Text style={styles.dayText}>{workout.day}, {workout.date}</Text>
-          <Text style={styles.titleText}>{workout.title}</Text>
-          <Text style={styles.subtitleText}>{workout.workoutType}</Text>
+          <Text style={[styles.dayText, { color: colors.textSecondary }]}>{workout.day}, {workout.date}</Text>
+          <Text style={[styles.titleText, { color: colors.text }]}>{workout.title}</Text>
+          <Text style={[styles.subtitleText, { color: colors.textSecondary }]}>{workout.workoutType}</Text>
           {!workout.isRest && (
             <View style={styles.metricsRow}>
-              {workout.distance ? <Metric icon="navigate-outline" value={workout.distance} /> : null}
-              {workout.estimatedDuration ? <Metric icon="time-outline" value={workout.estimatedDuration} /> : null}
-              {workout.targetPace ? <Metric icon="speedometer-outline" value={workout.targetPace} /> : null}
-              {workout.heartRateZone ? <Metric icon="pulse-outline" value={workout.heartRateZone} /> : null}
+              {workout.distance ? <Metric icon="navigate-outline" value={workout.distance} color={colors.text} /> : null}
+              {workout.estimatedDuration ? <Metric icon="time-outline" value={workout.estimatedDuration} color={colors.text} /> : null}
+              {workout.targetPace ? <Metric icon="speedometer-outline" value={workout.targetPace} color={colors.text} /> : null}
+              {workout.heartRateZone ? <Metric icon="pulse-outline" value={workout.heartRateZone} color={colors.text} /> : null}
             </View>
           )}
-          <Text style={styles.descriptionText} numberOfLines={2}>{workout.description}</Text>
+          <Text style={[styles.descriptionText, { color: colors.textSecondary }]} numberOfLines={2}>{workout.description}</Text>
         </View>
         {onSwap ? (
           <TouchableOpacity
@@ -50,7 +52,7 @@ export default function WorkoutCard({ workout, onPress, onSwap }: WorkoutCardPro
             accessibilityLabel="Swap workout"
             accessibilityRole="button"
           >
-            <Ionicons name="swap-horizontal-outline" size={20} color="#63C72B" />
+            <Ionicons name="swap-horizontal-outline" size={20} color={colors.primary} />
           </TouchableOpacity>
         ) : null}
       </Pressable>
@@ -58,8 +60,8 @@ export default function WorkoutCard({ workout, onPress, onSwap }: WorkoutCardPro
   );
 }
 
-function Metric({ icon, value }: { icon: React.ComponentProps<typeof Ionicons>['name']; value: string }) {
-  return <View style={styles.metric}><Ionicons name={icon} size={13} color="rgba(255,255,255,0.66)" /><Text style={styles.metricText}>{value}</Text></View>;
+function Metric({ icon, value, color }: { icon: React.ComponentProps<typeof Ionicons>['name']; value: string; color: string }) {
+  return <View style={styles.metric}><Ionicons name={icon} size={13} color={color} /><Text style={[styles.metricText, { color }]}>{value}</Text></View>;
 }
 
 const styles = StyleSheet.create({

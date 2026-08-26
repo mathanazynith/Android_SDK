@@ -1,7 +1,8 @@
 // FrontEnd/components/PrimaryButton.tsx
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle } from 'react-native';
-import { Colors, BorderRadius, Typography, Spacing } from '../../constants/theme';
+import { BorderRadius, Typography, Spacing } from '../../constants/theme';
+import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 
 interface PrimaryButtonProps {
   title: string;
@@ -30,26 +31,27 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
   rightIcon,
   authStyle = false,
 }) => {
+  const { colors } = useTheme();
   const getBackgroundColor = () => {
-    if (disabled) return Colors.surfaceLighter;
-    if (variant === 'primary') return Colors.primary;
-    if (variant === 'secondary') return Colors.surfaceLight;
+    if (disabled) return colors.surfaceRaised;
+    if (variant === 'primary') return BRAND_GREEN;
+    if (variant === 'secondary') return colors.surfaceRaised;
     if (variant === 'outline') return 'transparent';
-    return Colors.primary;
+    return BRAND_GREEN;
   };
 
   const getTextColor = () => {
-    if (disabled) return Colors.textMuted;
-    if (variant === 'primary') return Colors.background;
-    if (variant === 'secondary') return Colors.text;
-    if (variant === 'outline') return Colors.primary;
-    return Colors.background;
+    if (disabled) return colors.textSecondary;
+    if (variant === 'primary') return colors.background;
+    if (variant === 'secondary') return colors.text;
+    if (variant === 'outline') return BRAND_GREEN;
+    return colors.background;
   };
 
   const getBorderColor = () => {
-    if (disabled) return Colors.surfaceLighter;
-    if (variant === 'outline') return Colors.primary;
-    if (variant === 'secondary') return Colors.surfaceLight;
+    if (disabled) return colors.surfaceRaised;
+    if (variant === 'outline') return BRAND_GREEN;
+    if (variant === 'secondary') return colors.border;
     return 'transparent';
   };
 

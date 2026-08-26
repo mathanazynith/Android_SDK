@@ -1,5 +1,6 @@
 import React from "react";
 import { View, TouchableOpacity, Text, StyleSheet } from "react-native";
+import { BRAND_GREEN, useTheme } from "../../../../contexts/ThemeContext";
 
 interface YesNoProps {
   value?: boolean;
@@ -56,23 +57,24 @@ export const getYesNoValue = (
 };
 
 const YesNo: React.FC<YesNoProps> = ({ value, onChange }) => {
+  const { colors } = useTheme();
   return (
     <View style={styles.container}>
       <TouchableOpacity
-        style={[styles.button, value === true && styles.selectedYes]}
+        style={[styles.button, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }, value === true && { backgroundColor: colors.surface, borderColor: BRAND_GREEN }]}
         onPress={() => onChange(true)}
         activeOpacity={0.7}
       >
-        <Text style={[styles.buttonText, value === true && styles.selectedText]}>
+        <Text style={[styles.buttonText, { color: colors.text }, value === true && { color: BRAND_GREEN }] }>
           Yes
         </Text>
       </TouchableOpacity>
       <TouchableOpacity
-        style={[styles.button, value === false && styles.selectedNo]}
+        style={[styles.button, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }, value === false && { backgroundColor: colors.surface, borderColor: BRAND_GREEN }]}
         onPress={() => onChange(false)}
         activeOpacity={0.7}
       >
-        <Text style={[styles.buttonText, value === false && styles.selectedText]}>
+        <Text style={[styles.buttonText, { color: colors.text }, value === false && { color: BRAND_GREEN }] }>
           No
         </Text>
       </TouchableOpacity>

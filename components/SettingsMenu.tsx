@@ -9,6 +9,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
+import { useTheme } from '../contexts/ThemeContext';
 
 const { height } = Dimensions.get('window');
 
@@ -28,6 +29,7 @@ const options = [
 ];
 
 export default function SettingsMenu({ visible, onClose, onSelect }: SettingsMenuProps) {
+  const { colors } = useTheme();
   return (
     <Modal
       visible={visible}
@@ -38,7 +40,7 @@ export default function SettingsMenu({ visible, onClose, onSelect }: SettingsMen
       <TouchableWithoutFeedback onPress={onClose}>
         <View style={styles.overlay}>
           <TouchableWithoutFeedback>
-            <View style={styles.sheet}>
+            <View style={[styles.sheet, { backgroundColor: colors.surfaceRaised }]}>
               <View style={styles.handle} />
               {options.map((item, index) => (
                 <TouchableOpacity
@@ -46,16 +48,17 @@ export default function SettingsMenu({ visible, onClose, onSelect }: SettingsMen
                   style={[
                     styles.option,
                     index === options.length - 1 && styles.lastOption,
+                    { borderBottomColor: colors.border },
                   ]}
                   onPress={() => onSelect(item.label)}
                 >
                   <Feather
                     name={item.icon as any}
                     size={24}
-                    color="#FFFFFF"
+                    color={colors.textSecondary}
                     style={styles.optionIcon}
                   />
-                  <Text style={styles.optionLabel}>{item.label}</Text>
+                  <Text style={[styles.optionLabel, { color: colors.text }]}>{item.label}</Text>
                 </TouchableOpacity>
               ))}
               <TouchableOpacity onPress={onClose} style={styles.cancelButton}>

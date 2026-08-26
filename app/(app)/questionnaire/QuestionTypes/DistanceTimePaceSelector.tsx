@@ -12,6 +12,7 @@ import {
   getDistanceUnitDisplayLabel,
   getDistanceUnitPaceLabel,
 } from "../../../../utils/distanceUnit";
+import { useTheme } from "../../../../contexts/ThemeContext";
 
 interface DistanceTimePaceSelectorProps {
   title: string;
@@ -96,6 +97,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
   showPace = true,
   maxDistanceKm,
 }) => {
+  const { colors } = useTheme();
   const { user } = useAuth();
 
   const normalizeDistanceOption = (option: any): DistanceOption => ({
@@ -260,7 +262,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
       {showHeader ? (
         <View style={styles.header}>
           <View style={styles.headerTextWrap}>
-            <Text style={styles.title}>{title}</Text>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>{title}</Text>
           </View>
           {icon ?? <Feather name="activity" size={18} color="#34C759" />}
         </View>
@@ -301,9 +303,9 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
         ) : null}
 
         {showPace ? (
-          <View style={styles.paceCard}>
-            <Text style={styles.paceLabel}>{paceLabel} ({paceUnitLabel})</Text>
-            <Text style={styles.paceValue}>{displayPace || pacePlaceholder}</Text>
+          <View style={[styles.paceCard, { backgroundColor: colors.selected, borderColor: colors.border }]}>
+            <Text style={[styles.paceLabel, { color: colors.textSecondary }]}>{paceLabel} ({paceUnitLabel})</Text>
+            <Text style={[styles.paceValue, { color: displayPace ? colors.textPrimary : colors.textSecondary }]}>{displayPace || pacePlaceholder}</Text>
           </View>
         ) : null}
       </View>

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useTheme } from '../../../../contexts/ThemeContext';
 
 interface RunTypeOption {
   id: string;
@@ -19,25 +20,26 @@ interface RunTypeSelectorProps {
 }
 
 export const RunTypeSelector: React.FC<RunTypeSelectorProps> = ({ label, options, selectedValue, error, hint, onSelect }) => {
+  const { colors } = useTheme();
   const [visible, setVisible] = useState(false);
   const selectedOption = useMemo(() => options.find((option) => option.value === selectedValue || option.id === selectedValue), [options, selectedValue]);
 
   return (
     <View style={styles.wrapper}>
-      <Text style={styles.label}>{label}</Text>
-      <TouchableOpacity style={[styles.trigger, error ? styles.triggerError : null]} onPress={() => setVisible(true)} activeOpacity={0.9}>
-        <Text style={styles.triggerText}>{selectedOption?.label || 'Select an option'}</Text>
-        <Feather name="chevron-down" size={18} color="#7F7F7F" />
+      <Text style={[styles.label, { color: colors.text }]}>{label}</Text>
+      <TouchableOpacity style={[styles.trigger, { backgroundColor: colors.inputBackground, borderColor: colors.border }, error ? styles.triggerError : null]} onPress={() => setVisible(true)} activeOpacity={0.9}>
+        <Text style={[styles.triggerText, { color: selectedOption ? colors.text : colors.placeholder }]}>{selectedOption?.label || 'Select an option'}</Text>
+        <Feather name="chevron-down" size={18} color={colors.iconSecondary} />
       </TouchableOpacity>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
       <Modal transparent animationType="fade" visible={visible} onRequestClose={() => setVisible(false)}>
         <Pressable style={styles.overlay} onPress={() => setVisible(false)}>
-          <Pressable style={styles.sheet} onPress={() => undefined}>
+          <Pressable style={[styles.sheet, { backgroundColor: colors.modalBackground, borderColor: colors.border }]} onPress={() => undefined}>
             <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>{label}</Text>
+              <Text style={[styles.sheetTitle, { color: colors.text }]}>{label}</Text>
               <TouchableOpacity onPress={() => setVisible(false)}>
-                <Feather name="x" size={20} color="#FFFFFF" />
+                <Feather name="x" size={20} color={colors.icon} />
               </TouchableOpacity>
             </View>
             <View style={styles.optionList}>
@@ -46,15 +48,15 @@ export const RunTypeSelector: React.FC<RunTypeSelectorProps> = ({ label, options
                 return (
                   <TouchableOpacity
                     key={option.id}
-                    style={[styles.option, isSelected ? styles.optionSelected : null, option.disabled ? styles.optionDisabled : null]}
+                    style={[styles.option, { backgroundColor: colors.inputBackground, borderColor: colors.border }, isSelected ? { borderColor: colors.primary, backgroundColor: colors.selected } : null, option.disabled ? styles.optionDisabled : null]}
                     disabled={option.disabled}
                     onPress={() => {
                       onSelect(option.value);
                       setVisible(false);
                     }}
                   >
-                    <Text style={[styles.optionText, isSelected ? styles.optionTextSelected : null, option.disabled ? styles.optionTextDisabled : null]}>{option.label}</Text>
-                    {isSelected ? <Feather name="check" size={18} color="#34C759" /> : null}
+                    <Text style={[styles.optionText, { color: colors.text }, isSelected ? { color: colors.primary } : null, option.disabled ? { color: colors.textTertiary } : null]}>{option.label}</Text>
+                    {isSelected ? <Feather name="check" size={18} color={colors.primary} /> : null}
                   </TouchableOpacity>
                 );
               })}

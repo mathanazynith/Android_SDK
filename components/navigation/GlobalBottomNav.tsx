@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
+import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 
 type Tab = {
   icon: React.ComponentProps<typeof Feather>['name'];
@@ -31,6 +32,7 @@ const isTabActive = (pathname: string, route: Tab['route']) => {
 export default function GlobalBottomNav() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   const { workoutPlan, isWorkoutPlanLoaded, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
 
   useEffect(() => {
@@ -43,7 +45,7 @@ export default function GlobalBottomNav() {
   const visibleTabs = hasActivePlan ? tabs : tabs.filter((tab) => tab.label !== 'Plan');
 
   return (
-    <View style={[styles.container, { bottom: 12 + insets.bottom }]}>
+    <View style={[styles.container, { bottom: 12 + insets.bottom, backgroundColor: colors.surface, borderColor: colors.border }]}>
       {visibleTabs.map((tab) => {
         const active = isTabActive(pathname, tab.route);
 
@@ -65,12 +67,12 @@ export default function GlobalBottomNav() {
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
           >
-            <Feather name={tab.icon} size={24} color={active ? '#4ADE80' : '#9CA3AF'} />
+            <Feather name={tab.icon} size={24} color={active ? BRAND_GREEN : colors.inactive} />
             <Text
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.8}
-              style={[styles.label, active && styles.activeLabel]}
+              style={[styles.label, { color: active ? BRAND_GREEN : colors.inactive }, active && styles.activeLabel]}
             >
               {tab.label}
             </Text>
@@ -82,8 +84,8 @@ export default function GlobalBottomNav() {
 }
 
 const styles = StyleSheet.create({
-  container: { position: 'absolute', left: 12, right: 12, minHeight: 78, paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', borderRadius: 42, backgroundColor: 'rgba(41, 47, 41, 0.96)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)', zIndex: 10 },
+  container: { position: 'absolute', left: 12, right: 12, minHeight: 78, paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', borderRadius: 42, borderWidth: 1, zIndex: 10 },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minWidth: 0 },
-  label: { color: '#9CA3AF', fontSize: 10, lineHeight: 12, marginTop: 3, textAlign: 'center', includeFontPadding: false, maxWidth: '100%' },
-  activeLabel: { color: '#4ADE80', fontWeight: '700' },
+  label: { fontSize: 10, lineHeight: 12, marginTop: 3, textAlign: 'center', includeFontPadding: false, maxWidth: '100%' },
+  activeLabel: { fontWeight: '700' },
 });

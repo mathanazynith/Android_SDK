@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, TextInput, View, Text } from 'react-native';
 import { validateDistance } from '../../../../utils/validators';
+import { useTheme } from '../../../../contexts/ThemeContext';
 
 interface DistanceInputProps {
   label: string;
@@ -13,6 +14,7 @@ interface DistanceInputProps {
 }
 
 export const DistanceInput: React.FC<DistanceInputProps> = ({ label, value, unitLabel, hint, error, maxValue, onChange }) => {
+  const { colors } = useTheme();
   const [localValue, setLocalValue] = useState(value || '');
 
   React.useEffect(() => {
@@ -25,10 +27,10 @@ export const DistanceInput: React.FC<DistanceInputProps> = ({ label, value, unit
 
   return (
     <View style={styles.card}>
-      <Text style={styles.label}>{label}</Text>
-      <View style={styles.inputRow}>
+      <Text style={[styles.label, { color: colors.text }]}>{label}</Text>
+      <View style={[styles.inputRow, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
         <TextInput
-          style={[styles.input, resolvedError ? styles.inputError : null]}
+          style={[styles.input, { color: colors.inputText }, resolvedError ? styles.inputError : null]}
           value={localValue}
           onChangeText={(text) => {
             const nextValue = text.replace(/[^0-9.]/g, '');
@@ -40,11 +42,11 @@ export const DistanceInput: React.FC<DistanceInputProps> = ({ label, value, unit
             }
           }}
           placeholder=""
-          placeholderTextColor="#8E8E93"
+          placeholderTextColor={colors.placeholder}
           keyboardType="decimal-pad"
           returnKeyType="done"
         />
-        {unitLabel ? <View style={styles.unitPill}><Text style={styles.unitText}>{unitLabel}</Text></View> : null}
+        {unitLabel ? <View style={styles.unitPill}><Text style={[styles.unitText, { color: colors.text }]}>{unitLabel}</Text></View> : null}
       </View>
       {resolvedError ? <Text style={styles.errorText}>{resolvedError}</Text> : null}
     </View>

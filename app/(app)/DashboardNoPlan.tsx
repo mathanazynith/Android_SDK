@@ -2,6 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../../constants/theme';
+import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 
 type DashboardNoPlanProps = {
   canStartAssessment: boolean;
@@ -16,34 +17,35 @@ const popularWorkouts = [
 ];
 
 export default function DashboardNoPlan({ canStartAssessment, onStartAssessment }: DashboardNoPlanProps) {
+  const { colors } = useTheme();
   return (
     <>
-      <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(app)/questionnaire')}>
-        <Feather name="edit-3" size={26} color={Colors.primary} />
-        <Text style={styles.actionTitle}>CREATE CUSTOM WORKOUT</Text>
+      <TouchableOpacity style={[styles.actionCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => router.push('/(app)/questionnaire')}>
+        <Feather name="edit-3" size={26} color={BRAND_GREEN} />
+        <Text style={[styles.actionTitle, { color: colors.text }]}>CREATE CUSTOM WORKOUT</Text>
       </TouchableOpacity>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>ONBOARDING ASSESSMENT</Text>
-        <Text style={styles.description}>A new adventure begins! Start your comprehensive onboarding assessment now.</Text>
-        <TouchableOpacity style={[styles.button, !canStartAssessment && styles.buttonDisabled]} onPress={onStartAssessment} disabled={!canStartAssessment}>
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Text style={[styles.cardTitle, { color: BRAND_GREEN }]}>ONBOARDING ASSESSMENT</Text>
+        <Text style={[styles.description, { color: colors.text }]}>A new adventure begins! Start your comprehensive onboarding assessment now.</Text>
+        <TouchableOpacity style={[styles.button, { backgroundColor: BRAND_GREEN }, !canStartAssessment && styles.buttonDisabled]} onPress={onStartAssessment} disabled={!canStartAssessment}>
           <Feather name="play" size={21} color="#081009" />
           <Text style={styles.buttonText}>Get Started</Text>
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity style={styles.recordButton} onPress={() => router.push('/(app)/screens/map')}>
+      <TouchableOpacity style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]} onPress={() => router.push('/(app)/screens/map')}>
         <Feather name="activity" size={24} color="#081009" />
         <Text style={styles.recordText}>Record Workout</Text>
       </TouchableOpacity>
 
-      <Text style={styles.sectionTitle}>POPULAR WORKOUTS</Text>
+      <Text style={[styles.sectionTitle, { color: colors.text }]}>POPULAR WORKOUTS</Text>
       <View style={styles.workoutRow}>
         {popularWorkouts.map((workout) => (
-          <TouchableOpacity key={workout.subtitle} style={styles.workoutCard} onPress={() => router.push('/(app)/screens/map')}>
-            <Feather name={workout.icon} size={30} color={Colors.primary} />
-            <Text style={styles.workoutTitle}>{workout.title}</Text>
-            <Text style={styles.workoutSubtitle}>{workout.subtitle}</Text>
+          <TouchableOpacity key={workout.subtitle} style={[styles.workoutCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => router.push('/(app)/screens/map')}>
+            <Feather name={workout.icon} size={30} color={BRAND_GREEN} />
+            <Text style={[styles.workoutTitle, { color: colors.text }]}>{workout.title}</Text>
+            <Text style={[styles.workoutSubtitle, { color: colors.textSecondary }]}>{workout.subtitle}</Text>
             <View style={styles.exploreButton}><Text style={styles.exploreText}>EXPLORE</Text></View>
           </TouchableOpacity>
         ))}

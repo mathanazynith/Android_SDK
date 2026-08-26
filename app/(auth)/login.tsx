@@ -17,8 +17,10 @@ import { AppInput } from '../../components/common/AppInput';
 import { PrimaryButton } from '../../components/common/PrimaryButton';
 import GoogleLoginButton from '../../components/GoogleLoginButton';
 import { Colors, Spacing, Typography } from '../../constants/theme';
+import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 
 export default function LoginScreen() {
+  const { colors } = useTheme();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -171,17 +173,17 @@ export default function LoginScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
+      <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} backgroundColor={colors.background} />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.authCard}>
-          <View style={styles.segmentedControl}>
-            <View style={[styles.segment, styles.activeSegment]}><Text style={styles.activeSegmentText}>Sign in</Text></View>
+          <View style={[styles.segmentedControl, { backgroundColor: colors.surfaceRaised }]}>
+            <View style={[styles.segment, { backgroundColor: BRAND_GREEN }]}><Text style={styles.activeSegmentText}>Sign in</Text></View>
             <TouchableOpacity style={styles.segment} onPress={() => router.push('/(auth)/signup')}>
               <Text style={styles.segmentText}>Sign up</Text>
             </TouchableOpacity>

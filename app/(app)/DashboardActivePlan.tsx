@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../../constants/theme';
 import type { CurrentWorkout } from '../../service/workoutPlan';
+import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 
 type DashboardActivePlanProps = {
   todayWorkout: CurrentWorkout | null;
@@ -19,6 +20,7 @@ const detailsFor = (workout: CurrentWorkout | null) => {
 };
 
 export default function DashboardActivePlan({ todayWorkout, nextWorkout }: DashboardActivePlanProps) {
+  const { colors } = useTheme();
   const isRestDay = todayWorkout?.workout_type === 'Rest' || todayWorkout?.workout_type === 'Rest Day';
   const todayDescription = todayWorkout
     ? [todayWorkout.title, detailsFor(todayWorkout), todayWorkout.notes].filter(Boolean).join('\n')
@@ -32,14 +34,14 @@ export default function DashboardActivePlan({ todayWorkout, nextWorkout }: Dashb
       <TouchableOpacity
         activeOpacity={0.9}
         onPress={() => router.push({ pathname: '/(app)/screens/map', params: { workoutTitle: todayWorkout?.title || 'Current Workout' } })}
-        style={styles.card}
+        style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
       >
         <View style={styles.heading}>
-          <Feather name={isRestDay ? 'moon' : 'activity'} size={25} color={Colors.primary} />
-          <Text style={styles.title}>TODAY&apos;S WORKOUT</Text>
+          <Feather name={isRestDay ? 'moon' : 'activity'} size={25} color={BRAND_GREEN} />
+          <Text style={[styles.title, { color: colors.text }]}>TODAY&apos;S WORKOUT</Text>
         </View>
-        <Text style={styles.description}>{todayDescription}</Text>
-        <View style={styles.button}>
+        <Text style={[styles.description, { color: colors.text }]}>{todayDescription}</Text>
+        <View style={[styles.button, { backgroundColor: BRAND_GREEN }]}>
           <Feather name="activity" size={21} color="#081009" />
           <Text style={styles.buttonText}>Record Workout</Text>
         </View>
@@ -51,21 +53,21 @@ export default function DashboardActivePlan({ todayWorkout, nextWorkout }: Dashb
           pathname: '/(app)/training-plan',
           params: { selectedWeek: String(nextWorkout?.week_number ?? 1) },
         })}
-        style={styles.card}
+        style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
       >
         <View style={styles.heading}>
-          <Feather name="arrow-right-circle" size={25} color={Colors.primary} />
-          <Text style={styles.title}>UP NEXT</Text>
+          <Feather name="arrow-right-circle" size={25} color={BRAND_GREEN} />
+          <Text style={[styles.title, { color: colors.text }]}>UP NEXT</Text>
         </View>
-        <Text style={styles.description}>{nextDescription}</Text>
+        <Text style={[styles.description, { color: colors.text }]}>{nextDescription}</Text>
       </TouchableOpacity>
 
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.heading}>
-          <Feather name="flag" size={25} color={Colors.primary} />
-          <Text style={styles.title}>TARGET (RACE)</Text>
+          <Feather name="flag" size={25} color={BRAND_GREEN} />
+          <Text style={[styles.title, { color: colors.text }]}>TARGET (RACE)</Text>
         </View>
-        <Text style={styles.emptyTarget}>No target or race information is available.</Text>
+        <Text style={[styles.emptyTarget, { color: colors.textSecondary }]}>No target or race information is available.</Text>
       </View>
     </>
   );

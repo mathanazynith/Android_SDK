@@ -5,6 +5,7 @@ import {
   Text,
   View
 } from 'react-native';
+import { BRAND_GREEN, useTheme } from '../contexts/ThemeContext';
 
 interface ScrollTimePickerProps {
   label?: string;
@@ -40,12 +41,13 @@ const parseTimeValue = (timeValue: string | undefined, maxHours: number): TimePa
 const formatTimeValue = ({ hours, minutes, seconds }: TimeParts) =>
   `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 
-const WheelValue = ({ value, unit, selected }: { value: number; unit: string; selected: boolean }) => (
-  <Text style={[styles.itemText, selected && styles.itemTextSelected]}>
+const WheelValue = ({ value, unit, selected }: { value: number; unit: string; selected: boolean }) => {
+  const { colors } = useTheme();
+  return <Text style={[styles.itemText, { color: colors.textTertiary, opacity: selected ? 1 : 0.72 }, selected && { color: colors.textPrimary }] }>
     <Text>{String(value).padStart(2, '0')}</Text>
-    <Text style={selected ? styles.selectedUnit : styles.inactiveUnit}>{unit}</Text>
-  </Text>
-);
+    <Text style={{ color: selected ? colors.primary : colors.textSecondary }}>{unit}</Text>
+  </Text>;
+};
 
 /**
  * ScrollTimePicker Component
@@ -66,6 +68,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
   onChange,
   maxHours = 99,
 }) => {
+  const { colors } = useTheme();
   const [time, setTime] = useState<TimeParts>(() => parseTimeValue(value, maxHours));
   const timeRef = useRef(time);
   const didApplyDefaultRef = useRef(false);
@@ -170,9 +173,9 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
 
   return (
     <View style={styles.card}>
-      {label ? <Text style={styles.label}>{label}</Text> : null}
+      {label ? <Text style={[styles.label, { color: colors.text }]}>{label}</Text> : null}
       {/* Time Picker */}
-      <View style={styles.pickerContainer}>
+      <View style={[styles.pickerContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.highlightOverlay} pointerEvents="none">
           <View style={styles.centerLine} />
         </View>
@@ -257,9 +260,9 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
       </View>
 
       {/* Selected time display */}
-      <View style={styles.selectedTimeContainer}>
-        <Text style={styles.selectedLabel}>Selected:</Text>
-        <Text style={styles.selectedTime}>{selectedTime}</Text>
+      <View style={[styles.selectedTimeContainer, { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderWidth: 1 }]}>
+        <Text style={[styles.selectedLabel, { color: colors.textSecondary }]}>Selected:</Text>
+        <Text style={[styles.selectedTime, { color: colors.textPrimary }]}>{selectedTime}</Text>
       </View>
 
       {/* Error message */}

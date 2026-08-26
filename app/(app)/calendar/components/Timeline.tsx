@@ -1,6 +1,7 @@
 import { StyleSheet, View } from 'react-native';
 import WorkoutCard from './WorkoutCard';
 import { WorkoutDetail } from './types';
+import { useTheme } from '../../../../contexts/ThemeContext';
 
 interface TimelineProps {
   workouts: WorkoutDetail[];
@@ -9,13 +10,14 @@ interface TimelineProps {
 }
 
 export default function Timeline({ workouts, onSelectWorkout, onSwapWorkout }: TimelineProps) {
+  const { colors } = useTheme();
   return (
     <View style={styles.container}>
       {workouts.map((workout, index) => (
         <View key={workout.id} style={styles.row}>
           <View style={styles.leftRail}>
             <View style={styles.dot} />
-            {index < workouts.length - 1 && <View style={styles.line} />}
+            {index < workouts.length - 1 && <View style={[styles.line, { backgroundColor: colors.border }]} />}
           </View>
           <View style={styles.cardWrapper}>
             <WorkoutCard workout={workout} onPress={onSelectWorkout} onSwap={onSwapWorkout} />

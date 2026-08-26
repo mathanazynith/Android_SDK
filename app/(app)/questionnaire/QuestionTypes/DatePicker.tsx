@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../../../../contexts/ThemeContext';
 
 interface DatePickerProps {
   value?: string;
@@ -15,6 +16,7 @@ interface DatePickerProps {
 }
 
 const DatePicker: React.FC<DatePickerProps> = ({ value, onChange }) => {
+  const { colors, isDark } = useTheme();
   const [show, setShow] = useState(false);
   const [selectedDate, setSelectedDate] = useState(
     value ? new Date(value) : new Date()
@@ -43,11 +45,11 @@ const DatePicker: React.FC<DatePickerProps> = ({ value, onChange }) => {
 
   return (
     <View>
-      <TouchableOpacity style={styles.dateButton} onPress={() => setShow(true)}>
-        <Text style={value ? styles.dateText : styles.placeholder}>
+      <TouchableOpacity style={[styles.dateButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]} onPress={() => setShow(true)}>
+        <Text style={[value ? styles.dateText : styles.placeholder, { color: value ? colors.text : colors.textSecondary }]}>
           {value ? formatDate(new Date(value)) : "Select a date..."}
         </Text>
-        <Ionicons name="calendar-outline" size={22} color="#4ADE80" />
+        <Ionicons name="calendar-outline" size={22} color={isDark ? colors.primary : colors.icon} />
       </TouchableOpacity>
 
       {show && (

@@ -3,14 +3,15 @@ import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacit
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '../../service/auth';
-import { Colors } from '../../constants/theme';
 import SettingsMenu from '../../components/SettingsMenu';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import GlobalBottomNav from '../../components/navigation/GlobalBottomNav';
 import DashboardNoPlan from './DashboardNoPlan';
 import DashboardActivePlan from './DashboardActivePlan';
+import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 
 export default function DashboardScreen() {
+  const { colors } = useTheme();
   const { user, logout } = useAuth();
   const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
   const [settingsVisible, setSettingsVisible] = useState(false);
@@ -59,28 +60,28 @@ export default function DashboardScreen() {
   };
 
   if (isWorkoutPlanLoading && !workoutPlan) {
-    return <View style={styles.center}><ActivityIndicator size="large" color={Colors.primary} /><Text style={styles.centerText}>Loading your dashboard...</Text></View>;
+    return <View style={[styles.center, { backgroundColor: colors.background }]}><ActivityIndicator size="large" color={BRAND_GREEN} /><Text style={[styles.centerText, { color: colors.text }]}>Loading your dashboard...</Text></View>;
   }
 
   if (workoutPlanError && !workoutPlan) {
-    return <View style={styles.center}><Feather name="alert-circle" size={32} color="#FFB020" /><Text style={styles.centerText}>{workoutPlanError}</Text><TouchableOpacity style={styles.retry} onPress={() => void fetchWorkoutPlan(true)}><Text style={styles.retryText}>Try again</Text></TouchableOpacity></View>;
+    return <View style={[styles.center, { backgroundColor: colors.background }]}><Feather name="alert-circle" size={32} color="#FFB020" /><Text style={[styles.centerText, { color: colors.text }]}>{workoutPlanError}</Text><TouchableOpacity style={[styles.retry, { backgroundColor: BRAND_GREEN }]} onPress={() => void fetchWorkoutPlan(true)}><Text style={[styles.retryText, { color: colors.background }]}>Try again</Text></TouchableOpacity></View>;
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.topBar}>
-        <Text style={styles.pageTitle}>Dashboard</Text>
-        <TouchableOpacity style={styles.headerButton} onPress={() => setSettingsVisible(true)}><Feather name="settings" size={23} color="#D7D9D8" /></TouchableOpacity>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.topBar, { borderBottomColor: colors.border }]}>
+        <Text style={[styles.pageTitle, { color: colors.text }]}>Dashboard</Text>
+        <TouchableOpacity style={[styles.headerButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]} onPress={() => setSettingsVisible(true)}><Feather name="settings" size={23} color={colors.textSecondary} /></TouchableOpacity>
       </View>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.greeting}>
-          <Text style={styles.greetingText}>Welcome <Text style={styles.name}>{userName}</Text></Text>
-          <TouchableOpacity style={styles.weather} onPress={() => router.push('./screens/weather-details')}>
-            <Feather name="cloud" size={24} color={Colors.primary} />
+        <View style={[styles.greeting, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.greetingText, { color: colors.text }]}>Welcome <Text style={[styles.name, { color: BRAND_GREEN }]}>{userName}</Text></Text>
+          <TouchableOpacity style={[styles.weather, { borderColor: BRAND_GREEN }]} onPress={() => router.push('./screens/weather-details')}>
+            <Feather name="cloud" size={24} color={BRAND_GREEN} />
             <View>
-              <Text style={styles.weatherLabel}>Weather</Text>
-              <Text style={styles.weatherValue}>Chennai</Text>
-              <Text style={styles.weatherValue}>28 C</Text>
+              <Text style={[styles.weatherLabel, { color: colors.text }]}>Weather</Text>
+              <Text style={[styles.weatherValue, { color: colors.textSecondary }]}>Chennai</Text>
+              <Text style={[styles.weatherValue, { color: colors.textSecondary }]}>28 C</Text>
             </View>
           </TouchableOpacity>
         </View>
@@ -101,11 +102,11 @@ const styles = StyleSheet.create({
   greeting: { minHeight: 82, paddingHorizontal: 18, paddingVertical: 14, marginBottom: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#050607', borderRadius: 22 },
   greetingText: { color: '#F7F7F7', fontSize: 24, fontWeight: '700' },
   name: { color: '#88C99A' },
-  weather: { minHeight: 64, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.primary },
+  weather: { minHeight: 64, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, borderWidth: 1.5 },
   weatherLabel: { color: '#DDE2DE', fontSize: 12, fontWeight: '700' },
   weatherValue: { color: '#DDE2DE', fontSize: 11, lineHeight: 14 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#0B0E0F' },
   centerText: { color: '#F7F7F7', textAlign: 'center', marginTop: 14 },
-  retry: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 12, backgroundColor: Colors.primary },
+  retry: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 12 },
   retryText: { color: '#FFFFFF', fontWeight: '700' },
 });

@@ -18,6 +18,7 @@ import { getBackendErrorMessage } from '../../../service/api';
 import { activityAPI, BackendActivity } from '../../../src/services/activityApi';
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import GlobalBottomNav from '../../../components/navigation/GlobalBottomNav';
+import { useTheme } from '../../../contexts/ThemeContext';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
 
@@ -51,6 +52,7 @@ function ActivityCard({ activity, onPress }: {
   activity: BackendActivity;
   onPress: () => void;
 }) {
+  const { colors } = useTheme();
   const activityName = formatActivityType(activity.activity_type);
   const duration = activity.moving_time || activity.elapsed_time;
   const [encodedPolyline, setEncodedPolyline] = useState(activity.encoded_polyline);
@@ -71,11 +73,11 @@ function ActivityCard({ activity, onPress }: {
   }, [activity.id, encodedPolyline]);
 
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.82}>
+    <TouchableOpacity style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={onPress} activeOpacity={0.82}>
       <View style={styles.cardContent}>
         <View style={styles.cardDetails}>
-          <Text style={styles.activityType}>{activityName}</Text>
-          <Text style={styles.activityDate}>
+          <Text style={[styles.activityType, { color: colors.text }]}>{activityName}</Text>
+          <Text style={[styles.activityDate, { color: colors.textSecondary }]}>
             {new Date(activity.start_time).toLocaleDateString(undefined, {
               weekday: 'short', month: 'short', day: 'numeric',
             })}
@@ -85,13 +87,13 @@ function ActivityCard({ activity, onPress }: {
           <View style={styles.metrics}>
             <View style={styles.metric}>
               <Feather name="clock" size={18} color="#35C72B" />
-              <Text style={styles.metricValue}>{formatDuration(duration)}</Text>
-              <Text style={styles.metricLabel}>Time</Text>
+              <Text style={[styles.metricValue, { color: colors.text }]}>{formatDuration(duration)}</Text>
+              <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>Time</Text>
             </View>
             <View style={styles.metric}>
               <Feather name="compass" size={18} color="#35C72B" />
-              <Text style={styles.metricValue}>{formatPace(activity.avg_pace)}</Text>
-              <Text style={styles.metricLabel}>Pace</Text>
+              <Text style={[styles.metricValue, { color: colors.text }]}>{formatPace(activity.avg_pace)}</Text>
+              <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>Pace</Text>
             </View>
           </View>
         </View>
@@ -105,6 +107,7 @@ function ActivityCard({ activity, onPress }: {
 }
 
 export default function ActivityScreen() {
+  const { colors } = useTheme();
   const [activities, setActivities] = useState<BackendActivity[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -146,21 +149,21 @@ export default function ActivityScreen() {
   }, [activities, search]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} />
       <View style={styles.heading}>
-        <Text style={styles.title}>Workout History</Text>
-        <Text style={styles.subtitle}>Your completed runs and walks</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Workout History</Text>
+        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Your completed runs and walks</Text>
       </View>
 
-      <View style={styles.searchBox}>
-        <Feather name="search" size={22} color="#A9ADAF" />
+      <View style={[styles.searchBox, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]}>
+        <Feather name="search" size={22} color={colors.textSecondary} />
         <TextInput
           value={search}
           onChangeText={setSearch}
           placeholder="Search workouts..."
-          placeholderTextColor="#74787B"
-          style={styles.searchInput}
+          placeholderTextColor={colors.textSecondary}
+          style={[styles.searchInput, { color: colors.text }]}
           accessibilityLabel="Search workout history"
         />
       </View>
@@ -186,7 +189,7 @@ export default function ActivityScreen() {
         >
           {Object.entries(groupedActivities).map(([section, sectionActivities]) => (
             <View key={section} style={styles.section}>
-              <Text style={styles.sectionTitle}>{section}</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>{section}</Text>
               {sectionActivities.map((activity) => (
                 <ActivityCard
                   key={String(activity.id)}

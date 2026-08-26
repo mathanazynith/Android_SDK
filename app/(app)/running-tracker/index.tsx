@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BorderRadius, Colors, Spacing } from '../../../constants/theme';
+import { BRAND_GREEN, useTheme } from '../../../contexts/ThemeContext';
 // Local mock provider (keeps file self-contained so editor resolves types reliably).
 import { ActivityStore } from '../../../src/services/activityStore';
 import { MockGpsSource } from '../../../src/services/mockGpsSource';
@@ -38,6 +39,7 @@ const getDistanceText = (meters: number) => `${(meters / 1000).toFixed(2)} km`;
 const createRoutePath = (points: RawGpsPayload[]) => points.map((point) => `${point.latitude.toFixed(6)},${point.longitude.toFixed(6)}`).join(' | ');
 
 export default function RunningTrackerScreen() {
+  const { colors } = useTheme();
   const router = useRouter();
   const { workoutTitle } = useLocalSearchParams();
   const workoutLabel = workoutTitle ?? 'Running Workout';
@@ -112,15 +114,15 @@ export default function RunningTrackerScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} />
       <View style={styles.header}>
         <TouchableOpacity onPress={handleBack} style={styles.backButton} accessibilityLabel="Back to workout details">
-          <Ionicons name="chevron-back" size={22} color={Colors.text} />
+          <Ionicons name="chevron-back" size={22} color={colors.text} />
         </TouchableOpacity>
         <View style={styles.titleBlock}>
-          <Text style={styles.smallLabel}>Running</Text>
-          <Text style={styles.title}>{workoutLabel}</Text>
+          <Text style={[styles.smallLabel, { color: colors.textSecondary }]}>Running</Text>
+          <Text style={[styles.title, { color: colors.text }]}>{workoutLabel}</Text>
         </View>
         <View style={styles.statusPill}>
           <Text style={styles.statusText}>{statusLabel}</Text>
@@ -137,9 +139,9 @@ export default function RunningTrackerScreen() {
       </View>
 
       <View style={styles.statsSection}>
-        <View style={styles.statCardLarge}>
-          <Text style={styles.statLabel}>Distance</Text>
-          <Text style={styles.statValue}>{getDistanceText(distanceMeters)}</Text>
+          <View style={[styles.statCardLarge, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Distance</Text>
+          <Text style={[styles.statValue, { color: colors.text }]}>{getDistanceText(distanceMeters)}</Text>
         </View>
         <View style={styles.statRow}>
           <View style={styles.statCardSmall}>

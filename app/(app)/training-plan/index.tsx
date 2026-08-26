@@ -21,6 +21,7 @@ import TrainingCalendarCard from '../calendar/components/TrainingCalendarCard';
 import WorkoutModal from '../calendar/components/WorkoutModal';
 import type { WorkoutDetail, RunningPlanData } from '../calendar/components/types';
 import GlobalBottomNav from '../../../components/navigation/GlobalBottomNav';
+import { useTheme } from '../../../contexts/ThemeContext';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -125,6 +126,7 @@ const toWorkoutDetail = (workout: CurrentWorkout): WorkoutDetail => {
 };
 
 export default function TrainingPlanScreen() {
+  const { colors } = useTheme();
   const params = useLocalSearchParams<{ selectedWeek?: string }>();
   const { user } = useAuth();
   const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
@@ -185,11 +187,11 @@ export default function TrainingPlanScreen() {
 
   if (isWorkoutPlanLoading && !plan) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <StatusBar barStyle="light-content" />
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#63C72B" />
-          <Text style={styles.message}>Loading your training plan...</Text>
+          <Text style={[styles.message, { color: colors.text }]}>Loading your training plan...</Text>
         </View>
       </SafeAreaView>
     );
@@ -197,12 +199,12 @@ export default function TrainingPlanScreen() {
 
   if (!plan) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <StatusBar barStyle="light-content" />
         <View style={styles.center}>
-          <Text style={styles.error}>{workoutPlanError || 'No training plan is available.'}</Text>
-          <TouchableOpacity onPress={() => void fetchWorkoutPlan(true)} style={styles.retry}>
-            <Text style={styles.retryText}>Retry</Text>
+          <Text style={[styles.error, { color: colors.text }]}>{workoutPlanError || 'No training plan is available.'}</Text>
+          <TouchableOpacity onPress={() => void fetchWorkoutPlan(true)} style={[styles.retry, { backgroundColor: '#4ADE80' }]}>
+            <Text style={[styles.retryText, { color: colors.background }]}>Retry</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -210,7 +212,7 @@ export default function TrainingPlanScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle="light-content" />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <RunningPlanHeader planName={plan.name} focusLabel={plan.focus} userName={userName} />
