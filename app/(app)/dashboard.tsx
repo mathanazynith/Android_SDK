@@ -75,7 +75,7 @@ export default function DashboardScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.greeting}>
           <Text style={styles.greetingText}>Welcome <Text style={styles.name}>{userName}</Text></Text>
-          <TouchableOpacity style={styles.weather} onPress={() => router.push('/(app)/screens/notifications')}>
+          <TouchableOpacity style={styles.weather} onPress={() => router.push('./screens/weather-details')}>
             <Feather name="cloud" size={24} color={Colors.primary} />
             <View>
               <Text style={styles.weatherLabel}>Weather</Text>
