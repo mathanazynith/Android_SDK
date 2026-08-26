@@ -66,6 +66,8 @@ export const RunTypeSelector: React.FC<RunTypeSelectorProps> = ({ label, options
   );
 };
 
+export default RunTypeSelector;
+
 const styles = StyleSheet.create({
   wrapper: { marginBottom: 12 },
   label: { color: '#FFFFFF', fontSize: 13, fontWeight: '600', marginBottom: 6 },

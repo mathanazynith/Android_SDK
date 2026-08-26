@@ -39,3 +39,6 @@ export interface RunningPlanData {
   totalWeeks: number;
   weeks: RunningPlanWeek[];
 }
+
+const calendarTypes = {};
+export default calendarTypes;

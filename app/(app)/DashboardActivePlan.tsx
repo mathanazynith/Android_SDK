@@ -29,25 +29,36 @@ export default function DashboardActivePlan({ todayWorkout, nextWorkout }: Dashb
 
   return (
     <>
-      <View style={styles.card}>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={() => router.push({ pathname: '/(app)/screens/map', params: { workoutTitle: todayWorkout?.title || 'Current Workout' } })}
+        style={styles.card}
+      >
         <View style={styles.heading}>
           <Feather name={isRestDay ? 'moon' : 'activity'} size={25} color={Colors.primary} />
           <Text style={styles.title}>TODAY&apos;S WORKOUT</Text>
         </View>
         <Text style={styles.description}>{todayDescription}</Text>
-        <TouchableOpacity style={styles.button} onPress={() => router.push({ pathname: '/(app)/screens/map', params: { workoutTitle: todayWorkout?.title || 'Current Workout' } })}>
+        <View style={styles.button}>
           <Feather name="activity" size={21} color="#081009" />
           <Text style={styles.buttonText}>Record Workout</Text>
-        </TouchableOpacity>
-      </View>
+        </View>
+      </TouchableOpacity>
 
-      <View style={styles.card}>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={() => router.push({
+          pathname: '/(app)/training-plan',
+          params: { selectedWeek: String(nextWorkout?.week_number ?? 1) },
+        })}
+        style={styles.card}
+      >
         <View style={styles.heading}>
           <Feather name="arrow-right-circle" size={25} color={Colors.primary} />
           <Text style={styles.title}>UP NEXT</Text>
         </View>
         <Text style={styles.description}>{nextDescription}</Text>
-      </View>
+      </TouchableOpacity>
 
       <View style={styles.card}>
         <View style={styles.heading}>

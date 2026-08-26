@@ -247,6 +247,8 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
   );
 };
 
+export default TimeInput;
+
 const styles = StyleSheet.create({
   card: { marginTop: 8, marginBottom: 8 },
   label: { color: '#FFFFFF', fontSize: 13, fontWeight: '600', marginBottom: 6 },

@@ -49,7 +49,7 @@ export default function DashboardScreen() {
     if (option === 'Edit Profile') router.push('/(app)/profile/edit');
     if (option === 'Change Password') router.push('/(app)/screens/change-password');
     if (option === 'Notifications') router.push('/(app)/screens/notifications');
-    if (option === 'Plan') router.push('/(app)/running-plan');
+    if (option === 'Plan') router.push('/(app)/training-plan');
     if (option === 'Logout') {
       Alert.alert('Logout', 'Are you sure you want to logout?', [
         { text: 'Cancel', style: 'cancel' },

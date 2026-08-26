@@ -14,6 +14,8 @@ export const QuestionInputLabel: React.FC<QuestionInputLabelProps> = ({ label, h
   );
 };
 
+export default QuestionInputLabel;
+
 const styles = StyleSheet.create({
   label: {
     color: '#FFFFFF',

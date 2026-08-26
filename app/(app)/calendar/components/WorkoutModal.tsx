@@ -2,7 +2,7 @@ import { BlurView } from 'expo-blur';
 import { GlassView } from 'expo-glass-effect';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Animated, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WorkoutDetail } from './types';
 
@@ -11,15 +11,17 @@ interface WorkoutModalProps { visible: boolean; workout: WorkoutDetail | null; o
 export default function WorkoutModal({ visible, workout, onClose }: WorkoutModalProps) {
   const [rendered, setRendered] = useState(visible);
   const [activeWorkout, setActiveWorkout] = useState<WorkoutDetail | null>(workout);
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(30)).current;
+  const [opacity] = useState(() => new Animated.Value(0));
+  const [translateY] = useState(() => new Animated.Value(30));
 
   useEffect(() => {
     if (visible && workout) {
-      setActiveWorkout(workout);
-      setRendered(true);
+      const openModal = setTimeout(() => {
+        setActiveWorkout(workout);
+        setRendered(true);
+      }, 0);
       Animated.parallel([Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }), Animated.spring(translateY, { toValue: 0, damping: 17, stiffness: 180, useNativeDriver: true })]).start();
-      return;
+      return () => clearTimeout(openModal);
     }
     if (rendered) {
       Animated.parallel([Animated.timing(opacity, { toValue: 0, duration: 160, useNativeDriver: true }), Animated.timing(translateY, { toValue: 30, duration: 160, useNativeDriver: true })]).start(() => setRendered(false));
@@ -36,7 +38,7 @@ export default function WorkoutModal({ visible, workout, onClose }: WorkoutModal
     <DetailSection label="Description" text={activeWorkout.description} />
     <DetailSection label="Instructions" text={activeWorkout.instructions} />
     <DetailSection label="Warm Up" text={activeWorkout.warmUp} />
-    <Text style={styles.sectionLabel}>Workout Steps</Text>{activeWorkout.steps.map((step, index) => <Text key={`${activeWorkout.id}-${index}`} style={styles.step}>• {step}</Text>)}
+    {activeWorkout.steps.length > 0 ? <><Text style={styles.sectionLabel}>Workout Steps</Text>{activeWorkout.steps.map((step, index) => <Text key={`${activeWorkout.id}-${index}`} style={styles.step}>• {step}</Text>)}</> : null}
     <DetailSection label="Cool Down" text={activeWorkout.coolDown} />
     <Text style={[styles.sectionLabel, styles.statsTitle]}>Stats</Text>
     <View style={styles.statsRow}><Stat label="Est Calories" value={activeWorkout.estimatedCalories} /><Stat label="Duration" value={activeWorkout.estimatedDuration} /><Stat label="HR Zone" value={activeWorkout.heartRateZone} /></View>
@@ -59,8 +61,8 @@ export default function WorkoutModal({ visible, workout, onClose }: WorkoutModal
   return <Modal transparent visible={rendered} animationType="none" onRequestClose={onClose}><Animated.View style={[styles.overlay, { opacity }]}><BlurView intensity={24} tint="dark" style={StyleSheet.absoluteFill} /><Pressable style={StyleSheet.absoluteFill} onPress={onClose} /><Animated.View style={[styles.cardWrapper, { transform: [{ translateY }] }]}>{Platform.OS === 'ios' ? <GlassView style={styles.glassCard} glassEffectStyle="regular" tintColor="rgba(18, 42, 29, 0.68)" colorScheme="dark"><LinearGradient pointerEvents="none" colors={['rgba(104,199,71,0.22)', 'rgba(8,18,14,0.84)']} style={StyleSheet.absoluteFill} />{content}</GlassView> : <View style={styles.androidCard}><LinearGradient pointerEvents="none" colors={['rgba(104,199,71,0.25)', 'rgba(8,18,14,0.94)']} style={StyleSheet.absoluteFill} />{content}</View>}</Animated.View></Animated.View></Modal>;
 }
 
-function DetailSection({ label, text }: { label: string; text: string }) { return <><Text style={styles.sectionLabel}>{label}</Text><Text style={styles.sectionText}>{text}</Text></>; }
-function Stat({ label, value }: { label: string; value: string }) { return <View style={styles.stat}><Text style={styles.statLabel}>{label}</Text><Text style={styles.statValue}>{value}</Text></View>; }
+function DetailSection({ label, text }: { label: string; text: string }) { return text ? <><Text style={styles.sectionLabel}>{label}</Text><Text style={styles.sectionText}>{text}</Text></> : null; }
+function Stat({ label, value }: { label: string; value: string }) { return value ? <View style={styles.stat}><Text style={styles.statLabel}>{label}</Text><Text style={styles.statValue}>{value}</Text></View> : null; }
 
 const cardBase = { borderRadius: 22, borderWidth: 1, borderColor: 'rgba(212,255,195,0.34)', maxHeight: '84%' } as const;
 const styles = StyleSheet.create({

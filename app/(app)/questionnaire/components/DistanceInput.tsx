@@ -51,6 +51,8 @@ export const DistanceInput: React.FC<DistanceInputProps> = ({ label, value, unit
   );
 };
 
+export default DistanceInput;
+
 const styles = StyleSheet.create({
   card: { marginTop: 8, marginBottom: 8 },
   label: { color: '#FFFFFF', fontSize: 13, fontWeight: '600', marginBottom: 6 },

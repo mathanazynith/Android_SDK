@@ -8,11 +8,11 @@ import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 type Tab = {
   icon: React.ComponentProps<typeof Feather>['name'];
   label: 'Plan' | 'Activities' | 'Record' | 'Stats' | 'Profile';
-  route: '/(app)/running-plan' | '/(app)/activity' | '/(app)/dashboard' | '/(app)/attendance' | '/(app)/profile';
+  route: '/(app)/training-plan' | '/(app)/activity' | '/(app)/dashboard' | '/(app)/attendance' | '/(app)/profile';
 };
 
 const tabs: Tab[] = [
-  { icon: 'clipboard', label: 'Plan', route: '/(app)/running-plan' },
+  { icon: 'clipboard', label: 'Plan', route: '/(app)/training-plan' },
   { icon: 'activity', label: 'Activities', route: '/(app)/activity' },
   { icon: 'home', label: 'Record', route: '/(app)/dashboard' },
   { icon: 'bar-chart-2', label: 'Stats', route: '/(app)/attendance' },
@@ -20,7 +20,7 @@ const tabs: Tab[] = [
 ];
 
 const isTabActive = (pathname: string, route: Tab['route']) => {
-  if (route === '/(app)/running-plan') return pathname.includes('/running-plan') || pathname.includes('/calendar');
+  if (route === '/(app)/training-plan') return pathname.includes('/training-plan');
   if (route === '/(app)/activity') return pathname.includes('/activity') || pathname.includes('/history') || pathname === '/home';
   if (route === '/(app)/dashboard') return pathname.includes('/dashboard');
   if (route === '/(app)/attendance') return pathname.includes('/attendance');
@@ -56,13 +56,24 @@ export default function GlobalBottomNav() {
                 router.replace('/(app)/dashboard');
                 return;
               }
+              if (tab.label === 'Plan') {
+                router.replace({ pathname: tab.route, params: { selectedWeek: '1' } });
+                return;
+              }
               router.replace(tab.route);
             }}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
           >
             <Feather name={tab.icon} size={24} color={active ? '#4ADE80' : '#9CA3AF'} />
-            <Text style={[styles.label, active && styles.activeLabel]}>{tab.label}</Text>
+            <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+              style={[styles.label, active && styles.activeLabel]}
+            >
+              {tab.label}
+            </Text>
           </TouchableOpacity>
         );
       })}
@@ -71,8 +82,8 @@ export default function GlobalBottomNav() {
 }
 
 const styles = StyleSheet.create({
-  container: { position: 'absolute', left: 32, right: 32, minHeight: 78, paddingHorizontal: 10, flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', borderRadius: 42, backgroundColor: 'rgba(41, 47, 41, 0.96)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)', zIndex: 10 },
-  tab: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  label: { color: '#9CA3AF', fontSize: 12, marginTop: 3 },
+  container: { position: 'absolute', left: 12, right: 12, minHeight: 78, paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', borderRadius: 42, backgroundColor: 'rgba(41, 47, 41, 0.96)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)', zIndex: 10 },
+  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minWidth: 0 },
+  label: { color: '#9CA3AF', fontSize: 10, lineHeight: 12, marginTop: 3, textAlign: 'center', includeFontPadding: false, maxWidth: '100%' },
   activeLabel: { color: '#4ADE80', fontWeight: '700' },
 });
