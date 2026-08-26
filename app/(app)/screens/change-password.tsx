@@ -23,6 +23,11 @@ export default function ChangePasswordScreen() {
   const [loading, setLoading] = useState(false);
   const { changePassword } = useAuth();
 
+  const handleBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(app)/profile');
+  };
+
   const validate = () => {
     if (!currentPassword.trim()) {
       Alert.alert('Validation Error', 'Current password is required.');
@@ -62,7 +67,7 @@ export default function ChangePasswordScreen() {
       setLoading(true);
       await changePassword(currentPassword, newPassword, confirmPassword);
       Alert.alert('Success', 'Password updated successfully.', [
-        { text: 'OK', onPress: () => router.back() },
+        { text: 'OK', onPress: handleBack },
       ]);
     } catch (error: any) {
       let errorMessage = 'Something went wrong. Please try again.';
@@ -90,7 +95,7 @@ export default function ChangePasswordScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
             <Text style={styles.backIcon}>←</Text>
           </TouchableOpacity>
           <Text style={styles.title}>Change Password</Text>

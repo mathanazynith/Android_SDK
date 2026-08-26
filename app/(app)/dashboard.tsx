@@ -2,18 +2,17 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../service/auth';
 import { Colors } from '../../constants/theme';
 import SettingsMenu from '../../components/SettingsMenu';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
+import GlobalBottomNav from '../../components/navigation/GlobalBottomNav';
 import DashboardNoPlan from './DashboardNoPlan';
 import DashboardActivePlan from './DashboardActivePlan';
 
 export default function DashboardScreen() {
   const { user, logout } = useAuth();
   const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
-  const insets = useSafeAreaInsets();
   const [settingsVisible, setSettingsVisible] = useState(false);
 
   useEffect(() => {
@@ -75,24 +74,22 @@ export default function DashboardScreen() {
       </View>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.greeting}>
-          <Text style={styles.greetingText}>Hi, <Text style={styles.name}>{userName}</Text></Text>
-          <TouchableOpacity style={styles.weather} onPress={() => router.push('/(app)/screens/notifications')}><Feather name="cloud" size={22} color={Colors.primary} /><Text style={styles.weatherText}>Weather</Text></TouchableOpacity>
+          <Text style={styles.greetingText}>Welcome <Text style={styles.name}>{userName}</Text></Text>
+          <TouchableOpacity style={styles.weather} onPress={() => router.push('/(app)/screens/notifications')}>
+            <Feather name="cloud" size={24} color={Colors.primary} />
+            <View>
+              <Text style={styles.weatherLabel}>Weather</Text>
+              <Text style={styles.weatherValue}>Chennai</Text>
+              <Text style={styles.weatherValue}>28 C</Text>
+            </View>
+          </TouchableOpacity>
         </View>
         {workoutPlan ? <DashboardActivePlan todayWorkout={todayWorkout} nextWorkout={nextWorkout} /> : <DashboardNoPlan canStartAssessment={canStartAssessment} onStartAssessment={startAssessment} />}
       </ScrollView>
-      <View style={[styles.tabs, { bottom: 12 + insets.bottom }]}>
-          {workoutPlan ? <Tab icon="clipboard" label="Plan" onPress={() => router.push('/(app)/running-plan')} /> : null}
-        <Tab icon="activity" label="Activities" active onPress={() => router.push('/(app)/home')} />
-        <Tab icon="bar-chart-2" label="Stats" onPress={() => router.push('/(app)/attendance')} />
-        <Tab icon="user" label="Profile" onPress={() => router.push('/(app)/profile')} />
-      </View>
+      <GlobalBottomNav />
       <SettingsMenu visible={settingsVisible} onClose={() => setSettingsVisible(false)} onSelect={handleSettingsOption} />
     </View>
   );
-}
-
-function Tab({ icon, label, active, onPress }: { icon: React.ComponentProps<typeof Feather>['name']; label: string; active?: boolean; onPress: () => void }) {
-  return <TouchableOpacity style={styles.tab} onPress={onPress}><Feather name={icon} size={24} color={active ? Colors.primary : '#C4C8C5'} /><Text style={[styles.tabLabel, active && styles.tabActive]}>{label}</Text></TouchableOpacity>;
 }
 
 const styles = StyleSheet.create({
@@ -102,16 +99,13 @@ const styles = StyleSheet.create({
   headerButton: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: '#25282A', borderWidth: 1, borderColor: '#55595B' },
   content: { paddingHorizontal: 20, paddingBottom: 118 },
   greeting: { minHeight: 82, paddingHorizontal: 18, paddingVertical: 14, marginBottom: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#050607', borderRadius: 22 },
-  greetingText: { color: '#F7F7F7', fontSize: 25, fontWeight: '700' },
+  greetingText: { color: '#F7F7F7', fontSize: 24, fontWeight: '700' },
   name: { color: '#88C99A' },
-  weather: { minHeight: 48, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.primary },
-  weatherText: { color: '#DDE2DE', fontSize: 13 },
+  weather: { minHeight: 64, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.primary },
+  weatherLabel: { color: '#DDE2DE', fontSize: 12, fontWeight: '700' },
+  weatherValue: { color: '#DDE2DE', fontSize: 11, lineHeight: 14 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#0B0E0F' },
   centerText: { color: '#F7F7F7', textAlign: 'center', marginTop: 14 },
   retry: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 12, backgroundColor: Colors.primary },
   retryText: { color: '#FFFFFF', fontWeight: '700' },
-  tabs: { position: 'absolute', left: 38, right: 38, minHeight: 78, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', borderRadius: 46, backgroundColor: 'rgba(41, 47, 41, 0.96)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)' },
-  tab: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  tabLabel: { color: '#C4C8C5', fontSize: 12, marginTop: 3 },
-  tabActive: { color: Colors.primary, fontWeight: '700' },
 });

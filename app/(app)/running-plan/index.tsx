@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import GlobalBottomNav from '../../../components/navigation/GlobalBottomNav';
 
 export default function RunningPlanScreen() {
   const { assessmentResult, isAssessmentResultLoading, fetchAssessmentResult, workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan, endWorkoutPlan } = useQuestionnaire();
@@ -43,7 +44,11 @@ export default function RunningPlanScreen() {
     );
   };
 
-  return <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}>
+  return (
+    <View style={styles.container}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: 118 + insets.bottom }]}
+      >
     <View style={styles.topSection}><View style={styles.checkBadge}><Text style={styles.check}>✓</Text></View><Text style={styles.planTitle}>{planName}</Text></View>
     <View style={styles.valuesRow}>
       <ValueCard label="Readiness" value={recommendation?.readiness_level || ''} />
@@ -55,7 +60,10 @@ export default function RunningPlanScreen() {
       <TouchableOpacity style={styles.calendarButton} onPress={() => router.push('/(app)/calendar')}><Text style={styles.calendarButtonText}>View Training Calendar</Text></TouchableOpacity>
       <TouchableOpacity style={[styles.endPlanButton, isEndingPlan && styles.endPlanButtonDisabled]} onPress={handleEndPlan} disabled={isEndingPlan}><Text style={styles.endPlanButtonText}>{isEndingPlan ? 'Ending Plan...' : 'End Plan'}</Text></TouchableOpacity>
     </View>
-  </ScrollView>;
+      </ScrollView>
+      <GlobalBottomNav />
+    </View>
+  );
 }
 
 function ValueCard({ label, value }: { label: string; value: string }) {

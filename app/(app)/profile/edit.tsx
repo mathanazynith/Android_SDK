@@ -1,7 +1,7 @@
 import React, { useRef, useState } from "react";
 import {
   ActivityIndicator, Alert, FlatList, Image, Keyboard, KeyboardAvoidingView, Modal,
-  Platform, Pressable, SafeAreaView, ScrollView, StatusBar, StyleSheet,
+  Platform, Pressable, ScrollView, StatusBar, StyleSheet,
   Text, TouchableOpacity, TouchableWithoutFeedback, View,
 } from "react-native";
 import { router } from "expo-router";
@@ -12,7 +12,7 @@ import { useAuth } from "../../../service/auth";
 import { AppInput } from "../../../components/common/AppInput";
 import { Colors } from "../../../constants/theme";
 import { resolveApiUrl } from "../../../service/api";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { getDistanceUnitCode, getDistanceUnitPreference, getHeightUnitLabel, getWeightUnitLabel, getUnitSystemShortLabel } from "../../../utils/distanceUnit";
 
 interface PickerItem { label: string; value: string; }
@@ -88,7 +88,15 @@ export default function EditProfileScreen() {
     try {
       setLoading(true);
       await updateProfile({ first_name: firstName, last_name: lastName, username, date_of_birth: dateOfBirth || null, gender: gender || null, blood_group: bloodGroup || null, height_cm: heightCm ? Number(heightCm) : null, weight_kg: weightKg ? Number(weightKg) : null, phone_number: phoneNumber || null, distance_unit: getDistanceUnitCode(unitSystem) });
-      Alert.alert("Success", "Profile updated successfully"); router.back();
+      Alert.alert("Success", "Profile updated successfully", [
+        {
+          text: "OK",
+          onPress: () => {
+            if (router.canGoBack()) router.back();
+            else router.replace("/(app)/profile");
+          },
+        },
+      ]);
     } catch (error: any) { Alert.alert("Update Failed", error?.response?.data?.message || "Something went wrong"); }
     finally { setLoading(false); }
   };

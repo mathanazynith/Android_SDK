@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -13,10 +12,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getBackendErrorMessage } from '../../../service/api';
 import { activityAPI, BackendActivity } from '../../../src/services/activityApi';
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
+import GlobalBottomNav from '../../../components/navigation/GlobalBottomNav';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
 
@@ -199,6 +200,7 @@ export default function ActivityScreen() {
           {activities.length > 0 && Object.keys(groupedActivities).length === 0 && <Text style={styles.empty}>No workouts match your search.</Text>}
         </ScrollView>
       )}
+      <GlobalBottomNav />
     </SafeAreaView>
   );
 }
@@ -210,7 +212,7 @@ const styles = StyleSheet.create({
   subtitle: { color: '#A9ADAF', fontSize: 15, marginTop: 4 },
   searchBox: { height: 58, backgroundColor: '#242627', borderRadius: 18, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, marginBottom: 24 },
   searchInput: { flex: 1, color: '#F7F7F7', fontSize: 17, marginLeft: 12, height: '100%' },
-  scrollContent: { paddingBottom: 36 },
+  scrollContent: { paddingBottom: 118 },
   section: { marginBottom: 24 },
   sectionTitle: { color: '#F7F7F7', fontSize: 24, fontWeight: '700', marginBottom: 13 },
   card: { backgroundColor: '#242627', borderRadius: 26, padding: 21, marginBottom: 14, borderWidth: 1, borderColor: '#393C3E' },

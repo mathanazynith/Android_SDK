@@ -102,6 +102,7 @@ interface QuestionnaireContextType {
   isAssessmentResultLoading: boolean;
   fetchAssessmentResult: () => Promise<any | null>;
   workoutPlan: CurrentWorkoutPlan | null;
+  isWorkoutPlanLoaded: boolean;
   workoutPlanError: string | null;
   isWorkoutPlanLoading: boolean;
   fetchWorkoutPlan: (force?: boolean) => Promise<CurrentWorkoutPlan | null>;
@@ -147,6 +148,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
   const [assessmentResultLoaded, setAssessmentResultLoaded] = useState(false);
   const [isAssessmentResultLoading, setIsAssessmentResultLoading] = useState(false);
   const [workoutPlan, setWorkoutPlan] = useState<CurrentWorkoutPlan | null>(null);
+  const [isWorkoutPlanLoaded, setIsWorkoutPlanLoaded] = useState(false);
   const [workoutPlanError, setWorkoutPlanError] = useState<string | null>(null);
   const [isWorkoutPlanLoading, setIsWorkoutPlanLoading] = useState(false);
 
@@ -276,6 +278,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     setAssessmentResultLoaded(false);
     setIsAssessmentResultLoading(false);
     setWorkoutPlan(null);
+    setIsWorkoutPlanLoaded(false);
     setWorkoutPlanError(null);
     setIsWorkoutPlanLoading(false);
     navigationHistory.current = [];
@@ -333,6 +336,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setWorkoutPlanError(getBackendErrorMessage(err, "Failed to load your training plan."));
       return null;
     } finally {
+      setIsWorkoutPlanLoaded(true);
       setIsWorkoutPlanLoading(false);
     }
   }, [workoutPlan]);
@@ -393,6 +397,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setAssessmentResult(null);
       setAssessmentResultLoaded(false);
       setWorkoutPlan(null);
+      setIsWorkoutPlanLoaded(false);
       setWorkoutPlanError(null);
       setAllAnswers({});
       navigationHistory.current = [];
@@ -713,6 +718,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
         isAssessmentResultLoading,
         fetchAssessmentResult,
         workoutPlan,
+        isWorkoutPlanLoaded,
         workoutPlanError,
         isWorkoutPlanLoading,
         fetchWorkoutPlan,

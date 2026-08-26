@@ -27,14 +27,14 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
         <Text style={styles.cardTitle}>ONBOARDING ASSESSMENT</Text>
         <Text style={styles.description}>A new adventure begins! Start your comprehensive onboarding assessment now.</Text>
         <TouchableOpacity style={[styles.button, !canStartAssessment && styles.buttonDisabled]} onPress={onStartAssessment} disabled={!canStartAssessment}>
-          <Feather name="play" size={21} color="#FFFFFF" />
-          <Text style={styles.buttonText}>GET STARTED</Text>
+          <Feather name="play" size={21} color="#081009" />
+          <Text style={styles.buttonText}>Get Started</Text>
         </TouchableOpacity>
       </View>
 
       <TouchableOpacity style={styles.recordButton} onPress={() => router.push('/(app)/screens/map')}>
-        <Feather name="activity" size={24} color={Colors.primary} />
-        <Text style={styles.recordText}>RECORD CURRENT WORKOUT</Text>
+        <Feather name="activity" size={24} color="#081009" />
+        <Text style={styles.recordText}>Record Workout</Text>
       </TouchableOpacity>
 
       <Text style={styles.sectionTitle}>POPULAR WORKOUTS</Text>
@@ -53,21 +53,21 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
 }
 
 const styles = StyleSheet.create({
-  actionCard: { minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 22, marginBottom: 14, borderRadius: 24, backgroundColor: '#292C2D', borderWidth: 1.5, borderColor: '#65686A' },
+  actionCard: { minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 22, marginBottom: 14, borderRadius: 24, backgroundColor: '#242627', borderWidth: 1.5, borderColor: '#65686A' },
   actionTitle: { flex: 1, color: '#F7F7F7', fontSize: 18, fontWeight: '800' },
   card: { padding: 20, marginBottom: 14, borderRadius: 28, backgroundColor: '#242627', borderWidth: 1.25, borderColor: '#65686A' },
   cardTitle: { color: '#8BD69A', fontSize: 21, fontWeight: '800' },
   description: { color: '#E0E2E1', fontSize: 16, lineHeight: 22, marginVertical: 14 },
-  button: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, borderRadius: 19, backgroundColor: '#303335', borderWidth: 1.5, borderColor: Colors.primary },
+  button: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, borderRadius: 19, backgroundColor: Colors.primary },
   buttonDisabled: { opacity: 0.45 },
-  buttonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '800' },
-  recordButton: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 22, borderRadius: 22, backgroundColor: '#242627', borderWidth: 1.5, borderColor: Colors.primary },
-  recordText: { color: '#B7E8C0', fontSize: 16, fontWeight: '800' },
+  buttonText: { color: '#081009', fontSize: 17, fontWeight: '800' },
+  recordButton: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 22, borderRadius: 22, backgroundColor: Colors.primary },
+  recordText: { color: '#081009', fontSize: 16, fontWeight: '800' },
   sectionTitle: { color: '#F2F2F2', fontSize: 21, fontWeight: '800', marginBottom: 12 },
-  workoutRow: { flexDirection: 'row', gap: 10 },
-  workoutCard: { flex: 1, minHeight: 190, padding: 13, borderRadius: 22, backgroundColor: '#242627', borderWidth: 1.25, borderColor: '#65686A' },
-  workoutTitle: { color: '#F7F7F7', fontSize: 17, fontWeight: '800', marginTop: 18 },
+  workoutRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 },
+  workoutCard: { width: '48.5%', minHeight: 122, padding: 13, borderRadius: 22, backgroundColor: '#242627', borderWidth: 1.25, borderColor: '#65686A' },
+  workoutTitle: { color: '#F7F7F7', fontSize: 17, fontWeight: '800', marginTop: 12 },
   workoutSubtitle: { color: '#E0E2E1', fontSize: 15, marginTop: 3 },
-  exploreButton: { marginTop: 'auto', minHeight: 37, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: '#303335', borderWidth: 1.25, borderColor: '#7CCB88' },
+  exploreButton: { display: 'none' },
   exploreText: { color: '#DFF7E3', fontSize: 13, fontWeight: '800' },
 });
