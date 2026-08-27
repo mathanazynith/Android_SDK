@@ -37,7 +37,7 @@ export const AppInput: React.FC<AppInputProps> = ({
       ]}>
         {icon && <View style={styles.iconContainer}>{icon}</View>}
         <TextInput
-          style={[styles.input, icon ? styles.inputWithIcon : undefined, secureTextEntry ? styles.inputWithRightIcon : undefined]}
+          style={[styles.input, { color: colors.inputText }, icon ? styles.inputWithIcon : undefined, secureTextEntry ? styles.inputWithRightIcon : undefined]}
           placeholderTextColor={colors.textSecondary}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}

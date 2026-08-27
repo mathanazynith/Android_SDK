@@ -279,7 +279,7 @@ export default function SignupScreen() {
             <View style={[styles.segment, { backgroundColor: BRAND_GREEN }]}><Text style={styles.activeSegmentText}>Sign up</Text></View>
           </View>
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()} disabled={loading} accessibilityLabel="Go back">
-            <Ionicons name="chevron-back" size={28} color={colors.text} />
+            <Ionicons name="chevron-back" size={28} color="#FFFFFF" />
           </TouchableOpacity>
           <View style={styles.emailDivider}><View style={styles.dividerLine} /><Text style={styles.emailDividerText}>Or With E-Mail</Text><View style={styles.dividerLine} /></View>
 
