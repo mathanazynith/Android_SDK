@@ -111,10 +111,11 @@ export const questionnaireStyles = StyleSheet.create({
     borderTopColor: "#E8ECF1",
   },
   button: {
+    flex: 1,
     paddingVertical: 14,
     paddingHorizontal: 28,
     borderRadius: 12,
-    minWidth: 120,
+    minWidth: 0,
     alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },

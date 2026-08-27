@@ -3,6 +3,7 @@ import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle } from 'react-native';
 import { BorderRadius, Typography, Spacing } from '../../constants/theme';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
+import { useResponsive } from '../../utils/responsive';
 
 interface PrimaryButtonProps {
   title: string;
@@ -32,6 +33,7 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
   authStyle = false,
 }) => {
   const { colors } = useTheme();
+  const { spacing, fontSize } = useResponsive();
   const getBackgroundColor = () => {
     if (disabled) return colors.surfaceRaised;
     if (variant === 'primary') return BRAND_GREEN;
@@ -63,6 +65,10 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
           backgroundColor: getBackgroundColor(),
           borderColor: getBorderColor(),
           width: fullWidth ? '100%' : 'auto',
+          paddingVertical: spacing(Spacing.md),
+          paddingHorizontal: spacing(Spacing.xl),
+          borderRadius: spacing(BorderRadius.md),
+          minHeight: spacing(50),
         },
         authStyle && styles.authButton,
         style,
@@ -76,7 +82,7 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
       ) : (
         <>
           {leftIcon && <>{leftIcon}</>}
-          <Text style={[styles.text, { color: getTextColor() }, textStyle]}>{title}</Text>
+          <Text style={[styles.text, { color: getTextColor(), fontSize: fontSize(Typography.button.fontSize) }, textStyle]}>{title}</Text>
           {rightIcon && <>{rightIcon}</>}
         </>
       )}

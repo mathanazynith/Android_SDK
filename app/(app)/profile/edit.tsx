@@ -1,7 +1,7 @@
 import React, { useRef, useState } from "react";
 import {
   ActivityIndicator, Alert, FlatList, Image, Keyboard, KeyboardAvoidingView, Modal,
-  Platform, Pressable, ScrollView, StatusBar, StyleSheet,
+  Platform, Pressable, ScrollView, StyleSheet,
   Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View,
 } from "react-native";
 import { router } from "expo-router";
@@ -188,7 +188,7 @@ export default function EditProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#000000" }, safeArea: { flex: 1, paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight || 0) + 8 : 8 }, content: { paddingHorizontal: 15, paddingBottom: 82 },
+  screen: { flex: 1, backgroundColor: "#000000" }, safeArea: { flex: 1, paddingTop: 8 }, content: { paddingHorizontal: 15, paddingBottom: 82 },
   sectionLabel: { color: "#8D8D92", fontSize: 13, fontWeight: "600", marginTop: 10, marginBottom: 6 }, photoCard: { height: 171, borderRadius: 16, backgroundColor: "#171717", alignItems: "center", justifyContent: "center" },
   avatar: { width: 132, height: 132, borderRadius: 66, borderWidth: 3, borderColor: "#DCE9ED", backgroundColor: "#68747B", alignItems: "center", justifyContent: "center", position: "relative" }, avatarImage: { width: "100%", height: "100%", borderRadius: 66 }, photoInitial: { color: "#F7F7F7", fontSize: 42, fontWeight: "500" }, uploadOverlay: { top: 0, right: 0, bottom: 0, left: 0, borderRadius: 66, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.48)", position: "absolute" }, cameraBadge: { position: "absolute", right: -2, bottom: -2, width: 39, height: 39, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "#F4F4F4", borderWidth: 1, borderColor: "#C9C9C9" },
   formCard: { borderRadius: 18, backgroundColor: "#171717", paddingHorizontal: 15, borderWidth: 1, borderColor: "#303030" }, phoneInput: { marginBottom: 0, gap: 3 }, flatInput: { borderWidth: 0, borderRadius: 0, borderBottomWidth: 1, borderBottomColor: "#303030", minHeight: 42, paddingHorizontal: 0, backgroundColor: "transparent" }, lastInput: { borderWidth: 0, borderRadius: 0, minHeight: 42, paddingHorizontal: 0, backgroundColor: "transparent" }, formRow: { minHeight: 43, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#303030" }, lastRow: { borderBottomWidth: 0 }, rowLabel: { color: "#D3D3D5", fontSize: 16, fontStyle: "italic" }, rowValueMuted: { color: "#A8A8AA", fontSize: 15, fontStyle: "italic" }, selectValue: { maxWidth: "60%", flexDirection: "row", alignItems: "center", gap: 6 }, unitValue: { color: "#A8A8AA", fontSize: 15, fontStyle: "italic", textAlign: "right", flexShrink: 1 }, datePill: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 16, backgroundColor: "#454547" }, dateText: { color: "#F1F1F1", fontSize: 14 }, measurementInput: { marginBottom: 0, gap: 0 }, measurementRow: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1 }, measurementLabel: { fontSize: 16, fontWeight: "600" }, measurementValue: { maxWidth: "70%", flexDirection: "row", alignItems: "center", justifyContent: "flex-end" }, measurementTextInput: { minWidth: 70, paddingVertical: 8, paddingHorizontal: 0, fontSize: 16, fontWeight: "600", textAlign: "right" }, measurementUnit: { marginLeft: 8, fontSize: 15, fontWeight: "600" },

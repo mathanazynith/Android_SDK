@@ -5,6 +5,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
+import { useResponsive } from '../../utils/responsive';
 
 type Tab = {
   icon: React.ComponentProps<typeof Feather>['name'];
@@ -33,6 +34,7 @@ export default function GlobalBottomNav() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
+  const { spacing, fontSize } = useResponsive();
   const { workoutPlan, isWorkoutPlanLoaded, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
 
   useEffect(() => {
@@ -45,7 +47,7 @@ export default function GlobalBottomNav() {
   const visibleTabs = hasActivePlan ? tabs : tabs.filter((tab) => tab.label !== 'Plan');
 
   return (
-    <View style={[styles.container, { bottom: 12 + insets.bottom, backgroundColor: colors.surface, borderColor: colors.border }]}>
+    <View style={[styles.container, { bottom: spacing(12) + insets.bottom, minHeight: spacing(78), backgroundColor: colors.surface, borderColor: colors.border }]}>
       {visibleTabs.map((tab) => {
         const active = isTabActive(pathname, tab.route);
 
@@ -67,12 +69,12 @@ export default function GlobalBottomNav() {
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
           >
-            <Feather name={tab.icon} size={24} color={active ? BRAND_GREEN : colors.inactive} />
+            <Feather name={tab.icon} size={spacing(24)} color={active ? BRAND_GREEN : colors.inactive} />
             <Text
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.8}
-              style={[styles.label, { color: active ? BRAND_GREEN : colors.inactive }, active && styles.activeLabel]}
+              style={[styles.label, { color: active ? BRAND_GREEN : colors.inactive, fontSize: fontSize(10, 9, 11) }, active && styles.activeLabel]}
             >
               {tab.label}
             </Text>

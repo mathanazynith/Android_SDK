@@ -1,7 +1,6 @@
 // components/SettingsMenu.tsx
 import { Feather } from '@expo/vector-icons';
 import {
-  Dimensions,
   Modal,
   StyleSheet,
   Text,
@@ -10,8 +9,7 @@ import {
   View,
 } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
-
-const { height } = Dimensions.get('window');
+import { useResponsive } from '../utils/responsive';
 
 interface SettingsMenuProps {
   visible: boolean;
@@ -30,6 +28,7 @@ const options = [
 
 export default function SettingsMenu({ visible, onClose, onSelect }: SettingsMenuProps) {
   const { colors } = useTheme();
+  const { height, spacing, fontSize } = useResponsive();
   return (
     <Modal
       visible={visible}
@@ -40,7 +39,7 @@ export default function SettingsMenu({ visible, onClose, onSelect }: SettingsMen
       <TouchableWithoutFeedback onPress={onClose}>
         <View style={styles.overlay}>
           <TouchableWithoutFeedback>
-            <View style={[styles.sheet, { backgroundColor: colors.surfaceRaised }]}>
+            <View style={[styles.sheet, { maxHeight: height * 0.65, backgroundColor: colors.surfaceRaised, paddingHorizontal: spacing(24), paddingTop: spacing(20), paddingBottom: spacing(32) }]}>
               <View style={styles.handle} />
               {options.map((item, index) => (
                 <TouchableOpacity
@@ -54,11 +53,11 @@ export default function SettingsMenu({ visible, onClose, onSelect }: SettingsMen
                 >
                   <Feather
                     name={item.icon as any}
-                    size={24}
+                    size={spacing(24)}
                     color={colors.textSecondary}
                     style={styles.optionIcon}
                   />
-                  <Text style={[styles.optionLabel, { color: colors.text }]}>{item.label}</Text>
+                  <Text style={[styles.optionLabel, { color: colors.text, fontSize: fontSize(17, 15, 18) }]}>{item.label}</Text>
                 </TouchableOpacity>
               ))}
               <TouchableOpacity onPress={onClose} style={styles.cancelButton}>
@@ -82,10 +81,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#1A1A1A',
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 32,
-    maxHeight: height * 0.65,
   },
   handle: {
     width: 48,
@@ -113,7 +108,9 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '500',
     color: '#FFFFFF',
-    letterSpacing: -0.3,
+    letterSpacing: 0,
+    flex: 1,
+    flexShrink: 1,
   },
   cancelButton: {
     marginTop: 12,
@@ -127,6 +124,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: '#FF3B30',
-    letterSpacing: -0.3,
+    letterSpacing: 0,
   },
 });

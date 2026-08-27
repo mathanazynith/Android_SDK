@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    Platform,
     ScrollView,
     StatusBar,
     StyleSheet,
@@ -231,7 +230,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0B0E0F',
     paddingHorizontal: 22,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0,
+    paddingTop: 0,
   },
   header: { height: 68, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   backButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },

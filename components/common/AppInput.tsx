@@ -3,6 +3,7 @@ import { View, TextInput, Text, StyleSheet, TouchableOpacity, TextInputProps, Vi
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, BorderRadius, Spacing, Typography } from '../../constants/theme';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useResponsive } from '../../utils/responsive';
 
 interface AppInputProps extends TextInputProps {
   label?: string;
@@ -20,6 +21,7 @@ export const AppInput: React.FC<AppInputProps> = ({
   authStyle = false, secureTextEntry, ...props
 }) => {
   const { colors } = useTheme();
+  const { spacing, fontSize } = useResponsive();
   const [isFocused, setIsFocused] = useState(false);
   const [isSecure, setIsSecure] = useState(secureTextEntry || false);
   const toggleSecure = () => setIsSecure(!isSecure);
@@ -37,7 +39,7 @@ export const AppInput: React.FC<AppInputProps> = ({
       ]}>
         {icon && <View style={styles.iconContainer}>{icon}</View>}
         <TextInput
-          style={[styles.input, { color: colors.inputText }, icon ? styles.inputWithIcon : undefined, secureTextEntry ? styles.inputWithRightIcon : undefined]}
+          style={[styles.input, { color: colors.inputText, fontSize: fontSize(Typography.body.fontSize), paddingVertical: spacing(Spacing.sm) }, icon ? styles.inputWithIcon : undefined, secureTextEntry ? styles.inputWithRightIcon : undefined]}
           placeholderTextColor={colors.textSecondary}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}

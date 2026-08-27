@@ -18,9 +18,11 @@ import { PrimaryButton } from '../../components/common/PrimaryButton';
 import GoogleLoginButton from '../../components/GoogleLoginButton';
 import { Colors, Spacing, Typography } from '../../constants/theme';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function LoginScreen() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -178,7 +180,7 @@ export default function LoginScreen() {
     >
       <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} backgroundColor={colors.background} />
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 18 }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.authCard}>
@@ -192,7 +194,7 @@ export default function LoginScreen() {
           <View style={styles.runnerBadge}>
             <Ionicons name="walk" size={34} color={Colors.background} />
           </View>
-          <Text style={styles.title}>Let's get moving</Text>
+          <Text style={styles.title}>Let&apos;s get moving</Text>
           <Text style={styles.subtitle}>Sign in to pick up your streak</Text>
 
         <AppInput

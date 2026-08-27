@@ -18,9 +18,11 @@ import { AppInput } from "../../components/common/AppInput";
 import { PrimaryButton } from "../../components/common/PrimaryButton";
 import { Colors, Spacing, Typography, BorderRadius } from "../../constants/theme";
 import { BRAND_GREEN, useTheme } from "../../contexts/ThemeContext";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function SignupScreen() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const { googleSignupData, setGoogleSignupData } = useAuth();
 
   const hasGoogleData = googleSignupData !== null;
@@ -267,7 +269,7 @@ export default function SignupScreen() {
       <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} backgroundColor={colors.background} />
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 18 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >

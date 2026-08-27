@@ -9,9 +9,13 @@ import GlobalBottomNav from '../../components/navigation/GlobalBottomNav';
 import DashboardNoPlan from './DashboardNoPlan';
 import DashboardActivePlan from './DashboardActivePlan';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
+import { useResponsive } from '../../utils/responsive';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function DashboardScreen() {
   const { colors } = useTheme();
+  const { spacing, fontSize } = useResponsive();
+  const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
   const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
   const [settingsVisible, setSettingsVisible] = useState(false);
@@ -69,18 +73,17 @@ export default function DashboardScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.topBar, { borderBottomColor: colors.border }]}>
-        <Text style={[styles.pageTitle, { color: colors.text }]}>Dashboard</Text>
-        <TouchableOpacity style={[styles.headerButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]} onPress={() => setSettingsVisible(true)}><Feather name="settings" size={23} color={colors.textSecondary} /></TouchableOpacity>
+      <View style={[styles.topBar, { borderBottomColor: colors.border, minHeight: spacing(82) + insets.top, paddingHorizontal: spacing(28), paddingTop: insets.top + spacing(8) }]}>
+        <Text style={[styles.pageTitle, { color: colors.text, fontSize: fontSize(28, 24, 30) }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>Dashboard</Text>
+        <TouchableOpacity style={[styles.headerButton, { width: spacing(46), height: spacing(46), borderRadius: spacing(23), backgroundColor: colors.surfaceRaised, borderColor: colors.border }]} onPress={() => setSettingsVisible(true)}><Feather name="settings" size={spacing(23)} color={colors.textSecondary} /></TouchableOpacity>
       </View>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={[styles.greeting, { backgroundColor: colors.surface }]}>
-          <Text style={[styles.greetingText, { color: colors.text }]}>Welcome <Text style={[styles.name, { color: BRAND_GREEN }]}>{userName}</Text></Text>
+      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: spacing(20), paddingBottom: spacing(118) }]} showsVerticalScrollIndicator={false}>
+        <View style={[styles.greeting, { minHeight: spacing(82), paddingHorizontal: spacing(18), paddingVertical: spacing(14), marginBottom: spacing(14), backgroundColor: colors.surface }]}>
+          <Text style={[styles.greetingText, { color: colors.text, fontSize: fontSize(24, 20, 26) }]} numberOfLines={2}><Text>Hi </Text><Text style={[styles.name, { color: BRAND_GREEN }]}>{userName}</Text></Text>
           <TouchableOpacity style={[styles.weather, { borderColor: BRAND_GREEN }]} onPress={() => router.push('./screens/weather-details')}>
-            <Feather name="cloud" size={24} color={BRAND_GREEN} />
+            <Feather name="cloud" size={spacing(24)} color={BRAND_GREEN} />
             <View>
-              <Text style={[styles.weatherLabel, { color: colors.text }]}>Weather</Text>
-              <Text style={[styles.weatherValue, { color: colors.textSecondary }]}>Chennai</Text>
+              <Text style={[styles.weatherValue, { color: colors.text }]}>Chennai</Text>
               <Text style={[styles.weatherValue, { color: colors.textSecondary }]}>28 C</Text>
             </View>
           </TouchableOpacity>
@@ -100,9 +103,9 @@ const styles = StyleSheet.create({
   headerButton: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: '#25282A', borderWidth: 1, borderColor: '#55595B' },
   content: { paddingHorizontal: 20, paddingBottom: 118 },
   greeting: { minHeight: 82, paddingHorizontal: 18, paddingVertical: 14, marginBottom: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#050607', borderRadius: 22 },
-  greetingText: { color: '#F7F7F7', fontSize: 24, fontWeight: '700' },
+  greetingText: { color: '#F7F7F7', fontSize: 24, fontWeight: '700', flex: 1, marginRight: 10 },
   name: { color: '#88C99A' },
-  weather: { minHeight: 64, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, borderWidth: 1.5 },
+  weather: { minHeight: 64, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, borderWidth: 1.5, flexShrink: 0 },
   weatherLabel: { color: '#DDE2DE', fontSize: 12, fontWeight: '700' },
   weatherValue: { color: '#DDE2DE', fontSize: 11, lineHeight: 14 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#0B0E0F' },

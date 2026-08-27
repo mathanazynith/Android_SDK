@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    Platform,
     ScrollView,
     StatusBar,
     StyleSheet,
@@ -269,7 +268,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0B0E0F',
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0,
+    paddingTop: 0,
   },
   centerContainer: {
     flex: 1,

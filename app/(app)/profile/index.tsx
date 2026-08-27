@@ -131,7 +131,7 @@ export default function ProfileScreen() {
   const profilePictureUri = resolveApiUrl(profilePicture);
 
   return (
-    <SafeAreaView edges={[]} style={[styles.safeArea, { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
