@@ -39,4 +39,9 @@ export class StepDetectionService {
     this.subscription?.remove();
     this.subscription = null;
   }
+
+  /** A subscription is the only reliable indication that step evidence can be required. */
+  public isAvailable(): boolean {
+    return this.subscription !== null;
+  }
 }

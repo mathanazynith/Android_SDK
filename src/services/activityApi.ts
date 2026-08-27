@@ -1,4 +1,10 @@
 import api from '../../service/api';
+import polyline from '@mapbox/polyline';
+
+interface BackendGpsPoint {
+  latitude: number;
+  longitude: number;
+}
 
 export interface BackendActivity {
   id: string | number;
@@ -19,7 +25,13 @@ export interface BackendActivity {
   encoded_polyline?: string | null;
   route?: {
     encoded_polyline?: string | null;
+    gps_points?: BackendGpsPoint[];
+    points?: BackendGpsPoint[];
+    coordinates?: BackendGpsPoint[];
   } | null;
+  gps_points?: BackendGpsPoint[];
+  points?: BackendGpsPoint[];
+  coordinates?: BackendGpsPoint[];
   processing_status: string;
   is_processed: boolean;
 }
@@ -44,9 +56,33 @@ const extractActivities = (payload: unknown): BackendActivity[] => {
   return [];
 };
 
+const encodeRouteFallback = (activity: BackendActivity): string | null => {
+  const candidates = [
+    activity.gps_points,
+    activity.points,
+    activity.coordinates,
+    activity.route?.gps_points,
+    activity.route?.points,
+    activity.route?.coordinates,
+  ];
+  const points = candidates.find((candidate): candidate is BackendGpsPoint[] =>
+    Array.isArray(candidate) && candidate.length >= 2
+  );
+
+  if (!points) return null;
+
+  const coordinates = points
+    .filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude))
+    .map((point) => [point.latitude, point.longitude] as [number, number]);
+
+  return coordinates.length >= 2 ? polyline.encode(coordinates) : null;
+};
+
 const normalizeActivity = (activity: BackendActivity): BackendActivity => ({
   ...activity,
-  encoded_polyline: activity.encoded_polyline ?? activity.route?.encoded_polyline ?? null,
+  encoded_polyline: activity.encoded_polyline
+    ?? activity.route?.encoded_polyline
+    ?? encodeRouteFallback(activity),
 });
 
 export const activityAPI = {

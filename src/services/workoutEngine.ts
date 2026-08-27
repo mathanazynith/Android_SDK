@@ -1,847 +1,214 @@
+import { calculateDistanceMeters } from '../utils/distance';
+import { RunningGpsPoint } from '../types/running';
 import {
-  BackendWorkout,
   ActiveWorkoutSegment,
+  BackendWorkout,
+  WorkoutEngineSnapshot,
   WorkoutEngineState,
   WorkoutLap,
-  WorkoutEngineSnapshot,
+  WorkoutSegmentType,
 } from '../types/workout';
 
-import { RunningGpsPoint } from '../types/running';
-
-import { calculateDistanceMeters } from '../utils/distance';
-
-import { WorkoutLapManager } from './workoutLapManager';
-
 export interface WorkoutEngineCallbacks {
-  onSegmentStarted?: (
-    segment: ActiveWorkoutSegment,
-  ) => void;
-
-  onSegmentCompleted?: (
-    lap: WorkoutLap,
-  ) => void;
-
-  onRestStarted?: (
-    seconds: number,
-  ) => void;
-
+  onSegmentStarted?: (segment: ActiveWorkoutSegment) => void;
+  onSegmentCompleted?: (lap: WorkoutLap) => void;
   onWorkoutCompleted?: () => void;
-
-  onPopupRequired?: (
-    lap: WorkoutLap,
-  ) => void;
 }
 
+/**
+ * Owns only workout progress. LocationService and PathProcessor remain the
+ * source of GPS data and continue to record during rest or manual pause.
+ */
 export class WorkoutEngine {
-
-  private readonly lapManager =
-    new WorkoutLapManager();
-
   private readonly callbacks: WorkoutEngineCallbacks;
-
-  private workout: BackendWorkout | null = null;
-
-  private executionQueue: ActiveWorkoutSegment[] = [];
-
-  private currentIndex = -1;
-
+  private queue: ActiveWorkoutSegment[] = [];
+  private index = -1;
   private state: WorkoutEngineState = 'idle';
-
-  private currentSegment: ActiveWorkoutSegment | null = null;
-
-  private lastGpsPoint: RunningGpsPoint | null = null;
-
-  private overallDistance = 0;
-
-  private overallStartTimestamp: number | null = null;
-
-  private lastOverallPoint: RunningGpsPoint | null = null;
-
-  private restStartedAt: number | null = null;
-
+  private currentLap: WorkoutLap | null = null;
+  private completedLaps: WorkoutLap[] = [];
+  private lastPoint: RunningGpsPoint | null = null;
+  private distanceAnchor: RunningGpsPoint | null = null;
   private pausedAt: number | null = null;
+  private stateBeforePause: WorkoutEngineState = 'running';
 
-  private totalPausedMilliseconds = 0;
-
-  constructor(
-    callbacks: WorkoutEngineCallbacks = {},
-  ) {
+  public constructor(callbacks: WorkoutEngineCallbacks = {}) {
     this.callbacks = callbacks;
   }
 
-  /**
-   * Convert backend workout JSON into a flat execution queue.
-   */
-  public loadWorkout(
-    workout: BackendWorkout,
-  ): void {
-
-    this.reset();
-
-    this.workout = workout;
-
-    this.executionQueue =
-      this.buildExecutionQueue(workout);
-
-    console.log(
-      '[WorkoutEngine] Execution queue:',
-      JSON.stringify(
-        this.executionQueue,
-        null,
-        2,
-      ),
-    );
+  public loadWorkout(workout: BackendWorkout): void {
+    this.queue = this.expand(workout);
+    this.index = -1;
+    this.currentLap = null;
+    this.completedLaps = [];
+    this.lastPoint = null;
+    this.distanceAnchor = null;
+    this.state = 'idle';
   }
 
-  /**
-   * START RUN
-   *
-   * GPS must already be started by the screen.
-   */
-  public start(
-    initialGpsPoint?: RunningGpsPoint | null,
-  ): void {
+  public start(initialPoint: RunningGpsPoint | null): void {
+    if (this.state !== 'idle') return;
+    this.lastPoint = initialPoint;
+    this.startNext(initialPoint);
+  }
 
-    if (
-      this.state === 'running'
-    ) {
+  /** Pass the previous sample separately so distance is never derived from UI state. */
+  public ingestDistancePoint(previous: RunningGpsPoint | null, point: RunningGpsPoint): void {
+    this.lastPoint = point;
+    if (this.state !== 'running' || !this.currentLap || this.currentLap.segmentType === 'Rest') return;
+    if (!previous) {
+      this.distanceAnchor = point;
+      this.refreshDuration(point.timestamp);
       return;
     }
-
+    const anchor = this.distanceAnchor ?? previous;
+    const delta = calculateDistanceMeters(anchor, point);
+    const elapsedSeconds = Math.max(0.001, (point.timestamp - anchor.timestamp) / 1_000);
+    const impliedSpeed = delta / elapsedSeconds;
+    const accuracyRadius = Math.max(anchor.accuracy ?? 0, point.accuracy ?? 0);
+    const minimumMeaningfulDistance = Math.max(3, Math.min(12, accuracyRadius));
     if (
-      this.state === 'completed'
+      Number.isFinite(delta)
+      && delta >= minimumMeaningfulDistance
+      && impliedSpeed <= 12
     ) {
-      return;
+      this.currentLap.distanceMeters += delta;
+      this.distanceAnchor = point;
     }
-
-    this.state = 'running';
-
-    const now =
-      initialGpsPoint?.timestamp ??
-      Date.now();
-
-    if (!this.overallStartTimestamp) {
-      this.overallStartTimestamp = now;
-    }
-
-    if (initialGpsPoint) {
-      this.lastGpsPoint = initialGpsPoint;
-      this.lastOverallPoint = initialGpsPoint;
-    }
-
-    if (this.currentSegment === null) {
-      this.startNextSegment(
-        initialGpsPoint ?? null,
-      );
+    this.refreshDuration(point.timestamp);
+    if (this.currentLap.targetDistanceMeters !== null && this.currentLap.distanceMeters >= this.currentLap.targetDistanceMeters) {
+      this.completeCurrent(point.timestamp);
     }
   }
 
-  /**
-   * Pause does NOT stop GPS automatically.
-   *
-   * The screen decides whether GPS should remain alive.
-   */
+  public tick(now = Date.now()): void {
+    if (this.state !== 'running' || !this.currentLap) return;
+    this.refreshDuration(now);
+    if (this.currentLap.targetDurationSeconds !== null && this.currentLap.elapsedSeconds >= this.currentLap.targetDurationSeconds) {
+      this.completeCurrent(now);
+    }
+  }
+
+  public continue(): void {
+    if (this.state !== 'waiting') return;
+    this.startNext(this.lastPoint);
+  }
+
   public pause(): void {
-
-    if (this.state !== 'running') {
-      return;
-    }
-
-    this.state = 'paused';
-
+    if (this.state !== 'running' && this.state !== 'waiting') return;
+    this.stateBeforePause = this.state;
     this.pausedAt = Date.now();
+    this.state = 'paused';
   }
 
-  public resume(
-    gpsPoint?: RunningGpsPoint | null,
-  ): void {
-
-    if (this.state !== 'paused') {
-      return;
+  public resume(): void {
+    if (this.state !== 'paused') return;
+    if (this.currentLap && this.pausedAt !== null) {
+      this.currentLap.startedAt += Math.max(0, Date.now() - this.pausedAt);
     }
-
-    this.state = 'running';
-
-    if (this.pausedAt !== null) {
-      const pausedMilliseconds = Math.max(0, Date.now() - this.pausedAt);
-      this.totalPausedMilliseconds += pausedMilliseconds;
-      this.lapManager.shiftCurrentLapStartBy(pausedMilliseconds);
-      this.pausedAt = null;
-    }
-
-    if (gpsPoint) {
-      this.lastGpsPoint = gpsPoint;
-      this.lastOverallPoint = gpsPoint;
-    }
+    this.pausedAt = null;
+    this.state = this.stateBeforePause;
   }
 
-  /**
-   * Every raw accepted GPS point should be passed here.
-   */
-  public ingestGpsPoint(
-    point: RunningGpsPoint,
-  ): void {
-
-    this.lastGpsPoint = point;
-
-    if (
-      this.state !== 'running'
-    ) {
-      return;
-    }
-
-    this.updateOverallDistance(point);
-
-    this.lapManager.ingestGpsPoint(point);
-
-    this.checkCurrentSegmentCompletion(point);
+  public shouldUseLightPolyline(): boolean {
+    return this.state !== 'running' || this.currentLap?.segmentType === 'Rest';
   }
 
-  private updateOverallDistance(
-    point: RunningGpsPoint,
-  ): void {
-
-    if (this.lastOverallPoint) {
-
-      const delta =
-        calculateDistanceMeters(
-          this.lastOverallPoint,
-          point,
-        );
-
-      if (
-        Number.isFinite(delta) &&
-        delta >= 0 &&
-        delta < 500
-      ) {
-        this.overallDistance += delta;
-      }
-    }
-
-    this.lastOverallPoint = point;
+  public isDistanceCounting(): boolean {
+    return this.state === 'running' && this.currentLap?.segmentType !== 'Rest';
   }
 
-  private checkCurrentSegmentCompletion(
-    point: RunningGpsPoint,
-  ): void {
-
-    if (!this.currentSegment) {
-      return;
-    }
-
-    const distance =
-      this.lapManager.getCurrentDistance();
-
-    const lap =
-      this.lapManager.getCurrentLap();
-
-    if (!lap) {
-      return;
-    }
-
-    /**
-     * Distance based segment.
-     */
-    if (
-      this.currentSegment.targetDistanceMeters !== null
-    ) {
-
-      if (
-        distance >=
-        this.currentSegment.targetDistanceMeters
-      ) {
-
-        this.completeCurrentSegment(point);
-
-        return;
-      }
-    }
-
-    /**
-     * Time based segment.
-     */
-    if (
-      this.currentSegment.targetDurationSeconds !== null
-    ) {
-
-      const elapsed =
-        (point.timestamp -
-          lap.startTimestamp) / 1000;
-
-      if (
-        elapsed >=
-        this.currentSegment.targetDurationSeconds
-      ) {
-
-        this.completeCurrentSegment(point);
-      }
-    }
-  }
-
-  private completeCurrentSegment(
-    point: RunningGpsPoint,
-  ): void {
-
-    const completedLap =
-      this.lapManager.completeLap(
-        point,
-      );
-
-    if (!completedLap) {
-      return;
-    }
-
-    this.callbacks.onSegmentCompleted?.(
-      completedLap,
-    );
-
-    const next =
-      this.executionQueue[
-        this.currentIndex + 1
-      ];
-
-    if (!next) {
-
-      this.currentSegment = null;
-
-      this.state = 'completed';
-
-      this.callbacks.onWorkoutCompleted?.();
-
-      return;
-    }
-
-    // Segment boundaries are logical only. The GPS watcher remains active and
-    // the next lap begins immediately from the same fresh GPS sample.
-    this.currentSegment = null;
-    this.startNextSegment(point);
-  }
-
-  /**
-   * Call this every second while a workout is active. This lets duration-based
-   * laps complete even when Android has not emitted another GPS update.
-   */
-  public tick(
-    timestamp = Date.now(),
-  ): void {
-
-    if (
-      this.state !== 'running'
-    ) {
-      return;
-    }
-
-    if (!this.currentSegment) {
-      return;
-    }
-
-    const lap = this.lapManager.getCurrentLap();
-
-    if (!lap) {
-      return;
-    }
-
-    const duration =
-      this.currentSegment.targetDurationSeconds;
-
-    if (
-      duration === null
-    ) {
-      return;
-    }
-
-    const elapsed =
-      (timestamp - lap.startTimestamp) / 1000;
-
-    if (
-      elapsed >= duration
-    ) {
-      const completedLap = this.lapManager.completeLap(null);
-
-      if (!completedLap) {
-        return;
-      }
-
-      this.callbacks.onSegmentCompleted?.(completedLap);
-      this.currentSegment = null;
-      this.startNextSegment(this.lastGpsPoint);
-    }
-  }
-
-  /**
-   * Continue after popup.
-   */
-  public continueWorkout(): void {
-
-    if (
-      this.state === 'completed'
-    ) {
-      return;
-    }
-
-    if (
-      this.state === 'paused'
-    ) {
-      this.state = 'running';
-    }
-
-    if (
-      this.currentSegment === null
-    ) {
-
-      this.startNextSegment(
-        this.lastGpsPoint,
-      );
-    }
-  }
-
-  /**
-   * Called when the user explicitly wants to
-   * save/finish the current activity.
-   */
-  public stop(): void {
-
-    if (
-      this.currentSegment
-    ) {
-      this.lapManager.cancelCurrentLap();
-    }
-
-    this.state = 'stopped';
-  }
-
-  private startNextSegment(
-    point: RunningGpsPoint | null,
-  ): void {
-
-    const nextIndex =
-      this.currentIndex + 1;
-
-    if (
-      nextIndex >=
-      this.executionQueue.length
-    ) {
-
-      this.currentSegment = null;
-
-      this.state = 'completed';
-
-      this.callbacks.onWorkoutCompleted?.();
-
-      return;
-    }
-
-    this.currentIndex = nextIndex;
-
-    const next =
-      this.executionQueue[
-        this.currentIndex
-      ];
-
-    this.currentSegment = next;
-
-    if (
-      next.segmentType === 'Rest'
-    ) {
-      this.restStartedAt =
-        point?.timestamp ??
-        Date.now();
-
-      this.lapManager.startLap(next, point);
-
-      this.callbacks.onRestStarted?.(
-        next.targetDurationSeconds ?? 0,
-      );
-    } else {
-      this.lapManager.startLap(next, point);
-      this.callbacks.onSegmentStarted?.(next);
-    }
-  }
-
-  /**
-   * Convert backend segments into execution
-   * laps.
-   */
-  private buildExecutionQueue(
-    workout: BackendWorkout,
-  ): ActiveWorkoutSegment[] {
-
-    const result: ActiveWorkoutSegment[] = [];
-
-    /**
-     * Workout has no segments.
-     *
-     * Example:
-     * Easy Run / Long Run
-     */
-    if (
-      !workout.segments ||
-      workout.segments.length === 0
-    ) {
-
-      result.push({
-        segmentOrder: 1,
-
-        segmentType: 'Run',
-
-        repeatNumber: 1,
-
-        totalRepeats: 1,
-
-        targetDistanceMeters:
-          workout.distance,
-
-        targetDurationSeconds:
-          workout.duration,
-
-          targetPace:
-            workout.target_pace,
-
-          paceUnit:
-            workout.pace_unit,
-
-        restDurationSeconds:
-          null,
-
-        notes:
-          workout.notes,
-      });
-
-      return result;
-    }
-
-    for (
-      const backendSegment
-      of [...workout.segments]
-        .sort(
-          (a, b) =>
-            a.segment_order -
-            b.segment_order,
-        )
-    ) {
-
-      const type =
-        this.normalizeSegmentType(
-          backendSegment.segment_type,
-        );
-
-      const repeats =
-        Math.max(
-          1,
-          backendSegment.repeats ?? 1,
-        );
-
-      /**
-       * Warmup
-       */
-      if (
-        type === 'Warmup'
-      ) {
-
-        result.push({
-          segmentOrder:
-            backendSegment.segment_order,
-
-          segmentType:
-            'Warmup',
-
-          repeatNumber: 1,
-
-          totalRepeats: 1,
-
-          targetDistanceMeters:
-            backendSegment.rep_distance,
-
-          targetDurationSeconds:
-            backendSegment.duration,
-
-          targetPace:
-            backendSegment.target_pace,
-
-          paceUnit:
-            backendSegment.pace_unit,
-
-          restDurationSeconds:
-            null,
-
-          notes:
-            backendSegment.notes,
-        });
-
-        continue;
-      }
-
-      /**
-       * Run repetitions.
-       */
-      if (
-        type === 'Run'
-      ) {
-
-        for (
-          let repeat = 1;
-          repeat <= repeats;
-          repeat += 1
-        ) {
-
-          result.push({
-            segmentOrder:
-              backendSegment.segment_order,
-
-            segmentType:
-              'Run',
-
-            repeatNumber:
-              repeat,
-
-            totalRepeats:
-              repeats,
-
-            targetDistanceMeters:
-              backendSegment.rep_distance,
-
-            targetDurationSeconds:
-              backendSegment.duration,
-
-            targetPace:
-              backendSegment.target_pace,
-
-            paceUnit:
-              backendSegment.pace_unit,
-
-            restDurationSeconds:
-              backendSegment.rest_duration,
-
-            notes:
-              backendSegment.notes,
-          });
-
-          /**
-           * Rest happens BETWEEN repetitions.
-           *
-           * Do not add rest after the last repetition.
-           */
-          if (
-            repeat < repeats &&
-            backendSegment.rest_duration !== null &&
-            backendSegment.rest_duration > 0
-          ) {
-
-            result.push({
-              segmentOrder:
-                backendSegment.segment_order,
-
-              segmentType:
-                'Rest',
-
-              repeatNumber:
-                repeat,
-
-              totalRepeats:
-                repeats,
-
-              targetDistanceMeters:
-                null,
-
-              targetDurationSeconds:
-                backendSegment.rest_duration,
-
-              targetPace:
-                null,
-
-              paceUnit:
-                null,
-
-              restDurationSeconds:
-                backendSegment.rest_duration,
-
-              notes:
-                `Rest after repetition ${repeat}`,
-            });
-          }
-        }
-
-        continue;
-      }
-
-      /**
-       * Cooldown
-       */
-      if (
-        type === 'Cooldown'
-      ) {
-
-        result.push({
-          segmentOrder:
-            backendSegment.segment_order,
-
-          segmentType:
-            'Cooldown',
-
-          repeatNumber: 1,
-
-          totalRepeats: 1,
-
-          targetDistanceMeters:
-            backendSegment.rep_distance,
-
-          targetDurationSeconds:
-            backendSegment.duration,
-
-          targetPace:
-            backendSegment.target_pace,
-
-          paceUnit:
-            backendSegment.pace_unit,
-
-          restDurationSeconds:
-            null,
-
-          notes:
-            backendSegment.notes,
-        });
-      }
-    }
-
-    return result;
-  }
-
-  private normalizeSegmentType(
-    value: string,
-  ):
-    | 'Warmup'
-    | 'Run'
-    | 'Cooldown'
-    | 'Rest' {
-
-    const normalized =
-      value.trim().toLowerCase();
-
-    if (
-      normalized === 'warmup' ||
-      normalized === 'warm-up'
-    ) {
-      return 'Warmup';
-    }
-
-    if (
-      normalized === 'cooldown' ||
-      normalized === 'cool-down'
-    ) {
-      return 'Cooldown';
-    }
-
-    if (
-      normalized === 'rest'
-    ) {
-      return 'Rest';
-    }
-
-    return 'Run';
-  }
-
-  public getSnapshot():
-    WorkoutEngineSnapshot {
-
-    const currentLap =
-      this.lapManager.getCurrentLap();
-
-    let currentDuration = 0;
-
-    if (currentLap) {
-      currentDuration =
-        currentLap.durationSeconds;
-    }
-
+  public getSnapshot(): WorkoutEngineSnapshot {
     return {
       state: this.state,
-
-      currentSegment:
-        this.currentSegment
-          ? {
-              ...this.currentSegment,
-            }
-          : null,
-
-      currentLap,
-
-      completedLaps:
-        this.lapManager
-          .getCompletedLaps(),
-
-      totalLaps:
-        this.executionQueue.length,
-
-      currentSegmentDistanceMeters:
-        this.lapManager
-          .getCurrentDistance(),
-
-      currentSegmentDurationSeconds:
-        currentDuration,
-
-      overallDistanceMeters:
-        this.overallDistance,
-
-      overallDurationSeconds:
-        this.overallStartTimestamp
-          ? Math.max(
-              0,
-              (
-                Date.now() -
-                this.overallStartTimestamp -
-                this.totalPausedMilliseconds
-              ) / 1000,
-            )
-          : 0,
+      currentSegment: this.currentLap ? this.segmentOf(this.currentLap) : null,
+      currentLap: this.currentLap ? { ...this.currentLap } : null,
+      completedLaps: this.completedLaps.map((lap) => ({ ...lap })),
+      totalLaps: this.queue.length,
     };
   }
 
-  public getCompletedLaps(): WorkoutLap[] {
-
-    return this.lapManager
-      .getCompletedLaps();
+  private startNext(point: RunningGpsPoint | null): void {
+    this.index += 1;
+    const segment = this.queue[this.index];
+    if (!segment) {
+      this.currentLap = null;
+      this.state = 'completed';
+      this.callbacks.onWorkoutCompleted?.();
+      return;
+    }
+    const now = point?.timestamp ?? Date.now();
+    this.currentLap = {
+      ...segment, startedAt: now, completedAt: null,
+      distanceMeters: 0, elapsedSeconds: 0, completed: false,
+    };
+    this.state = 'running';
+    this.callbacks.onSegmentStarted?.(segment);
   }
 
-  public getExecutionQueue(): ActiveWorkoutSegment[] {
-
-    return this.executionQueue.map(
-      segment => ({
-        ...segment,
-      }),
-    );
+  private completeCurrent(timestamp: number): void {
+    if (!this.currentLap || this.state !== 'running') return;
+    this.refreshDuration(timestamp);
+    this.currentLap.completed = true;
+    this.currentLap.completedAt = timestamp;
+    const completed = { ...this.currentLap };
+    this.completedLaps.push(completed);
+    this.currentLap = null;
+    const isFinalLap = this.index === this.queue.length - 1;
+    this.state = isFinalLap ? 'completed' : 'waiting';
+    this.callbacks.onSegmentCompleted?.(completed);
+    if (isFinalLap) {
+      this.callbacks.onWorkoutCompleted?.();
+    }
   }
 
-  public getState(): WorkoutEngineState {
-
-    return this.state;
+  private refreshDuration(timestamp: number): void {
+    if (!this.currentLap) return;
+    this.currentLap.elapsedSeconds = Math.max(0, (timestamp - this.currentLap.startedAt) / 1000);
   }
 
-  public reset(): void {
+  private segmentOf(lap: WorkoutLap): ActiveWorkoutSegment {
+    const { startedAt, completedAt, distanceMeters, elapsedSeconds, completed, ...segment } = lap;
+    return segment;
+  }
 
-    this.executionQueue = [];
+  private expand(workout: BackendWorkout): ActiveWorkoutSegment[] {
+    const source = workout.segments.length > 0 ? workout.segments : [{
+      segment_order: 1, segment_type: 'Run', repeats: 1, rep_distance: workout.distance,
+      duration: workout.duration, target_pace: workout.target_pace, pace_unit: workout.pace_unit,
+      rest_duration: null, notes: workout.notes,
+    }];
+    const result: ActiveWorkoutSegment[] = [];
+    for (const item of [...source].sort((a, b) => a.segment_order - b.segment_order)) {
+      const type = this.normalize(item.segment_type);
+      const repeats = Math.max(1, item.repeats || 1);
+      for (let repeat = 1; repeat <= repeats; repeat += 1) {
+        result.push(this.segment(item.segment_order, type, repeat, repeats, item));
+        if (type === 'Run' && repeat < repeats && (item.rest_duration ?? 0) > 0) {
+          result.push({
+            segmentOrder: item.segment_order, segmentType: 'Rest', repeatNumber: repeat,
+            totalRepeats: repeats, targetDistanceMeters: null,
+            targetDurationSeconds: item.rest_duration, targetPace: null, paceUnit: null,
+            notes: `Rest after interval ${repeat}.`,
+          });
+        }
+      }
+    }
+    return result;
+  }
 
-    this.currentIndex = -1;
+  private segment(order: number, type: WorkoutSegmentType, repeat: number, total: number, item: BackendWorkout['segments'][number]): ActiveWorkoutSegment {
+    return {
+      segmentOrder: order, segmentType: type, repeatNumber: repeat, totalRepeats: total,
+      targetDistanceMeters: item.rep_distance, targetDurationSeconds: item.duration,
+      targetPace: item.target_pace, paceUnit: item.pace_unit, notes: item.notes,
+    };
+  }
 
-    this.state = 'idle';
-
-    this.currentSegment = null;
-
-    this.lastGpsPoint = null;
-
-    this.overallDistance = 0;
-
-    this.overallStartTimestamp = null;
-
-    this.lastOverallPoint = null;
-
-    this.restStartedAt = null;
-
-    this.pausedAt = null;
-
-    this.totalPausedMilliseconds = 0;
-
-    this.lapManager.reset();
-
-    this.workout = null;
+  private normalize(value: string): WorkoutSegmentType {
+    const type = value.trim().toLowerCase();
+    if (type === 'warmup' || type === 'warm-up') return 'Warmup';
+    if (type === 'cooldown' || type === 'cool-down') return 'Cooldown';
+    if (type === 'rest') return 'Rest';
+    return 'Run';
   }
 }
