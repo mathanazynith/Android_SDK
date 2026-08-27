@@ -116,13 +116,18 @@ export const canonicalDistanceUnit = (
   stepType: CustomSegmentType = "Run"
 ): DistanceUnit => {
   if (!unitStr) return "km";
-  const lower = unitStr.toLowerCase();
-  if (lower.includes("meter") || lower === "m") {
-    // Warmup and Cooldown are forbidden to use meters in backend serializer
-    return stepType === "Run" ? "m" : "km";
+  const lower = unitStr.toLowerCase().trim();
+  // Check kilometers first because "kilometer" contains "meter"
+  if (lower === "km" || lower.includes("kilo") || lower.includes("(km)")) {
+    return "km";
   }
-  if (lower.includes("mile") || lower === "mi") {
+  // Check miles
+  if (lower === "mi" || lower.includes("mile") || lower.includes("(mi)")) {
     return "mi";
+  }
+  // Check meters (only for Run segments)
+  if (lower === "m" || lower === "meter" || lower === "meters" || lower.includes("(m)")) {
+    return stepType === "Run" ? "m" : "km";
   }
   return "km";
 };

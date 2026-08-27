@@ -12,6 +12,7 @@ import {
   canonicalDistanceUnit,
 } from "../../../service/customWorkout";
 import { getBackendErrorMessage } from "../../../service/api";
+import { normalizeUnit, getUnitFullLabel } from "../../../src/utils/workoutCalculations";
 
 export type WorkoutStep = {
   id?: number;
@@ -284,16 +285,24 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
 
       // 1. Warmup Segment (if present)
       if (workout.warmUp) {
-        const durSec = timeStringToSeconds(workout.warmUp.duration);
-        const distNum = workout.warmUp.distance ? parseFloat(workout.warmUp.distance) : null;
-        const inputType: SegmentInputType =
-          workout.warmUp.inputType || (distNum && !durSec ? "DISTANCE" : "DURATION");
-        const distanceUnit = canonicalDistanceUnit(workout.warmUp.unit, "Warmup");
+        const isTimeBased =
+          workout.warmUp.inputType === "DURATION" ||
+          (!workout.warmUp.distance && !!workout.warmUp.duration);
+        const durSec = isTimeBased
+          ? timeStringToSeconds(workout.warmUp.duration)
+          : null;
+        const distNum =
+          !isTimeBased && workout.warmUp.distance
+            ? parseFloat(workout.warmUp.distance)
+            : null;
+        const distanceUnit = isTimeBased
+          ? null
+          : canonicalDistanceUnit(workout.warmUp.unit, "Warmup");
 
         segments.push({
           segment_order: order++,
           segment_type: "Warmup",
-          input_type: inputType,
+          input_type: isTimeBased ? "DURATION" : "DISTANCE",
           duration: durSec,
           distance: distNum,
           distance_unit: distanceUnit,
@@ -331,16 +340,24 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
 
       // 3. Cooldown Segment (if present)
       if (workout.cooldown) {
-        const durSec = timeStringToSeconds(workout.cooldown.duration);
-        const distNum = workout.cooldown.distance ? parseFloat(workout.cooldown.distance) : null;
-        const inputType: SegmentInputType =
-          workout.cooldown.inputType || (distNum && !durSec ? "DISTANCE" : "DURATION");
-        const distanceUnit = canonicalDistanceUnit(workout.cooldown.unit, "Cooldown");
+        const isTimeBased =
+          workout.cooldown.inputType === "DURATION" ||
+          (!workout.cooldown.distance && !!workout.cooldown.duration);
+        const durSec = isTimeBased
+          ? timeStringToSeconds(workout.cooldown.duration)
+          : null;
+        const distNum =
+          !isTimeBased && workout.cooldown.distance
+            ? parseFloat(workout.cooldown.distance)
+            : null;
+        const distanceUnit = isTimeBased
+          ? null
+          : canonicalDistanceUnit(workout.cooldown.unit, "Cooldown");
 
         segments.push({
           segment_order: order++,
           segment_type: "Cooldown",
-          input_type: inputType,
+          input_type: isTimeBased ? "DURATION" : "DISTANCE",
           duration: durSec,
           distance: distNum,
           distance_unit: distanceUnit,
@@ -393,12 +410,21 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
       );
 
       for (const seg of sortedSegments) {
-        const unitLabel =
-          seg.distance_unit === "m"
-            ? "Meters (m)"
-            : seg.distance_unit === "mi"
-            ? "Miles (mi)"
-            : "Kilometers (km)";
+        const unitType = normalizeUnit(seg.distance_unit);
+        const unitLabel = getUnitFullLabel(unitType);
+
+        let loadedDistance = "";
+        if (seg.display_distance != null && Number(seg.display_distance) > 0) {
+          loadedDistance = String(seg.display_distance);
+        } else if (seg.rep_distance != null && seg.rep_distance > 0) {
+          if (unitType === "m") loadedDistance = String(seg.rep_distance);
+          else if (unitType === "mi") loadedDistance = (seg.rep_distance / 1609.344).toFixed(2);
+          else loadedDistance = (seg.rep_distance / 1000).toFixed(2);
+        } else if (seg.distance != null && seg.distance > 0) {
+          if (unitType === "m") loadedDistance = String(seg.distance);
+          else if (unitType === "mi") loadedDistance = (seg.distance / 1609.344).toFixed(2);
+          else loadedDistance = (seg.distance / 1000).toFixed(2);
+        }
 
         const step: WorkoutStep = {
           id: seg.id,
@@ -411,7 +437,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           stepType: seg.segment_type,
           inputType: seg.input_type || "DURATION",
           duration: secondsToTimeString(seg.duration),
-          distance: seg.distance != null ? String(seg.display_distance ?? seg.distance) : "",
+          distance: loadedDistance,
           unit: unitLabel,
           pace: seg.pace || seg.target_pace || "",
           repeat: seg.repeats || 1,

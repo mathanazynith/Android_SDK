@@ -19,6 +19,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ScrollTimePicker } from '../../../components/ScrollTimePicker';
 import { Colors } from '../../../constants/theme';
 import { useCustomWorkout } from './workout-context';
+import {
+  normalizeUnit,
+  formatSecondsToPace,
+} from '../../../src/utils/workoutCalculations';
 
 type Mode = 'time' | 'distance';
 const units = ['Kilometers (km)', 'Miles (mi)'];
@@ -42,17 +46,23 @@ export default function Cooldown() {
   const [pace, setPace] = useState(existing?.pace || '');
   const [notes, setNotes] = useState(existing?.notes || '');
 
+  const activeUnitType = useMemo(() => normalizeUnit(unit), [unit]);
+
   const calculatedPace = useMemo(() => {
     const totalSeconds = numeric(hours) * 3600 + numeric(minutes) * 60 + numeric(seconds);
-    const distanceInKm = numeric(distance) * (unit.includes('Miles') ? 1.60934 : 1);
-    if (!totalSeconds || !distanceInKm) return '';
-    const paceSeconds = Math.round(totalSeconds / distanceInKm);
-    return `${Math.floor(paceSeconds / 60)}:${String(paceSeconds % 60).padStart(2, '0')} / km`;
-  }, [distance, unit, hours, minutes, seconds]);
+    const distVal = numeric(distance);
+    if (!totalSeconds || !distVal) return '';
+    const paceSeconds = totalSeconds / distVal;
+    return formatSecondsToPace(paceSeconds, activeUnitType);
+  }, [distance, activeUnitType, hours, minutes, seconds]);
 
   const select = (value: string) => {
-    if (picker === 'mode') setMode(value === 'Time' ? 'time' : 'distance');
-    if (picker === 'unit') setUnit(value);
+    if (picker === 'mode') {
+      setMode(value === 'Time' ? 'time' : 'distance');
+    }
+    if (picker === 'unit') {
+      setUnit(value);
+    }
     setPicker(null);
   };
 
@@ -77,19 +87,35 @@ export default function Cooldown() {
       return;
     }
 
-    setCooldown({
-      title: 'Cool Down',
-      stepType: 'Cooldown',
-      inputType: mode === 'time' ? 'DURATION' : 'DISTANCE',
-      duration: timeValue || '00:00:00',
-      distance: mode === 'distance' ? distance : '',
-      unit,
-      pace: pace || calculatedPace,
-      repeat: 1,
-      rest: '',
-      skipLastRest: true,
-      notes: notes.trim(),
-    });
+    if (mode === 'time') {
+      setCooldown({
+        title: 'Cool Down',
+        stepType: 'Cooldown',
+        inputType: 'DURATION',
+        duration: timeValue || '00:00:00',
+        distance: '',
+        unit,
+        pace: pace ? pace.trim() : '',
+        repeat: 1,
+        rest: '',
+        skipLastRest: true,
+        notes: notes.trim(),
+      });
+    } else {
+      setCooldown({
+        title: 'Cool Down',
+        stepType: 'Cooldown',
+        inputType: 'DISTANCE',
+        duration: '',
+        distance: distance.trim(),
+        unit,
+        pace: pace ? pace.trim() : '',
+        repeat: 1,
+        rest: '',
+        skipLastRest: true,
+        notes: notes.trim(),
+      });
+    }
     router.push('/custom-workout/overview');
   };
 

@@ -17,6 +17,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Colors } from "../../../constants/theme";
 import { useCustomWorkout, type WorkoutStep } from "./workout-context";
+import {
+  normalizeUnit,
+  parsePaceToSeconds,
+} from "../../../src/utils/workoutCalculations";
 
 const seconds = (value: string) => {
   const parts = value.split(":").map(Number);
@@ -24,24 +28,26 @@ const seconds = (value: string) => {
 };
 
 const distanceInKm = (step: WorkoutStep) => {
+  if (!step.distance || step.distance === "0" || step.distance.trim() === "") return 0;
   const value = Number.parseFloat(step.distance) || 0;
-  if (step.unit.includes("Meters") || step.unit === "m") return value / 1000;
-  if (step.unit.includes("Miles") || step.unit === "mi") return value * 1.60934;
+  if (value <= 0) return 0;
+  const unit = normalizeUnit(step.unit);
+  if (unit === "m") return value / 1000;
+  if (unit === "mi") return value * 1.609344;
   return value;
-};
-
-const paceInSeconds = (pace: string) => {
-  const match = pace.match(/(\d+)\s*:\s*(\d+(?:\.\d+)?)/);
-  return match ? Number(match[1]) * 60 + Number(match[2]) : 0;
 };
 
 const estimatedStepSeconds = (step: WorkoutStep) => {
   const declaredTime = seconds(step.duration || "00:00:00");
-  if (declaredTime) return declaredTime;
-  const pace = paceInSeconds(step.pace);
-  return pace && step.distance
-    ? pace * (distanceInKm(step) / (step.unit.includes("Miles") || step.unit === "mi" ? 1.60934 : 1))
-    : 0;
+  if (declaredTime > 0) return declaredTime;
+  const paceSec = parsePaceToSeconds(step.pace);
+  const distNum = Number.parseFloat(step.distance) || 0;
+  if (!paceSec || distNum <= 0) return 0;
+  const unit = normalizeUnit(step.unit);
+  if (unit === "m") {
+    return (distNum / 1000) * paceSec;
+  }
+  return distNum * paceSec;
 };
 
 const estimatedRestSeconds = (step: WorkoutStep) =>
@@ -52,24 +58,35 @@ const displayTime = (value: number) => {
   const h = Math.floor(value / 3600);
   const m = Math.floor((value % 3600) / 60);
   const s = Math.round(value % 60);
-  if (h > 0) {
-    return `${h}h ${m}m ${s}s`;
+  if (h > 0 && m > 0) {
+    return `${h}h ${m}min`;
   }
-  return `${m}m ${s}s`;
+  if (h > 0) {
+    return `${h}h`;
+  }
+  if (m > 0 && s > 0) {
+    return `${m}min ${s}s`;
+  }
+  if (m > 0) {
+    return `${m}min`;
+  }
+  return `${s}s`;
 };
 
+const hasDistance = (step: WorkoutStep) =>
+  Boolean(step.distance && step.distance.trim() !== "" && step.distance !== "0" && step.distance !== "0.00");
+
+const hasDuration = (step: WorkoutStep) =>
+  Boolean(step.duration && step.duration.trim() !== "" && step.duration !== "00:00:00" && seconds(step.duration) > 0);
+
+const hasPace = (step: WorkoutStep) =>
+  Boolean(step.pace && step.pace.trim() !== "");
+
 const distanceText = (step: WorkoutStep) => {
-  if (!step.distance) return "Time Based";
+  if (!hasDistance(step)) return "";
   const unit = step.unit.includes("Miles") || step.unit === "mi" ? "mi" : step.unit.includes("Meters") || step.unit === "m" ? "m" : "km";
   return `${step.distance} ${unit}`;
 };
-
-const stepTime = (step: WorkoutStep) =>
-  step.duration && step.duration !== "00:00:00"
-    ? step.duration
-    : step.pace && step.distance
-      ? "Auto-calculated"
-      : "Open Duration";
 
 const hasText = (value?: string) => Boolean(value?.trim());
 const isEmptyStep = (step: WorkoutStep) =>
@@ -178,22 +195,26 @@ function StepCard({
         </View>
 
         <View style={styles.stepDetailsRow}>
-          <View style={styles.pillBadge}>
-            <Feather name="compass" size={12} color={Colors.textSecondary} />
-            <Text style={styles.pillText}>{distanceText(step)}</Text>
-          </View>
-          <View style={styles.pillBadge}>
-            <Feather name="clock" size={12} color={Colors.textSecondary} />
-            <Text style={styles.pillText}>{stepTime(step)}</Text>
-          </View>
-          {step.pace ? (
+          {hasDistance(step) && (
+            <View style={styles.pillBadge}>
+              <Feather name="compass" size={12} color={Colors.textSecondary} />
+              <Text style={styles.pillText}>{distanceText(step)}</Text>
+            </View>
+          )}
+          {hasDuration(step) && (
+            <View style={styles.pillBadge}>
+              <Feather name="clock" size={12} color={Colors.textSecondary} />
+              <Text style={styles.pillText}>{step.duration}</Text>
+            </View>
+          )}
+          {hasPace(step) && (
             <View style={[styles.pillBadge, { borderColor: Colors.primaryDark }]}>
               <Feather name="zap" size={12} color={Colors.primaryLight} />
               <Text style={[styles.pillText, { color: Colors.primaryLight }]}>
                 {step.pace}
               </Text>
             </View>
-          ) : null}
+          )}
         </View>
 
         {step.notes ? (
@@ -355,10 +376,10 @@ export default function CustomWorkoutOverview() {
         `"${saved.title || workout.title}" has been saved successfully.`,
         [
           {
-            text: "Done",
+            text: "View Workouts",
             onPress: () => {
               reset();
-              router.back();
+              router.replace("/(app)/custom-workout/cards");
             },
           },
         ]
@@ -505,7 +526,9 @@ export default function CustomWorkoutOverview() {
                       index={index}
                       number={index + 1}
                       selected={selectedRun === index}
-                      onSelect={() => setSelectedRun(index)}
+                      onSelect={() =>
+                        router.push(`/custom-workout/running-declaration?index=${index}`)
+                      }
                       onSkipRest={(value) => updateRunSkipRest(index, value)}
                       onDelete={() =>
                         confirmDelete(step.title, () => {
@@ -529,7 +552,11 @@ export default function CustomWorkoutOverview() {
                   repeat
                   number={group.items[0].index + 1}
                   selected={selectedRun === group.items[0].index}
-                  onSelect={() => setSelectedRun(group.items[0].index)}
+                  onSelect={() =>
+                    router.push(
+                      `/custom-workout/running-declaration?index=${group.items[0].index}`
+                    )
+                  }
                   onRepeat={() => setRepeatRun(group.items[0].index)}
                   onSkipRest={(value) =>
                     updateRunSkipRest(group.items[0].index, value)
@@ -575,7 +602,7 @@ export default function CustomWorkoutOverview() {
         <View style={styles.actions}>
           <TouchableOpacity
             style={styles.actionAdd}
-            onPress={() => addEmptyRun()}
+            onPress={() => router.push("/custom-workout/running-declaration")}
             activeOpacity={0.85}
           >
             <Feather name="plus" size={18} color="#000000" />

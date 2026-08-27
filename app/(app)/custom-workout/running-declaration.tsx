@@ -20,24 +20,32 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { Colors } from "../../../constants/theme";
 import { useCustomWorkout } from "./workout-context";
+import {
+  calculateTwoFields,
+  normalizeUnit,
+  getUnitLabel,
+  getPaceUnitLabel,
+  getUnitFullLabel,
+  type DistanceUnitType,
+} from "../../../src/utils/workoutCalculations";
+import { secondsToTimeString } from "../../../service/customWorkout";
 
 type TimeParts = { hours: string; minutes: string; seconds: string };
-const units = ["Kilometers (km)", "Meters (m)", "Miles (mi)"];
+
+const unitOptions: { label: string; value: DistanceUnitType }[] = [
+  { label: "Kilometers (km)", value: "km" },
+  { label: "Meters (m)", value: "m" },
+  { label: "Miles (mi)", value: "mi" },
+];
+
 const toNumber = (value: string) =>
   Number.parseFloat(value.replace(",", ".")) || 0;
-const unitName = (unit: string) =>
-  unit.includes("Meters") ? "m" : unit.includes("Miles") ? "mi" : "km";
+
 const secondsOf = ({ hours, minutes, seconds }: TimeParts) =>
   toNumber(hours) * 3600 + toNumber(minutes) * 60 + toNumber(seconds);
+
 const timeText = (time: TimeParts) =>
   `${time.hours || "00"}:${time.minutes || "00"}:${time.seconds || "00"}`;
-const timeParts = (total: number): TimeParts => ({
-  hours: String(Math.floor(total / 3600)).padStart(2, "0"),
-  minutes: String(Math.floor((total % 3600) / 60)).padStart(2, "0"),
-  seconds: String(Math.round(total % 60)).padStart(2, "0"),
-});
-const paceText = (total: number, unit: string) =>
-  `${Math.floor(total / 60)}:${String(Math.round(total % 60)).padStart(2, "0")} / ${unitName(unit)}`;
 
 export default function RunningDeclaration() {
   const { index } = useLocalSearchParams<{ index?: string }>();
@@ -47,12 +55,15 @@ export default function RunningDeclaration() {
     Number.isInteger(runIndex) && runIndex >= 0
       ? workout.runs[runIndex]
       : undefined;
+
   const existingDuration = existing?.duration?.split(":") || [];
   const existingRest = existing?.rest?.split(":") || [];
+
   const [title, setTitle] = useState(existing?.title || "Running");
-  const [unit, setUnit] = useState(existing?.unit || units[0]);
+  const [unit, setUnit] = useState<DistanceUnitType>(normalizeUnit(existing?.unit));
   const [unitModal, setUnitModal] = useState(false);
   const [repeatModal, setRepeatModal] = useState(false);
+
   const [duration, setDuration] = useState<TimeParts>({
     hours: existingDuration[0] === "00" ? "" : existingDuration[0] || "",
     minutes: existingDuration[1] === "00" ? "" : existingDuration[1] || "",
@@ -67,72 +78,70 @@ export default function RunningDeclaration() {
     seconds: existingRest[2] === "00" ? "" : existingRest[2] || "",
   });
   const [skipLastRest, setSkipLastRest] = useState(
-    existing?.skipLastRest ?? true,
+    existing?.skipLastRest ?? true
   );
   const [notes, setNotes] = useState(existing?.notes || "");
 
+  // Select unit directly without blocking
+  const selectUnit = (selected: DistanceUnitType) => {
+    setUnit(selected);
+    setUnitModal(false);
+  };
+
+  // Perform accurate 2-value calculation
   const calculated = useMemo(() => {
-    const durationSeconds = secondsOf(duration);
-    let distanceInUnits = toNumber(distance);
-    if (unit.includes("Meters") && distanceInUnits > 0) {
-      distanceInUnits = distanceInUnits / 1000;
-    }
-    const match = pace.match(/(\d+)\s*:\s*(\d+(?:\.\d+)?)/);
-    const paceSeconds = match
-      ? toNumber(match[1]) * 60 + toNumber(match[2])
-      : 0;
-    if (
-      [durationSeconds > 0, distanceInUnits > 0, paceSeconds > 0].filter(
-        Boolean,
-      ).length < 2
-    )
-      return { duration: null as TimeParts | null, distance: "", pace: "" };
-    if (!durationSeconds && distanceInUnits && paceSeconds)
-      return {
-        duration: timeParts(distanceInUnits * paceSeconds),
-        distance: "",
-        pace: "",
-      };
-    if (!distanceInUnits && durationSeconds && paceSeconds) {
-      const calculatedDist = durationSeconds / paceSeconds;
-      return {
-        duration: null,
-        distance: unit.includes("Meters")
-          ? String(Math.round(calculatedDist * 1000))
-          : calculatedDist.toFixed(2),
-        pace: "",
-      };
-    }
-    if (!paceSeconds && durationSeconds && distanceInUnits)
-      return {
-        duration: null,
-        distance: "",
-        pace: paceText(durationSeconds / distanceInUnits, unit),
-      };
-    return { duration: null, distance: "", pace: "" };
+    const durSec = secondsOf(duration);
+    const distVal = toNumber(distance);
+    return calculateTwoFields({
+      durationSec: durSec > 0 ? durSec : null,
+      distanceVal: distVal > 0 ? distVal : null,
+      paceStr: pace ? pace : null,
+      unit,
+    });
   }, [distance, duration, pace, unit]);
 
-  const saveStep = () => {
-    const hasDuration = secondsOf(duration) > 0;
-    const hasDistance = toNumber(distance) > 0 || toNumber(calculated.distance) > 0;
-    const hasPace = /\d+\s*:\s*\d+/.test(pace) || /\d+\s*:\s*\d+/.test(calculated.pace);
+  const durationValue =
+    duration.hours || duration.minutes || duration.seconds
+      ? timeText(duration)
+      : calculated.calculatedDuration != null
+      ? secondsToTimeString(calculated.calculatedDuration)
+      : "";
 
-    const filledCount = [hasDuration, hasDistance, hasPace].filter(Boolean).length;
+  const restValue =
+    rest.hours || rest.minutes || rest.seconds ? timeText(rest) : "";
+
+  const saveStep = () => {
+    const hasDuration =
+      secondsOf(duration) > 0 || calculated.calculatedDuration != null;
+    const hasDistance =
+      toNumber(distance) > 0 || toNumber(calculated.calculatedDistance) > 0;
+    const hasPace =
+      Boolean(pace?.trim()) || Boolean(calculated.calculatedPace?.trim());
+
+    const filledCount = [hasDuration, hasDistance, hasPace].filter(Boolean)
+      .length;
 
     if (!title.trim())
       return Alert.alert(
         "Step title required",
-        "Enter a name for this running step.",
+        "Enter a name for this running step."
       );
+
     if (filledCount < 2)
       return Alert.alert(
         "Set any two values",
-        "A run step requires any two of Duration, Distance, and Pace.",
+        "A running step requires any two of Duration, Distance, and Pace."
       );
 
-    const finalDuration = durationValue || (calculated.duration ? timeText(calculated.duration) : "");
-    const finalDistance = distance || calculated.distance;
-    const finalPace = pace || calculated.pace;
+    const finalDuration =
+      duration.hours || duration.minutes || duration.seconds
+        ? timeText(duration)
+        : calculated.calculatedDuration != null
+        ? secondsToTimeString(calculated.calculatedDuration)
+        : "";
+
+    const finalDistance = distance || calculated.calculatedDistance;
+    const finalPace = pace || calculated.calculatedPace;
     const hasRest = secondsOf(rest) > 0;
 
     const step = {
@@ -141,7 +150,7 @@ export default function RunningDeclaration() {
       inputType: finalDuration ? ("DURATION" as const) : ("DISTANCE" as const),
       duration: finalDuration,
       distance: finalDistance,
-      unit,
+      unit: getUnitFullLabel(unit),
       pace: finalPace,
       repeat: Number(repeat) || 1,
       rest: hasRest ? restValue : "",
@@ -152,6 +161,7 @@ export default function RunningDeclaration() {
 
     if (existing) updateRun(runIndex, step);
     else addRun(step);
+
     router.push("/custom-workout/overview");
   };
 
@@ -159,15 +169,6 @@ export default function RunningDeclaration() {
     const [hours, minutes, seconds] = value.split(":");
     setValue({ hours, minutes, seconds });
   };
-
-  const durationValue =
-    duration.hours || duration.minutes || duration.seconds
-      ? timeText(duration)
-      : calculated.duration
-        ? timeText(calculated.duration)
-        : "";
-  const restValue =
-    rest.hours || rest.minutes || rest.seconds ? timeText(rest) : "";
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
@@ -185,8 +186,8 @@ export default function RunningDeclaration() {
             <Feather name="arrow-left" size={26} color={Colors.text} />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
-            <Text style={styles.headerBadge}>STEP 2</Text>
-            <Text style={styles.headerTitle}>Running Step</Text>
+            <Text style={styles.headerBadge}>RUNNING</Text>
+            <Text style={styles.headerTitle}>Configure Step</Text>
           </View>
           <TouchableOpacity onPress={saveStep} style={styles.doneHeader}>
             <Text style={styles.doneText}>DONE</Text>
@@ -197,19 +198,11 @@ export default function RunningDeclaration() {
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.sectionLabel}>STEP NAME</Text>
+          <Text style={styles.sectionLabel}>
+            SET TWO VALUES (AUTO-CALCULATES 3RD)
+          </Text>
           <View style={styles.section}>
-            <TextInput
-              value={title}
-              onChangeText={setTitle}
-              placeholder="e.g. Running, Fast Interval, Hill Run"
-              placeholderTextColor={Colors.textMuted}
-              style={styles.input}
-            />
-          </View>
-
-          <Text style={styles.sectionLabel}>SET TWO VALUES (AUTO-CALCULATES 3RD)</Text>
-          <View style={styles.section}>
+            {/* Duration Input */}
             <Text style={styles.label}>Duration</Text>
             <ScrollTimePicker
               value={durationValue}
@@ -217,12 +210,15 @@ export default function RunningDeclaration() {
               onChange={(value) => updateTime(value, setDuration)}
             />
 
-            <Text style={[styles.label, { marginTop: 16 }]}>Distance</Text>
+            {/* Distance Input & Unit Selector */}
+            <Text style={[styles.label, { marginTop: 16 }]}>
+              Distance ({getUnitLabel(unit)})
+            </Text>
             <View style={styles.row}>
               <TextInput
-                value={distance || calculated.distance}
+                value={distance || calculated.calculatedDistance}
                 onChangeText={setDistance}
-                placeholder="0.00"
+                placeholder={unit === "m" ? "400" : "0.00"}
                 placeholderTextColor={Colors.textMuted}
                 keyboardType="decimal-pad"
                 style={[styles.input, styles.flex]}
@@ -231,7 +227,7 @@ export default function RunningDeclaration() {
                 style={styles.unitButton}
                 onPress={() => setUnitModal(true)}
               >
-                <Text style={styles.unitText}>{unitName(unit)}</Text>
+                <Text style={styles.unitText}>{getUnitLabel(unit)}</Text>
                 <Feather
                   name="chevron-down"
                   size={18}
@@ -240,17 +236,23 @@ export default function RunningDeclaration() {
               </TouchableOpacity>
             </View>
 
-            <Text style={[styles.label, { marginTop: 16 }]}>Pace</Text>
+            {/* Pace Input */}
+            <Text style={[styles.label, { marginTop: 16 }]}>
+              Pace ({getPaceUnitLabel(unit)})
+            </Text>
             <TextInput
-              value={pace || calculated.pace}
+              value={pace || calculated.calculatedPace}
               onChangeText={setPace}
-              placeholder={`e.g. 5:30 / ${unitName(unit)}`}
+              placeholder={
+                unit === "mi" ? "e.g. 8:30 / mi" : "e.g. 5:30 / km"
+              }
               placeholderTextColor={Colors.textMuted}
               keyboardType="numbers-and-punctuation"
               style={styles.input}
             />
+
             <Text style={styles.helper}>
-              Fill any two fields above. The third value will calculate automatically.
+              Fill any 2 fields to calculate the 3rd. Tap the unit button to switch between km, m, and mi.
             </Text>
           </View>
 
@@ -302,7 +304,7 @@ export default function RunningDeclaration() {
               <TextInput
                 value={notes}
                 onChangeText={setNotes}
-                placeholder="Target heart rate, cadence, or step notes"
+                placeholder="Target heart rate, cadence, or interval notes"
                 placeholderTextColor={Colors.textMuted}
                 style={[styles.input, styles.notesInput]}
                 multiline
@@ -310,13 +312,18 @@ export default function RunningDeclaration() {
             </View>
           </View>
 
-          <TouchableOpacity style={styles.saveButton} onPress={saveStep} activeOpacity={0.85}>
+          <TouchableOpacity
+            style={styles.saveButton}
+            onPress={saveStep}
+            activeOpacity={0.85}
+          >
             <Text style={styles.saveText}>SAVE RUNNING STEP</Text>
             <Feather name="check" size={20} color={Colors.background} />
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
 
+      {/* Unit Modal */}
       <Modal
         visible={unitModal}
         transparent
@@ -329,17 +336,14 @@ export default function RunningDeclaration() {
             onPress={(event) => event.stopPropagation()}
           >
             <Text style={styles.modalTitle}>DISTANCE UNIT</Text>
-            {units.map((option) => (
+            {unitOptions.map((option) => (
               <TouchableOpacity
-                key={option}
+                key={option.value}
                 style={styles.option}
-                onPress={() => {
-                  setUnit(option);
-                  setUnitModal(false);
-                }}
+                onPress={() => selectUnit(option.value)}
               >
-                <Text style={styles.optionText}>{option}</Text>
-                {unit === option && (
+                <Text style={styles.optionText}>{option.label}</Text>
+                {unit === option.value && (
                   <Feather name="check" size={21} color={Colors.primaryLight} />
                 )}
               </TouchableOpacity>
@@ -348,6 +352,7 @@ export default function RunningDeclaration() {
         </Pressable>
       </Modal>
 
+      {/* Repeat Modal */}
       <Modal
         visible={repeatModal}
         transparent
@@ -361,7 +366,7 @@ export default function RunningDeclaration() {
           >
             <Text style={styles.modalTitle}>REPEAT COUNT</Text>
             <ScrollView style={styles.repeatScroll}>
-              {Array.from({ length: 40 }, (_, index) => String(index + 1)).map(
+              {Array.from({ length: 40 }, (_, idx) => String(idx + 1)).map(
                 (option) => (
                   <TouchableOpacity
                     key={option}
@@ -380,7 +385,7 @@ export default function RunningDeclaration() {
                       />
                     )}
                   </TouchableOpacity>
-                ),
+                )
               )}
             </ScrollView>
           </Pressable>
@@ -405,7 +410,12 @@ const styles = StyleSheet.create({
   },
   headerIcon: { width: 55 },
   headerCenter: { alignItems: "center" },
-  headerBadge: { color: Colors.primary, fontSize: 11, fontWeight: "700", letterSpacing: 1 },
+  headerBadge: {
+    color: Colors.primary,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
+  },
   headerTitle: { color: Colors.text, fontSize: 20, fontWeight: "700" },
   doneHeader: { minWidth: 55, alignItems: "flex-end" },
   doneText: { color: Colors.primaryLight, fontSize: 14, fontWeight: "800" },
@@ -500,14 +510,25 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderRadius: 14,
   },
-  saveText: { color: Colors.background, fontSize: 15, fontWeight: "800", letterSpacing: 0.5 },
+  saveText: {
+    color: Colors.background,
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
   overlay: {
     flex: 1,
     justifyContent: "center",
     padding: 24,
     backgroundColor: "rgba(0,0,0,0.75)",
   },
-  modal: { overflow: "hidden", backgroundColor: "#222224", borderRadius: 16, borderWidth: 1, borderColor: "#333336" },
+  modal: {
+    overflow: "hidden",
+    backgroundColor: "#222224",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#333336",
+  },
   modalTitle: {
     padding: 20,
     color: Colors.textSecondary,

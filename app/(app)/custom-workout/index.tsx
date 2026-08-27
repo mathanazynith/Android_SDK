@@ -20,6 +20,11 @@ import { Colors } from '../../../constants/theme';
 import { ScrollTimePicker } from '../../../components/ScrollTimePicker';
 import { useCustomWorkout } from './workout-context';
 import CustomWorkoutOverview from './overview';
+import CustomWorkoutCards from './cards';
+import {
+  normalizeUnit,
+  formatSecondsToPace,
+} from '../../../src/utils/workoutCalculations';
 
 type DurationMode = 'duration' | 'distance';
 type PickerName = 'durationType' | 'distanceUnit' | null;
@@ -48,14 +53,18 @@ function CustomWorkoutWarmUp() {
   const [distance, setDistance] = useState(existing?.distance || '');
   const [pace, setPace] = useState(existing?.pace || '');
   const [notes, setNotes] = useState(existing?.notes || '');
+  const activeUnitType = useMemo(
+    () => normalizeUnit(distanceUnit),
+    [distanceUnit]
+  );
 
   const calculatedPace = useMemo(() => {
     const totalSeconds = toNumber(hours) * 3600 + toNumber(minutes) * 60 + toNumber(seconds);
-    const distanceInKm = toNumber(distance) * (distanceUnit.includes('Miles') ? 1.60934 : 1);
-    if (!totalSeconds || !distanceInKm) return '';
-    const paceSeconds = Math.round(totalSeconds / distanceInKm);
-    return `${Math.floor(paceSeconds / 60)}:${String(paceSeconds % 60).padStart(2, '0')} / km`;
-  }, [distance, distanceUnit, hours, minutes, seconds]);
+    const distVal = toNumber(distance);
+    if (!totalSeconds || !distVal) return '';
+    const paceSeconds = totalSeconds / distVal;
+    return formatSecondsToPace(paceSeconds, activeUnitType);
+  }, [distance, activeUnitType, hours, minutes, seconds]);
 
   const pickerValues: Record<Exclude<PickerName, null>, string> = {
     durationType: durationMode === 'duration' ? 'Time' : 'Distance',
@@ -63,8 +72,12 @@ function CustomWorkoutWarmUp() {
   };
 
   const selectPickerValue = (value: string) => {
-    if (picker === 'durationType') setDurationMode(value === 'Time' ? 'duration' : 'distance');
-    if (picker === 'distanceUnit') setDistanceUnit(value);
+    if (picker === 'durationType') {
+      setDurationMode(value === 'Time' ? 'duration' : 'distance');
+    }
+    if (picker === 'distanceUnit') {
+      setDistanceUnit(value);
+    }
     setPicker(null);
   };
 
@@ -82,19 +95,35 @@ function CustomWorkoutWarmUp() {
       return;
     }
 
-    setWarmUp({
-      title: 'Warm Up',
-      stepType: 'Warmup',
-      inputType: durationMode === 'duration' ? 'DURATION' : 'DISTANCE',
-      duration: `${hours || '00'}:${minutes || '00'}:${seconds || '00'}`,
-      distance: durationMode === 'distance' ? distance : '',
-      unit: distanceUnit,
-      pace: pace || calculatedPace,
-      repeat: 1,
-      rest: '',
-      skipLastRest: true,
-      notes: notes.trim(),
-    });
+    if (durationMode === 'duration') {
+      setWarmUp({
+        title: 'Warm Up',
+        stepType: 'Warmup',
+        inputType: 'DURATION',
+        duration: `${hours || '00'}:${minutes || '00'}:${seconds || '00'}`,
+        distance: '',
+        unit: distanceUnit,
+        pace: pace ? pace.trim() : '',
+        repeat: 1,
+        rest: '',
+        skipLastRest: true,
+        notes: notes.trim(),
+      });
+    } else {
+      setWarmUp({
+        title: 'Warm Up',
+        stepType: 'Warmup',
+        inputType: 'DISTANCE',
+        duration: '',
+        distance: distance.trim(),
+        unit: distanceUnit,
+        pace: pace ? pace.trim() : '',
+        repeat: 1,
+        rest: '',
+        skipLastRest: true,
+        notes: notes.trim(),
+      });
+    }
     router.push('/custom-workout/overview');
   };
 
@@ -224,7 +253,9 @@ function CustomWorkoutWarmUp() {
 
 export default function CustomWorkoutEntry() {
   const { step } = useLocalSearchParams<{ step?: string }>();
-  return step === 'warmup' ? <CustomWorkoutWarmUp /> : <CustomWorkoutOverview />;
+  if (step === 'warmup') return <CustomWorkoutWarmUp />;
+  if (step === 'overview') return <CustomWorkoutOverview />;
+  return <CustomWorkoutCards />;
 }
 
 function PickerRow({ label, value, onPress }: { label: string; value: string; onPress: () => void }) {
