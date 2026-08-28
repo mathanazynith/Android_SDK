@@ -1,13 +1,13 @@
-import { calculateDistanceMeters } from '../utils/distance';
 import { RunningGpsPoint } from '../types/running';
 import {
-  ActiveWorkoutSegment,
-  BackendWorkout,
-  WorkoutEngineSnapshot,
-  WorkoutEngineState,
-  WorkoutLap,
-  WorkoutSegmentType,
+    ActiveWorkoutSegment,
+    BackendWorkout,
+    WorkoutEngineSnapshot,
+    WorkoutEngineState,
+    WorkoutLap,
+    WorkoutSegmentType,
 } from '../types/workout';
+import { calculateDistanceMeters } from '../utils/distance';
 
 export interface WorkoutEngineCallbacks {
   onSegmentStarted?: (segment: ActiveWorkoutSegment) => void;
@@ -110,7 +110,9 @@ export class WorkoutEngine {
   }
 
   public shouldUseLightPolyline(): boolean {
-    return this.state !== 'running' || this.currentLap?.segmentType === 'Rest';
+    // Rest is still part of the planned workout, so it remains green.
+    // Only post-workout continuation (or a manual pause) is gray.
+    return this.state === 'completed' || this.state === 'paused';
   }
 
   public isDistanceCounting(): boolean {

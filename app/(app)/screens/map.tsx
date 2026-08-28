@@ -83,6 +83,7 @@ export default function MapScreen() {
   const queueRef = useRef<LocationQueue | null>(null);
   const uploadInProgressRef = useRef(false);
   const distanceRef = useRef(0);
+  const extraDistanceRef = useRef(0);
   const lastRetainedCoordinateRef = useRef<Coordinate | null>(null);
   const isRunningRef = useRef(false);
   const lastCameraUpdateRef = useRef(0);
@@ -456,6 +457,12 @@ export default function MapScreen() {
       const lightTrace = workoutEngine?.shouldUseLightPolyline() ?? isPausedRef.current;
       const countsWorkoutDistance = workoutEngine?.isDistanceCounting() ?? !isPausedRef.current;
 
+      console.log(
+        `[WorkoutMapView] Route color=${lightTrace ? 'gray' : 'green'} `
+        + `segment=${workoutEngine?.getSnapshot().currentSegment?.segmentType ?? 'extra'} `
+        + `state=${workoutEngine?.getSnapshot().state ?? 'free-run'}`
+      );
+
       if (retained && workoutEngine && hasCurrentMovement) {
         if (countsWorkoutDistance) {
           workoutEngine.ingestDistancePoint(previousWorkoutPointRef.current, retained);
@@ -496,20 +503,28 @@ export default function MapScreen() {
 
         const displayPointWasAdded = processor.getDisplayPoints().length > displayCountBefore;
         const latestDisplayPoint = processor.getDisplayPoints().at(-1);
-        if (countsWorkoutDistance && displayPointWasAdded && latestDisplayPoint && lastRetainedCoordinateRef.current) {
+        if (displayPointWasAdded && latestDisplayPoint && lastRetainedCoordinateRef.current) {
           const movementDistance = calculateDistanceMeters(
             lastRetainedCoordinateRef.current,
             { latitude: latestDisplayPoint.latitude, longitude: latestDisplayPoint.longitude }
           );
 
           if (movementDistance > 0 && movementDistance < 50) {
-            const nextDistance = distanceRef.current + movementDistance;
-            distanceRef.current = nextDistance;
-            setDistance(nextDistance);
+            if (countsWorkoutDistance) {
+              const nextDistance = distanceRef.current + movementDistance;
+              distanceRef.current = nextDistance;
+              setDistance(nextDistance);
+            } else if (workoutEngine?.getSnapshot().state === 'completed') {
+              extraDistanceRef.current += movementDistance;
+              console.log(
+                `[Workout] Extra activity accepted: +${movementDistance.toFixed(1)}m `
+                + `(total extra ${extraDistanceRef.current.toFixed(1)}m)`
+              );
+            }
           }
         }
 
-        if (countsWorkoutDistance && displayPointWasAdded && latestDisplayPoint) {
+        if (displayPointWasAdded && latestDisplayPoint) {
           lastRetainedCoordinateRef.current = {
             latitude: latestDisplayPoint.latitude,
             longitude: latestDisplayPoint.longitude,
@@ -568,6 +583,7 @@ export default function MapScreen() {
       routeSegmentsRef.current = [];
       setRouteSegments([]);
       distanceRef.current = 0;
+      extraDistanceRef.current = 0;
       setDistance(0);
       setElapsedSeconds(0);
       stepCountRef.current = 0;
@@ -663,11 +679,13 @@ export default function MapScreen() {
               if (state !== 'completed') {
                 // Planned segments continue without interrupting the runner.
                 // Samples during the waiting transition remain gray.
+                console.log(`[Workout] Planned ${lap.segmentType} complete; continuing to next segment`);
                 engine.continue();
                 setWorkoutSnapshot(engine.getSnapshot());
                 return;
               }
 
+              console.log('[Workout] All planned segments complete; showing Continue/Stop popup');
               Alert.alert(
                 'Workout complete',
                 'Do you want to continue with extra activity or stop and save the workout?',
@@ -675,11 +693,17 @@ export default function MapScreen() {
                   {
                     text: 'Stop and save',
                     style: 'destructive',
-                    onPress: () => { void stopRun(); },
+                    onPress: () => {
+                      console.log('[Workout] User selected Stop and save');
+                      void stopRun();
+                    },
                   },
                   {
                     text: 'Continue',
-                    onPress: () => { void voice.workoutCompleted(); },
+                    onPress: () => {
+                      console.log('[Workout] User selected Continue; extra activity is gray');
+                      void voice.workoutCompleted();
+                    },
                   },
                 ],
               );
@@ -882,9 +906,14 @@ export default function MapScreen() {
         // Indoor drift protection can intentionally collapse a session to one
         // anchor. A saved polyline needs two points, so retain the valid raw
         // trace as a fallback only in that edge case.
-        const uploadRoutePoints: RunningGpsPoint[] = finalOptimized.length >= 2
+        const usingOptimizedRoute = finalOptimized.length >= 2;
+        const uploadRoutePoints: RunningGpsPoint[] = usingOptimizedRoute
           ? finalOptimized
           : processor.getRawPoints();
+        console.log(
+          `[LocationManager] Stop & Save route source: ${usingOptimizedRoute ? 'optimized' : 'raw fallback'} `
+          + `(${uploadRoutePoints.length} points uploaded)`
+        );
         if (finalOptimized.length < 2 && uploadRoutePoints.length >= 2) {
           console.warn('[LocationManager] Final filter produced fewer than two points; raw route fallback retained for history polyline');
         }
@@ -915,18 +944,31 @@ export default function MapScreen() {
 
         addLog(`?? Final optimization: ${finalOptimized.length} points`);
 
+        const totalDistance = distanceRef.current + extraDistanceRef.current;
         const routePayload = {
           workout_type: workoutType,
           start_time: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : new Date().toISOString(),
           end_time: new Date().toISOString(),
           coordinates: finalCoordinates,
-          distance: distanceRef.current,
+          distance: totalDistance,
           duration: elapsedSeconds,
           route_points: finalCoordinates.length,
         };
 
         console.log('[LocationManager] FINAL BACKEND PAYLOAD:');
         console.log(JSON.stringify(routePayload, null, 2));
+        console.log(
+          `[Workout] Saving complete route: ${uploadRoutePoints.length} GPS points `
+          + `(${workoutEngineRef.current?.getSnapshot().completedLaps.length ?? 0} planned laps; extra points included)`
+        );
+        const extraRoutePointCount = routeSegmentsRef.current
+          .filter((segment) => segment.isLight)
+          .reduce((count, segment) => count + segment.coordinates.length, 0);
+        console.log(`[Workout] Extra gray route points included: ${extraRoutePointCount}`);
+        console.log(
+          `[Workout] Distance summary: planned=${distanceRef.current.toFixed(1)}m `
+          + `extra=${extraDistanceRef.current.toFixed(1)}m total=${totalDistance.toFixed(1)}m`
+        );
 
         // Keep a console payload equivalent to the iOS Activity Payload log.
         // It contains only the points that survived the save-time filtering and
@@ -1255,7 +1297,7 @@ export default function MapScreen() {
             )}
           </View>
 
-          {isRunning && !isPlannedWorkout && (
+          {isRunning && (!isPlannedWorkout || workoutSnapshot?.state === 'completed') && (
             <View style={styles.stopButtonSlot}>
               <Pressable
                 style={styles.stopButton}
