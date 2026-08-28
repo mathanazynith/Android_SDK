@@ -5,6 +5,7 @@ import { ActiveWorkoutSegment, BackendWorkout, WorkoutLap } from '../types/worko
 export class WorkoutVoiceService {
   private speaking = false;
   private readonly queue: string[] = [];
+  private readonly completions: (() => void)[] = [];
 
   public workoutStarted(workout: BackendWorkout): void {
     this.enqueue([
@@ -21,27 +22,31 @@ export class WorkoutVoiceService {
     this.enqueue([label, this.target(segment), this.text(segment.notes)].filter(Boolean).join(' '));
   }
 
-  public segmentCompleted(lap: WorkoutLap): void {
+  public segmentCompleted(lap: WorkoutLap): Promise<void> {
     const label = lap.segmentType === 'Run'
       ? `Interval ${lap.repeatNumber} of ${lap.totalRepeats} complete.`
       : `${lap.segmentType} complete.`;
-    this.enqueue(label);
+    return this.enqueue(label);
   }
 
-  public workoutCompleted(): void {
-    this.enqueue('Workout complete. Great job.');
+  public workoutCompleted(): Promise<void> {
+    return this.enqueue('Workout complete. Great job.');
   }
 
   public stop(): void {
     this.queue.length = 0;
+    while (this.completions.length > 0) this.completions.shift()?.();
     this.speaking = false;
     Speech.stop();
   }
 
-  private enqueue(message: string): void {
-    if (!message.trim()) return;
-    this.queue.push(message.trim());
-    void this.playNext();
+  private enqueue(message: string): Promise<void> {
+    if (!message.trim()) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.queue.push(message.trim());
+      this.completions.push(resolve);
+      void this.playNext();
+    });
   }
 
   private async playNext(): Promise<void> {
@@ -58,6 +63,7 @@ export class WorkoutVoiceService {
       });
     });
     this.speaking = false;
+    this.completions.shift()?.();
     void this.playNext();
   }
 

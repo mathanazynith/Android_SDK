@@ -12,18 +12,18 @@ import {
     View,
 } from 'react-native';
 import MapView, { Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { workoutPlanService } from '../../../service/workoutPlan';
 import { ActivityDetectionService } from '../../../src/services/activityDetectionService';
 import { LocationQueue } from '../../../src/services/locationQueue';
 import { LocationService } from '../../../src/services/locationService';
 import { PathProcessor } from '../../../src/services/pathProcessor';
 import { RunningApiClient } from '../../../src/services/runningApi';
 import { StepDetectionService } from '../../../src/services/stepDetectionService';
-import { ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
 import { WorkoutEngine } from '../../../src/services/workoutEngine';
 import { WorkoutVoiceService } from '../../../src/services/workoutVoiceService';
+import { ActivityLapPayload, ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
 import { BackendWorkout, WorkoutEngineSnapshot } from '../../../src/types/workout';
 import { calculateDistanceMeters } from '../../../src/utils/distance';
-import { workoutPlanService } from '../../../service/workoutPlan';
 
 const RUNNING_USER_ID = 'USER-1001';
 
@@ -57,7 +57,6 @@ export default function MapScreen() {
   const [isRunning, setIsRunning] = useState(false);
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [isMapReady, setIsMapReady] = useState(false);
-  const [routeCoordinates, setRouteCoordinates] = useState<Coordinate[]>([]);
   const [routeSegments, setRouteSegments] = useState<RouteSegment[]>([]);
   const [distance, setDistance] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -226,10 +225,6 @@ export default function MapScreen() {
 
     routeSegmentsRef.current = next;
     setRouteSegments(next);
-    // Keep one canonical route for the always-mounted map Polyline. This is
-    // deliberately independent of the visual segment colour so native map
-    // updates cannot leave the workout screen with no drawable route.
-    setRouteCoordinates((coordinates) => [...coordinates, point]);
   }, []);
 
   const requestLocation = useCallback(async () => {
@@ -570,7 +565,6 @@ export default function MapScreen() {
         }
       }
 
-      setRouteCoordinates([]);
       routeSegmentsRef.current = [];
       setRouteSegments([]);
       distanceRef.current = 0;
@@ -637,11 +631,6 @@ export default function MapScreen() {
       // produces no additional indoor fixes during a short workout.
       const startRawPoint = pathProcessor.ingestRaw(currentLocation);
       if (startRawPoint) {
-        const initialRoute = pathProcessor.getRawPoints().map((point) => ({
-          latitude: point.latitude,
-          longitude: point.longitude,
-        }));
-        setRouteCoordinates(initialRoute);
         lastRetainedCoordinateRef.current = {
           latitude: startRawPoint.latitude,
           longitude: startRawPoint.longitude,
@@ -668,20 +657,37 @@ export default function MapScreen() {
             setWorkoutSnapshot(engine.getSnapshot());
           },
           onSegmentCompleted: (lap) => {
-            voice.segmentCompleted(lap);
-            // Segments run continuously: completion is announced first, then
-            // the queued next-segment announcement follows automatically.
-            if (engine.getSnapshot().state === 'waiting') {
-              engine.continue();
-            }
+            void voice.segmentCompleted(lap).then(() => {
+              if (!isRunningRef.current) return;
+              const state = engine.getSnapshot().state;
+              if (state !== 'completed') {
+                // Planned segments continue without interrupting the runner.
+                // Samples during the waiting transition remain gray.
+                engine.continue();
+                setWorkoutSnapshot(engine.getSnapshot());
+                return;
+              }
+
+              Alert.alert(
+                'Workout complete',
+                'Do you want to continue with extra activity or stop and save the workout?',
+                [
+                  {
+                    text: 'Stop and save',
+                    style: 'destructive',
+                    onPress: () => { void stopRun(); },
+                  },
+                  {
+                    text: 'Continue',
+                    onPress: () => { void voice.workoutCompleted(); },
+                  },
+                ],
+              );
+            });
             setWorkoutSnapshot(engine.getSnapshot());
           },
           onWorkoutCompleted: () => {
-            voice.workoutCompleted();
             setWorkoutSnapshot(engine.getSnapshot());
-            setTimeout(() => {
-              if (isRunningRef.current) void stopRun();
-            }, 0);
           },
         });
         workoutVoiceRef.current = voice;
@@ -846,7 +852,6 @@ export default function MapScreen() {
         console.log(
           `[LocationManager] Stationary session discarded: activity=${detectedActivity ?? 'unknown'}, steps=${stepCountRef.current}; no route or activity upload`
         );
-        setRouteCoordinates([]);
         distanceRef.current = 0;
         setDistance(0);
         setOptimizedStats({ rawPointCount: 0, optimizedPointCount: 0, reductionPercent: 0 });
@@ -884,9 +889,8 @@ export default function MapScreen() {
           console.warn('[LocationManager] Final filter produced fewer than two points; raw route fallback retained for history polyline');
         }
 
-        // These coordinates are only for the final backend submission. Never
-        // assign them to routeCoordinates: the map must retain its complete
-        // live raw trace after Stop & Save.
+        // These coordinates are only for the final backend submission. The map
+        // retains its complete live raw trace after Stop & Save.
         const finalCoordinates = uploadRoutePoints.map((point) => ({
           latitude: point.latitude,
           longitude: point.longitude,
@@ -927,6 +931,19 @@ export default function MapScreen() {
         // Keep a console payload equivalent to the iOS Activity Payload log.
         // It contains only the points that survived the save-time filtering and
         // optimization, never the unfiltered live-display samples.
+        const completedLaps = workoutEngineRef.current?.getSnapshot().completedLaps ?? [];
+        const laps: ActivityLapPayload[] = completedLaps.map((lap) => ({
+          segment_order: lap.segmentOrder,
+          segment_type: lap.segmentType,
+          repeat_number: lap.repeatNumber,
+          total_repeats: lap.totalRepeats,
+          distance_meters: lap.distanceMeters,
+          duration_seconds: lap.elapsedSeconds,
+          pace_seconds_per_km: lap.distanceMeters > 0
+            ? lap.elapsedSeconds / (lap.distanceMeters / 1000)
+            : null,
+          completed: lap.completed,
+        }));
         const iosStyleActivityPayload: ActivitySubmissionPayload = {
           gps_points: uploadRoutePoints.map((point) => ({
             longitude: point.longitude,
@@ -942,6 +959,7 @@ export default function MapScreen() {
             : new Date().toISOString(),
           end_time: stoppedAt.toISOString(),
           activity_type: activityType,
+          laps,
         };
         console.log('📤 ACTIVITY PAYLOAD (to backend):');
         console.log(JSON.stringify(iosStyleActivityPayload, null, 2));
@@ -1117,15 +1135,6 @@ export default function MapScreen() {
               geodesic={true}
             />
           ))}
-          {/* This overlay is always mounted and receives the complete route. */}
-          <Polyline
-            coordinates={routeCoordinates}
-            strokeWidth={6}
-            strokeColor="#20D000"
-            lineCap="round"
-            lineJoin="round"
-            geodesic={true}
-          />
         </MapView>
 
         <View style={styles.zoomControls}>
@@ -1173,6 +1182,9 @@ export default function MapScreen() {
                 {workoutSnapshot.currentLap.targetDistanceMeters !== null
                   ? `${workoutSnapshot.currentLap.distanceMeters.toFixed(1)} / ${Math.round(workoutSnapshot.currentLap.targetDistanceMeters)}m`
                   : `${Math.floor(workoutSnapshot.currentLap.elapsedSeconds)} / ${workoutSnapshot.currentLap.targetDurationSeconds ?? 0}s`}
+                {workoutSnapshot.currentLap.distanceMeters > 0
+                  ? ` · ${(workoutSnapshot.currentLap.elapsedSeconds / (workoutSnapshot.currentLap.distanceMeters / 1000) / 60).toFixed(2)} min/km`
+                  : ''}
               </Text>
             )}
             {isRunning && distance > 0 && (

@@ -71,6 +71,18 @@ export interface ActivitySubmissionPayload {
   start_time: string;
   end_time: string;
   activity_type: 'RUN' | 'WALK';
+  laps?: ActivityLapPayload[];
+}
+
+export interface ActivityLapPayload {
+  segment_order: number;
+  segment_type: 'Warmup' | 'Run' | 'Rest' | 'Cooldown';
+  repeat_number: number;
+  total_repeats: number;
+  distance_meters: number;
+  duration_seconds: number;
+  pace_seconds_per_km: number | null;
+  completed: boolean;
 }
 
 export interface PathProcessorSnapshot {
