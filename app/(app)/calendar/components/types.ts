@@ -3,6 +3,17 @@ import { Ionicons } from '@expo/vector-icons';
 
 export type WorkoutIconName = ComponentProps<typeof Ionicons>['name'];
 
+export interface WorkoutSegment {
+  order: number;
+  type: string;
+  repeats: number;
+  distance: string;
+  duration: string;
+  pace: string;
+  rest: string;
+  notes: string;
+}
+
 export interface WorkoutDetail {
   id: string;
   day: string;
@@ -23,6 +34,7 @@ export interface WorkoutDetail {
   heartRateZone: string;
   distance: string;
   notes: string;
+  segments: WorkoutSegment[];
 }
 
 export interface RunningPlanWeek {

@@ -122,6 +122,7 @@ const toWorkoutDetail = (workout: CurrentWorkout): WorkoutDetail => {
     heartRateZone: workout.zone,
     distance: formatDistance(workout.distance),
     notes: workout.notes,
+    segments: workout.segments.map((segment) => ({ order: segment.segment_order, type: segment.segment_type, repeats: segment.repeats, distance: segment.rep_distance != null ? `${(segment.rep_distance / 1000).toFixed(1)} km` : '', duration: formatDuration(segment.duration), pace: segment.target_pace ? `${segment.target_pace} ${segment.pace_unit}`.trim() : '', rest: segment.rest_duration != null ? formatDuration(segment.rest_duration) : '', notes: segment.notes })),
   };
 };
 

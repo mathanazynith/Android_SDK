@@ -92,6 +92,7 @@ const toWorkoutDetail = (workout: CurrentWorkout): WorkoutDetail => {
     title: workout.title, workoutType: isRest ? 'Recovery' : workout.workout_type, iconName: iconForWorkout(workout), accentColor: isRest ? '#8A8F94' : '#63C72B', isRest,
     description: workout.notes, instructions: '', warmUp: formatDistance(workout.warmup), steps: workout.segments.map(formatSegment).filter(Boolean), coolDown: formatDistance(workout.cooldown),
     estimatedDuration: formatDuration(workout.duration), estimatedCalories: '', targetPace: workout.target_pace ? `${workout.target_pace} ${workout.pace_unit}`.trim() : '', heartRateZone: workout.zone, distance: formatDistance(workout.distance), notes: workout.notes,
+    segments: workout.segments.map((segment) => ({ order: segment.segment_order, type: segment.segment_type, repeats: segment.repeats, distance: segment.rep_distance != null ? `${segment.rep_distance / 1000} km` : '', duration: formatDuration(segment.duration), pace: segment.target_pace ? `${segment.target_pace} ${segment.pace_unit}`.trim() : '', rest: segment.rest_duration != null ? formatDuration(segment.rest_duration) : '', notes: segment.notes })),
   };
 };
 
