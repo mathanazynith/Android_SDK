@@ -51,6 +51,17 @@ interface LocationState {
   timestamp: number;
 }
 
+const calculateRouteDistance = (points: RunningGpsPoint[]): number => {
+  let total = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const distance = calculateDistanceMeters(points[index - 1], points[index]);
+    if (Number.isFinite(distance) && distance > 0 && distance < 50) {
+      total += distance;
+    }
+  }
+  return total;
+};
+
 export default function MapScreen() {
   const plannedWorkout = useLocalSearchParams<{ workoutTitle?: string }>();
   const [loading, setLoading] = useState(false);
@@ -487,22 +498,20 @@ export default function MapScreen() {
       }
 
       if (retained) {
-        // Match iOS: draw every fresh live location immediately, even when it
-        // is later rejected from the saved workout for being inaccurate.
-        // The strict save-time filter remains independent of this visual trace.
-        // Drawing is intentionally based on every valid, movement-confirmed
-        // raw fix. Display points keep their stricter indoor-noise gate for
-        // distance only; they must not suppress the visible route.
-        appendRoutePoint(
-          { latitude: retained.latitude, longitude: retained.longitude },
-          lightTrace,
-        );
+        // Keep raw points for saving and diagnostics, but draw only points that
+        // pass the live display interval and movement gate.
+        const displayPointWasAdded = processor.getDisplayPoints().length > displayCountBefore;
+        const latestDisplayPoint = processor.getDisplayPoints().at(-1);
+        if (displayPointWasAdded && latestDisplayPoint) {
+          appendRoutePoint(
+            { latitude: latestDisplayPoint.latitude, longitude: latestDisplayPoint.longitude },
+            lightTrace,
+          );
+        }
         console.log(`[WorkoutMapView] 📌 Polyline updated: ${processor.getRawPoints().length} live raw points`);
         console.log(`[LocationManager] Tiers -> raw:${processor.getRawPoints().length} display:${processor.getDisplayPoints().length}`);
         addLog(`📌 Live polyline: ${processor.getRawPoints().length} points`);
 
-        const displayPointWasAdded = processor.getDisplayPoints().length > displayCountBefore;
-        const latestDisplayPoint = processor.getDisplayPoints().at(-1);
         if (displayPointWasAdded && latestDisplayPoint && lastRetainedCoordinateRef.current) {
           const movementDistance = calculateDistanceMeters(
             lastRetainedCoordinateRef.current,
@@ -516,6 +525,7 @@ export default function MapScreen() {
               setDistance(nextDistance);
             } else if (workoutEngine?.getSnapshot().state === 'completed') {
               extraDistanceRef.current += movementDistance;
+              setDistance(distanceRef.current + extraDistanceRef.current);
               console.log(
                 `[Workout] Extra activity accepted: +${movementDistance.toFixed(1)}m `
                 + `(total extra ${extraDistanceRef.current.toFixed(1)}m)`
@@ -669,16 +679,24 @@ export default function MapScreen() {
         let engine: WorkoutEngine;
         engine = new WorkoutEngine({
           onSegmentStarted: (segment) => {
+            console.log(
+              `[Workout] Segment started: ${segment.segmentType} `
+              + `${segment.repeatNumber}/${segment.totalRepeats}`
+            );
             voice.segmentStarted(segment);
             setWorkoutSnapshot(engine.getSnapshot());
           },
           onSegmentCompleted: (lap) => {
+            console.log(
+              `[Workout] Segment completed: ${lap.segmentType} `
+              + `${lap.repeatNumber}/${lap.totalRepeats} `
+              + `distance=${lap.distanceMeters.toFixed(1)}m duration=${lap.elapsedSeconds.toFixed(1)}s`
+            );
             void voice.segmentCompleted(lap).then(() => {
               if (!isRunningRef.current) return;
               const state = engine.getSnapshot().state;
               if (state !== 'completed') {
                 // Planned segments continue without interrupting the runner.
-                // Samples during the waiting transition remain gray.
                 console.log(`[Workout] Planned ${lap.segmentType} complete; continuing to next segment`);
                 engine.continue();
                 setWorkoutSnapshot(engine.getSnapshot());
@@ -711,12 +729,17 @@ export default function MapScreen() {
             setWorkoutSnapshot(engine.getSnapshot());
           },
           onWorkoutCompleted: () => {
+            console.log('[Workout] All backend workout segments completed');
             setWorkoutSnapshot(engine.getSnapshot());
           },
         });
         workoutVoiceRef.current = voice;
         workoutEngineRef.current = engine;
         engine.loadWorkout(selectedWorkout);
+        console.log(
+          `[Workout] Backend workout loaded: "${selectedWorkout.title}" `
+          + `${engine.getSnapshot().totalLaps} planned segments`
+        );
         voice.workoutStarted(selectedWorkout);
         engine.start(startRawPoint);
         previousWorkoutPointRef.current = startRawPoint;
@@ -871,6 +894,11 @@ export default function MapScreen() {
       stepDetectionRef.current = null;
 
       const processor = pathProcessorRef.current;
+      console.log(
+        `[RecordView] Stop & Save data: rawPoints=${processor?.getRawPoints().length ?? 0} `
+        + `workoutDistance=${distanceRef.current.toFixed(2)}m `
+        + `additionalDistance=${extraDistanceRef.current.toFixed(2)}m`
+      );
 
       if (stationarySession) {
         console.log(
@@ -882,6 +910,7 @@ export default function MapScreen() {
         addLog('No movement detected — route was not saved');
 
         if (apiClientRef.current && runIdRef.current) {
+          console.log('[RecordView] Stopping stationary run without activity upload');
           await apiClientRef.current.stopRun({
             run_id: runIdRef.current,
             ended_at: stoppedAt.toISOString(),
@@ -889,6 +918,7 @@ export default function MapScreen() {
           });
         }
       } else if (processor) {
+        console.log('[RecordView] Stop & Save: starting filter and optimization');
         console.log('[LocationManager] Raw points collected:', processor.getRawPoints().length);
         console.log('[LocationManager] Filtering started');
         const filteredPoints = processor.filterRawPoints();
@@ -902,6 +932,10 @@ export default function MapScreen() {
 
         console.log(`[LocationManager] Optimized points: ${optimizedCount}`);
         console.log(`[LocationManager] Reduction: ${reductionPercent}%`);
+        console.log(
+          `[WorkoutHistory] Optimized polyline prepared for history only: `
+          + `raw=${rawPointCount}, filtered=${filteredPoints.length}, optimized=${optimizedCount}`
+        );
 
         // Indoor drift protection can intentionally collapse a session to one
         // anchor. A saved polyline needs two points, so retain the valid raw
@@ -913,6 +947,10 @@ export default function MapScreen() {
         console.log(
           `[LocationManager] Stop & Save route source: ${usingOptimizedRoute ? 'optimized' : 'raw fallback'} `
           + `(${uploadRoutePoints.length} points uploaded)`
+        );
+        console.log(
+          `[WorkoutHistory] Uploading ${uploadRoutePoints.length} optimized history points; `
+          + 'live SDK points remain separate'
         );
         if (finalOptimized.length < 2 && uploadRoutePoints.length >= 2) {
           console.warn('[LocationManager] Final filter produced fewer than two points; raw route fallback retained for history polyline');
@@ -944,7 +982,29 @@ export default function MapScreen() {
 
         addLog(`?? Final optimization: ${finalOptimized.length} points`);
 
-        const totalDistance = distanceRef.current + extraDistanceRef.current;
+        const uploadedRouteDistance = calculateRouteDistance(uploadRoutePoints);
+        const trackedDistance = distanceRef.current + extraDistanceRef.current;
+        const totalDistance = uploadedRouteDistance > 0 ? uploadedRouteDistance : trackedDistance;
+        if (uploadedRouteDistance > 0 && trackedDistance === 0) {
+          distanceRef.current = uploadedRouteDistance;
+          console.log(
+            `[LocationManager] Live distance was zero; recovered workout distance from uploaded route: `
+            + `${uploadedRouteDistance.toFixed(2)}m`
+          );
+        }
+        if (uploadedRouteDistance > 0) {
+          setDistance(totalDistance);
+        }
+        console.log(
+          `[LocationManager] Final distance source: uploaded route `
+          + `${uploadedRouteDistance.toFixed(2)}m (tracked live total ${trackedDistance.toFixed(2)}m)`
+        );
+        const distanceSummary = {
+          workout_distance_meters: Number(distanceRef.current.toFixed(2)),
+          additional_distance_meters: Number(extraDistanceRef.current.toFixed(2)),
+          total_distance_meters: Number(totalDistance.toFixed(2)),
+          total_distance_kilometers: Number((totalDistance / 1000).toFixed(3)),
+        };
         const routePayload = {
           workout_type: workoutType,
           start_time: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : new Date().toISOString(),
@@ -957,6 +1017,8 @@ export default function MapScreen() {
 
         console.log('[LocationManager] FINAL BACKEND PAYLOAD:');
         console.log(JSON.stringify(routePayload, null, 2));
+        console.log('[LocationManager] DISTANCE SUMMARY (workout + additional):');
+        console.log(JSON.stringify(distanceSummary, null, 2));
         console.log(
           `[Workout] Saving complete route: ${uploadRoutePoints.length} GPS points `
           + `(${workoutEngineRef.current?.getSnapshot().completedLaps.length ?? 0} planned laps; extra points included)`
@@ -1003,12 +1065,24 @@ export default function MapScreen() {
           activity_type: activityType,
           laps,
         };
+        const backendPayloadLog = {
+          ...iosStyleActivityPayload,
+          distance_summary: distanceSummary,
+          route_points: uploadRoutePoints.length,
+        };
+        console.log('[LocationManager] BACKEND PAYLOAD JSON (optimized route + distance):');
+        console.log(JSON.stringify(backendPayloadLog, null, 2));
         console.log('📤 ACTIVITY PAYLOAD (to backend):');
         console.log(JSON.stringify(iosStyleActivityPayload, null, 2));
 
         if (apiClientRef.current) {
+          console.log(
+            `[RecordView] Stop & Save: submitting ${iosStyleActivityPayload.gps_points.length} `
+            + 'optimized GPS points to backend'
+          );
           // Submit the actual final payload in the iOS-compatible shape.
           const activitySubmitted = await apiClientRef.current.submitActivity(iosStyleActivityPayload);
+          console.log(`[RecordView] Activity upload result: ${activitySubmitted ? 'success' : 'failed'}`);
 
           const stopSucceeded = runIdRef.current
             ? await apiClientRef.current.stopRun({
@@ -1017,6 +1091,7 @@ export default function MapScreen() {
               final_sequence: uploadRoutePoints.length,
             })
             : true;
+          console.log(`[RecordView] Run stop result: ${stopSucceeded ? 'success' : 'failed'}`);
 
           if (activitySubmitted && stopSucceeded) {
             console.log('Activity submitted successfully');
@@ -1024,7 +1099,9 @@ export default function MapScreen() {
               success: true,
               run_id: runIdRef.current ?? null,
               route_points: uploadRoutePoints.length,
-              distance: distanceRef.current,
+              distance: totalDistance,
+              workout_distance: distanceRef.current,
+              additional_distance: extraDistanceRef.current,
               duration: elapsedSeconds,
             }, null, 2));
           }
@@ -1064,10 +1141,12 @@ export default function MapScreen() {
       );
     } catch (error) {
       console.error('Stop run error:', error);
+      console.error('[RecordView] Stop & Save failed before finalization completed');
       setIsRunning(false);
       isRunningRef.current = false;
       Alert.alert('Error', 'Failed to stop run properly.');
     } finally {
+      console.log('[RecordView] Stop & Save finalization finished');
       isStoppingRef.current = false;
     }
   };
