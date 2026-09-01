@@ -1,5 +1,6 @@
 import api from '../../service/api';
 import polyline from '@mapbox/polyline';
+import { activityDistanceOverrides } from './activityDistanceOverrides';
 
 interface BackendGpsPoint {
   latitude: number;
@@ -85,10 +86,23 @@ const normalizeActivity = (activity: BackendActivity): BackendActivity => ({
     ?? encodeRouteFallback(activity),
 });
 
+const applySdkDistance = async (activity: BackendActivity): Promise<BackendActivity> => {
+  const sdkDistance = await activityDistanceOverrides.get(activity.id);
+  if (sdkDistance === null) return activity;
+
+  console.log(
+    `[ActivityDistance] Using SDK total ${sdkDistance.toFixed(2)}m for activity ${activity.id} `
+    + `instead of backend GPS total ${activity.distance.toFixed(2)}m`
+  );
+  return { ...activity, distance: sdkDistance };
+};
+
 export const activityAPI = {
   async list(): Promise<BackendActivity[]> {
     const response = await api.get(ACTIVITY_HISTORY_PATH);
-    return extractActivities(response.data).map(normalizeActivity).filter((activity) => {
+    const normalized = extractActivities(response.data).map(normalizeActivity);
+    const activities = await Promise.all(normalized.map(applySdkDistance));
+    return activities.filter((activity) => {
       const activityType = String(activity.activity_type).toUpperCase();
       return (
         (activityType === 'RUN' || activityType === 'WALK') &&
@@ -101,7 +115,7 @@ export const activityAPI = {
   async get(activityId: BackendActivity['id']): Promise<BackendActivity> {
     const response = await api.get(getActivityDetailPath(activityId));
     const payload = response.data?.data ?? response.data;
-    return normalizeActivity(payload as BackendActivity);
+    return applySdkDistance(normalizeActivity(payload as BackendActivity));
   },
 
   async delete(activityId: BackendActivity['id']): Promise<string> {

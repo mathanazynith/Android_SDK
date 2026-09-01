@@ -16,7 +16,11 @@ export interface PathProcessorConfig {
 const INDOOR_DRIFT_MAX_RADIUS_METERS = 30;
 const INDOOR_DRIFT_MIN_DURATION_SECONDS = 90;
 const INDOOR_DRIFT_MIN_WANDER_RATIO = 6;
-const MIN_DISPLAY_INTERVAL_MS = 5_000;
+// GPS callbacks are requested once per second. Retain a route point as soon
+// as it crosses the accuracy-aware movement threshold, rather than waiting an
+// additional five seconds; otherwise short interval efforts can have only the
+// start point and therefore no visible polyline.
+const MIN_DISPLAY_INTERVAL_MS = 1_000;
 const MAX_FINAL_POINT_GAP_METERS = 5;
 
 export class PathProcessor {
@@ -96,8 +100,23 @@ export class PathProcessor {
       heading_change: 0,
     };
 
-    // Tier 1: the live map is intentionally much less sensitive than raw GPS.
-    // A location accuracy radius is an uncertainty estimate, so a 0.5m delta
+    // The displayed and saved routes must use the same acceptance rule. Before
+    // this check, the live SDK total used this accuracy-aware gate, but the
+    // saved Activity route accepted nearly every 0.5m, one-second GPS change.
+    // Summing those indoor/outdoor jitters on the backend inflated the saved
+    // Activity distance.
+    if (!this.gpsFilter.validateRawPoint(raw)) {
+      console.log(
+        `[LocationManager] Display point skipped: accuracy ${point.accuracy ?? 'n/a'}m or speed ${point.speed ?? 'n/a'}m/s is outside the route-quality limit`
+      );
+      console.log(
+        `[LocationManager] LIVE raw point #${this.workingPoints.length} recorded -> lat:${point.latitude} lon:${point.longitude} acc:${point.accuracy ?? 'n/a'}m speed:${point.speed ?? 'n/a'}m/s`
+      );
+      return pathPoint;
+    }
+
+    // Tier 1: the live map is intentionally less sensitive than raw GPS. A
+    // location accuracy radius is an uncertainty estimate, so a small delta
     // inside a building is noise rather than a meaningful route update.
     const lastDisplay = this.displayPoints.at(-1);
     if (!lastDisplay) {
@@ -106,8 +125,11 @@ export class PathProcessor {
     } else {
       const displayDistance = calculateDistanceMeters(lastDisplay, pathPoint);
       const displayElapsedSeconds = Math.max(0, (pathPoint.timestamp - lastDisplay.timestamp) / 1_000);
-      const accuracyRadius = Math.max(lastDisplay.accuracy ?? 0, pathPoint.accuracy ?? 0);
-      const displayThreshold = Math.max(5, Math.min(12, accuracyRadius));
+      // Movement confirmation is applied by MapScreen before a display point
+      // is used for a line or distance. With that physical-motion gate in
+      // place, retain one-metre GPS changes here: a 5–12m threshold leaves
+      // short warm-ups and 10–15m intervals stuck at 0m for minutes.
+      const displayThreshold = 1;
 
       if (displayDistance > 500 && displayElapsedSeconds < 10) {
         console.log(`[LocationManager] Display rejected huge jump: ${displayDistance.toFixed(1)}m`);
@@ -117,16 +139,20 @@ export class PathProcessor {
       ) {
         this.displayPoints.push(pathPoint);
         console.log(`[LocationManager] Display point #${this.displayPoints.length} recorded`);
-      } else {
+      } else if (this.workingPoints.length % 15 === 0) {
         console.log(
-          `[LocationManager] Display point skipped: ${displayDistance.toFixed(1)}m below ${displayThreshold.toFixed(1)}m uncertainty gate or sampled too soon`
+          `[LocationManager] Route waiting: ${displayDistance.toFixed(1)}m below ${displayThreshold.toFixed(1)}m gate `
+          + `(${this.displayPoints.length} accepted points)`
         );
       }
     }
 
-    console.log(
-      `[LocationManager] LIVE raw point #${this.workingPoints.length} recorded -> lat:${point.latitude} lon:${point.longitude} acc:${point.accuracy ?? 'n/a'}m speed:${point.speed ?? 'n/a'}m/s`
-    );
+    if (this.workingPoints.length % 15 === 0) {
+      console.log(
+        `[LocationManager] Raw GPS retained: ${this.workingPoints.length} samples, `
+        + `${this.displayPoints.length} accepted route points`
+      );
+    }
     return pathPoint;
   }
 
@@ -183,6 +209,26 @@ export class PathProcessor {
         path_type: 'STRAIGHT' as PathType,
         heading_change: 0,
       };
+
+      const distanceAnchor = this.filteredPoints.at(-1);
+      if (distanceAnchor) {
+        const distance = calculateDistanceMeters(distanceAnchor, filteredPoint);
+        const elapsedMilliseconds = Math.max(0, filteredPoint.timestamp - distanceAnchor.timestamp);
+        const accuracyRadius = Math.max(distanceAnchor.accuracy ?? 0, filteredPoint.accuracy ?? 0);
+        const minimumMeaningfulDistance = Math.max(5, Math.min(12, accuracyRadius));
+
+        // Mirror ingestRaw()'s display gate. A 0.5m threshold turns ordinary
+        // GPS position noise into fake distance when all samples are summed.
+        if (
+          elapsedMilliseconds < MIN_DISPLAY_INTERVAL_MS ||
+          distance < minimumMeaningfulDistance
+        ) {
+          console.log(
+            `[LocationManager] Save filter rejected #${rawPoint.sequence}: ${distance.toFixed(1)}m in ${(elapsedMilliseconds / 1_000).toFixed(1)}s does not pass ${minimumMeaningfulDistance.toFixed(1)}m / ${(MIN_DISPLAY_INTERVAL_MS / 1_000).toFixed(0)}s route gate`
+          );
+          continue;
+        }
+      }
 
       this.filteredPoints.push(filteredPoint);
       console.log(`[LocationManager] ✅ Save filter accepted #${rawPoint.sequence}: lat:${rawPoint.latitude} lon:${rawPoint.longitude}`);

@@ -80,6 +80,28 @@ export class WorkoutEngine {
     }
   }
 
+  /**
+   * Applies the exact distance delta already accepted by the live SDK route.
+   * Keeping this separate from raw-point filtering guarantees that the segment
+   * counter and the SDK total cannot drift apart by using different gates.
+   */
+  public ingestAcceptedDistance(deltaMeters: number, point: RunningGpsPoint): void {
+    this.lastPoint = point;
+    if (this.state !== 'running' || !this.currentLap || this.currentLap.segmentType === 'Rest') return;
+
+    if (Number.isFinite(deltaMeters) && deltaMeters > 0 && deltaMeters < 50) {
+      this.currentLap.distanceMeters += deltaMeters;
+    }
+    this.refreshDuration(point.timestamp);
+
+    if (
+      this.currentLap.targetDistanceMeters !== null &&
+      this.currentLap.distanceMeters >= this.currentLap.targetDistanceMeters
+    ) {
+      this.completeCurrent(point.timestamp);
+    }
+  }
+
   public tick(now = Date.now()): void {
     if (this.state !== 'running' || !this.currentLap) return;
     this.refreshDuration(now);

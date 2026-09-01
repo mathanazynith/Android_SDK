@@ -40,7 +40,10 @@ export class RunningApiClient {
   }
 
   /** Send the optimized final activity as JSON to Django's UploadActivityAPIView. */
-  public async submitActivity(payload: ActivitySubmissionPayload): Promise<boolean> {
+  public async submitActivity(payload: ActivitySubmissionPayload): Promise<{
+    success: boolean;
+    activityId: string | number | null;
+  }> {
     console.log(`[RunningApiClient] POST ${ACTIVITY_UPLOAD_PATH}`, JSON.stringify(payload, null, 2));
 
     const response = await api.post(ACTIVITY_UPLOAD_PATH, payload, {
@@ -48,6 +51,11 @@ export class RunningApiClient {
     });
 
     console.log('[RunningApiClient] Activity upload response', JSON.stringify(response.data, null, 2));
-    return response.status >= 200 && response.status < 300;
+    const data = response.data?.data ?? response.data;
+    const activityId = data?.activity_id ?? data?.id ?? null;
+    return {
+      success: response.status >= 200 && response.status < 300,
+      activityId: typeof activityId === 'string' || typeof activityId === 'number' ? activityId : null,
+    };
   }
 }

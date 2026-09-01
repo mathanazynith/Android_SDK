@@ -14,6 +14,7 @@ import {
 import MapView, { Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { workoutPlanService } from '../../../service/workoutPlan';
 import { ActivityDetectionService } from '../../../src/services/activityDetectionService';
+import { activityDistanceOverrides } from '../../../src/services/activityDistanceOverrides';
 import { LocationQueue } from '../../../src/services/locationQueue';
 import { LocationService } from '../../../src/services/locationService';
 import { PathProcessor } from '../../../src/services/pathProcessor';
@@ -402,18 +403,6 @@ export default function MapScreen() {
           ? parseInt(rawGps.timestamp, 10)
           : Date.now();
 
-      const ageSeconds = previousLocationRef.current && typeof previousLocationRef.current.timestamp !== 'undefined'
-        ? Math.max(0, (timestamp - (typeof previousLocationRef.current.timestamp === 'number' ? previousLocationRef.current.timestamp : Date.now())) / 1000)
-        : 0;
-
-      console.log(
-        `[LocationManager] LIVE GPS -> lat:${rawGps.latitude} lon:${rawGps.longitude} accuracy:${rawGps.accuracy ?? 0}m speed:${rawGps.speed ?? 0} heading:${rawGps.heading ?? 0} timestamp:${timestamp}`
-      );
-
-      console.log(
-        `[LocationManager] incoming sample -> accuracy:${rawGps.accuracy ?? 0}m age:${ageSeconds.toFixed(1)}s speed:${rawGps.speed ?? 0} hasLast:${previousLocationRef.current ? 'true' : 'false'}`
-      );
-
       setLocation({
         coords: {
           latitude: rawGps.latitude,
@@ -445,17 +434,13 @@ export default function MapScreen() {
       // Activity recognition and the pedometer are optional Android services.
       // If neither subscription is usable, do not turn their absence into a
       // permanent GPS rejection: GPS remains the tracking source of truth.
-      const hasMovementEvidenceSource = (activityDetection?.isAvailable() ?? false)
-        || (stepDetection?.isAvailable() ?? false);
-      const hasCurrentMovement = !hasMovementEvidenceSource
-        || hasDetectedMovement
-        || hasRecentStepEvidence;
-      if (activityDetection) {
-        console.log(
-          `[LocationManager] Activity: ${detectedActivity} (live route requires movement confirmation)`
-        );
-      }
-
+      // Motion classification commonly stays "unknown" for several minutes
+      // on Android even while GPS and the pedometer report walking. Only an
+      // explicit stationary classification without a recent step may hold a
+      // point; unknown must fall back to the GPS route instead of preventing
+      // every polyline and distance update.
+      const explicitlyStationary = detectedActivity === 'stationary' && !hasRecentStepEvidence;
+      const hasCurrentMovement = !explicitlyStationary;
       if (hasCurrentMovement) {
         movementConfirmedRef.current = true;
       }
@@ -468,20 +453,10 @@ export default function MapScreen() {
       const lightTrace = workoutEngine?.shouldUseLightPolyline() ?? isPausedRef.current;
       const countsWorkoutDistance = workoutEngine?.isDistanceCounting() ?? !isPausedRef.current;
 
-      console.log(
-        `[WorkoutMapView] Route color=${lightTrace ? 'gray' : 'green'} `
-        + `segment=${workoutEngine?.getSnapshot().currentSegment?.segmentType ?? 'extra'} `
-        + `state=${workoutEngine?.getSnapshot().state ?? 'free-run'}`
-      );
-
-      if (retained && workoutEngine && hasCurrentMovement) {
-        if (countsWorkoutDistance) {
-          workoutEngine.ingestDistancePoint(previousWorkoutPointRef.current, retained);
-          previousWorkoutPointRef.current = retained;
-        } else {
-          previousWorkoutPointRef.current = null;
-        }
-        setWorkoutSnapshot(workoutEngine.getSnapshot());
+      // A pause/rest boundary must never be bridged by the next accepted
+      // point after tracking resumes.
+      if (workoutEngine && !countsWorkoutDistance) {
+        previousWorkoutPointRef.current = null;
       }
 
       // GPS location changes are not movement proof indoors. Wait for Android
@@ -489,7 +464,7 @@ export default function MapScreen() {
       // before turning fresh location fixes into a visible route.
       if (!hasCurrentMovement) {
         console.log(
-          `[LocationManager] Live point held: activity=${detectedActivity}, recentSteps=${hasRecentStepEvidence}; no current movement evidence`
+          `[LocationManager] Live point held: activity=${detectedActivity}, recentSteps=${hasRecentStepEvidence}; explicitly stationary`
         );
         previousLocationRef.current = rawGps;
         previousWorkoutPointRef.current = null;
@@ -498,8 +473,8 @@ export default function MapScreen() {
       }
 
       if (retained) {
-        // Keep raw points for saving and diagnostics, but draw only points that
-        // pass the live display interval and movement gate.
+        // A polyline requires two coordinates. The initial route segment is
+        // seeded at Start; every accepted display point extends that segment.
         const displayPointWasAdded = processor.getDisplayPoints().length > displayCountBefore;
         const latestDisplayPoint = processor.getDisplayPoints().at(-1);
         if (displayPointWasAdded && latestDisplayPoint) {
@@ -507,8 +482,13 @@ export default function MapScreen() {
             { latitude: latestDisplayPoint.latitude, longitude: latestDisplayPoint.longitude },
             lightTrace,
           );
+
         }
         console.log(`[WorkoutMapView] 📌 Polyline updated: ${processor.getRawPoints().length} live raw points`);
+        console.log(
+          `[WorkoutMapView] Polyline ${displayPointWasAdded ? 'extended' : 'waiting'}: `
+          + `${processor.getDisplayPoints().length} accepted route points`
+        );
         console.log(`[LocationManager] Tiers -> raw:${processor.getRawPoints().length} display:${processor.getDisplayPoints().length}`);
         addLog(`📌 Live polyline: ${processor.getRawPoints().length} points`);
 
@@ -523,12 +503,31 @@ export default function MapScreen() {
               const nextDistance = distanceRef.current + movementDistance;
               distanceRef.current = nextDistance;
               setDistance(nextDistance);
+              // The segment receives this exact accepted delta, so its
+              // 0/10m-style progress and the SDK total advance together.
+              if (workoutEngine) {
+                workoutEngine.ingestAcceptedDistance(movementDistance, latestDisplayPoint);
+                previousWorkoutPointRef.current = latestDisplayPoint;
+                const snapshot = workoutEngine.getSnapshot();
+                setWorkoutSnapshot(snapshot);
+                console.log(
+                  `[Workout] Accepted +${movementDistance.toFixed(2)}m; `
+                  + `SDK total=${nextDistance.toFixed(2)}m; `
+                  + `segment=${snapshot.currentLap?.distanceMeters.toFixed(2) ?? 'completed'}m`
+                );
+              } else {
+                console.log(
+                  `[Workout] Accepted +${movementDistance.toFixed(2)}m; SDK total=${nextDistance.toFixed(2)}m`
+                );
+              }
             } else if (workoutEngine?.getSnapshot().state === 'completed') {
               extraDistanceRef.current += movementDistance;
-              setDistance(distanceRef.current + extraDistanceRef.current);
+              const totalDistance = distanceRef.current + extraDistanceRef.current;
+              setDistance(totalDistance);
               console.log(
                 `[Workout] Extra activity accepted: +${movementDistance.toFixed(1)}m `
-                + `(total extra ${extraDistanceRef.current.toFixed(1)}m)`
+                + `(total extra ${extraDistanceRef.current.toFixed(1)}m; `
+                + `SDK total ${totalDistance.toFixed(1)}m)`
               );
             }
           }
@@ -652,14 +651,14 @@ export default function MapScreen() {
       pathProcessorRef.current = pathProcessor;
       pathProcessor.reset();
 
-      // The fresh fix acquired at Start is a genuine route sample. Retaining
-      // it means Stop can always create a valid final payload even if Android
-      // produces no additional indoor fixes during a short workout.
-      const startRawPoint = pathProcessor.ingestRaw(currentLocation);
-      if (startRawPoint) {
+      // Keep the fresh fix in the raw diagnostic trace. It becomes the route
+      // start only when it passes the same quality gate as later GPS points.
+      pathProcessor.ingestRaw(currentLocation);
+      const startRoutePoint = pathProcessor.getDisplayPoints().at(-1) ?? null;
+      if (startRoutePoint) {
         lastRetainedCoordinateRef.current = {
-          latitude: startRawPoint.latitude,
-          longitude: startRawPoint.longitude,
+          latitude: startRoutePoint.latitude,
+          longitude: startRoutePoint.longitude,
         };
         // Seed the mounted polyline with the start fix. The first walking
         // display point can now draw a visible line immediately instead of
@@ -667,11 +666,11 @@ export default function MapScreen() {
         const initialSegment: RouteSegment = {
           id: 0,
           isLight: false,
-          coordinates: [startingPoint],
+          coordinates: [{ latitude: startRoutePoint.latitude, longitude: startRoutePoint.longitude }],
         };
         routeSegmentsRef.current = [initialSegment];
         setRouteSegments([initialSegment]);
-        console.log('[LocationManager] Start coordinate retained as raw point for final payload');
+        console.log('[LocationManager] Start coordinate retained as the first live route point');
       }
 
       if (selectedWorkout) {
@@ -741,8 +740,8 @@ export default function MapScreen() {
           + `${engine.getSnapshot().totalLaps} planned segments`
         );
         voice.workoutStarted(selectedWorkout);
-        engine.start(startRawPoint);
-        previousWorkoutPointRef.current = startRawPoint;
+        engine.start(startRoutePoint);
+        previousWorkoutPointRef.current = startRoutePoint;
         setWorkoutSnapshot(engine.getSnapshot());
       }
 
@@ -937,38 +936,33 @@ export default function MapScreen() {
           + `raw=${rawPointCount}, filtered=${filteredPoints.length}, optimized=${optimizedCount}`
         );
 
-        // Indoor drift protection can intentionally collapse a session to one
-        // anchor. A saved polyline needs two points, so retain the valid raw
-        // trace as a fallback only in that edge case.
-        const usingOptimizedRoute = finalOptimized.length >= 2;
-        const uploadRoutePoints: RunningGpsPoint[] = usingOptimizedRoute
-          ? finalOptimized
-          : processor.getRawPoints();
+        // The Activity page must receive the very same route used by the live
+        // SDK polyline and distance counter. Optimization is still calculated
+        // above for diagnostics, but must not replace this authoritative route
+        // with a different set of points before upload.
+        const uploadRoutePoints: RunningGpsPoint[] = processor.getDisplayPoints();
         console.log(
-          `[LocationManager] Stop & Save route source: ${usingOptimizedRoute ? 'optimized' : 'raw fallback'} `
+          `[LocationManager] Stop & Save route source: live accepted points `
           + `(${uploadRoutePoints.length} points uploaded)`
         );
         console.log(
-          `[WorkoutHistory] Uploading ${uploadRoutePoints.length} optimized history points; `
-          + 'live SDK points remain separate'
+          `[WorkoutHistory] Uploading ${uploadRoutePoints.length} live SDK route points; `
+          + 'Activity distance and polyline now use the same source'
         );
-        if (finalOptimized.length < 2 && uploadRoutePoints.length >= 2) {
-          console.warn('[LocationManager] Final filter produced fewer than two points; raw route fallback retained for history polyline');
-        }
 
-        // These coordinates are only for the final backend submission. The map
-        // retains its complete live raw trace after Stop & Save.
+        // These coordinates are both the route visible in the SDK and the
+        // final backend submission.
         const finalCoordinates = uploadRoutePoints.map((point) => ({
           latitude: point.latitude,
           longitude: point.longitude,
         }));
 
-        const displayedRawCoordinates = processor.getRawPoints().map((point) => ({
+        const displayedRouteCoordinates = uploadRoutePoints.map((point) => ({
           latitude: point.latitude,
           longitude: point.longitude,
         }));
-        fitMapToRoute(displayedRawCoordinates);
-        console.log(`[WorkoutMapView] Live raw polyline preserved after save: ${displayedRawCoordinates.length} points`);
+        fitMapToRoute(displayedRouteCoordinates);
+        console.log(`[WorkoutMapView] Live route preserved after save: ${displayedRouteCoordinates.length} points`);
 
         console.log('[Route Saved]', JSON.stringify(finalCoordinates, null, 2));
         console.log(`[Route Saved] ${finalCoordinates.length} coordinate points finalized`);
@@ -984,20 +978,15 @@ export default function MapScreen() {
 
         const uploadedRouteDistance = calculateRouteDistance(uploadRoutePoints);
         const trackedDistance = distanceRef.current + extraDistanceRef.current;
-        const totalDistance = uploadedRouteDistance > 0 ? uploadedRouteDistance : trackedDistance;
-        if (uploadedRouteDistance > 0 && trackedDistance === 0) {
-          distanceRef.current = uploadedRouteDistance;
-          console.log(
-            `[LocationManager] Live distance was zero; recovered workout distance from uploaded route: `
-            + `${uploadedRouteDistance.toFixed(2)}m`
-          );
-        }
-        if (uploadedRouteDistance > 0) {
-          setDistance(totalDistance);
-        }
+        // The SDK counter is the canonical total: it already applies movement,
+        // segment, pause, and extra-activity rules. Route geometry is retained
+        // for the polyline only; re-summing it can include GPS wobble or a
+        // non-counting rest/pause trace and make Activity larger than the SDK.
+        const totalDistance = trackedDistance;
+        setDistance(totalDistance);
         console.log(
-          `[LocationManager] Final distance source: uploaded route `
-          + `${uploadedRouteDistance.toFixed(2)}m (tracked live total ${trackedDistance.toFixed(2)}m)`
+          `[LocationManager] Final distance source: live SDK total `
+          + `${trackedDistance.toFixed(2)}m (route geometry ${uploadedRouteDistance.toFixed(2)}m)`
         );
         const distanceSummary = {
           workout_distance_meters: Number(distanceRef.current.toFixed(2)),
@@ -1063,11 +1052,18 @@ export default function MapScreen() {
             : new Date().toISOString(),
           end_time: stoppedAt.toISOString(),
           activity_type: activityType,
+          // Send the authoritative SDK values in the actual request, not only
+          // in console logs. The server can use this total instead of deriving
+          // a different distance from noisy GPS geometry.
+          distance: Number(totalDistance.toFixed(2)),
+          distance_meters: Number(totalDistance.toFixed(2)),
+          workout_distance_meters: Number(distanceRef.current.toFixed(2)),
+          additional_distance_meters: Number(extraDistanceRef.current.toFixed(2)),
+          total_distance_meters: Number(totalDistance.toFixed(2)),
           laps,
         };
         const backendPayloadLog = {
           ...iosStyleActivityPayload,
-          distance_summary: distanceSummary,
           route_points: uploadRoutePoints.length,
         };
         console.log('[LocationManager] BACKEND PAYLOAD JSON (optimized route + distance):');
@@ -1081,7 +1077,15 @@ export default function MapScreen() {
             + 'optimized GPS points to backend'
           );
           // Submit the actual final payload in the iOS-compatible shape.
-          const activitySubmitted = await apiClientRef.current.submitActivity(iosStyleActivityPayload);
+          const activitySubmission = await apiClientRef.current.submitActivity(iosStyleActivityPayload);
+          const activitySubmitted = activitySubmission.success;
+          if (activitySubmitted && activitySubmission.activityId !== null) {
+            await activityDistanceOverrides.save(activitySubmission.activityId, totalDistance);
+            console.log(
+              `[ActivityDistance] Saved SDK total ${totalDistance.toFixed(2)}m for activity ${activitySubmission.activityId}; `
+              + 'Activity card/detail will not use the backend GPS-jitter total'
+            );
+          }
           console.log(`[RecordView] Activity upload result: ${activitySubmitted ? 'success' : 'failed'}`);
 
           const stopSucceeded = runIdRef.current
