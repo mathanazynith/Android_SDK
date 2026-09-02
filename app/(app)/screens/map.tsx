@@ -2,14 +2,14 @@ import * as Location from 'expo-location';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    BackHandler,
-    Platform,
-    Pressable,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Alert,
+  BackHandler,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 import MapView, { Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { workoutPlanService } from '../../../service/workoutPlan';
@@ -432,11 +432,9 @@ export default function MapScreen() {
       const previousPointDistance = previousLocationRef.current
         ? calculateDistanceMeters(previousLocationRef.current, rawGps)
         : 0;
-      const gpsSpeedMotion = rawGps.speed !== null && rawGps.speed !== undefined && rawGps.speed >= 1.0;
-      const hasMeaningfulDisplacement = previousPointDistance >= 8;
-      const hasCurrentMovement = (hasDetectedMovement || hasRecentStepEvidence)
-        ? hasMeaningfulDisplacement || gpsSpeedMotion
-        : hasMeaningfulDisplacement && gpsSpeedMotion;
+      const gpsSpeedMotion = rawGps.speed !== null && rawGps.speed !== undefined && rawGps.speed >= 0.8;
+      const hasMeaningfulDisplacement = previousPointDistance >= 3;
+      const hasCurrentMovement = hasDetectedMovement || hasRecentStepEvidence || gpsSpeedMotion || hasMeaningfulDisplacement;
 
       if (hasCurrentMovement) {
         movementConfirmedRef.current = true;
