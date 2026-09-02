@@ -54,7 +54,7 @@ export class WorkoutEngine {
   /** Pass the previous sample separately so distance is never derived from UI state. */
   public ingestDistancePoint(previous: RunningGpsPoint | null, point: RunningGpsPoint): void {
     this.lastPoint = point;
-    if (this.state !== 'running' || !this.currentLap || this.currentLap.segmentType === 'Rest') return;
+    if (this.state !== 'running' || !this.currentLap) return;
     if (!previous) {
       this.distanceAnchor = point;
       this.refreshDuration(point.timestamp);
@@ -87,7 +87,7 @@ export class WorkoutEngine {
    */
   public ingestAcceptedDistance(deltaMeters: number, point: RunningGpsPoint): void {
     this.lastPoint = point;
-    if (this.state !== 'running' || !this.currentLap || this.currentLap.segmentType === 'Rest') return;
+    if (this.state !== 'running' || !this.currentLap) return;
 
     if (Number.isFinite(deltaMeters) && deltaMeters > 0 && deltaMeters < 50) {
       this.currentLap.distanceMeters += deltaMeters;
@@ -132,13 +132,15 @@ export class WorkoutEngine {
   }
 
   public shouldUseLightPolyline(): boolean {
-    // Rest is still part of the planned workout, so it remains green.
-    // Only post-workout continuation (or a manual pause) is gray.
-    return this.state === 'completed' || this.state === 'paused';
+    // Planned workout segments are always part of the workout and stay green,
+    // even when the segment is a rest interval with no distance counted.
+    // Only a manual pause or post-workout continuation is treated as a gray
+    // trace, because that movement is no longer part of the planned workout.
+    return this.state === 'paused' || this.state === 'completed';
   }
 
   public isDistanceCounting(): boolean {
-    return this.state === 'running' && this.currentLap?.segmentType !== 'Rest';
+    return this.state === 'running';
   }
 
   public getSnapshot(): WorkoutEngineSnapshot {

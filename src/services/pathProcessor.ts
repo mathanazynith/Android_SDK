@@ -1,7 +1,9 @@
-import { GpsFilter, DEFAULT_GPS_FILTER_CONFIG } from './gpsFilter';
-import { RdpSimplifier, DEFAULT_RDP_SIMPLIFIER_CONFIG } from './rdpSimplifier';
+import { PathType, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../types/running';
+import { calculateHeadingChange } from '../utils/bearing';
 import { calculateDistanceMeters } from '../utils/distance';
-import { RunningGpsPoint, RunningPathPoint, RawGpsPayload, PathType } from '../types/running';
+import { DEFAULT_GPS_FILTER_CONFIG, GpsFilter } from './gpsFilter';
+import { getGpsOptimizationConfig } from './gpsOptimizationConfig';
+import { DEFAULT_RDP_SIMPLIFIER_CONFIG, RdpSimplifier } from './rdpSimplifier';
 
 export interface PathProcessorConfig {
   gps: typeof DEFAULT_GPS_FILTER_CONFIG;
@@ -13,15 +15,12 @@ export interface PathProcessorConfig {
  * inside this small area while repeatedly travelling around it is GPS drift,
  * not a 100+ metre workout.
  */
-const INDOOR_DRIFT_MAX_RADIUS_METERS = 30;
-const INDOOR_DRIFT_MIN_DURATION_SECONDS = 90;
-const INDOOR_DRIFT_MIN_WANDER_RATIO = 6;
-// GPS callbacks are requested once per second. Retain a route point as soon
-// as it crosses the accuracy-aware movement threshold, rather than waiting an
-// additional five seconds; otherwise short interval efforts can have only the
-// start point and therefore no visible polyline.
-const MIN_DISPLAY_INTERVAL_MS = 1_000;
-const MAX_FINAL_POINT_GAP_METERS = 5;
+// Load these from config now
+const getINDOOR_DRIFT_MAX_RADIUS_METERS = () => getGpsOptimizationConfig().indoorDriftMaxRadiusMeters;
+const getINDOOR_DRIFT_MIN_DURATION_SECONDS = () => getGpsOptimizationConfig().indoorDriftMinDurationSeconds;
+const getINDOOR_DRIFT_MIN_WANDER_RATIO = () => getGpsOptimizationConfig().indoorDriftMinWanderRatio;
+const getMIN_DISPLAY_INTERVAL_MS = () => getGpsOptimizationConfig().minDisplayIntervalSeconds * 1000;
+const getMAX_FINAL_POINT_GAP_METERS = () => getGpsOptimizationConfig().maxFinalPointGapMeters;
 
 export class PathProcessor {
   private readonly gpsFilter: GpsFilter;
@@ -125,16 +124,15 @@ export class PathProcessor {
     } else {
       const displayDistance = calculateDistanceMeters(lastDisplay, pathPoint);
       const displayElapsedSeconds = Math.max(0, (pathPoint.timestamp - lastDisplay.timestamp) / 1_000);
-      // Movement confirmation is applied by MapScreen before a display point
-      // is used for a line or distance. With that physical-motion gate in
-      // place, retain one-metre GPS changes here: a 5–12m threshold leaves
-      // short warm-ups and 10–15m intervals stuck at 0m for minutes.
-      const displayThreshold = 1;
+      // Keep the live route visible while still avoiding a noisy every-second
+      // trace. A small real movement should remain visible, while tiny GPS wobble
+      // is filtered out before it reaches the SDK polyline.
+      const displayThreshold = 2;
 
       if (displayDistance > 500 && displayElapsedSeconds < 10) {
         console.log(`[LocationManager] Display rejected huge jump: ${displayDistance.toFixed(1)}m`);
       } else if (
-        displayElapsedSeconds >= MIN_DISPLAY_INTERVAL_MS / 1_000 &&
+        displayElapsedSeconds >= 1 &&
         displayDistance >= displayThreshold
       ) {
         this.displayPoints.push(pathPoint);
@@ -206,8 +204,8 @@ export class PathProcessor {
 
       const filteredPoint: RunningPathPoint = {
         ...rawPoint,
-        path_type: 'STRAIGHT' as PathType,
-        heading_change: 0,
+        path_type: this.classifyPathType(previous ?? null, rawPoint),
+        heading_change: previous ? this.calculateHeadingChange(previous, rawPoint) : 0,
       };
 
       const distanceAnchor = this.filteredPoints.at(-1);
@@ -220,11 +218,11 @@ export class PathProcessor {
         // Mirror ingestRaw()'s display gate. A 0.5m threshold turns ordinary
         // GPS position noise into fake distance when all samples are summed.
         if (
-          elapsedMilliseconds < MIN_DISPLAY_INTERVAL_MS ||
+          elapsedMilliseconds < getMIN_DISPLAY_INTERVAL_MS() ||
           distance < minimumMeaningfulDistance
         ) {
           console.log(
-            `[LocationManager] Save filter rejected #${rawPoint.sequence}: ${distance.toFixed(1)}m in ${(elapsedMilliseconds / 1_000).toFixed(1)}s does not pass ${minimumMeaningfulDistance.toFixed(1)}m / ${(MIN_DISPLAY_INTERVAL_MS / 1_000).toFixed(0)}s route gate`
+            `[LocationManager] Save filter rejected #${rawPoint.sequence}: ${distance.toFixed(1)}m in ${(elapsedMilliseconds / 1_000).toFixed(1)}s does not pass ${minimumMeaningfulDistance.toFixed(1)}m / ${(getMIN_DISPLAY_INTERVAL_MS() / 1_000).toFixed(0)}s route gate`
           );
           continue;
         }
@@ -236,6 +234,39 @@ export class PathProcessor {
 
     this.collapseIndoorDrift();
     return [...this.filteredPoints];
+  }
+
+  /**
+   * Classify the path type based on heading change from previous point.
+   * Movement analysis helps determine which points are redundant during optimization.
+   */
+  private classifyPathType(previousPoint: RunningPathPoint | null, currentPoint: RunningGpsPoint): PathType {
+    if (!previousPoint || previousPoint.heading === null || currentPoint.heading === null) {
+      return 'STRAIGHT';
+    }
+
+    const config = getGpsOptimizationConfig();
+    const headingDiff = calculateHeadingChange(previousPoint.heading, currentPoint.heading);
+
+    if (headingDiff >= config.headingChangeTurnThresholdDegrees) {
+      return 'TURN';
+    }
+
+    if (headingDiff >= config.headingChangeCurveThresholdDegrees) {
+      return 'CURVE';
+    }
+
+    return 'STRAIGHT';
+  }
+
+  /**
+   * Calculate heading change between two points for movement analysis.
+   */
+  private calculateHeadingChange(point1: RunningPathPoint, point2: RunningGpsPoint): number {
+    if (point1.heading === null || point2.heading === null) {
+      return 0;
+    }
+    return calculateHeadingChange(point1.heading, point2.heading);
   }
 
   public getRawPoints(): RunningGpsPoint[] {
@@ -262,7 +293,7 @@ export class PathProcessor {
     const first = this.filteredPoints[0];
     const last = this.filteredPoints.at(-1)!;
     const durationSeconds = Math.max(0, (last.timestamp - first.timestamp) / 1_000);
-    if (durationSeconds < INDOOR_DRIFT_MIN_DURATION_SECONDS) {
+    if (durationSeconds < getINDOOR_DRIFT_MIN_DURATION_SECONDS()) {
       return;
     }
 
@@ -284,8 +315,8 @@ export class PathProcessor {
       0
     );
     const netDisplacement = calculateDistanceMeters(first, last);
-    const isSmallArea = radius <= INDOOR_DRIFT_MAX_RADIUS_METERS;
-    const isWandering = travelledDistance >= radius * INDOOR_DRIFT_MIN_WANDER_RATIO;
+    const isSmallArea = radius <= getINDOOR_DRIFT_MAX_RADIUS_METERS();
+    const isWandering = travelledDistance >= radius * getINDOOR_DRIFT_MIN_WANDER_RATIO();
     const endsNearStart = netDisplacement <= radius;
 
     if (!isSmallArea || !isWandering || !endsNearStart) {
@@ -358,7 +389,7 @@ export class PathProcessor {
       const key = `${point.latitude.toFixed(10)}|${point.longitude.toFixed(10)}`;
       const isRdpPoint = rdpKeys.has(key);
       const isDensityPoint = lastRetained !== null
-        && calculateDistanceMeters(lastRetained, point) >= MAX_FINAL_POINT_GAP_METERS;
+        && calculateDistanceMeters(lastRetained, point) >= getMAX_FINAL_POINT_GAP_METERS();
 
       if (retained.length === 0 || isRdpPoint || isDensityPoint) {
         retained.push(point);

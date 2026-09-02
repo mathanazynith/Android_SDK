@@ -16,7 +16,7 @@ export interface BackendWorkoutSegment {
   duration: number | null;
   target_pace: string | null;
   pace_unit: string | null;
-  rest_duration: number | null;
+  rest_duration: number | null;  
   notes?: string | null;
 }
   

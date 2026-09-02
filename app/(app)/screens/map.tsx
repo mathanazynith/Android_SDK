@@ -428,20 +428,14 @@ export default function MapScreen() {
       const hasDetectedMovement = detectedActivity === 'walking' || detectedActivity === 'running';
       const hasRecentStepEvidence = lastStepTimestampRef.current !== null
         && timestamp - lastStepTimestampRef.current <= 5_000;
-      // A past step count is not sufficient: each visible/countable GPS point
-      // must have fresh physical-motion evidence, not merely GPS's estimated
-      // speed (which can jitter when a phone is handled while stationary).
-      // Activity recognition and the pedometer are optional Android services.
-      // If neither subscription is usable, do not turn their absence into a
-      // permanent GPS rejection: GPS remains the tracking source of truth.
-      // Motion classification commonly stays "unknown" for several minutes
-      // on Android even while GPS and the pedometer report walking. Only an
-      // explicit stationary classification without a recent step may hold a
-      // point; unknown must fall back to the GPS route instead of preventing
-      // every polyline and distance update.
-      const explicitlyStationary = detectedActivity === 'stationary' && !hasRecentStepEvidence;
-      const hasCurrentMovement = !explicitlyStationary;
-      if (hasCurrentMovement) {
+      const previousPointDistance = previousLocationRef.current
+        ? calculateDistanceMeters(previousLocationRef.current, rawGps)
+        : 0;
+      const gpsSpeedMotion = rawGps.speed !== null && rawGps.speed !== undefined && rawGps.speed > 0.4;
+      const actualMovement = previousPointDistance >= 1.5;
+      const isExplicitlyStationary = detectedActivity === 'stationary' && !hasRecentStepEvidence && !actualMovement && !gpsSpeedMotion;
+      const hasCurrentMovement = hasDetectedMovement || hasRecentStepEvidence || actualMovement || gpsSpeedMotion;
+      if (hasCurrentMovement && !isExplicitlyStationary) {
         movementConfirmedRef.current = true;
       }
 
@@ -454,17 +448,21 @@ export default function MapScreen() {
       const countsWorkoutDistance = workoutEngine?.isDistanceCounting() ?? !isPausedRef.current;
 
       // A pause/rest boundary must never be bridged by the next accepted
-      // point after tracking resumes.
+      // point after tracking resumes; however, the route still needs to be
+      // visible as a light trace during rest while the SDK distance remains
+      // frozen.
       if (workoutEngine && !countsWorkoutDistance) {
         previousWorkoutPointRef.current = null;
+        previousLocationRef.current = rawGps;
       }
 
-      // GPS location changes are not movement proof indoors. Wait for Android
-      // activity recognition (walking/running) or several pedometer steps
-      // before turning fresh location fixes into a visible route.
-      if (!hasCurrentMovement) {
+      // GPS noise and idle holding can still produce slight position jitter
+      // even when the phone is not moving. Only treat a fresh sample as live
+      // route evidence when the user is clearly moving or the point moved
+      // meaningfully from the last accepted fix.
+      if (!hasCurrentMovement || isExplicitlyStationary) {
         console.log(
-          `[LocationManager] Live point held: activity=${detectedActivity}, recentSteps=${hasRecentStepEvidence}; explicitly stationary`
+          `[LocationManager] Live point held: activity=${detectedActivity}, recentSteps=${hasRecentStepEvidence}, movementDelta=${previousPointDistance.toFixed(1)}m; waiting for real motion`
         );
         previousLocationRef.current = rawGps;
         previousWorkoutPointRef.current = null;
@@ -629,6 +627,18 @@ export default function MapScreen() {
       const runId = startResponse.run_id;
       runIdRef.current = runId;
 
+      // ============================================================
+      // 🏃 RUN STARTED - Enhanced Logging
+      // ============================================================
+      console.log('\n========== 🏃 RUN STARTED ==========');
+      console.log(`[RUN] Run ID: ${runId}`);
+      console.log(`[RUN] Start Time: ${startedAt}`);
+      console.log(`[RUN] User ID: ${RUNNING_USER_ID}`);
+      console.log(`[RUN] GPS Tracking: ACTIVE`);
+      console.log(`[RUN] Expected GPS Sample Interval: 1 second (0 distance)`);
+      console.log(`[RUN] Raw GPS points will be collected and logged`);
+      console.log('======================================\n');
+
       const startPayload = {
         user_id: RUNNING_USER_ID,
         started_at: startedAt,
@@ -641,6 +651,13 @@ export default function MapScreen() {
       console.log(
         `[LocationManager] First strict point recorded: lat:${currentLocation.latitude}, lon:${currentLocation.longitude}, acc:${currentLocation.accuracy ?? 0}m`
       );
+      console.log(`[GPS RAW #001]`);
+      console.log(`  latitude: ${currentLocation.latitude}`);
+      console.log(`  longitude: ${currentLocation.longitude}`);
+      console.log(`  accuracy: ${currentLocation.accuracy ?? 0}m`);
+      console.log(`  speed: ${currentLocation.speed ?? 0}m/s`);
+      console.log(`  heading: ${currentLocation.heading ?? 0}°`);
+      console.log(`  timestamp: ${startedAt}`);
 
       const startingPoint: Coordinate = {
         latitude: currentLocation.latitude,
@@ -944,6 +961,29 @@ export default function MapScreen() {
           + `raw=${rawPointCount}, filtered=${filteredPoints.length}, optimized=${optimizedCount}`
         );
 
+        // ============================================================
+        // DISTANCE VALIDATION: Calculate distance from each stage
+        // ============================================================
+        const rawDistance = calculateRouteDistance(processor.getRawPoints());
+        const filteredDistance = calculateRouteDistance(filteredPoints);
+        const optimizedDistance = calculateRouteDistance(finalOptimized);
+
+        console.log('\n========== DISTANCE VALIDATION (from real GPS coordinates) ==========');
+        console.log(`📏 Raw Points Distance: ${rawDistance.toFixed(2)}m`);
+        console.log(`📏 Filtered Points Distance: ${filteredDistance.toFixed(2)}m`);
+        console.log(`📏 Optimized Points Distance: ${optimizedDistance.toFixed(2)}m`);
+        
+        // Calculate loss at each stage
+        const filteringLoss = Math.abs(rawDistance - filteredDistance);
+        const optimizationLoss = Math.abs(filteredDistance - optimizedDistance);
+        const totalLoss = Math.abs(rawDistance - optimizedDistance);
+
+        console.log('\n========== DISTANCE PRESERVATION ANALYSIS ==========');
+        console.log(`📉 Loss during filtering: ${filteringLoss.toFixed(2)}m (${((filteringLoss/rawDistance)*100).toFixed(1)}%)`);
+        console.log(`📉 Loss during optimization: ${optimizationLoss.toFixed(2)}m (${((optimizationLoss/filteredDistance)*100).toFixed(1)}%)`);
+        console.log(`📉 Total loss (raw → optimized): ${totalLoss.toFixed(2)}m (${((totalLoss/rawDistance)*100).toFixed(1)}%)`);
+        console.log(`✅ Distance Accuracy: ${(100 - ((totalLoss/rawDistance)*100)).toFixed(1)}%`);
+
         // The Activity page must receive the very same route used by the live
         // SDK polyline and distance counter. Optimization is still calculated
         // above for diagnostics, but must not replace this authoritative route
@@ -982,7 +1022,7 @@ export default function MapScreen() {
           reductionPercent: snapshot.reductionPercent,
         });
 
-        addLog(`?? Final optimization: ${finalOptimized.length} points`);
+        addLog(`✅ Final optimization: ${finalOptimized.length} points`);
 
         const uploadedRouteDistance = calculateRouteDistance(uploadRoutePoints);
         const trackedDistance = distanceRef.current + extraDistanceRef.current;
