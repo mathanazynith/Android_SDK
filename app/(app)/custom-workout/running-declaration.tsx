@@ -10,7 +10,6 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -19,16 +18,16 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { Colors } from "../../../constants/theme";
-import { useCustomWorkout } from "./workout-context";
+import { secondsToTimeString } from "../../../service/customWorkout";
 import {
   calculateTwoFields,
-  normalizeUnit,
-  getUnitLabel,
   getPaceUnitLabel,
   getUnitFullLabel,
+  getUnitLabel,
+  normalizeUnit,
   type DistanceUnitType,
 } from "../../../src/utils/workoutCalculations";
-import { secondsToTimeString } from "../../../service/customWorkout";
+import { useCustomWorkout } from "./workout-context";
 
 type TimeParts = { hours: string; minutes: string; seconds: string };
 
@@ -57,12 +56,10 @@ export default function RunningDeclaration() {
       : undefined;
 
   const existingDuration = existing?.duration?.split(":") || [];
-  const existingRest = existing?.rest?.split(":") || [];
 
   const [title, setTitle] = useState(existing?.title || "Running");
   const [unit, setUnit] = useState<DistanceUnitType>(normalizeUnit(existing?.unit));
   const [unitModal, setUnitModal] = useState(false);
-  const [repeatModal, setRepeatModal] = useState(false);
 
   const [duration, setDuration] = useState<TimeParts>({
     hours: existingDuration[0] === "00" ? "" : existingDuration[0] || "",
@@ -71,18 +68,9 @@ export default function RunningDeclaration() {
   });
   const [distance, setDistance] = useState(existing?.distance || "");
   const [pace, setPace] = useState(existing?.pace || "");
-  const [repeat, setRepeat] = useState(String(existing?.repeat || 1));
-  const [rest, setRest] = useState<TimeParts>({
-    hours: existingRest[0] === "00" ? "" : existingRest[0] || "",
-    minutes: existingRest[1] === "00" ? "" : existingRest[1] || "",
-    seconds: existingRest[2] === "00" ? "" : existingRest[2] || "",
-  });
-  const [skipLastRest, setSkipLastRest] = useState(
-    existing?.skipLastRest ?? true
-  );
   const [notes, setNotes] = useState(existing?.notes || "");
 
-  // Select unit directly without blocking
+  // Select unit directly
   const selectUnit = (selected: DistanceUnitType) => {
     setUnit(selected);
     setUnitModal(false);
@@ -106,9 +94,6 @@ export default function RunningDeclaration() {
       : calculated.calculatedDuration != null
       ? secondsToTimeString(calculated.calculatedDuration)
       : "";
-
-  const restValue =
-    rest.hours || rest.minutes || rest.seconds ? timeText(rest) : "";
 
   const saveStep = () => {
     const hasDuration =
@@ -142,7 +127,6 @@ export default function RunningDeclaration() {
 
     const finalDistance = distance || calculated.calculatedDistance;
     const finalPace = pace || calculated.calculatedPace;
-    const hasRest = secondsOf(rest) > 0;
 
     const step = {
       title: title.trim(),
@@ -152,17 +136,20 @@ export default function RunningDeclaration() {
       distance: finalDistance,
       unit: getUnitFullLabel(unit),
       pace: finalPace,
-      repeat: Number(repeat) || 1,
-      rest: hasRest ? restValue : "",
-      skipLastRest,
-      skipRest: !hasRest,
+      repeat: existing?.repeat || 1,
+      rest: existing?.rest || "",
+      skipLastRest: existing?.skipLastRest ?? true,
+      skipRest: existing?.skipRest ?? !existing?.rest,
       notes: notes.trim(),
     };
 
-    if (existing) updateRun(runIndex, step);
-    else addRun(step);
-
-    router.push("/custom-workout/overview");
+    if (existing) {
+      updateRun(runIndex, step);
+      router.back();
+    } else {
+      addRun(step);
+      router.replace("/custom-workout/overview");
+    }
   };
 
   const updateTime = (value: string, setValue: (next: TimeParts) => void) => {
@@ -198,6 +185,8 @@ export default function RunningDeclaration() {
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
         >
+
+
           <Text style={styles.sectionLabel}>
             SET TWO VALUES (AUTO-CALCULATES 3RD)
           </Text>
@@ -256,60 +245,16 @@ export default function RunningDeclaration() {
             </Text>
           </View>
 
-          <Text style={styles.sectionLabel}>REPEATS & RECOVERY</Text>
+          <Text style={styles.sectionLabel}>NOTES & INSTRUCTIONS</Text>
           <View style={styles.section}>
-            <View style={styles.repeatRow}>
-              <Text style={styles.rowTitle}>Repeat count</Text>
-              <TouchableOpacity
-                style={styles.repeatButton}
-                onPress={() => setRepeatModal(true)}
-              >
-                <Text style={styles.repeatValue}>{repeat}x</Text>
-                <Feather
-                  name="chevron-down"
-                  size={18}
-                  color={Colors.primaryLight}
-                />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.label}>
-              Rest duration <Text style={styles.optional}>(optional)</Text>
-            </Text>
-            <ScrollTimePicker
-              value={restValue}
-              allowEmpty={!restValue}
-              onChange={(value) => updateTime(value, setRest)}
+            <TextInput
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Target heart rate, cadence, or interval notes (optional)"
+              placeholderTextColor={Colors.textMuted}
+              style={[styles.input, styles.notesInput]}
+              multiline
             />
-
-            {secondsOf(rest) > 0 && (
-              <View style={styles.switchRow}>
-                <View style={styles.flex}>
-                  <Text style={styles.rowTitle}>Skip last rest</Text>
-                  <Text style={styles.helper}>
-                    Skip rest after the final repeat to transition smoothly.
-                  </Text>
-                </View>
-                <Switch
-                  value={skipLastRest}
-                  onValueChange={setSkipLastRest}
-                  trackColor={{ false: "#3A3A3C", true: Colors.primaryDark }}
-                  thumbColor={skipLastRest ? Colors.primaryLight : "#BBBBBB"}
-                />
-              </View>
-            )}
-
-            <View style={{ marginTop: 14 }}>
-              <Text style={styles.label}>Notes</Text>
-              <TextInput
-                value={notes}
-                onChangeText={setNotes}
-                placeholder="Target heart rate, cadence, or interval notes"
-                placeholderTextColor={Colors.textMuted}
-                style={[styles.input, styles.notesInput]}
-                multiline
-              />
-            </View>
           </View>
 
           <TouchableOpacity
@@ -348,46 +293,6 @@ export default function RunningDeclaration() {
                 )}
               </TouchableOpacity>
             ))}
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Repeat Modal */}
-      <Modal
-        visible={repeatModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setRepeatModal(false)}
-      >
-        <Pressable style={styles.overlay} onPress={() => setRepeatModal(false)}>
-          <Pressable
-            style={styles.modal}
-            onPress={(event) => event.stopPropagation()}
-          >
-            <Text style={styles.modalTitle}>REPEAT COUNT</Text>
-            <ScrollView style={styles.repeatScroll}>
-              {Array.from({ length: 40 }, (_, idx) => String(idx + 1)).map(
-                (option) => (
-                  <TouchableOpacity
-                    key={option}
-                    style={styles.option}
-                    onPress={() => {
-                      setRepeat(option);
-                      setRepeatModal(false);
-                    }}
-                  >
-                    <Text style={styles.optionText}>{option} times</Text>
-                    {repeat === option && (
-                      <Feather
-                        name="check"
-                        size={21}
-                        color={Colors.primaryLight}
-                      />
-                    )}
-                  </TouchableOpacity>
-                )
-              )}
-            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -448,7 +353,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     fontSize: 16,
   },
-  notesInput: { minHeight: 65, textAlignVertical: "top", paddingTop: 10 },
+  notesInput: { minHeight: 75, textAlignVertical: "top", paddingTop: 10 },
   row: { flexDirection: "row", gap: 10 },
   flex: { flex: 1 },
   unitButton: {
@@ -465,40 +370,6 @@ const styles = StyleSheet.create({
   },
   unitText: { color: Colors.text, fontSize: 16, fontWeight: "600" },
   helper: { color: Colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 8 },
-  optional: { color: Colors.textMuted, fontSize: 13 },
-  repeatRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#2C2C2E",
-  },
-  rowTitle: { color: Colors.text, fontSize: 17, fontWeight: "500" },
-  repeatButton: {
-    minWidth: 80,
-    minHeight: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    backgroundColor: "#2A2A2D",
-    borderWidth: 1,
-    borderColor: Colors.primary,
-    borderRadius: 10,
-  },
-  repeatValue: { color: Colors.primaryLight, fontSize: 16, fontWeight: "700" },
-  switchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    marginTop: 14,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: "#2C2C2E",
-  },
   saveButton: {
     minHeight: 54,
     flexDirection: "row",
@@ -536,7 +407,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.5,
   },
-  repeatScroll: { maxHeight: 380 },
   option: {
     minHeight: 56,
     flexDirection: "row",

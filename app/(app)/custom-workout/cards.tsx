@@ -2,24 +2,23 @@ import { Feather } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  BackHandler,
-  FlatList,
-  RefreshControl,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    BackHandler,
+    FlatList,
+    RefreshControl,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Colors } from "../../../constants/theme";
 import {
-  customWorkoutAPI,
-  secondsToTimeString,
-  type UserWorkoutResponse,
-  type UserWorkoutSegmentResponse,
+    customWorkoutAPI,
+    type UserWorkoutResponse,
+    type UserWorkoutSegmentResponse,
 } from "../../../service/customWorkout";
 import { useCustomWorkout } from "./workout-context";
 
@@ -108,7 +107,7 @@ export default function CustomWorkoutCards() {
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState<{
     id: number;
-    action: "edit" | "duplicate" | "delete" | "start";
+    action: "edit" | "start";
   } | null>(null);
 
   // Handle hardware back press on Android to return to Dashboard/Home
@@ -168,44 +167,6 @@ export default function CustomWorkoutCards() {
     }
   };
 
-  const handleDuplicateWorkout = async (id: number) => {
-    try {
-      setActionLoading({ id, action: "duplicate" });
-      await customWorkoutAPI.duplicate(id);
-      await fetchWorkouts(true);
-      Alert.alert("Duplicated", "Workout duplicated successfully.");
-    } catch (err: any) {
-      Alert.alert("Error", err?.message || "Failed to duplicate workout.");
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleDeleteWorkout = (workout: UserWorkoutResponse) => {
-    Alert.alert(
-      "Delete Workout?",
-      `Are you sure you want to delete "${workout.title}"?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              setActionLoading({ id: workout.id, action: "delete" });
-              await customWorkoutAPI.delete(workout.id);
-              await fetchWorkouts(true);
-            } catch (err: any) {
-              Alert.alert("Error", err?.message || "Failed to delete workout.");
-            } finally {
-              setActionLoading(null);
-            }
-          },
-        },
-      ]
-    );
-  };
-
   const handleCreateNew = () => {
     reset();
     router.push("/custom-workout/overview");
@@ -213,14 +174,17 @@ export default function CustomWorkoutCards() {
 
   const renderWorkoutCard = ({ item }: { item: UserWorkoutResponse }) => {
     const isEditing = actionLoading?.id === item.id && actionLoading?.action === "edit";
-    const isDuplicating = actionLoading?.id === item.id && actionLoading?.action === "duplicate";
-    const isDeleting = actionLoading?.id === item.id && actionLoading?.action === "delete";
     const isStarting = actionLoading?.id === item.id && actionLoading?.action === "start";
     const isAnyLoading = Boolean(actionLoading);
     const segmentCount = (item.segments || []).length;
 
     return (
-      <View style={styles.card}>
+      <TouchableOpacity
+        style={styles.card}
+        activeOpacity={0.9}
+        onPress={() => handleEditWorkout(item.id)}
+        disabled={isAnyLoading}
+      >
         {/* Card Header */}
         <View style={styles.cardHeader}>
           <View style={styles.cardTitleBox}>
@@ -230,7 +194,7 @@ export default function CustomWorkoutCards() {
               </View>
               {item.workout_date ? (
                 <View style={styles.dateBadge}>
-                  <Feather name="calendar" size={11} color={Colors.textSecondary} />
+                  <Feather name="calendar" size={11} color={Colors.primaryLight} />
                   <Text style={styles.dateBadgeText}>{item.workout_date}</Text>
                 </View>
               ) : null}
@@ -240,46 +204,12 @@ export default function CustomWorkoutCards() {
             </Text>
           </View>
 
-          <View style={styles.headerActions}>
-            <TouchableOpacity
-              onPress={() => handleDuplicateWorkout(item.id)}
-              style={styles.iconButton}
-              disabled={isAnyLoading}
-              accessibilityLabel="Duplicate workout"
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              {isDuplicating ? (
-                <ActivityIndicator size="small" color={Colors.textSecondary} />
-              ) : (
-                <Feather name="copy" size={17} color={Colors.textSecondary} />
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => handleEditWorkout(item.id)}
-              style={styles.iconButton}
-              disabled={isAnyLoading}
-              accessibilityLabel="Edit workout"
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              {isEditing ? (
-                <ActivityIndicator size="small" color={Colors.primaryLight} />
-              ) : (
-                <Feather name="edit-3" size={17} color={Colors.primaryLight} />
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => handleDeleteWorkout(item)}
-              style={styles.iconButton}
-              disabled={isAnyLoading}
-              accessibilityLabel="Delete workout"
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              {isDeleting ? (
-                <ActivityIndicator size="small" color="#FF453A" />
-              ) : (
-                <Feather name="trash-2" size={17} color="#FF453A" />
-              )}
-            </TouchableOpacity>
+          <View style={styles.cardHeaderRight}>
+            {isEditing ? (
+              <ActivityIndicator size="small" color={Colors.primaryLight} />
+            ) : (
+              <Feather name="chevron-right" size={20} color={Colors.textSecondary} />
+            )}
           </View>
         </View>
 
@@ -305,44 +235,6 @@ export default function CustomWorkoutCards() {
           </View>
         </View>
 
-        {/* Segments Preview */}
-        {segmentCount > 0 && (
-          <View style={styles.segmentsContainer}>
-            <Text style={styles.segmentsHeader}>
-              {segmentCount} {segmentCount === 1 ? "SEGMENT" : "SEGMENTS"}
-            </Text>
-            <View style={styles.segmentsPillsRow}>
-              {item.segments.map((seg, idx) => (
-                <View
-                  key={seg.id || idx}
-                  style={[
-                    styles.segmentPill,
-                    seg.segment_type === "Warmup"
-                      ? styles.warmupPill
-                      : seg.segment_type === "Cooldown"
-                      ? styles.cooldownPill
-                      : styles.runPill,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.segmentPillText,
-                      seg.segment_type === "Warmup"
-                        ? styles.warmupPillText
-                        : seg.segment_type === "Cooldown"
-                        ? styles.cooldownPillText
-                        : styles.runPillText,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {formatSegmentSummary(seg)}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-
         {/* Notes if any */}
         {item.notes ? (
           <Text style={styles.cardNotes} numberOfLines={2}>
@@ -350,23 +242,33 @@ export default function CustomWorkoutCards() {
           </Text>
         ) : null}
 
-        {/* Start Workout Button */}
-        <TouchableOpacity
-          style={styles.startButton}
-          onPress={() => handleStartWorkout(item)}
-          disabled={isAnyLoading}
-          activeOpacity={0.85}
-        >
-          {isStarting ? (
-            <ActivityIndicator size="small" color="#000000" />
-          ) : (
-            <>
-              <Feather name="play" size={18} color="#000000" />
-              <Text style={styles.startButtonText}>START WORKOUT</Text>
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
+        {/* Tap to Edit Hint & Start Workout Button */}
+        <View style={styles.cardFooter}>
+          <View style={styles.editHintRow}>
+            <Feather name="edit-3" size={13} color={Colors.textMuted} />
+            <Text style={styles.editHintText}>Tap card to view & edit</Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.startButton}
+            onPress={(e) => {
+              e.stopPropagation();
+              handleStartWorkout(item);
+            }}
+            disabled={isAnyLoading}
+            activeOpacity={0.85}
+          >
+            {isStarting ? (
+              <ActivityIndicator size="small" color="#000000" />
+            ) : (
+              <>
+                <Feather name="play" size={18} color="#000000" />
+                <Text style={styles.startButtonText}>START WORKOUT</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
     );
   };
 
@@ -578,14 +480,10 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 6,
   },
-  dateBadgeText: { color: Colors.textSecondary, fontSize: 11, fontWeight: "500" },
+  dateBadgeText: { color: Colors.primaryLight, fontSize: 11, fontWeight: "600" },
   cardTitle: { color: Colors.text, fontSize: 19, fontWeight: "700" },
-  headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
-  iconButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#2A2A2D",
+  cardHeaderRight: {
+    paddingLeft: 8,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -645,6 +543,21 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
     marginBottom: 14,
     paddingHorizontal: 2,
+  },
+  cardFooter: {
+    gap: 10,
+  },
+  editHintRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 2,
+  },
+  editHintText: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: "500",
   },
   startButton: {
     minHeight: 50,
