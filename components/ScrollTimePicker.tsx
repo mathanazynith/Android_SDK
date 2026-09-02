@@ -10,6 +10,7 @@ import { BRAND_GREEN, useTheme } from '../contexts/ThemeContext';
 interface ScrollTimePickerProps {
   label?: string;
   value?: string;
+  allowEmpty?: boolean;
   hint?: string;
   error?: string;
   onChange: (value: string) => void;
@@ -29,8 +30,8 @@ const parseTimeComponent = (part: string, maxValue: number) => {
   return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), maxValue) : 0;
 };
 
-const parseTimeValue = (timeValue: string | undefined, maxHours: number): TimeParts => {
-  const parts = String(timeValue || DEFAULT_TIME_VALUE).split(':');
+const parseTimeValue = (timeValue: string | undefined, maxHours: number, allowEmpty = false): TimeParts => {
+  const parts = String(timeValue || (allowEmpty ? '00:00:00' : DEFAULT_TIME_VALUE)).split(':');
   return {
     hours: parseTimeComponent(parts[0] || '0', maxHours),
     minutes: parseTimeComponent(parts[1] || '0', 59),
@@ -63,13 +64,13 @@ const WheelValue = ({ value, unit, selected }: { value: number; unit: string; se
 export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
   label,
   value,
+  allowEmpty = false,
   hint,
   error,
   onChange,
   maxHours = 99,
 }) => {
-  const { colors } = useTheme();
-  const [time, setTime] = useState<TimeParts>(() => parseTimeValue(value, maxHours));
+  const [time, setTime] = useState<TimeParts>(() => parseTimeValue(value, maxHours, allowEmpty));
   const timeRef = useRef(time);
   const didApplyDefaultRef = useRef(false);
 
@@ -135,13 +136,13 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
   // A parent update after a user selection must not reset the wheels. Only
   // synchronize when an externally supplied value actually differs.
   useEffect(() => {
-    const nextTime = parseTimeValue(value, maxHours);
+    const nextTime = parseTimeValue(value, maxHours, allowEmpty);
     if (formatTimeValue(timeRef.current) === formatTimeValue(nextTime)) return;
 
     timeRef.current = nextTime;
     setTime(nextTime);
     requestAnimationFrame(() => scrollToTime(nextTime));
-  }, [maxHours, scrollToTime, value]);
+  }, [allowEmpty, maxHours, scrollToTime, value]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => scrollToTime(timeRef.current));
@@ -151,11 +152,11 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
   // Keep the displayed default, parent answer, validation, and pace in sync
   // even when a time question is opened with no saved value yet.
   useEffect(() => {
-    if (!value && !didApplyDefaultRef.current) {
+    if (!allowEmpty && !value && !didApplyDefaultRef.current) {
       didApplyDefaultRef.current = true;
       onChange(formatTimeValue(timeRef.current));
     }
-  }, [onChange, value]);
+  }, [allowEmpty, onChange, value]);
 
   const finalizeScroll = useCallback((axis: TimeAxis, offsetY: number) => {
     const length = axis === 'hours' ? hoursArray.length : 60;

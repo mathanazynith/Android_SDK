@@ -33,10 +33,10 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
             <Text style={[styles.infoText , { color: colors.text }]}>Flexible setup for personalized daily running routines.</Text>
           </View>
         </View>
-        <TouchableOpacity style={[styles.button, { backgroundColor: BRAND_GREEN }]} onPress={openCustomWorkout} activeOpacity={0.85}>
-          <Feather name="plus-circle" size={20} color="#000000" />
-          <Text style={[styles.buttonText, { color: "#000000" }]}>Create Custom Workout</Text>
-        </TouchableOpacity>
+      <TouchableOpacity style={styles.button} onPress={() => router.push('/(app)/custom-workout')}>
+        <Feather name="edit-3" size={26} color={Colors.primary} />
+        <Text style={styles.buttonText}>CREATE CUSTOM WORKOUT</Text>
+      </TouchableOpacity>
       </View>
 
       <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
