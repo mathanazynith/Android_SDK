@@ -1,7 +1,4 @@
-// Google Sign-In for Android using Android Client ID
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
-const AuthSession: any = require("expo-auth-session");
+import * as AuthSession from "expo-auth-session";
 import Constants from "expo-constants";
 import * as WebBrowser from "expo-web-browser";
 
@@ -22,13 +19,30 @@ const GOOGLE_DISCOVERY = {
 
 const SCOPES = ["openid", "profile", "email"];
 
-// For native Android, use the app's native scheme
-// This doesn't need to be registered in Google Console for Android apps
+// IMPORTANT: keep this exact custom scheme in sync with the AndroidManifest
+// and the Google Cloud Console native OAuth client configuration.
+// For a native Android app, use the app scheme + path exactly registered in Google Cloud.
 const REDIRECT_URI = AuthSession.makeRedirectUri({
-  scheme: "com.zyapp",
+  native: "com.zyapp:/oauthredirect",
 });
 
 console.log("📍 Native Android Redirect URI:", REDIRECT_URI);
+
+const parseGoogleUser = (idToken: string) => {
+  const [, payloadPart] = idToken.split(".");
+  if (!payloadPart) {
+    throw new Error("Invalid Google ID token format");
+  }
+
+  const payload = JSON.parse(atob(payloadPart));
+  return {
+    email: payload.email,
+    name: payload.name,
+    given_name: payload.given_name,
+    family_name: payload.family_name,
+    picture: payload.picture,
+  };
+};
 
 class GoogleAuthService {
   private authRequest: any = null;
@@ -83,8 +97,17 @@ class GoogleAuthService {
         console.log("📦 Authorization code received, exchanging for tokens...");
 
         try {
-          // Exchange authorization code for tokens
-          const tokenResponse = await this.authRequest.performCodeExchangeAsync(result);
+          const codeVerifier = this.authRequest?.codeVerifier ?? "";
+          const tokenResponse = await AuthSession.exchangeCodeAsync(
+            {
+              clientId: this.authRequest.clientId,
+              code: result.params.code,
+              redirectUri: this.authRequest.redirectUri,
+              extraParams: codeVerifier ? { code_verifier: codeVerifier } : undefined,
+            },
+            GOOGLE_DISCOVERY
+          );
+
           console.log("🎫 Tokens received successfully");
 
           const idToken = tokenResponse.idToken;
@@ -92,22 +115,19 @@ class GoogleAuthService {
             throw new Error("No ID token received from Google");
           }
 
-          const payload = JSON.parse(atob(idToken.split(".")[1]));
+          const payload = parseGoogleUser(idToken);
           console.log("👤 User authenticated:", payload.email);
 
           return {
             idToken,
             accessToken: tokenResponse.accessToken ?? "",
-            user: {
-              email: payload.email,
-              name: payload.name,
-              given_name: payload.given_name,
-              family_name: payload.family_name,
-              picture: payload.picture,
-            },
+            user: payload,
           };
         } catch (codeExchangeError: any) {
-          console.warn("⚠️ Code exchange failed, attempting direct token extraction...", codeExchangeError?.message);
+          console.warn(
+            "⚠️ Code exchange failed, attempting direct token extraction...",
+            codeExchangeError?.message
+          );
           // Continue to check for direct tokens below
         }
       }
@@ -123,19 +143,13 @@ class GoogleAuthService {
           throw new Error("No ID token in Google response");
         }
 
-        const payload = JSON.parse(atob(idToken.split(".")[1]));
+        const payload = parseGoogleUser(idToken);
         console.log("👤 User authenticated:", payload.email);
 
         return {
           idToken,
           accessToken,
-          user: {
-            email: payload.email,
-            name: payload.name,
-            given_name: payload.given_name,
-            family_name: payload.family_name,
-            picture: payload.picture,
-          },
+          user: payload,
         };
       }
 

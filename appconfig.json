@@ -4,23 +4,24 @@
     "slug": "zy-run",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/Zy-RunLOGO.png",
-    "scheme": "zy-run",
+    "icon": "./assets/ZyRunLOGO.png",
+    "scheme": "com.zyapp",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/ZyRunLOGO.png"
     },
     "android": {
+      "icon": "./assets/ZyRunLOGO.png",
       "package": "com.zyapp",
       "adaptiveIcon": {
         "backgroundColor": "#FAFAFA",
-        "foregroundImage": "./assets/Zy-RunLOGO.png"
+        "foregroundImage": "./assets/ZyRunLOGO.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png",
+      "favicon": "./assets/ZyRunLOGO.png",
       "bundler": "metro"
     },
     "plugins": [
@@ -35,8 +36,8 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#FAFAFA",
-          "image": "./assets/splash.png",
-          "imageWidth": 76
+          "image": "./assets/ZyRunLOGO.png",
+          "imageWidth": 200
         }
       ],
       "@react-native-community/datetimepicker",

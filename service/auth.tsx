@@ -223,9 +223,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         id_token: result.idToken,
       });
 
-      console.log("Google Login Response:", response.data);
+      const apiResponse = response?.data ?? {};
+      const payload = apiResponse.data ?? apiResponse;
+      const requiresSignup = Boolean(
+        payload?.requires_signup === true ||
+          payload?.requiresSignup === true ||
+          payload?.user_exists === false ||
+          payload?.userExists === false ||
+          apiResponse?.requires_signup === true ||
+          apiResponse?.requiresSignup === true ||
+          apiResponse?.user_exists === false ||
+          apiResponse?.userExists === false
+      );
 
-      if (response.data?.requires_signup) {
+      console.log("Google Login Response:", payload);
+
+      if (requiresSignup) {
         console.log("New user - needs to complete signup");
         setGoogleSignupData({
           email: result.user.email,
@@ -236,22 +249,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { requiresSignup: true };
       }
 
-      if (response.data?.data?.tokens) {
-        const { access, refresh } = response.data.data.tokens;
-        let userData = response.data.data.user;
+      const tokens = payload?.tokens ?? apiResponse?.tokens ?? payload?.token ?? apiResponse?.token;
+      const userData = payload?.user ?? apiResponse?.user ?? payload?.data?.user ?? apiResponse?.data?.user;
 
-        // ✅ Store Google profile picture if missing
-        if (!userData.profile?.profile_picture && result.user.picture) {
-          userData = {
-            ...userData,
+      if (tokens?.access && tokens?.refresh) {
+        let normalizedUser = userData || {};
+
+        if (!normalizedUser.profile?.profile_picture && result.user.picture) {
+          normalizedUser = {
+            ...normalizedUser,
             profile: {
-              ...(userData.profile || {}),
-              profile_picture: result.user.picture, // ✅ 'picture' from Google
+              ...(normalizedUser.profile || {}),
+              profile_picture: result.user.picture,
             },
           };
         }
 
-        await storeTokens(access, refresh);
+        await storeTokens(tokens.access, tokens.refresh);
+        setUser(normalizedUser);
+        setIsLoading(false);
+        return { requiresSignup: false };
+      }
+
+      if (payload?.status === "success" && userData) {
         setUser(userData);
         setIsLoading(false);
         return { requiresSignup: false };

@@ -1,20 +1,22 @@
-import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
-import { router } from 'expo-router';
+import { router, useRootNavigationState } from 'expo-router';
+import { useEffect, useRef } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../service/auth';
 
 export default function SplashScreen() {
   const { user, isLoading } = useAuth();
+  const rootNavigationState = useRootNavigationState();
+  const hasRedirectedRef = useRef(false);
 
   useEffect(() => {
-    if (!isLoading) {
-      if (user) {
-        router.replace('/(app)/dashboard');
-      } else {
-        router.replace('/(auth)/login');
-      }
+    if (isLoading || !rootNavigationState?.key || hasRedirectedRef.current) {
+      return;
     }
-  }, [isLoading, user]);
+
+    hasRedirectedRef.current = true;
+    const targetRoute = user ? '/(app)/dashboard' : '/(auth)/login';
+    router.replace(targetRoute);
+  }, [isLoading, user, rootNavigationState?.key]);
 
   return (
     <View style={styles.container}>

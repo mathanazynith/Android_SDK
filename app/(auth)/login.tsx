@@ -1,24 +1,24 @@
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useState } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
   Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../service/auth';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppInput } from '../../components/common/AppInput';
 import { PrimaryButton } from '../../components/common/PrimaryButton';
 import GoogleLoginButton from '../../components/GoogleLoginButton';
 import { Colors, Spacing, Typography } from '../../constants/theme';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '../../service/auth';
 
 export default function LoginScreen() {
   const { colors } = useTheme();
@@ -157,11 +157,13 @@ export default function LoginScreen() {
     try {
       setGoogleLoading(true);
       const result = await googleLogin();
+
       if (result?.requiresSignup) {
-        router.push('/(auth)/signup');
-      } else {
-        router.replace('/(app)/dashboard');
+        router.replace('/(auth)/signup');
+        return;
       }
+
+      router.replace('/(app)/dashboard');
     } catch (error: any) {
       console.error('Google Login Error:', error);
       Alert.alert(
