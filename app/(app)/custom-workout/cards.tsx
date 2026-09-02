@@ -20,6 +20,7 @@ import {
     type UserWorkoutResponse,
     type UserWorkoutSegmentResponse,
 } from "../../../service/customWorkout";
+import { buildWorkoutExecutionPlan } from "../../../src/utils/workoutPlanBuilder";
 import { useCustomWorkout } from "./workout-context";
 
 const formatDuration = (seconds?: number | null) => {
@@ -146,10 +147,12 @@ export default function CustomWorkoutCards() {
 
   const handleStartWorkout = (workout: UserWorkoutResponse) => {
     setActionLoading({ id: workout.id, action: "start" });
+    const plan = buildWorkoutExecutionPlan(workout);
     router.push({
       pathname: "/(app)/screens/map",
       params: {
         workoutTitle: workout.title || "Custom Workout",
+        workoutPlan: JSON.stringify(plan),
       },
     });
     setTimeout(() => setActionLoading(null), 1000);
