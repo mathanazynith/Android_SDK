@@ -114,6 +114,7 @@ export default function MapScreen() {
   const workoutVoiceRef = useRef<WorkoutVoiceService | null>(null);
   const previousWorkoutPointRef = useRef<RunningGpsPoint | null>(null);
   const routeSegmentsRef = useRef<RouteSegment[]>([]);
+  const workoutCompletionPromptShownRef = useRef(false);
 
 
   const [logs, setLogs] = useState<string[]>([]);
@@ -431,13 +432,17 @@ export default function MapScreen() {
       const previousPointDistance = previousLocationRef.current
         ? calculateDistanceMeters(previousLocationRef.current, rawGps)
         : 0;
-      const gpsSpeedMotion = rawGps.speed !== null && rawGps.speed !== undefined && rawGps.speed > 0.4;
-      const actualMovement = previousPointDistance >= 1.5;
-      const isExplicitlyStationary = detectedActivity === 'stationary' && !hasRecentStepEvidence && !actualMovement && !gpsSpeedMotion;
-      const hasCurrentMovement = hasDetectedMovement || hasRecentStepEvidence || actualMovement || gpsSpeedMotion;
-      if (hasCurrentMovement && !isExplicitlyStationary) {
+      const gpsSpeedMotion = rawGps.speed !== null && rawGps.speed !== undefined && rawGps.speed >= 1.0;
+      const hasMeaningfulDisplacement = previousPointDistance >= 8;
+      const hasCurrentMovement = (hasDetectedMovement || hasRecentStepEvidence)
+        ? hasMeaningfulDisplacement || gpsSpeedMotion
+        : hasMeaningfulDisplacement && gpsSpeedMotion;
+
+      if (hasCurrentMovement) {
         movementConfirmedRef.current = true;
       }
+
+      const isExplicitlyStationary = !hasCurrentMovement;
 
       // The complete raw GPS trace is retained regardless of whether this is
       // an active lap, rest, pause, or the confirmation popup.
@@ -609,6 +614,7 @@ export default function MapScreen() {
       workoutVoiceRef.current?.stop();
       workoutVoiceRef.current = null;
       workoutEngineRef.current = null;
+      workoutCompletionPromptShownRef.current = false;
       setIsPlannedWorkout(selectedWorkout !== null);
       setWorkoutSnapshot(null);
 
@@ -719,6 +725,8 @@ export default function MapScreen() {
                 return;
               }
 
+              if (workoutCompletionPromptShownRef.current) return;
+              workoutCompletionPromptShownRef.current = true;
               console.log('[Workout] All planned segments complete; showing Continue/Stop popup');
               Alert.alert(
                 'Workout complete',
@@ -745,7 +753,33 @@ export default function MapScreen() {
             setWorkoutSnapshot(engine.getSnapshot());
           },
           onWorkoutCompleted: () => {
+            if (workoutCompletionPromptShownRef.current) {
+              setWorkoutSnapshot(engine.getSnapshot());
+              return;
+            }
+            workoutCompletionPromptShownRef.current = true;
             console.log('[Workout] All backend workout segments completed');
+            Alert.alert(
+              'Workout complete',
+              'Do you want to continue with extra activity or stop and save the workout?',
+              [
+                {
+                  text: 'Stop and save',
+                  style: 'destructive',
+                  onPress: () => {
+                    console.log('[Workout] User selected Stop and save');
+                    void stopRun();
+                  },
+                },
+                {
+                  text: 'Continue',
+                  onPress: () => {
+                    console.log('[Workout] User selected Continue; extra activity is gray');
+                    void voice.workoutCompleted();
+                  },
+                },
+              ],
+            );
             setWorkoutSnapshot(engine.getSnapshot());
           },
         });
@@ -891,7 +925,9 @@ export default function MapScreen() {
       const detectedActivity = activityDetectionRef.current?.getCurrentActivity();
       const hasDetectedMovement = detectedActivity === 'walking' || detectedActivity === 'running';
       const hasStepEvidence = stepCountRef.current >= 3;
-      const stationarySession = !movementConfirmedRef.current && !hasDetectedMovement && !hasStepEvidence;
+      const hasMeaningfulDistance = distanceRef.current > 2;
+      const stationarySession = !movementConfirmedRef.current
+        || (!hasDetectedMovement && !hasStepEvidence && !hasMeaningfulDistance);
       // Never infer a run from an unknown or stationary state. A run is only
       // submitted when Android activity recognition explicitly reports it.
       const workoutType = detectedActivity === 'running' ? 'run' : 'walk';
