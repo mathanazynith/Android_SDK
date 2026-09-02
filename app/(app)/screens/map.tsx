@@ -917,8 +917,11 @@ export default function MapScreen() {
           });
         }
       } else if (processor) {
+        console.log('\n========== STOP & SAVE: FILTERING & OPTIMIZATION START ==========');
         console.log('[RecordView] Stop & Save: starting filter and optimization');
         console.log('[LocationManager] Raw points collected:', processor.getRawPoints().length);
+        
+        // This will log individual point acceptances/rejections
         console.log('[LocationManager] Filtering started');
         const filteredPoints = processor.filterRawPoints();
         console.log(`[LocationManager] Filtered points: ${filteredPoints.length}`);
@@ -931,6 +934,11 @@ export default function MapScreen() {
 
         console.log(`[LocationManager] Optimized points: ${optimizedCount}`);
         console.log(`[LocationManager] Reduction: ${reductionPercent}%`);
+        console.log('\n========== FILTERING & OPTIMIZATION SUMMARY ==========');
+        console.log(`📊 Raw Points: ${rawPointCount}`);
+        console.log(`📊 After Filtering: ${filteredPoints.length}`);
+        console.log(`📊 After Optimization: ${optimizedCount}`);
+        console.log(`📊 Reduction Rate: ${reductionPercent}%`);
         console.log(
           `[WorkoutHistory] Optimized polyline prepared for history only: `
           + `raw=${rawPointCount}, filtered=${filteredPoints.length}, optimized=${optimizedCount}`
@@ -1004,6 +1012,19 @@ export default function MapScreen() {
           route_points: finalCoordinates.length,
         };
 
+        console.log(`[LocationManager] 📏 DISTANCE BREAKDOWN: extra=${extraDistanceRef.current.toFixed(2)}m | total=${totalDistance.toFixed(2)}m`);
+        
+        console.log('\n========== ROUTE FINALIZATION SUMMARY ==========');
+        console.log(`📍 Upload Route Points: ${uploadRoutePoints.length}`);
+        console.log(`📍 Final Coordinates: ${finalCoordinates.length}`);
+        console.log(`📍 Route Geometry Distance: ${uploadedRouteDistance.toFixed(2)}m`);
+        
+        console.log('\n========== DISTANCE CALCULATIONS ==========');
+        console.log(`✅ Workout Distance: ${distanceRef.current.toFixed(2)}m`);
+        console.log(`➕ Extra Distance: ${extraDistanceRef.current.toFixed(2)}m`);
+        console.log(`📊 Total Distance: ${totalDistance.toFixed(2)}m (${(totalDistance/1000).toFixed(3)}km)`);
+        console.log(`⏱️  Duration: ${elapsedSeconds}s (${Math.floor(elapsedSeconds/60)}m ${elapsedSeconds%60}s)`);
+        
         console.log('[LocationManager] FINAL BACKEND PAYLOAD:');
         console.log(JSON.stringify(routePayload, null, 2));
         console.log('[LocationManager] DISTANCE SUMMARY (workout + additional):');
@@ -1108,6 +1129,7 @@ export default function MapScreen() {
               additional_distance: extraDistanceRef.current,
               duration: elapsedSeconds,
             }, null, 2));
+            console.log('\n========== STOP & SAVE: COMPLETE ✅ ==========\n');
           }
 
           addLog(`Run ${runIdRef.current ?? 'activity'} completed`);
