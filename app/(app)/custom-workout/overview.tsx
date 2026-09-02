@@ -23,6 +23,7 @@ import {
   normalizeUnit,
   parsePaceToSeconds,
 } from "../../../src/utils/workoutCalculations";
+import { buildWorkoutExecutionPlan } from "../../../src/utils/workoutPlanBuilder";
 import {
   useCustomWorkout,
   type WorkoutStep,
@@ -115,28 +116,26 @@ const isEmptyStep = (step: WorkoutStep) =>
 function StepCard({
   step,
   color,
-  repeat,
-  number,
-  setLabel,
   selected,
   index,
   editable = true,
   onSelect,
-  onDelete,
   onRepeat,
-  onSkipLastRest,
+  onMoreOptions,
 }: {
   step: WorkoutStep;
   color: string;
-  repeat?: boolean;
-  number?: number;
-  setLabel?: string;
   selected?: boolean;
   index?: number;
   editable?: boolean;
   onSelect?: () => void;
-  onDelete?: () => void;
   onRepeat?: () => void;
+  onMoreOptions?: () => void;
+  // Keep optional props for compatibility
+  repeat?: boolean;
+  number?: number;
+  setLabel?: string;
+  onDelete?: () => void;
   onSkipLastRest?: (skipLast: boolean) => void;
 }) {
   const isRepeated = (step.repeat || 1) > 1 || Boolean(step.groupId);
@@ -162,15 +161,14 @@ function StepCard({
       <EmptyStepCard
         title={step.title || "Running"}
         color={color}
-        number={number}
-        setLabel={setLabel}
         onPress={openStep}
-        onDelete={onDelete}
       />
     );
   }
 
   const displayStepTime = stepTimeText(step);
+  const dist = hasDistance(step) ? distanceText(step) : null;
+  const paceStr = hasPace(step) ? `Pace · ${step.pace} min/km` : null;
 
   return (
     <TouchableOpacity
@@ -181,100 +179,78 @@ function StepCard({
         editable && selected && styles.selectedCard,
       ]}
     >
+      {/* Vertical Rounded Color Bar */}
       <View style={[styles.colorBar, { backgroundColor: color }]} />
-      <View style={styles.stepContent}>
-        <View style={styles.titleRow}>
-          <View style={styles.titleWithBadge}>
-            {number ? (
-              <View style={styles.numberBadge}>
-                <Text style={styles.numberText}>{number}</Text>
-              </View>
-            ) : null}
-            <Text style={styles.stepTitle} numberOfLines={1}>
-              {step.title}
-              {setLabel ? ` (${setLabel})` : ""}
-            </Text>
-          </View>
 
-          <View style={styles.cardActions}>
-            {isRepeated && onSkipLastRest ? (
-              <View style={styles.restSwitch}>
-                <Text style={styles.restSwitchLabel}>Skip last rest</Text>
-                <Switch
-                  value={step.skipLastRest ?? true}
-                  onValueChange={onSkipLastRest}
-                  disabled={!editable}
-                  accessibilityLabel="Skip last rest"
-                  trackColor={{ false: "#3A3A3C", true: Colors.primaryDark }}
-                  thumbColor={(step.skipLastRest ?? true) ? Colors.primaryLight : "#BBBBBB"}
-                />
-              </View>
-            ) : null}
-            {repeat ? (
-              editable && onRepeat ? (
-                <TouchableOpacity onPress={onRepeat} style={styles.repeatBadge}>
-                  <Text style={styles.repeatBadgeText}>
-                    {step.repeat || 1} {step.repeat === 1 ? "Set" : "Sets"}
-                  </Text>
-                  <Feather
-                    name="chevron-down"
-                    size={14}
-                    color={Colors.primaryLight}
-                  />
-                </TouchableOpacity>
-              ) : (
-                <View style={styles.repeatBadgeStatic}>
-                  <Text style={styles.repeatBadgeText}>
-                    {step.repeat || 1} {step.repeat === 1 ? "Set" : "Sets"}
-                  </Text>
-                </View>
-              )
-            ) : null}
-            {editable && onDelete ? (
+      <View style={styles.stepContent}>
+        {/* Left Side: 2 Data Items (Title & Distance + Pace) */}
+        <View style={styles.stepLeftColumn}>
+          <Text style={styles.stepTitle} numberOfLines={1}>
+            {step.title}
+          </Text>
+
+          {dist ? (
+            <Text style={styles.stepDistance}>{dist}</Text>
+          ) : (
+            <Text style={styles.stepDistanceMuted}>-- km</Text>
+          )}
+
+          {paceStr ? (
+            <Text style={styles.stepPace} numberOfLines={1}>
+              {paceStr}
+            </Text>
+          ) : null}
+
+          {step.notes ? (
+            <Text style={styles.stepNotes} numberOfLines={1}>
+              📝 {step.notes}
+            </Text>
+          ) : null}
+        </View>
+
+        {/* Right Side: Corner Set (if repeated), Est Time, Time Value + Three Dots */}
+        <View style={styles.stepRightColumn}>
+          {isRepeated ? (
+            <TouchableOpacity
+              disabled={!editable}
+              onPress={(e) => {
+                e.stopPropagation();
+                onRepeat?.();
+              }}
+              style={styles.cornerSetBadge}
+              activeOpacity={editable ? 0.7 : 1}
+            >
+              <Text style={styles.cornerSetText}>
+                {step.repeat || 1} {step.repeat === 1 ? "Set" : "Sets"}
+              </Text>
+              {editable ? (
+                <Feather name="chevron-down" size={12} color="#30D158" style={{ marginLeft: 3 }} />
+              ) : null}
+            </TouchableOpacity>
+          ) : null}
+
+          <View style={styles.timeWithDotsRow}>
+            <View style={styles.estTimeBox}>
+              <Text style={styles.estTimeLabel}>Est Time</Text>
+              <Text style={styles.estTimeValue}>
+                {displayStepTime || "--:--"}
+              </Text>
+            </View>
+
+            {editable && onMoreOptions ? (
               <TouchableOpacity
-                onPress={onDelete}
-                accessibilityLabel={`Delete ${step.title}`}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onMoreOptions();
+                }}
+                style={styles.cardThreeDotsBtn}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               >
-                <Feather name="trash-2" size={17} color={Colors.textSecondary} />
+                <Feather name="more-horizontal" size={20} color="#8E8E93" />
               </TouchableOpacity>
             ) : null}
           </View>
         </View>
-
-        <View style={styles.stepDetailsRow}>
-          {hasDistance(step) && (
-            <View style={styles.pillBadge}>
-              <Feather name="compass" size={12} color={Colors.textSecondary} />
-              <Text style={styles.pillText}>{distanceText(step)}</Text>
-            </View>
-          )}
-          {displayStepTime ? (
-            <View style={styles.pillBadge}>
-              <Feather name="clock" size={12} color={Colors.textSecondary} />
-              <Text style={styles.pillText}>
-                {displayStepTime}
-                {step.repeat && step.repeat > 1
-                  ? ` (${displayTime(estimatedStepSeconds(step) * step.repeat)})`
-                  : ""}
-              </Text>
-            </View>
-          ) : null}
-          {hasPace(step) && (
-            <View style={[styles.pillBadge, { borderColor: Colors.primaryDark }]}>
-              <Feather name="zap" size={12} color={Colors.primaryLight} />
-              <Text style={[styles.pillText, { color: Colors.primaryLight }]}>
-                {step.pace}
-              </Text>
-            </View>
-          )}
-        </View>
-
-        {step.notes ? (
-          <Text style={styles.stepNotes} numberOfLines={1}>
-            📝 {step.notes}
-          </Text>
-        ) : null}
       </View>
     </TouchableOpacity>
   );
@@ -283,17 +259,11 @@ function StepCard({
 function EmptyStepCard({
   title,
   color,
-  number,
-  setLabel,
   onPress,
-  onDelete,
 }: {
   title: string;
   color: string;
-  number?: number;
-  setLabel?: string;
   onPress: () => void;
-  onDelete?: () => void;
 }) {
   return (
     <TouchableOpacity
@@ -302,41 +272,18 @@ function EmptyStepCard({
       style={styles.emptyCard}
     >
       <View style={[styles.colorBar, { backgroundColor: color }]} />
-      <View style={styles.emptyContent}>
-        <View style={styles.titleRow}>
-          <View style={styles.titleWithBadge}>
-            {number ? (
-              <View style={styles.numberBadge}>
-                <Text style={styles.numberText}>{number}</Text>
-              </View>
-            ) : null}
-            <Text style={styles.stepTitle}>
-              {title}
-              {setLabel ? ` (${setLabel})` : ""}
-            </Text>
-          </View>
-          <View style={styles.cardActions}>
-            {onDelete ? (
-              <TouchableOpacity
-                onPress={onDelete}
-                accessibilityLabel={`Delete ${title}`}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Feather
-                  name="trash-2"
-                  size={17}
-                  color={Colors.textSecondary}
-                />
-              </TouchableOpacity>
-            ) : null}
-            <Feather
-              name="plus-circle"
-              size={18}
-              color={Colors.primaryLight}
-            />
-          </View>
+      <View style={styles.stepContent}>
+        <View style={styles.stepLeftColumn}>
+          <Text style={styles.stepTitle}>{title}</Text>
+          <Text style={styles.emptySubtext}>Tap to configure {title.toLowerCase()}</Text>
         </View>
-        <Text style={styles.emptySubtext}>Tap to configure {title.toLowerCase()}</Text>
+        <View style={styles.stepRightColumn}>
+          <Feather
+            name="plus-circle"
+            size={20}
+            color={Colors.primaryLight}
+          />
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -344,11 +291,12 @@ function EmptyStepCard({
 
 function RestCard({
   duration,
-  skipLastRest,
+  skipLastRest = true,
   repeatCount = 1,
   editable = true,
   onPress,
   onDelete,
+  onToggleSkipLastRest,
 }: {
   duration: string;
   skipLastRest?: boolean;
@@ -356,6 +304,7 @@ function RestCard({
   editable?: boolean;
   onPress?: () => void;
   onDelete?: () => void;
+  onToggleSkipLastRest?: (skip: boolean) => void;
 }) {
   const restCount = skipLastRest ? Math.max(repeatCount - 1, 0) : repeatCount;
   const restSec = seconds(duration);
@@ -363,50 +312,107 @@ function RestCard({
 
   return (
     <TouchableOpacity
-      style={styles.restCard}
+      style={[
+        styles.restCard,
+        skipLastRest && repeatCount === 1 && styles.restCardSkipped,
+      ]}
       onPress={editable ? onPress : undefined}
       activeOpacity={editable ? 0.85 : 1}
     >
-      <View style={styles.restBar} />
-      <View style={styles.restContent}>
-        <View style={styles.restLeft}>
-          <Feather
-            name="coffee"
-            size={15}
-            color={Colors.primaryLight}
-          />
-          <Text style={styles.restTitle}>
-            Recovery Rest
-          </Text>
-          <Text style={styles.restValue}>
-            {duration}
-          </Text>
-          {repeatCount > 1 ? (
-            <View style={styles.restCountBadge}>
-              <Text style={styles.restCountText}>
-                {restCount}x {restCount === 1 ? "rest" : "rests"} ({displayTime(totalRestSec)})
-              </Text>
-            </View>
-          ) : null}
-        </View>
-        {editable ? (
-          <View style={styles.restActions}>
-            <TouchableOpacity
-              onPress={onPress}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      {/* Rounded Left Vertical Stripe */}
+      <View
+        style={[
+          styles.restBar,
+          skipLastRest && repeatCount === 1 && styles.restBarSkipped,
+        ]}
+      />
+
+      <View style={styles.restCardBody}>
+        {/* Row 1: Title on Left, Actions on Right */}
+        <View style={styles.restCardTopRow}>
+          <View style={styles.restTitleBox}>
+            <Feather
+              name="coffee"
+              size={15}
+              color={skipLastRest && repeatCount === 1 ? "#8E8E93" : "#30D158"}
+            />
+            <Text
+              style={[
+                styles.restTitle,
+                skipLastRest && repeatCount === 1 && { color: "#8E8E93" },
+              ]}
             >
-              <Feather name="edit-2" size={15} color={Colors.textSecondary} />
-            </TouchableOpacity>
-            {onDelete ? (
+              Recovery Rest
+            </Text>
+          </View>
+
+          {editable && (
+            <View style={styles.restActions}>
               <TouchableOpacity
-                onPress={onDelete}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                onPress={onPress}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Feather name="trash-2" size={15} color="#FF453A" />
+                <Feather name="edit-2" size={14} color="#8E8E93" />
               </TouchableOpacity>
+              {onDelete ? (
+                <TouchableOpacity
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onDelete();
+                  }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Feather name="trash-2" size={14} color="#FF453A" />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          )}
+        </View>
+
+        {/* Row 2: Duration and Repeat details on Left, Skip Last toggle on Right */}
+        <View style={styles.restCardBottomRow}>
+          <View style={styles.restDurationBox}>
+            <Text
+              style={[
+                styles.restValue,
+                skipLastRest && repeatCount === 1 && { color: "#8E8E93" },
+              ]}
+            >
+              {duration}
+            </Text>
+            {repeatCount > 1 ? (
+              <Text style={styles.restCountText}>
+                {restCount}x rests ({displayTime(totalRestSec)})
+              </Text>
             ) : null}
           </View>
-        ) : null}
+
+          {/* Skip Last Recovery Toggle */}
+          <TouchableOpacity
+            disabled={!editable}
+            style={[
+              styles.skipRestBadge,
+              skipLastRest ? styles.skipRestBadgeActive : styles.skipRestBadgeInactive,
+            ]}
+            onPress={(e) => {
+              e.stopPropagation();
+              onToggleSkipLastRest?.(!skipLastRest);
+            }}
+            activeOpacity={editable ? 0.7 : 1}
+          >
+            <Text style={[styles.skipRestLabel, skipLastRest && styles.skipRestLabelActive]}>
+              Skip last
+            </Text>
+            <Switch
+              value={skipLastRest}
+              onValueChange={(val: boolean) => onToggleSkipLastRest?.(val)}
+              disabled={!editable}
+              trackColor={{ false: "#3A3A3C", true: "rgba(48, 209, 88, 0.4)" }}
+              thumbColor={skipLastRest ? "#30D158" : "#8E8E93"}
+              style={{ transform: [{ scaleX: 0.7 }, { scaleY: 0.7 }], marginHorizontal: -4 }}
+            />
+          </TouchableOpacity>
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -431,10 +437,12 @@ export default function CustomWorkoutOverview() {
     reset,
     addEmptyRun,
     addRepeatRun,
+    addRunAfter,
     removeWarmUp,
     removeRun,
     removeCooldown,
     duplicateRunGroup,
+    updateRun,
     updateRunRepeat,
     updateRunRest,
     updateRunSkipRest,
@@ -466,9 +474,40 @@ export default function CustomWorkoutOverview() {
   const [showActionMenu, setShowActionMenu] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
+  // Individual Card 3-Dot Action Menu state
+  const [cardMenu, setCardMenu] = useState<{
+    type: "warmup" | "run" | "cooldown";
+    index?: number;
+    title: string;
+  } | null>(null);
+
   // Recovery Rest Modal state
   const [restModalIndex, setRestModalIndex] = useState<number | null>(null);
   const [tempRestDuration, setTempRestDuration] = useState("00:01:00");
+  const [tempSkipLastRest, setTempSkipLastRest] = useState(true);
+
+  const resetRepeatToDefault = (index: number) => {
+    const currentStep = workout.runs[index];
+    if (!currentStep) return;
+    const existingGroupId = currentStep.groupId || `run-group-${Date.now()}`;
+    updateRun(index, {
+      ...currentStep,
+      title: currentStep.title || "Running",
+      stepType: "Run",
+      inputType: "DURATION",
+      duration: "00:05:00",
+      distance: "1.00",
+      unit: "Kilometers (km)",
+      pace: "05:00 /km",
+      repeat: 1,
+      rest: "00:01:00",
+      skipLastRest: true,
+      skipRest: false,
+      groupId: existingGroupId,
+      groupRepeat: 1,
+      notes: "",
+    });
+  };
 
   const confirmDelete = (label: string, onDelete: () => void) =>
     Alert.alert(
@@ -653,16 +692,16 @@ export default function CustomWorkoutOverview() {
         ? targetStep.rest
         : "00:01:00";
     setTempRestDuration(initialRest);
+    setTempSkipLastRest(targetStep?.skipLastRest ?? true);
     setRestModalIndex(runIdx);
   };
 
   const saveRestConfig = () => {
     if (restModalIndex !== null) {
-      const currentStep = workout.runs[restModalIndex];
       updateRunRest(
         restModalIndex,
         tempRestDuration,
-        currentStep?.skipLastRest ?? true
+        tempSkipLastRest
       );
     }
     setRestModalIndex(null);
@@ -678,10 +717,10 @@ export default function CustomWorkoutOverview() {
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => router.back()}
-          style={styles.headerIcon}
+          style={styles.headerCircleBtn}
           accessibilityLabel="Go back"
         >
-          <Feather name="arrow-left" size={26} color={Colors.text} />
+          <Feather name="arrow-left" size={20} color="#FFFFFF" />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -696,21 +735,21 @@ export default function CustomWorkoutOverview() {
           activeOpacity={isEditing ? 0.7 : 1}
         >
           <Text style={styles.headerTitle} numberOfLines={1}>
-            {workout.title || "Custom Workout"}
+            {workout.title || "Run Workout"}
           </Text>
           {isEditing ? (
-            <Feather name="edit-2" size={14} color={Colors.primaryLight} style={{ marginLeft: 6 }} />
+            <Feather name="edit-2" size={13} color={Colors.primaryLight} style={{ marginLeft: 6 }} />
           ) : null}
         </TouchableOpacity>
 
         <View style={styles.headerRightActions}>
           <TouchableOpacity
             onPress={() => setShowActionMenu(true)}
-            style={styles.headerMenuBtn}
+            style={styles.headerCircleBtn}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             accessibilityLabel="More options"
           >
-            <Feather name="more-horizontal" size={24} color={Colors.text} />
+            <Feather name="more-horizontal" size={20} color="#FFFFFF" />
           </TouchableOpacity>
 
           {isEditing ? (
@@ -720,9 +759,9 @@ export default function CustomWorkoutOverview() {
               style={styles.saveHeaderButton}
             >
               {isSaving ? (
-                <ActivityIndicator size="small" color={Colors.primaryLight} />
+                <ActivityIndicator size="small" color="#30D158" />
               ) : (
-                <Text style={styles.done}>SAVE</Text>
+                <Text style={styles.headerSaveText}>Save</Text>
               )}
             </TouchableOpacity>
           ) : (
@@ -782,21 +821,36 @@ export default function CustomWorkoutOverview() {
           </View>
         </View>
 
-        <Text style={styles.stepsTitle}>Workout Structure</Text>
+        {/* Steps Section Header: Steps + Reorder */}
+        <View style={styles.stepsSectionHeader}>
+          <Text style={styles.stepsTitle}>Steps</Text>
+          <TouchableOpacity
+            onPress={() => {
+              Alert.alert("Reorder Steps", "Drag and drop step reordering will be available in an upcoming update.");
+            }}
+          >
+            <Text style={styles.reorderBtnText}>Reorder</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* 1. Warm Up */}
         {workout.warmUp ? (
           <StepCard
             step={workout.warmUp}
-            color="#FF3B30"
+            color="#FF375F"
             editable={isEditing}
             onSelect={() => router.push("/custom-workout?step=warmup")}
-            onDelete={() => confirmDelete("Warm Up", removeWarmUp)}
+            onMoreOptions={() =>
+              setCardMenu({
+                type: "warmup",
+                title: workout.warmUp?.title || "Warm Up",
+              })
+            }
           />
         ) : isEditing ? (
           <EmptyStepCard
             title="Warm Up"
-            color="#FF3B30"
+            color="#FF375F"
             onPress={() => router.push("/custom-workout?step=warmup")}
           />
         ) : null}
@@ -805,47 +859,14 @@ export default function CustomWorkoutOverview() {
         {runGroups.length ? (
           runGroups.map((group) => {
             if (group.groupId) {
-              const groupStats = getGroupStats(group.items);
-
               return (
                 <View key={group.groupId} style={styles.groupBox}>
-                  <View style={styles.groupHeader}>
-                    <View style={styles.groupTitleRow}>
-                      <Feather name="repeat" size={16} color={Colors.primaryLight} />
-                      <Text style={styles.groupTitle}>Repeat Group</Text>
-                      <View style={styles.groupTimeBadge}>
-                        <Feather name="clock" size={12} color={Colors.primaryLight} />
-                        <Text style={styles.groupTimeText}>
-                          {displayTime(groupStats.totalGroupRunSeconds)} run
-                        </Text>
-                      </View>
-                      {groupStats.totalGroupSeconds > groupStats.totalGroupRunSeconds ? (
-                        <View style={styles.groupTotalTimeBadge}>
-                          <Text style={styles.groupTotalTimeText}>
-                            Total {displayTime(groupStats.totalGroupSeconds)}
-                          </Text>
-                        </View>
-                      ) : null}
-                      {groupStats.totalGroupDistance > 0 ? (
-                        <View style={styles.groupDistBadge}>
-                          <Feather name="compass" size={12} color={Colors.textSecondary} />
-                          <Text style={styles.groupDistText}>
-                            {groupStats.totalGroupDistance.toFixed(2)} km
-                          </Text>
-                        </View>
-                      ) : null}
-                    </View>
-                  </View>
-
-                  {group.items.map(({ step, index }, itemIdx) => (
+                  {group.items.map(({ step, index }) => (
                     <View key={`${step.title}-${index}`}>
                       <StepCard
                         step={step}
                         color="#0A84FF"
                         index={index}
-                        number={index + 1}
-                        setLabel={`Set ${itemIdx + 1}`}
-                        repeat={true}
                         editable={isEditing}
                         selected={selectedRun === index}
                         onSelect={() => {
@@ -855,11 +876,11 @@ export default function CustomWorkoutOverview() {
                           );
                         }}
                         onRepeat={() => setRepeatRun(index)}
-                        onSkipLastRest={(value) => updateRunSkipLastRest(index, value)}
-                        onDelete={() =>
-                          confirmDelete(step.title, () => {
-                            removeRun(index);
-                            setSelectedRun(null);
+                        onMoreOptions={() =>
+                          setCardMenu({
+                            type: "run",
+                            index,
+                            title: step.title || `Run ${index + 1}`,
                           })
                         }
                       />
@@ -870,6 +891,7 @@ export default function CustomWorkoutOverview() {
                         editable={isEditing}
                         onPress={() => openRestModal(index)}
                         onDelete={() => deleteRestConfig(index)}
+                        onToggleSkipLastRest={(val) => updateRunSkipLastRest(index, val)}
                       />
                     </View>
                   ))}
@@ -886,9 +908,7 @@ export default function CustomWorkoutOverview() {
                   step={singleStep}
                   color="#0A84FF"
                   index={singleIndex}
-                  repeat={false}
                   editable={isEditing}
-                  number={singleIndex + 1}
                   selected={selectedRun === singleIndex}
                   onSelect={() => {
                     setSelectedRun(singleIndex);
@@ -896,13 +916,26 @@ export default function CustomWorkoutOverview() {
                       `/custom-workout/running-declaration?index=${singleIndex}`
                     );
                   }}
-                  onDelete={() =>
-                    confirmDelete(singleStep.title, () => {
-                      removeRun(singleIndex);
-                      setSelectedRun(null);
+                  onRepeat={() => setRepeatRun(singleIndex)}
+                  onMoreOptions={() =>
+                    setCardMenu({
+                      type: "run",
+                      index: singleIndex,
+                      title: singleStep.title || "Running",
                     })
                   }
                 />
+                {singleStep.rest && singleStep.rest !== "00:00:00" ? (
+                  <RestCard
+                    duration={singleStep.rest}
+                    skipLastRest={singleStep.skipLastRest ?? true}
+                    repeatCount={singleStep.repeat || 1}
+                    editable={isEditing}
+                    onPress={() => openRestModal(singleIndex)}
+                    onDelete={() => deleteRestConfig(singleIndex)}
+                    onToggleSkipLastRest={(val) => updateRunSkipLastRest(singleIndex, val)}
+                  />
+                ) : null}
               </View>
             );
           })
@@ -924,7 +957,12 @@ export default function CustomWorkoutOverview() {
             color="#30D158"
             editable={isEditing}
             onSelect={() => router.push("/custom-workout/cooldown")}
-            onDelete={() => confirmDelete("Cool Down", removeCooldown)}
+            onMoreOptions={() =>
+              setCardMenu({
+                type: "cooldown",
+                title: workout.cooldown?.title || "Cool Down",
+              })
+            }
           />
         ) : isEditing ? (
           <EmptyStepCard
@@ -968,10 +1006,12 @@ export default function CustomWorkoutOverview() {
             <TouchableOpacity
               style={styles.startWorkoutButton}
               onPress={() => {
+                const plan = buildWorkoutExecutionPlan(workout);
                 router.push({
                   pathname: "/(app)/screens/map",
                   params: {
                     workoutTitle: workout.title || "Custom Workout",
+                    workoutPlan: JSON.stringify(plan),
                   },
                 });
               }}
@@ -1009,17 +1049,6 @@ export default function CustomWorkoutOverview() {
                 placeholderTextColor={Colors.textMuted}
                 style={styles.modalInput}
               />
-
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>Notes</Text>
-              <TextInput
-                value={tempNotes}
-                onChangeText={setTempNotes}
-                placeholder="General notes for this workout"
-                placeholderTextColor={Colors.textMuted}
-                style={[styles.modalInput, { minHeight: 65, textAlignVertical: "top" }]}
-                multiline
-              />
-
               <TouchableOpacity
                 style={styles.modalSaveButton}
                 onPress={saveTitleAndNotes}
@@ -1120,6 +1149,21 @@ export default function CustomWorkoutOverview() {
                 onChange={setTempRestDuration}
               />
 
+              <View style={styles.skipRestRow}>
+                <View style={{ flex: 1, marginRight: 10 }}>
+                  <Text style={styles.skipRestTitle}>Skip Last Recovery</Text>
+                  <Text style={styles.skipRestSubtitle}>
+                    Omit rest after the final repeat set
+                  </Text>
+                </View>
+                <Switch
+                  value={tempSkipLastRest}
+                  onValueChange={setTempSkipLastRest}
+                  trackColor={{ false: "#3A3A3C", true: Colors.primaryDark }}
+                  thumbColor={tempSkipLastRest ? Colors.primaryLight : "#BBBBBB"}
+                />
+              </View>
+
               <TouchableOpacity
                 style={styles.modalSaveButton}
                 onPress={saveRestConfig}
@@ -1139,6 +1183,92 @@ export default function CustomWorkoutOverview() {
                 </TouchableOpacity>
               ) : null}
             </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Individual Card 3-Dot Action Menu Bottom Sheet */}
+      <Modal
+        visible={cardMenu !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCardMenu(null)}
+      >
+        <Pressable style={styles.menuOverlay} onPress={() => setCardMenu(null)}>
+          <Pressable style={styles.menuSheet} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.menuHandle} />
+            <View style={styles.menuHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuSheetTitle} numberOfLines={1}>
+                  {cardMenu?.title}
+                </Text>
+                <Text style={styles.menuSheetSubtitle}>Step Options</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setCardMenu(null)}
+                style={styles.menuCloseBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Feather name="x" size={20} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Option 1: Reset repeat to default (Repeated runs only) */}
+            {cardMenu?.type === "run" &&
+              cardMenu.index !== undefined &&
+              isEditing &&
+              ((workout.runs[cardMenu.index]?.repeat || 1) > 1 || Boolean(workout.runs[cardMenu.index]?.groupId)) && (
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    const idx = cardMenu.index!;
+                    setCardMenu(null);
+                    resetRepeatToDefault(idx);
+                  }}
+                >
+                  <View style={[styles.menuItemIcon, { backgroundColor: "rgba(255, 159, 10, 0.15)" }]}>
+                    <Feather name="rotate-ccw" size={18} color="#FF9F0A" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.menuItemText}>Reset to default</Text>
+                    <Text style={styles.menuItemSubtext}>Reset to 1 Set · 1.00 km default values</Text>
+                  </View>
+                  <Feather name="chevron-right" size={16} color={Colors.textMuted} />
+                </TouchableOpacity>
+              )}
+
+            {/* Option 2: Delete Step */}
+            {isEditing && (
+              <TouchableOpacity
+                style={[styles.menuItem, styles.menuItemDestructive]}
+                activeOpacity={0.7}
+                onPress={() => {
+                  const menu = cardMenu;
+                  setCardMenu(null);
+                  if (!menu) return;
+                  if (menu.type === "warmup") {
+                    confirmDelete("Warm Up", removeWarmUp);
+                  } else if (menu.type === "cooldown") {
+                    confirmDelete("Cool Down", removeCooldown);
+                  } else if (menu.index !== undefined) {
+                    confirmDelete(menu.title, () => {
+                      removeRun(menu.index!);
+                      setSelectedRun(null);
+                    });
+                  }
+                }}
+              >
+                <View style={[styles.menuItemIcon, { backgroundColor: "rgba(255, 69, 58, 0.15)" }]}>
+                  <Feather name="trash-2" size={18} color="#FF453A" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.menuItemText, { color: "#FF453A" }]}>Delete Step</Text>
+                  <Text style={styles.menuItemSubtext}>Remove this step from workout</Text>
+                </View>
+                <Feather name="chevron-right" size={16} color={Colors.textMuted} />
+              </TouchableOpacity>
+            )}
           </Pressable>
         </Pressable>
       </Modal>
@@ -1308,16 +1438,24 @@ export default function CustomWorkoutOverview() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.background },
   header: {
-    minHeight: 70,
+    minHeight: 64,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     backgroundColor: "#000",
     borderBottomWidth: 1,
-    borderBottomColor: "#222222",
+    borderBottomColor: "#1C1C1E",
   },
   headerIcon: { width: 44 },
+  headerCircleBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#1C1C1E",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   titleContainer: {
     flex: 1,
     flexDirection: "row",
@@ -1326,8 +1464,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   headerTitle: {
-    color: Colors.text,
-    fontSize: 18,
+    color: "#FFFFFF",
+    fontSize: 17,
     fontWeight: "700",
     maxWidth: "80%",
   },
@@ -1345,11 +1483,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   saveHeaderButton: {
-    paddingHorizontal: 8,
-    alignItems: "flex-end",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignItems: "center",
     justifyContent: "center",
   },
-  done: { color: Colors.primaryLight, fontSize: 14, fontWeight: "800", letterSpacing: 0.5 },
+  headerSaveText: {
+    color: "#30D158",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  done: { color: "#30D158", fontSize: 14, fontWeight: "800", letterSpacing: 0.5 },
   editHeaderButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1367,7 +1511,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.5,
   },
-  body: { flex: 1, backgroundColor: "#101010" },
+  body: { flex: 1, backgroundColor: "#0A0A0C" },
   bodyContent: { paddingHorizontal: 16, paddingBottom: 40 },
   dateBanner: {
     flexDirection: "row",
@@ -1404,167 +1548,256 @@ const styles = StyleSheet.create({
   statDivider: { width: 1, height: 28, backgroundColor: "#2C2C2E" },
   statLabel: { color: Colors.textSecondary, fontSize: 10, fontWeight: "700", letterSpacing: 0.5 },
   statValue: { color: Colors.text, fontSize: 17, fontWeight: "800", marginTop: 4 },
+  stepsSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 22,
+    marginBottom: 12,
+  },
   stepsTitle: {
-    color: Colors.text,
+    color: "#FFFFFF",
     fontSize: 18,
     fontWeight: "700",
-    marginTop: 24,
-    marginBottom: 12,
     letterSpacing: 0.3,
+  },
+  reorderBtnText: {
+    color: "#30D158",
+    fontSize: 15,
+    fontWeight: "600",
   },
   stepCard: {
     flexDirection: "row",
     backgroundColor: "#1C1C1E",
-    borderRadius: 14,
-    marginBottom: 10,
+    borderRadius: 16,
+    marginBottom: 12,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#2C2C2E",
+    borderColor: "#28282B",
   },
   selectedCard: { borderColor: Colors.primary },
-  colorBar: { width: 5 },
-  stepContent: { flex: 1, padding: 14 },
-  titleRow: {
+  colorBar: {
+    width: 5,
+    marginVertical: 10,
+    marginLeft: 6,
+    borderRadius: 3,
+  },
+  stepContent: {
+    flex: 1,
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 10,
+    alignItems: "flex-start",
+    paddingVertical: 14,
+    paddingHorizontal: 12,
   },
-  titleWithBadge: { flexDirection: "row", alignItems: "center", flex: 1 },
-  numberBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: "#2A2A2D",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 8,
+  stepLeftColumn: {
+    flex: 1,
+    marginRight: 10,
   },
-  numberText: { color: Colors.textSecondary, fontSize: 11, fontWeight: "700" },
-  stepTitle: { color: Colors.text, fontSize: 16, fontWeight: "700", flex: 1 },
-  cardActions: { flexDirection: "row", alignItems: "center", gap: 10 },
-  restSwitch: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#262628",
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#333336",
-    gap: 4,
+  stepTitle: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0.2,
   },
-  restSwitchLabel: {
-    color: Colors.textSecondary,
-    fontSize: 11,
-    fontWeight: "600",
+  stepDistance: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "500",
+    marginTop: 4,
   },
-  repeatBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: "#2A2A2D",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Colors.primaryDark,
+  stepDistanceMuted: {
+    color: "#8E8E93",
+    fontSize: 14,
+    fontWeight: "500",
+    marginTop: 4,
   },
-  repeatBadgeText: { color: Colors.primaryLight, fontSize: 13, fontWeight: "700" },
-  repeatBadgeStatic: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: "#2A2A2D",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#3E3E42",
+  stepPace: {
+    color: "#8E8E93",
+    fontSize: 12,
+    fontWeight: "500",
+    marginTop: 3,
   },
-  stepDetailsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  pillBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    backgroundColor: "#262628",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#333336",
-  },
-  pillText: { color: Colors.text, fontSize: 13, fontWeight: "600" },
   stepNotes: {
     color: Colors.textMuted,
-    fontSize: 12,
-    marginTop: 8,
+    fontSize: 11,
+    marginTop: 4,
     fontStyle: "italic",
+  },
+  stepRightColumn: {
+    alignItems: "flex-end",
+    alignSelf: "flex-start",
+    paddingTop: 2,
+  },
+  cornerSetBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-end",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: "rgba(48, 209, 88, 0.12)",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(48, 209, 88, 0.35)",
+    marginBottom: 6,
+  },
+  cornerSetText: {
+    color: "#30D158",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  timeWithDotsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  estTimeBox: {
+    alignItems: "flex-end",
+  },
+  estTimeLabel: {
+    color: "#8E8E93",
+    fontSize: 11,
+    fontWeight: "500",
+    textAlign: "right",
+  },
+  timeValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 2,
+  },
+  estTimeValue: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
+  },
+  cardThreeDotsBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 4,
   },
   emptyCard: {
     flexDirection: "row",
     backgroundColor: "#161618",
-    borderRadius: 14,
-    marginBottom: 10,
+    borderRadius: 16,
+    marginBottom: 12,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#262628",
+    borderColor: "#28282B",
     borderStyle: "dashed",
   },
-  emptyContent: { flex: 1, padding: 14 },
-  emptySubtext: { color: Colors.textMuted, fontSize: 13 },
+  emptySubtext: { color: Colors.textMuted, fontSize: 13, marginTop: 4 },
   restCard: {
     flexDirection: "row",
     backgroundColor: "#18181A",
-    borderRadius: 12,
-    marginBottom: 10,
+    borderRadius: 14,
+    marginBottom: 12,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "#262628",
   },
   restCardSkipped: {
-    opacity: 0.6,
+    opacity: 0.65,
     borderColor: "#222224",
   },
-  restBar: { width: 4, backgroundColor: "#636366" },
+  restBar: {
+    width: 5,
+    marginVertical: 8,
+    marginLeft: 6,
+    borderRadius: 3,
+    backgroundColor: "#30D158",
+  },
   restBarSkipped: { backgroundColor: "#3A3A3C" },
-  restContent: {
+  restCardBody: {
     flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    justifyContent: "space-between",
+  },
+  restCardTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    marginBottom: 8,
   },
-  restLeft: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
-  restTitle: { color: Colors.textSecondary, fontSize: 13, fontWeight: "600" },
-  restValue: { color: Colors.primaryLight, fontSize: 13, fontWeight: "700" },
-  skipTag: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    backgroundColor: "#2C2C2E",
-    borderRadius: 6,
-  },
-  skipTagText: { color: Colors.textMuted, fontSize: 10, fontWeight: "600" },
-  restActions: { flexDirection: "row", alignItems: "center", gap: 14 },
-  addRestButton: {
+  restTitleBox: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 8,
-    marginBottom: 10,
-    backgroundColor: "rgba(255,255,255,0.03)",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#262628",
-    borderStyle: "dashed",
+    gap: 8,
   },
-  addRestText: { color: Colors.primaryLight, fontSize: 12, fontWeight: "600" },
+  restTitle: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  restActions: { flexDirection: "row", alignItems: "center", gap: 14 },
+  restCardBottomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  restDurationBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flex: 1,
+  },
+  restValue: {
+    color: "#30D158",
+    fontSize: 15,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+  restCountText: { color: "#8E8E93", fontSize: 12, fontWeight: "500" },
+  skipRestBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#222224",
+    paddingLeft: 8,
+    paddingRight: 4,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#333336",
+    gap: 2,
+  },
+  skipRestBadgeActive: {
+    backgroundColor: "rgba(48, 209, 88, 0.12)",
+    borderColor: "rgba(48, 209, 88, 0.35)",
+  },
+  skipRestBadgeInactive: {
+    backgroundColor: "#1C1C1E",
+    borderColor: "#28282A",
+  },
+  skipRestLabel: {
+    color: "#8E8E93",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  skipRestLabelActive: {
+    color: "#30D158",
+  },
   groupBox: {
     padding: 12,
-    backgroundColor: "#141416",
+    backgroundColor: "#121214",
     borderRadius: 16,
     marginBottom: 14,
     borderWidth: 1,
     borderColor: "#28282C",
+  },
+  groupSetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+    alignSelf: "flex-start",
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  groupSetHeaderText: {
+    color: "#8E8E93",
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.3,
   },
   groupHeader: {
     flexDirection: "row",
@@ -1813,20 +2046,6 @@ const styles = StyleSheet.create({
     borderTopColor: "#2C2C2E",
   },
   optionText: { color: Colors.text, fontSize: 16 },
-  restCountBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    backgroundColor: "rgba(52, 199, 89, 0.15)",
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "rgba(52, 199, 89, 0.3)",
-    marginLeft: 6,
-  },
-  restCountText: {
-    color: Colors.primaryLight,
-    fontSize: 11,
-    fontWeight: "700",
-  },
   /* 3-Dot Action Menu Bottom Sheet Styles */
   menuOverlay: {
     flex: 1,

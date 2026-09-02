@@ -1,3 +1,4 @@
+import { Feather } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -18,10 +19,58 @@ import { LocationService } from '../../../src/services/locationService';
 import { PathProcessor } from '../../../src/services/pathProcessor';
 import { RunningApiClient } from '../../../src/services/runningApi';
 import { StepDetectionService } from '../../../src/services/stepDetectionService';
+import voiceCoach from '../../../src/services/voiceCoach';
 import { ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
 import { calculateDistanceMeters } from '../../../src/utils/distance';
+import { formatStepTarget, WorkoutExecutionStep } from '../../../src/utils/workoutPlanBuilder';
 
 const RUNNING_USER_ID = 'USER-1001';
+
+const formatTimerDisplay = (totalSec: number) => {
+  const m = Math.floor(Math.max(0, totalSec) / 60);
+  const s = Math.max(0, totalSec) % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+};
+
+const formatPaceDisplay = (paceVal: number) => {
+  if (!paceVal || !isFinite(paceVal) || paceVal <= 0 || paceVal > 30) return '--:--';
+  const m = Math.floor(paceVal);
+  const s = Math.round((paceVal % 1) * 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+};
+
+const getStepColor = (stepType?: string) => {
+  switch (stepType) {
+    case 'Warmup':
+      return '#FF453A';
+    case 'Run':
+      return '#0A84FF';
+    case 'Rest':
+      return '#30D158';
+    case 'Cooldown':
+      return '#BF5AF2';
+    default:
+      return '#0A84FF';
+  }
+};
+
+const formatStepTargetSafe = (step?: WorkoutExecutionStep | null) => {
+  if (!step) return '';
+  if (typeof formatStepTarget === 'function') {
+    return formatStepTarget(step);
+  }
+  if (step.targetType === 'DURATION' && step.targetDurationSeconds) {
+    const mins = Math.floor(step.targetDurationSeconds / 60);
+    const secs = step.targetDurationSeconds % 60;
+    if (mins > 0 && secs > 0) return `${mins}m ${secs}s`;
+    if (mins > 0) return `${mins} min`;
+    return `${secs} sec`;
+  }
+  if (step.targetType === 'DISTANCE' && step.targetDistanceMeters) {
+    return `${(step.targetDistanceMeters / 1000).toFixed(2)} km`;
+  }
+  return 'Open target';
+};
 
 interface Coordinate {
   latitude: number;
@@ -42,7 +91,33 @@ interface LocationState {
 }
 
 export default function MapScreen() {
-  const plannedWorkout = useLocalSearchParams<{ workoutTitle?: string }>();
+  const params = useLocalSearchParams<{
+    workoutTitle?: string;
+    workoutPlan?: string;
+  }>();
+
+  const executionPlan: WorkoutExecutionStep[] = useMemo(() => {
+    if (!params.workoutPlan) return [];
+    try {
+      const parsed = JSON.parse(params.workoutPlan);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.error('[MapScreen] Failed to parse workoutPlan:', e);
+      return [];
+    }
+  }, [params.workoutPlan]);
+
+  const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const [stepStartSeconds, setStepStartSeconds] = useState(0);
+  const [stepStartDistanceMeters, setStepStartDistanceMeters] = useState(0);
+  const [isVoiceMuted, setIsVoiceMuted] = useState(false);
+
+  const currentStepIndexRef = useRef(0);
+  const stepStartSecondsRef = useRef(0);
+  const stepStartDistanceRef = useRef(0);
+  const halfwayAnnouncedRef = useRef(false);
+  const executionPlanRef = useRef<WorkoutExecutionStep[]>([]);
+  executionPlanRef.current = executionPlan;
   const [loading, setLoading] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [permissionGranted, setPermissionGranted] = useState(false);
@@ -289,6 +364,40 @@ export default function MapScreen() {
     };
   }, []);
 
+  const advanceToNextStep = useCallback(() => {
+    const plan = executionPlanRef.current;
+    if (!plan || plan.length === 0) return;
+
+    const currentIdx = currentStepIndexRef.current;
+    const nextIdx = currentIdx + 1;
+
+    if (nextIdx < plan.length) {
+      const finishedStep = plan[currentIdx];
+      const nextStep = plan[nextIdx];
+
+      currentStepIndexRef.current = nextIdx;
+      stepStartSecondsRef.current = elapsedSeconds;
+      stepStartDistanceRef.current = distanceRef.current;
+      halfwayAnnouncedRef.current = false;
+
+      setCurrentStepIndex(nextIdx);
+      setStepStartSeconds(elapsedSeconds);
+      setStepStartDistanceMeters(distanceRef.current);
+
+      voiceCoach?.announceStepTransition?.(finishedStep, nextStep);
+    } else {
+      voiceCoach?.announceWorkoutCompleted?.();
+      Alert.alert(
+        'Workout Completed!',
+        'You have successfully completed all planned steps! Great work! Would you like to stop and save your workout?',
+        [
+          { text: 'Keep Running', style: 'cancel' },
+          { text: 'Stop & Save', onPress: () => stopRunRef.current() },
+        ]
+      );
+    }
+  }, [elapsedSeconds]);
+
   useEffect(() => {
     if (!isRunning) return;
 
@@ -312,11 +421,54 @@ export default function MapScreen() {
             setPace(paceValue);
           }
         }
+
+        // Custom Workout Step Completion Check
+        const plan = executionPlanRef.current;
+        if (plan.length > 0 && !isPausedRef.current) {
+          const currentIdx = currentStepIndexRef.current;
+          const step = plan[currentIdx];
+          if (step) {
+            const stepElapsed = elapsed - stepStartSecondsRef.current;
+            const stepDist = distanceRef.current - stepStartDistanceRef.current;
+
+            // Check Duration target
+            if (step.targetType === 'DURATION' && step.targetDurationSeconds) {
+              if (
+                !halfwayAnnouncedRef.current &&
+                stepElapsed >= Math.floor(step.targetDurationSeconds / 2) &&
+                step.targetDurationSeconds >= 20
+              ) {
+                halfwayAnnouncedRef.current = true;
+                voiceCoach?.announceHalfway?.(step);
+              }
+
+              if (stepElapsed >= step.targetDurationSeconds) {
+                advanceToNextStep();
+              }
+            }
+
+            // Check Distance target
+            if (step.targetType === 'DISTANCE' && step.targetDistanceMeters) {
+              if (
+                !halfwayAnnouncedRef.current &&
+                stepDist >= Math.floor(step.targetDistanceMeters / 2) &&
+                step.targetDistanceMeters >= 200
+              ) {
+                halfwayAnnouncedRef.current = true;
+                voiceCoach?.announceHalfway?.(step);
+              }
+
+              if (stepDist >= step.targetDistanceMeters) {
+                advanceToNextStep();
+              }
+            }
+          }
+        }
       }
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isRunning]);
+  }, [isRunning, advanceToNextStep]);
 
   const uploadBatch = useCallback(
     async (batch: RunningPathPoint[]) => {
@@ -577,8 +729,19 @@ export default function MapScreen() {
       isRunningRef.current = true;
       setIsRunning(true);
 
+      if (executionPlan.length > 0) {
+        currentStepIndexRef.current = 0;
+        stepStartSecondsRef.current = 0;
+        stepStartDistanceRef.current = 0;
+        halfwayAnnouncedRef.current = false;
+        setCurrentStepIndex(0);
+        setStepStartSeconds(0);
+        setStepStartDistanceMeters(0);
+        voiceCoach?.announceStepStart?.(executionPlan[0]);
+      }
+
       addLog(`?? Run ${runId} started`);
-      if (plannedWorkout.workoutTitle) addLog(`Planned workout: ${plannedWorkout.workoutTitle}`);
+      if (params.workoutTitle) addLog(`Planned workout: ${params.workoutTitle}`);
       addLog('?? GPS tracking enabled');
       moveMapToLocation(startingPoint.latitude, startingPoint.longitude);
 
@@ -831,6 +994,7 @@ export default function MapScreen() {
         }
       }
 
+      voiceCoach?.stop?.();
       setIsRunning(false);
       isRunningRef.current = false;
       startTimeRef.current = null;
@@ -908,9 +1072,36 @@ export default function MapScreen() {
     );
   }
 
+  const activeStep = executionPlan[currentStepIndex];
+  const nextStep = executionPlan[currentStepIndex + 1];
+  const activeStepColor = getStepColor(activeStep?.stepType);
+
+  const currentStepElapsedSeconds = Math.max(0, elapsedSeconds - stepStartSeconds);
+  const currentStepDistanceMeters = Math.max(0, distance - stepStartDistanceMeters);
+
+  const remainingStepDuration =
+    activeStep?.targetType === 'DURATION' && activeStep.targetDurationSeconds
+      ? Math.max(0, activeStep.targetDurationSeconds - currentStepElapsedSeconds)
+      : 0;
+
+  const stepDurationProgress =
+    activeStep?.targetType === 'DURATION' && activeStep.targetDurationSeconds
+      ? Math.min(1, currentStepElapsedSeconds / activeStep.targetDurationSeconds)
+      : 0;
+
+  const remainingStepDistanceMeters =
+    activeStep?.targetType === 'DISTANCE' && activeStep.targetDistanceMeters
+      ? Math.max(0, activeStep.targetDistanceMeters - currentStepDistanceMeters)
+      : 0;
+
+  const stepDistanceProgress =
+    activeStep?.targetType === 'DISTANCE' && activeStep.targetDistanceMeters
+      ? Math.min(1, currentStepDistanceMeters / activeStep.targetDistanceMeters)
+      : 0;
+
   return (
     <View style={styles.container}>
-      <View style={styles.mapContainer}>
+      <View style={executionPlan.length > 0 ? styles.mapContainerSplit : styles.mapContainer}>
         <MapView
           ref={mapRef}
           provider={PROVIDER_GOOGLE}
@@ -988,131 +1179,591 @@ export default function MapScreen() {
             }
           }}
         >
-          <Text style={styles.recenterText}>??</Text>
+          <Feather name="crosshair" size={20} color="#FFFFFF" />
         </Pressable>
       </View>
 
-      <View style={styles.controlBar}>
-        <View style={styles.controlBarContent}>
-          <View style={styles.controlStatus}>
-            <Text style={styles.controlStatusTitle}>Run</Text>
-            <Text style={styles.controlStatusValue}>{isRunning ? (isPaused ? 'Paused' : 'Live') : 'Ready'}</Text>
-            <Text style={styles.stepStatus}>Steps {isRunning ? stepCount : 0}</Text>
-            {isRunning && distance > 0 && (
-              <Text style={styles.paceStatus}>
-                {(distance / 1000).toFixed(2)}km · {Math.floor(pace)}:{String(Math.round((pace % 1) * 60)).padStart(2, '0')}/km
+      {/* Lower Portion: Custom Workout Execution Dashboard */}
+      {executionPlan.length > 0 ? (
+        <View style={styles.dashboardContainer}>
+          {/* Header */}
+          <View style={styles.dashboardHeader}>
+            <View style={styles.dashboardTitleRow}>
+              <View style={[styles.stepTypeDot, { backgroundColor: activeStepColor }]} />
+              <Text style={styles.dashboardWorkoutTitle} numberOfLines={1}>
+                {params.workoutTitle || 'Custom Workout'}
               </Text>
-            )}
-          </View>
+            </View>
 
-          <View style={styles.actionButtonSlot}>
-            {!isRunning ? (
-              // Start button when not running
-              <Pressable
-                style={styles.startButton}
-                hitSlop={16}
-                android_disableSound
-                onPressIn={() => {
-                  console.log('[RecordView] START touch received');
-                }}
-                onPress={() => {
-                  console.log('[RecordView] START button pressed');
-                  void startRun();
-                }}
-                onTouchEnd={() => {
-                  console.log('[RecordView] START touch ended');
-                }}
-              >
-                <Text style={styles.startButtonText}>START RUN</Text>
-              </Pressable>
-            ) : isPaused ? (
-              // Resume button when paused
-              <Pressable
-                style={styles.resumeButton}
-                hitSlop={16}
-                android_disableSound
-                onPressIn={() => {
-                  console.log('[RecordView] RESUME touch received');
-                }}
-                onPress={() => {
-                  console.log('[RecordView] RESUME button pressed');
-                  void resumeRun();
-                }}
-                onTouchEnd={() => {
-                  console.log('[RecordView] RESUME touch ended');
-                }}
-              >
-                <Text style={styles.resumeButtonText}>RESUME</Text>
-              </Pressable>
-            ) : (
-              // Pause button when running
-              <Pressable
-                style={styles.pauseButton}
-                hitSlop={16}
-                android_disableSound
-                onPressIn={() => {
-                  console.log('[RecordView] PAUSE touch received');
-                }}
-                onPress={() => {
-                  console.log('[RecordView] PAUSE button pressed');
-                  void pauseRun();
-                }}
-                onTouchEnd={() => {
-                  console.log('[RecordView] PAUSE touch ended');
-                }}
-              >
-                <Text style={styles.pauseButtonText}>PAUSE</Text>
-              </Pressable>
-            )}
-          </View>
+            <View style={styles.headerRightActions}>
+              <View style={styles.stepCounterBadge}>
+                <Text style={styles.stepCounterText}>
+                  STEP {currentStepIndex + 1} / {executionPlan.length}
+                </Text>
+              </View>
 
-          {isRunning && (
-            <View style={styles.stopButtonSlot}>
               <Pressable
-                style={styles.stopButton}
-                hitSlop={16}
-                android_disableSound
-                onPressIn={() => {
-                  console.log('[RecordView] STOP & SAVE touch received');
-                }}
+                style={styles.muteButton}
                 onPress={() => {
-                  console.log('[RecordView] STOP & SAVE button pressed');
-                  void stopRun();
-                }}
-                onTouchEnd={() => {
-                  console.log('[RecordView] STOP & SAVE touch ended');
+                  const nextMuted = !isVoiceMuted;
+                  setIsVoiceMuted(nextMuted);
+                  voiceCoach?.setMuted?.(nextMuted);
                 }}
               >
-                <Text style={styles.stopButtonText}>STOP & SAVE</Text>
+                <Feather
+                  name={isVoiceMuted ? 'volume-x' : 'volume-2'}
+                  size={18}
+                  color={isVoiceMuted ? '#8E8E93' : '#30D158'}
+                />
               </Pressable>
             </View>
+          </View>
+
+          {/* Active Step Card */}
+          {activeStep && (
+            <View style={[styles.activeStepCard, { borderLeftColor: activeStepColor }]}>
+              <View style={styles.activeStepTopRow}>
+                <Text style={styles.activeStepTitle} numberOfLines={1}>
+                  {activeStep.title}
+                </Text>
+                <View style={[styles.stepTypePill, { backgroundColor: activeStepColor + '25' }]}>
+                  <Text style={[styles.stepTypePillText, { color: activeStepColor }]}>
+                    {activeStep.stepType.toUpperCase()}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Dynamic Target Calculation Display */}
+              {activeStep.targetType === 'DURATION' && activeStep.targetDurationSeconds ? (
+                <View style={styles.targetCalculationBlock}>
+                  <View style={styles.targetMetricsRow}>
+                    <View>
+                      <Text style={styles.countdownValue}>
+                        {formatTimerDisplay(remainingStepDuration)}
+                      </Text>
+                      <Text style={styles.targetSublabel}>REMAINING</Text>
+                    </View>
+                    <View style={styles.targetDivider} />
+                    <View>
+                      <Text style={styles.targetTotalValue}>
+                        {formatTimerDisplay(activeStep.targetDurationSeconds)}
+                      </Text>
+                      <Text style={styles.targetSublabel}>TARGET TIME</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.progressBarTrack}>
+                    <View
+                      style={[
+                        styles.progressBarFill,
+                        {
+                          width: `${Math.min(100, Math.round(stepDurationProgress * 100))}%`,
+                          backgroundColor: activeStepColor,
+                        },
+                      ]}
+                    />
+                  </View>
+                </View>
+              ) : activeStep.targetType === 'DISTANCE' && activeStep.targetDistanceMeters ? (
+                <View style={styles.targetCalculationBlock}>
+                  <View style={styles.targetMetricsRow}>
+                    <View>
+                      <Text style={styles.countdownValue}>
+                        {(currentStepDistanceMeters / 1000).toFixed(2)}
+                        <Text style={styles.metricUnit}> km</Text>
+                      </Text>
+                      <Text style={styles.targetSublabel}>
+                        {(remainingStepDistanceMeters / 1000).toFixed(2)} km TO GO
+                      </Text>
+                    </View>
+                    <View style={styles.targetDivider} />
+                    <View>
+                      <Text style={styles.targetTotalValue}>
+                        {(activeStep.targetDistanceMeters / 1000).toFixed(2)}
+                        <Text style={styles.metricUnit}> km</Text>
+                      </Text>
+                      <Text style={styles.targetSublabel}>TARGET DISTANCE</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.progressBarTrack}>
+                    <View
+                      style={[
+                        styles.progressBarFill,
+                        {
+                          width: `${Math.min(100, Math.round(stepDistanceProgress * 100))}%`,
+                          backgroundColor: activeStepColor,
+                        },
+                      ]}
+                    />
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.targetCalculationBlock}>
+                  <View style={styles.targetMetricsRow}>
+                    <View>
+                      <Text style={styles.countdownValue}>
+                        {formatTimerDisplay(currentStepElapsedSeconds)}
+                      </Text>
+                      <Text style={styles.targetSublabel}>TIME IN STEP</Text>
+                    </View>
+                    <View style={styles.targetDivider} />
+                    <View>
+                      <Text style={styles.targetTotalValue}>
+                        {(currentStepDistanceMeters / 1000).toFixed(2)}
+                        <Text style={styles.metricUnit}> km</Text>
+                      </Text>
+                      <Text style={styles.targetSublabel}>DISTANCE</Text>
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {/* Pace Comparison Row */}
+              <View style={styles.paceComparisonRow}>
+                <View style={styles.paceItem}>
+                  <Text style={styles.paceLabel}>TARGET PACE</Text>
+                  <Text style={styles.paceValue}>
+                    {activeStep.targetPace ? `${activeStep.targetPace}` : '--:--'}
+                  </Text>
+                </View>
+                <View style={styles.paceDivider} />
+                <View style={styles.paceItem}>
+                  <Text style={styles.paceLabel}>LIVE PACE</Text>
+                  <Text style={styles.paceValue}>
+                    {formatPaceDisplay(pace)}
+                    <Text style={styles.paceUnit}> /km</Text>
+                  </Text>
+                </View>
+                <View style={styles.paceDivider} />
+                <View style={styles.paceItem}>
+                  <Text style={styles.paceLabel}>TOTAL DIST</Text>
+                  <Text style={styles.paceValue}>
+                    {(distance / 1000).toFixed(2)}
+                    <Text style={styles.paceUnit}> km</Text>
+                  </Text>
+                </View>
+              </View>
+
+              {/* Up Next Banner */}
+              {nextStep ? (
+                <View style={styles.upNextBanner}>
+                  <Feather name="chevrons-right" size={13} color="#9BA3AF" />
+                  <Text style={styles.upNextText} numberOfLines={1}>
+                    Up Next: <Text style={styles.upNextHighlight}>{nextStep.title}</Text> ({formatStepTargetSafe(nextStep)})
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.upNextBanner}>
+                  <Feather name="flag" size={13} color="#FFD60A" />
+                  <Text style={[styles.upNextText, { color: '#FFD60A' }]}>
+                    Final Step! Finish strong!
+                  </Text>
+                </View>
+              )}
+            </View>
           )}
+
+          {/* Action Buttons Row */}
+          <View style={styles.dashboardActionsRow}>
+            {/* Skip Step Button */}
+            {isRunning && currentStepIndex < executionPlan.length - 1 && (
+              <Pressable
+                style={styles.skipStepButton}
+                onPress={advanceToNextStep}
+              >
+                <Feather name="skip-forward" size={16} color="#FFFFFF" />
+                <Text style={styles.skipStepText}>SKIP</Text>
+              </Pressable>
+            )}
+
+            {/* Primary Action Button (Start / Pause / Resume) */}
+            {!isRunning ? (
+              <Pressable
+                style={[styles.primaryActionButton, styles.startBtnBg]}
+                onPress={() => void startRun()}
+              >
+                <Feather name="play" size={18} color="#000000" />
+                <Text style={styles.primaryActionTextDark}>START WORKOUT</Text>
+              </Pressable>
+            ) : isPaused ? (
+              <Pressable
+                style={[styles.primaryActionButton, styles.resumeBtnBg]}
+                onPress={() => void resumeRun()}
+              >
+                <Feather name="play" size={18} color="#000000" />
+                <Text style={styles.primaryActionTextDark}>RESUME</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={[styles.primaryActionButton, styles.pauseBtnBg]}
+                onPress={() => void pauseRun()}
+              >
+                <Feather name="pause" size={18} color="#000000" />
+                <Text style={styles.primaryActionTextDark}>PAUSE</Text>
+              </Pressable>
+            )}
+
+            {/* Stop & Save Button */}
+            {isRunning && (
+              <Pressable
+                style={styles.stopActionButton}
+                onPress={() => void stopRun()}
+              >
+                <Feather name="square" size={16} color="#FFFFFF" />
+                <Text style={styles.stopActionText}>FINISH</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
-      </View>
+      ) : (
+        /* Fallback for open running without a custom workout */
+        <View style={styles.controlBar}>
+          <View style={styles.controlBarContent}>
+            <View style={styles.controlStatus}>
+              <Text style={styles.controlStatusTitle}>Run</Text>
+              <Text style={styles.controlStatusValue}>{isRunning ? (isPaused ? 'Paused' : 'Live') : 'Ready'}</Text>
+              <Text style={styles.stepStatus}>Steps {isRunning ? stepCount : 0}</Text>
+              {isRunning && distance > 0 && (
+                <Text style={styles.paceStatus}>
+                  {(distance / 1000).toFixed(2)}km · {Math.floor(pace)}:{String(Math.round((pace % 1) * 60)).padStart(2, '0')}/km
+                </Text>
+              )}
+            </View>
+
+            <View style={styles.actionButtonSlot}>
+              {!isRunning ? (
+                <Pressable
+                  style={styles.startButton}
+                  hitSlop={16}
+                  android_disableSound
+                  onPress={() => {
+                    void startRun();
+                  }}
+                >
+                  <Text style={styles.startButtonText}>START RUN</Text>
+                </Pressable>
+              ) : isPaused ? (
+                <Pressable
+                  style={styles.resumeButton}
+                  hitSlop={16}
+                  android_disableSound
+                  onPress={() => {
+                    void resumeRun();
+                  }}
+                >
+                  <Text style={styles.resumeButtonText}>RESUME</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={styles.pauseButton}
+                  hitSlop={16}
+                  android_disableSound
+                  onPress={() => {
+                    void pauseRun();
+                  }}
+                >
+                  <Text style={styles.pauseButtonText}>PAUSE</Text>
+                </Pressable>
+              )}
+            </View>
+
+            {isRunning && (
+              <View style={styles.stopButtonSlot}>
+                <Pressable
+                  style={styles.stopButton}
+                  hitSlop={16}
+                  android_disableSound
+                  onPress={() => {
+                    void stopRun();
+                  }}
+                >
+                  <Text style={styles.stopButtonText}>STOP & SAVE</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
-  // The map and controls are normal vertical siblings. Do not use overlapping
-  // absolute layout here: Android's native map surface can otherwise consume
-  // a touch intended for the Stop button.
   mapContainer: { flex: 1, position: 'relative' },
+  mapContainerSplit: { flex: 0.44, position: 'relative' },
   map: { flex: 1 },
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: '#fff', fontSize: 16, marginTop: 16 },
   loadingSubText: { color: '#bbb', fontSize: 12, marginTop: 6 },
-  zoomControls: { position: 'absolute', right: 22, bottom: 24, flexDirection: 'column' },
-  zoomButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  zoomButtonText: { color: '#fff', fontSize: 30, fontWeight: '700', lineHeight: 30 },
-  gpsStatusContainer: { position: 'absolute', top: 26, right: 22, flexDirection: 'row' },
-  gpsStatus: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8 },
-  gpsDot: { width: 9, height: 9, borderRadius: 999, marginRight: 8 },
-  gpsStatusText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  gpsAccuracyText: { marginLeft: 10, color: '#8BE9A8', fontSize: 11, fontWeight: '700' },
-  recenterButton: { position: 'absolute', right: 18, bottom: 126, width: 40, height: 40, borderRadius: 20, backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center' },
-  recenterText: { fontSize: 24 },
+  zoomControls: { position: 'absolute', right: 18, bottom: 18, flexDirection: 'column' },
+  zoomButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center', marginBottom: 6 },
+  zoomButtonText: { color: '#fff', fontSize: 24, fontWeight: '700', lineHeight: 26 },
+  gpsStatusContainer: { position: 'absolute', top: 20, right: 18, flexDirection: 'row' },
+  gpsStatus: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6 },
+  gpsDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
+  gpsStatusText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  gpsAccuracyText: { marginLeft: 8, color: '#8BE9A8', fontSize: 10, fontWeight: '700' },
+  recenterButton: { position: 'absolute', right: 18, bottom: 108, width: 36, height: 36, borderRadius: 18, backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center' },
+  
+  // Custom Workout Runner Dashboard Styles
+  dashboardContainer: {
+    flex: 0.56,
+    backgroundColor: '#121318',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+    justifyContent: 'space-between',
+  },
+  dashboardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  dashboardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  stepTypeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  dashboardWorkoutTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  headerRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  stepCounterBadge: {
+    backgroundColor: '#1C1D24',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  stepCounterText: {
+    color: '#9BA3AF',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  muteButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#1C1D24',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  activeStepCard: {
+    backgroundColor: '#1A1C23',
+    borderRadius: 16,
+    padding: 12,
+    borderLeftWidth: 4,
+  },
+  activeStepTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  activeStepTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+    flex: 1,
+    marginRight: 8,
+  },
+  stepTypePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  stepTypePillText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  targetCalculationBlock: {
+    backgroundColor: '#13141A',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 8,
+  },
+  targetMetricsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    marginBottom: 6,
+  },
+  countdownValue: {
+    color: '#FFFFFF',
+    fontSize: 26,
+    fontWeight: '900',
+    fontVariant: ['tabular-nums'],
+    textAlign: 'center',
+  },
+  targetTotalValue: {
+    color: '#9BA3AF',
+    fontSize: 18,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+    textAlign: 'center',
+  },
+  metricUnit: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  targetSublabel: {
+    color: '#6B7280',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  targetDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: '#2A2D37',
+  },
+  progressBarTrack: {
+    height: 5,
+    backgroundColor: '#222530',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  paceComparisonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    backgroundColor: '#13141A',
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    marginBottom: 6,
+  },
+  paceItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  paceLabel: {
+    color: '#6B7280',
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  paceValue: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  paceUnit: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: '#9BA3AF',
+  },
+  paceDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: '#2A2D37',
+  },
+  upNextBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
+  },
+  upNextText: {
+    color: '#9BA3AF',
+    fontSize: 10,
+    fontWeight: '600',
+    flex: 1,
+  },
+  upNextHighlight: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  dashboardActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  skipStepButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: '#2A2D37',
+    paddingHorizontal: 12,
+    height: 46,
+    borderRadius: 23,
+  },
+  skipStepText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  primaryActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 46,
+    borderRadius: 23,
+  },
+  startBtnBg: {
+    backgroundColor: '#30D158',
+  },
+  resumeBtnBg: {
+    backgroundColor: '#30D158',
+  },
+  pauseBtnBg: {
+    backgroundColor: '#FF9F0A',
+  },
+  primaryActionTextDark: {
+    color: '#000000',
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  stopActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: '#FF453A',
+    paddingHorizontal: 14,
+    height: 46,
+    borderRadius: 23,
+  },
+  stopActionText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+
+  // Classic Control Bar Styles
   controlBar: {
     position: 'relative',
     height: 112,
