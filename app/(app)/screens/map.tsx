@@ -256,8 +256,7 @@ export default function MapScreen() {
       { latitude: maxLat, longitude: midLon }
     );
 
-    // The old 0.002-degree minimum showed roughly 200m and made a room route
-    // appear tiny. Keep short routes at the close tracking zoom.
+    // The old 0.002-degree minimum showed roughly 200m and made a room route appear tiny. Keep short routes at the close tracking zoom.
     if (Math.max(routeWidthMeters, routeHeightMeters) < 60) {
       mapRef.current.animateCamera(
         { center: { latitude: midLat, longitude: midLon }, zoom: 20 },
