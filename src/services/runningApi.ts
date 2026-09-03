@@ -7,19 +7,23 @@ const ACTIVITY_UPLOAD_PATH = (
   process.env.EXPO_PUBLIC_ACTIVITY_UPLOAD_PATH || '/rundata/upload/'
 ).trim();
 
+const createRunId = (): string =>
+  `RUN-${Date.now()}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+
 export class RunningApiClient {
   public async startRun(userId: string, startedAtIso: string): Promise<RunSessionStartResponse> {
+    const runId = createRunId();
     const payload: RunSessionStartPayload = {
       user_id: userId,
       started_at: startedAtIso,
-      run_id: 'RUN-12345',
+      run_id: runId,
     };
 
     console.log('[RunningApiClient] POST /runs/start', JSON.stringify(payload, null, 2));
 
     return {
       success: true,
-      run_id: 'RUN-12345',
+      run_id: runId,
     };
   }
 

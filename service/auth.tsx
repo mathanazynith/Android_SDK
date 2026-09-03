@@ -16,6 +16,12 @@ interface User {
   first_name: string;
   last_name: string;
   phone_number?: string;
+  password_setup_required?: boolean;
+  hasPassword?: boolean;
+  auth_provider?: string;
+  has_password?: boolean;
+  authProvider?: string;
+  provider?: string;
   profile?: {
     date_of_birth?: string;
     gender?: string;
@@ -62,7 +68,11 @@ interface AuthContextType {
   logout: () => Promise<void>;
   updateProfile: (data: ProfileData) => Promise<void>;
   uploadProfilePicture: (file: { uri: string; name: string; type: string }) => Promise<void>;
-  changePassword: (current_password: string | undefined, password: string, password2: string) => Promise<void>;
+  updatePassword: (payload: {
+    currentPassword?: string;
+    newPassword: string;
+    confirmPassword: string;
+  }) => Promise<void>;
   refreshProfile: () => Promise<void>;
   googleLogin: () => Promise<{ requiresSignup: boolean }>;
   googleSignupData: {
@@ -78,6 +88,21 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
+
+const normalizeUser = (value: User | null): User | null => {
+  if (!value) return null;
+
+  const raw = value as User & Record<string, unknown>;
+  const provider = String(raw.authProvider ?? raw.auth_provider ?? raw.provider ?? '').toLowerCase();
+  const explicitHasPassword = raw.hasPassword ?? raw.has_password;
+  const hasPassword = typeof raw.password_setup_required === 'boolean'
+    ? !raw.password_setup_required
+    : typeof explicitHasPassword === 'boolean'
+      ? explicitHasPassword
+      : undefined;
+
+  return { ...value, hasPassword, authProvider: provider || undefined };
+};
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -97,7 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const token = await storage.getItem(storage.KEYS.ACCESS_TOKEN);
       if (token) {
         const response = await authAPI.getProfile();
-        setUser(response.data.data);
+        setUser(normalizeUser(response.data.data));
       }
     } catch (error) {
       console.log("Auth Init Error:", error);
@@ -136,7 +161,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const response = await authAPI.login({ identifier, password });
     const { accessToken, refreshToken, user: loggedInUser } = resolveAuthPayload(response);
     await storeTokens(accessToken, refreshToken);
-    setUser(loggedInUser);
+    setUser(normalizeUser(loggedInUser));
   };
 
   const signup = async (data: SignupData) => {
@@ -148,7 +173,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const response = await authAPI.verifyOtp({ email, otp_code: otpcode });
     const { accessToken, refreshToken, user: verifiedUser } = resolveAuthPayload(response);
     await storeTokens(accessToken, refreshToken);
-    setUser(verifiedUser);
+    setUser(normalizeUser(verifiedUser));
   };
 
   const resendOtp = async (email: string, purpose: string) => {
@@ -157,12 +182,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshProfile = async () => {
     const response = await authAPI.getProfile();
-    setUser(response.data.data);
+    setUser(normalizeUser(response.data.data));
   };
 
   const updateProfile = async (data: ProfileData) => {
     const response = await authAPI.updateProfile(data);
-    setUser(response.data.data);
+    setUser(normalizeUser(response.data.data));
   };
 
   const uploadProfilePicture = async (file: { uri: string; name: string; type: string }) => {
@@ -176,19 +201,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const response = await authAPI.uploadProfilePicture(formData);
     const updatedUser = response.data?.data || response.data;
     await storage.setItem(storage.KEYS.USER, JSON.stringify(updatedUser));
-    setUser(updatedUser);
+    setUser(normalizeUser(updatedUser));
   };
 
-  const changePassword = async (
-    current_password: string | undefined,
-    password: string,
-    password2: string
-  ) => {
-    await authAPI.changePassword({
-      current_password,
-      password,
-      password2,
-    });
+  const updatePassword = async (payload: {
+    currentPassword?: string;
+    newPassword: string;
+    confirmPassword: string;
+  }) => {
+    await authAPI.updatePassword(payload);
+    setUser((currentUser) => currentUser ? { ...currentUser, hasPassword: true } : currentUser);
   };
 
   const logout = async () => {
@@ -266,13 +288,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         await storeTokens(tokens.access, tokens.refresh);
-        setUser(normalizedUser);
+        setUser(normalizeUser({
+          ...normalizedUser,
+          authProvider: normalizedUser.authProvider
+            ?? normalizedUser.auth_provider
+            ?? normalizedUser.provider
+            ?? 'google',
+        }));
         setIsLoading(false);
         return { requiresSignup: false };
       }
 
       if (payload?.status === "success" && userData) {
-        setUser(userData);
+        setUser(normalizeUser({
+          ...userData,
+          authProvider: userData.authProvider
+            ?? userData.auth_provider
+            ?? userData.provider
+            ?? 'google',
+        }));
         setIsLoading(false);
         return { requiresSignup: false };
       }
@@ -298,7 +332,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         updateProfile,
         uploadProfilePicture,
         refreshProfile,
-        changePassword,
+        updatePassword,
         googleLogin,
         googleSignupData,
         setGoogleSignupData,

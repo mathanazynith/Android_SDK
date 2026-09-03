@@ -238,6 +238,16 @@ export const authAPI = {
     password2: string;
   }) => api.post("/auth/change-password/", data),
 
+  updatePassword: (data: {
+    currentPassword?: string;
+    newPassword: string;
+    confirmPassword: string;
+  }) => api.post("/auth/change-password/", {
+    ...(data.currentPassword ? { current_password: data.currentPassword } : {}),
+    password: data.newPassword,
+    password2: data.confirmPassword,
+  }),
+
   logout: (data: { refresh?: string }) => api.post("/auth/logout/", data),
 
   adminLogin: (data: { identifier: string; password: string }) =>

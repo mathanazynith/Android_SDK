@@ -15,13 +15,24 @@ import { useAuth } from '../../../service/auth';
 import { AppInput } from '../../../components/common/AppInput';
 import { PrimaryButton } from '../../../components/common/PrimaryButton';
 import { Colors, Spacing, Typography } from '../../../constants/theme';
+import { useTheme } from '../../../contexts/ThemeContext';
 
 export default function ChangePasswordScreen() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const { changePassword } = useAuth();
+  const { colors } = useTheme();
+  const { user, isLoading: authLoading, updatePassword } = useAuth();
+  const passwordStateLoading = authLoading || !user || typeof user.hasPassword !== 'boolean';
+  const hasPassword = user?.hasPassword === true;
+
+  const passwordIsValid = (value: string) =>
+    value.length >= 8 && /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/.test(value);
+
+  const canSubmit = passwordIsValid(newPassword)
+    && newPassword === confirmPassword
+    && (hasPassword ? Boolean(currentPassword.trim()) : true);
 
   const handleBack = () => {
     if (router.canGoBack()) router.back();
@@ -29,7 +40,7 @@ export default function ChangePasswordScreen() {
   };
 
   const validate = () => {
-    if (!currentPassword.trim()) {
+    if (hasPassword && !currentPassword.trim()) {
       Alert.alert('Validation Error', 'Current password is required.');
       return false;
     }
@@ -53,7 +64,7 @@ export default function ChangePasswordScreen() {
       Alert.alert('Validation Error', 'Passwords do not match.');
       return false;
     }
-    if (newPassword === currentPassword) {
+    if (hasPassword && newPassword === currentPassword) {
       Alert.alert('Validation Error', 'New password cannot be the same as the current password.');
       return false;
     }
@@ -65,8 +76,14 @@ export default function ChangePasswordScreen() {
 
     try {
       setLoading(true);
-      await changePassword(currentPassword, newPassword, confirmPassword);
-      Alert.alert('Success', 'Password updated successfully.', [
+      await updatePassword({
+        ...(hasPassword ? { currentPassword } : {}),
+        newPassword,
+        confirmPassword,
+      });
+      Alert.alert('Success', hasPassword
+        ? 'Password updated successfully.'
+        : 'Password set successfully! You can now log in using your email and password.', [
         { text: 'OK', onPress: handleBack },
       ]);
     } catch (error: any) {
@@ -86,10 +103,14 @@ export default function ChangePasswordScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ScrollView
+      {passwordStateLoading ? (
+        <View style={styles.loadingState}>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Loading password settings...</Text>
+        </View>
+      ) : <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -98,21 +119,26 @@ export default function ChangePasswordScreen() {
           <TouchableOpacity onPress={handleBack} style={styles.backButton}>
             <Text style={styles.backIcon}>←</Text>
           </TouchableOpacity>
-          <Text style={styles.title}>Change Password</Text>
+          <Text style={[styles.title, { color: colors.text }]}>
+            {hasPassword ? 'Change Password' : 'Set Password'}
+          </Text>
         </View>
 
-        <Text style={styles.subtitle}>Keep your account secure by updating your password.</Text>
+        <Text style={[styles.subtitle, { color: colors.textSecondary }] }>
+          {hasPassword ? 'Keep your account secure by updating your password.' : 'Create a password to sign in with your email and password.'}
+        </Text>
 
         <View style={styles.form}>
-          <AppInput
-            label="Current Password"
-            placeholder="Enter your current password"
-            value={currentPassword}
-            onChangeText={setCurrentPassword}
-            secureTextEntry
-            containerStyle={styles.inputContainer}
-            icon={<Text style={styles.inputIcon}>🔒</Text>}  // ✅ changed from leftIcon to icon
-          />
+          {hasPassword && (
+            <AppInput
+              label="Current Password"
+              placeholder="Enter your current password"
+              value={currentPassword}
+              onChangeText={setCurrentPassword}
+              secureTextEntry
+              containerStyle={styles.inputContainer}
+            />
+          )}
 
           <AppInput
             label="New Password"
@@ -121,7 +147,6 @@ export default function ChangePasswordScreen() {
             onChangeText={setNewPassword}
             secureTextEntry
             containerStyle={styles.inputContainer}
-            icon={<Text style={styles.inputIcon}>🔒</Text>}  // ✅ changed
           />
 
           <AppInput
@@ -131,7 +156,6 @@ export default function ChangePasswordScreen() {
             onChangeText={setConfirmPassword}
             secureTextEntry
             containerStyle={styles.inputContainer}
-            icon={<Text style={styles.inputIcon}>🔒</Text>}  // ✅ changed
           />
 
           <PrimaryButton
@@ -139,9 +163,11 @@ export default function ChangePasswordScreen() {
             onPress={handleUpdate}
             loading={loading}
             style={styles.updateButton}
+            disabled={loading || !canSubmit}
           />
         </View>
       </ScrollView>
+      }
     </KeyboardAvoidingView>
   );
 }
@@ -163,4 +189,5 @@ const styles = StyleSheet.create({
   inputContainer: { marginBottom: Spacing.md },
   inputIcon: { fontSize: 18, color: Colors.textMuted, marginRight: Spacing.sm },
   updateButton: { marginTop: Spacing.sm },
+  loadingState: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 });

@@ -15,20 +15,25 @@ interface SettingsMenuProps {
   visible: boolean;
   onClose: () => void;
   onSelect: (option: string) => void;
+  hasPassword: boolean | null;
 }
 
-const options = [
+const baseOptions = [
   { label: 'Edit Profile', icon: 'user' },
-  { label: 'Change Password', icon: 'lock' },
   { label: 'Notifications', icon: 'bell' },
   { label: 'Plan', icon: 'clipboard' },
   { label: 'Use Mock Calendar', icon: 'shuffle' },
   { label: 'Logout', icon: 'log-out' },
 ];
 
-export default function SettingsMenu({ visible, onClose, onSelect }: SettingsMenuProps) {
+export default function SettingsMenu({ visible, onClose, onSelect, hasPassword }: SettingsMenuProps) {
   const { colors } = useTheme();
   const { height, spacing, fontSize } = useResponsive();
+  const options = [
+    baseOptions[0],
+    { label: hasPassword === null ? 'Password' : hasPassword ? 'Change Password' : 'Set Password', icon: 'lock' },
+    ...baseOptions.slice(1),
+  ];
   return (
     <Modal
       visible={visible}
@@ -50,6 +55,7 @@ export default function SettingsMenu({ visible, onClose, onSelect }: SettingsMen
                     { borderBottomColor: colors.border },
                   ]}
                   onPress={() => onSelect(item.label)}
+                  disabled={hasPassword === null && item.label === 'Password'}
                 >
                   <Feather
                     name={item.icon as any}

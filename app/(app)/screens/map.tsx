@@ -28,8 +28,7 @@ import { ActivityLapPayload, ActivitySubmissionPayload, RawGpsPayload, RunningGp
 import { BackendWorkout, WorkoutEngineSnapshot } from '../../../src/types/workout';
 import { calculateDistanceMeters } from '../../../src/utils/distance';
 import { formatStepTarget, WorkoutExecutionStep } from '../../../src/utils/workoutPlanBuilder';
-
-const RUNNING_USER_ID = 'USER-1001';
+import { useAuth } from '../../../service/auth';
 
 const formatTimerDisplay = (totalSec: number) => {
   const m = Math.floor(Math.max(0, totalSec) / 60);
@@ -113,6 +112,7 @@ const calculateRouteDistance = (points: RunningGpsPoint[]): number => {
 };
 
 export default function MapScreen() {
+  const { user } = useAuth();
   const params = useLocalSearchParams<{
     workoutTitle?: string;
     workoutPlan?: string;
@@ -723,6 +723,11 @@ export default function MapScreen() {
 
     isStartingRef.current = true;
     try {
+      if (!user?.id) {
+        Alert.alert('Account unavailable', 'Please sign in again before starting a run.');
+        return;
+      }
+
       if (!permissionGranted) {
         await requestLocation();
         return;
@@ -771,7 +776,8 @@ export default function MapScreen() {
 
       const startedAt = new Date().toISOString();
       startTimeRef.current = new Date(startedAt).getTime();
-      const startResponse = await apiClient.startRun(RUNNING_USER_ID, startedAt);
+      const userId = String(user.id);
+      const startResponse = await apiClient.startRun(userId, startedAt);
 
       if (!startResponse.success || !startResponse.run_id) {
         Alert.alert('Error', 'Failed to start run');
@@ -787,14 +793,14 @@ export default function MapScreen() {
       console.log('\n========== 🏃 RUN STARTED ==========');
       console.log(`[RUN] Run ID: ${runId}`);
       console.log(`[RUN] Start Time: ${startedAt}`);
-      console.log(`[RUN] User ID: ${RUNNING_USER_ID}`);
+      console.log(`[RUN] User ID: ${userId}`);
       console.log(`[RUN] GPS Tracking: ACTIVE`);
       console.log(`[RUN] Expected GPS Sample Interval: 1 second (0 distance)`);
       console.log(`[RUN] Raw GPS points will be collected and logged`);
       console.log('======================================\n');
 
       const startPayload = {
-        user_id: RUNNING_USER_ID,
+        user_id: userId,
         started_at: startedAt,
         run_id: runId,
       };
@@ -953,7 +959,7 @@ export default function MapScreen() {
       queueRef.current = queue;
 
       console.log('[Run Start Coordinate]', JSON.stringify([startingPoint], null, 2));
-      console.log('[Run Start Payload]', JSON.stringify({ user_id: RUNNING_USER_ID, started_at: startedAt, run_id: runId }, null, 2));
+      console.log('[Run Start Payload]', JSON.stringify({ user_id: userId, started_at: startedAt, run_id: runId }, null, 2));
 
       console.log('[LocationManager] RUN STARTED');
       console.log(`[RecordView] Recording started at ${startedAt}`);

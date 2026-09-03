@@ -52,7 +52,7 @@ export default function DashboardScreen() {
   const handleSettingsOption = (option: string) => {
     setSettingsVisible(false);
     if (option === 'Edit Profile') router.push('/(app)/profile/edit');
-    if (option === 'Change Password') router.push('/(app)/screens/change-password');
+    if (option === 'Change Password' || option === 'Set Password') router.push('/(app)/screens/change-password');
     if (option === 'Notifications') router.push('/(app)/screens/notifications');
     if (option === 'Plan') router.push('/(app)/training-plan');
     if (option === 'Logout') {
@@ -91,7 +91,12 @@ export default function DashboardScreen() {
         {workoutPlan ? <DashboardActivePlan todayWorkout={todayWorkout} nextWorkout={nextWorkout} /> : <DashboardNoPlan canStartAssessment={canStartAssessment} onStartAssessment={startAssessment} />}
       </ScrollView>
       <GlobalBottomNav />
-      <SettingsMenu visible={settingsVisible} onClose={() => setSettingsVisible(false)} onSelect={handleSettingsOption} />
+      <SettingsMenu
+        visible={settingsVisible}
+        onClose={() => setSettingsVisible(false)}
+        onSelect={handleSettingsOption}
+        hasPassword={user?.hasPassword ?? null}
+      />
     </View>
   );
 }
