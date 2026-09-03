@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { decodePolyline } from '../src/utils/polylineDecoder';
@@ -17,6 +17,7 @@ export default function ActivityRouteMap({
   cropEndIndex,
 }: ActivityRouteMapProps) {
   const mapRef = useRef<MapView | null>(null);
+  const [mapReady, setMapReady] = useState(false);
   const routePoints = useMemo(() => {
     if (!encodedPolyline?.trim()) return [];
 
@@ -36,6 +37,26 @@ export default function ActivityRouteMap({
     const end = Math.max(start, Math.min(Math.floor(cropEndIndex), routePoints.length - 1));
     return routePoints.slice(start, end + 1);
   }, [cropEndIndex, cropStartIndex, routePoints]);
+
+  const fitRoute = useCallback(() => {
+    if (!mapRef.current || visibleRoutePoints.length < 2) return;
+
+    mapRef.current.fitToCoordinates(visibleRoutePoints, {
+      edgePadding: variant === 'preview'
+        ? { top: 16, right: 16, bottom: 16, left: 16 }
+        : { top: 36, right: 36, bottom: 36, left: 36 },
+      animated: false,
+    });
+  }, [variant, visibleRoutePoints]);
+
+  // A history card first receives its list data and then its detailed route.
+  // Re-fit after that asynchronous prop update; onMapReady alone can run
+  // before the encoded route has been supplied.
+  useEffect(() => {
+    if (!mapReady || visibleRoutePoints.length < 2) return;
+    const frame = requestAnimationFrame(fitRoute);
+    return () => cancelAnimationFrame(frame);
+  }, [fitRoute, mapReady, visibleRoutePoints.length]);
 
   if (visibleRoutePoints.length === 0) {
     return (
@@ -60,16 +81,7 @@ export default function ActivityRouteMap({
           latitudeDelta: 0.015,
           longitudeDelta: 0.015,
         }}
-        onMapReady={() => {
-          if (visibleRoutePoints.length > 1) {
-            mapRef.current?.fitToCoordinates(visibleRoutePoints, {
-              edgePadding: variant === 'preview'
-                ? { top: 16, right: 16, bottom: 16, left: 16 }
-                : { top: 36, right: 36, bottom: 36, left: 36 },
-              animated: false,
-            });
-          }
-        }}
+        onMapReady={() => setMapReady(true)}
       >
         {visibleRoutePoints.length > 1 && (
           <Polyline coordinates={visibleRoutePoints} strokeColor="#35C72B" strokeWidth={variant === 'preview' ? 3 : 5} />

@@ -1,4 +1,11 @@
 import api from '../../service/api';
+import polyline from '@mapbox/polyline';
+import { activityDistanceOverrides } from './activityDistanceOverrides';
+
+interface BackendGpsPoint {
+  latitude: number;
+  longitude: number;
+}
 
 export interface BackendActivity {
   id: string | number;
@@ -19,7 +26,13 @@ export interface BackendActivity {
   encoded_polyline?: string | null;
   route?: {
     encoded_polyline?: string | null;
+    gps_points?: BackendGpsPoint[];
+    points?: BackendGpsPoint[];
+    coordinates?: BackendGpsPoint[];
   } | null;
+  gps_points?: BackendGpsPoint[];
+  points?: BackendGpsPoint[];
+  coordinates?: BackendGpsPoint[];
   processing_status: string;
   is_processed: boolean;
 }
@@ -44,15 +57,52 @@ const extractActivities = (payload: unknown): BackendActivity[] => {
   return [];
 };
 
+const encodeRouteFallback = (activity: BackendActivity): string | null => {
+  const candidates = [
+    activity.gps_points,
+    activity.points,
+    activity.coordinates,
+    activity.route?.gps_points,
+    activity.route?.points,
+    activity.route?.coordinates,
+  ];
+  const points = candidates.find((candidate): candidate is BackendGpsPoint[] =>
+    Array.isArray(candidate) && candidate.length >= 2
+  );
+
+  if (!points) return null;
+
+  const coordinates = points
+    .filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude))
+    .map((point) => [point.latitude, point.longitude] as [number, number]);
+
+  return coordinates.length >= 2 ? polyline.encode(coordinates) : null;
+};
+
 const normalizeActivity = (activity: BackendActivity): BackendActivity => ({
   ...activity,
-  encoded_polyline: activity.encoded_polyline ?? activity.route?.encoded_polyline ?? null,
+  encoded_polyline: activity.encoded_polyline
+    ?? activity.route?.encoded_polyline
+    ?? encodeRouteFallback(activity),
 });
+
+const applySdkDistance = async (activity: BackendActivity): Promise<BackendActivity> => {
+  const sdkDistance = await activityDistanceOverrides.get(activity.id);
+  if (sdkDistance === null) return activity;
+
+  console.log(
+    `[ActivityDistance] Using SDK total ${sdkDistance.toFixed(2)}m for activity ${activity.id} `
+    + `instead of backend GPS total ${activity.distance.toFixed(2)}m`
+  );
+  return { ...activity, distance: sdkDistance };
+};
 
 export const activityAPI = {
   async list(): Promise<BackendActivity[]> {
     const response = await api.get(ACTIVITY_HISTORY_PATH);
-    return extractActivities(response.data).map(normalizeActivity).filter((activity) => {
+    const normalized = extractActivities(response.data).map(normalizeActivity);
+    const activities = await Promise.all(normalized.map(applySdkDistance));
+    return activities.filter((activity) => {
       const activityType = String(activity.activity_type).toUpperCase();
       return (
         (activityType === 'RUN' || activityType === 'WALK') &&
@@ -65,7 +115,7 @@ export const activityAPI = {
   async get(activityId: BackendActivity['id']): Promise<BackendActivity> {
     const response = await api.get(getActivityDetailPath(activityId));
     const payload = response.data?.data ?? response.data;
-    return normalizeActivity(payload as BackendActivity);
+    return applySdkDistance(normalizeActivity(payload as BackendActivity));
   },
 
   async delete(activityId: BackendActivity['id']): Promise<string> {

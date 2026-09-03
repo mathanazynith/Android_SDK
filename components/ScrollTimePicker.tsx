@@ -70,6 +70,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
   onChange,
   maxHours = 99,
 }) => {
+  const { colors } = useTheme();
   const [time, setTime] = useState<TimeParts>(() => parseTimeValue(value, maxHours, allowEmpty));
   const timeRef = useRef(time);
   const didApplyDefaultRef = useRef(false);

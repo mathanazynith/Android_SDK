@@ -63,6 +63,11 @@ export class ActivityDetectionService {
     return this.currentActivity;
   }
 
+  /** True only after Android has granted permission and the watcher is live. */
+  public isAvailable(): boolean {
+    return this.available;
+  }
+
   private handleActivity(snapshot: Location.MotionActivityObject): void {
     const activities = snapshot.activities;
     const nextActivity: DetectedActivity = activities.running.detected

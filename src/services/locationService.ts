@@ -129,15 +129,15 @@ export class LocationService {
         timestamp: location.timestamp,
       };
 
-      console.log(
-        `[LocationManager] GPS update #${this.liveUpdateCount} (${source}) -> lat:${payload.latitude} lon:${payload.longitude} acc:${payload.accuracy}m speed:${payload.speed}m/s heading:${payload.heading}`
-      );
-      const precision = payload.accuracy <= 10
-        ? 'high'
-        : payload.accuracy <= 25
-          ? 'moderate (normal indoors)'
-          : 'low';
-      console.log(`[LocationManager] GPS precision: ${precision}; raw point is retained and save-time filtering decides the final payload`);
+      // Avoid filling the Metro log buffer with three lines every second.
+      // Detailed route acceptance, segment totals, and final upload logs are
+      // emitted by MapScreen/PathProcessor instead.
+      if (this.liveUpdateCount === 1 || this.liveUpdateCount % 15 === 0) {
+        console.log(
+          `[LocationManager] GPS sample #${this.liveUpdateCount} (${source}) `
+          + `acc:${payload.accuracy.toFixed(1)}m speed:${payload.speed.toFixed(2)}m/s`
+        );
+      }
       callback(payload);
     };
 
