@@ -151,6 +151,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
   const [isWorkoutPlanLoaded, setIsWorkoutPlanLoaded] = useState(false);
   const [workoutPlanError, setWorkoutPlanError] = useState<string | null>(null);
   const [isWorkoutPlanLoading, setIsWorkoutPlanLoading] = useState(false);
+  const workoutPlanRequest = useRef<Promise<CurrentWorkoutPlan | null> | null>(null);
 
   const clearValidationErrors = useCallback(() => {
     setValidationErrors({});
@@ -320,25 +321,32 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
 
   const fetchWorkoutPlan = useCallback(async (force = false) => {
     if (workoutPlan && !force) return workoutPlan;
+    if (workoutPlanRequest.current && !force) return workoutPlanRequest.current;
 
-    setIsWorkoutPlanLoading(true);
-    setWorkoutPlanError(null);
-    try {
-      const plan = await workoutPlanService.getCurrent();
-      setWorkoutPlan(plan);
-      return plan;
-    } catch (err: any) {
-      if (err?.response?.status === 404) {
-        setWorkoutPlan(null);
+    const request = (async () => {
+      setIsWorkoutPlanLoading(true);
+      setWorkoutPlanError(null);
+      try {
+        const plan = await workoutPlanService.getCurrent();
+        setWorkoutPlan(plan);
+        return plan;
+      } catch (err: any) {
+        if (err?.response?.status === 404) {
+          setWorkoutPlan(null);
+          return null;
+        }
+        if (!workoutPlan) setWorkoutPlan(null);
+        setWorkoutPlanError(getBackendErrorMessage(err, "Failed to load your training plan."));
         return null;
+      } finally {
+        setIsWorkoutPlanLoaded(true);
+        setIsWorkoutPlanLoading(false);
+        workoutPlanRequest.current = null;
       }
-      setWorkoutPlan(null);
-      setWorkoutPlanError(getBackendErrorMessage(err, "Failed to load your training plan."));
-      return null;
-    } finally {
-      setIsWorkoutPlanLoaded(true);
-      setIsWorkoutPlanLoading(false);
-    }
+    })();
+
+    workoutPlanRequest.current = request;
+    return request;
   }, [workoutPlan]);
 
   const endWorkoutPlan = useCallback(async () => {
