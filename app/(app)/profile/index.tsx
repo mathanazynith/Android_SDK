@@ -17,7 +17,6 @@ import { useAuth } from "../../../service/auth";
 import { Colors } from "../../../constants/theme";
 import { resolveApiUrl } from "../../../service/api";
 import { SafeAreaView } from "react-native-safe-area-context";
-import GlobalBottomNav from "../../../components/navigation/GlobalBottomNav";
 import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
 
 type DetailRowProps = { label: string; value: string };
@@ -60,6 +59,10 @@ export default function ProfileScreen() {
   const { colors } = useTheme();
   const { user, logout, uploadProfilePicture } = useAuth();
   const [isUploadingPicture, setIsUploadingPicture] = React.useState(false);
+
+  const handleBackPress = () => {
+    router.replace('/(app)/dashboard');
+  };
 
   const handleLogout = () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
@@ -148,10 +151,7 @@ export default function ProfileScreen() {
             <TouchableOpacity
               accessibilityLabel="Go back"
               accessibilityRole="button"
-              onPress={() => {
-                if (router.canGoBack()) router.back();
-                else router.replace('/(app)/dashboard');
-              }}
+              onPress={handleBackPress}
               style={styles.circleButton}
             >
               <Feather name="chevron-left" size={29} color={colors.text} />
@@ -201,7 +201,6 @@ export default function ProfileScreen() {
           <Text style={[styles.logoutText, { color: '#EF4444' }]}>Log out</Text>
         </TouchableOpacity>
       </ScrollView>
-      <GlobalBottomNav />
     </SafeAreaView>
   );
 }

@@ -1,8 +1,11 @@
 import { Stack } from 'expo-router';
+import { View } from 'react-native';
+import GlobalBottomNav from '../../components/navigation/GlobalBottomNav';
 
 export default function AppLayout() {
   return (
-      <Stack screenOptions={{ headerShown: false }}>
+    <View style={{ flex: 1 }}>
+      <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right', animationDuration: 220 }}>
       <Stack.Screen name="dashboard" />
       <Stack.Screen name="attendance" />
       <Stack.Screen name="screens/weather-details" />
@@ -47,6 +50,8 @@ export default function AppLayout() {
           headerShown: false,
         }}
       />
-    </Stack>
+      </Stack>
+      <GlobalBottomNav />
+    </View>
   );
 }

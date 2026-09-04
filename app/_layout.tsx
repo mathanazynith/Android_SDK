@@ -23,6 +23,7 @@ export default function RootLayout() {
             <QuestionnaireProvider>
               <Stack screenOptions={{ headerShown: false }}>
                 <Stack.Screen name="index" />
+                <Stack.Screen name="oauthredirect" />
                 <Stack.Screen name="(auth)" />
                 <Stack.Screen name="(app)" />
               </Stack>

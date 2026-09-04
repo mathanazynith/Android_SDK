@@ -9,7 +9,6 @@ import Timeline from './components/Timeline';
 import TrainingCalendarCard from './components/TrainingCalendarCard';
 import { RunningPlanData, RunningPlanWeek, WorkoutDetail } from './components/types';
 import WorkoutModal from './components/WorkoutModal';
-import GlobalBottomNav from '../../../components/navigation/GlobalBottomNav';
 
 const iconForWorkout = (workout: CurrentWorkout): WorkoutDetail['iconName'] => {
   const label = `${workout.workout_type} ${workout.title}`.toLowerCase();
@@ -168,7 +167,7 @@ export default function CalendarScreen() {
       onScrollToIndexFailed={({ index }) => setTimeout(() => pagerRef.current?.scrollToIndex({ index, animated: true }), 50)}
       style={styles.pager}
     />
-  </ScrollView><WorkoutModal visible={selectedWorkout !== null} workout={selectedWorkout} onClose={() => setSelectedWorkout(null)} /><GlobalBottomNav /></SafeAreaView>;
+  </ScrollView><WorkoutModal visible={selectedWorkout !== null} workout={selectedWorkout} onClose={() => setSelectedWorkout(null)} /></SafeAreaView>;
 }
 
 const styles = StyleSheet.create({

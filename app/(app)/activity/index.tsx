@@ -17,7 +17,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { getBackendErrorMessage } from '../../../service/api';
 import { activityAPI, BackendActivity } from '../../../src/services/activityApi';
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
-import GlobalBottomNav from '../../../components/navigation/GlobalBottomNav';
 import { useTheme } from '../../../contexts/ThemeContext';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
@@ -203,7 +202,6 @@ export default function ActivityScreen() {
           {activities.length > 0 && Object.keys(groupedActivities).length === 0 && <Text style={styles.empty}>No workouts match your search.</Text>}
         </ScrollView>
       )}
-      <GlobalBottomNav />
     </SafeAreaView>
   );
 }

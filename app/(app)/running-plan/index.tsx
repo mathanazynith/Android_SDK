@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import GlobalBottomNav from '../../../components/navigation/GlobalBottomNav';
 
 export default function RunningPlanScreen() {
   const { assessmentResult, isAssessmentResultLoading, fetchAssessmentResult, workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan, endWorkoutPlan } = useQuestionnaire();
@@ -61,7 +60,6 @@ export default function RunningPlanScreen() {
       <TouchableOpacity style={[styles.endPlanButton, isEndingPlan && styles.endPlanButtonDisabled]} onPress={handleEndPlan} disabled={isEndingPlan}><Text style={styles.endPlanButtonText}>{isEndingPlan ? 'Ending Plan...' : 'End Plan'}</Text></TouchableOpacity>
     </View>
       </ScrollView>
-      <GlobalBottomNav />
     </View>
   );
 }

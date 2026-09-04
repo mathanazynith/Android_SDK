@@ -20,7 +20,6 @@ import Timeline from '../calendar/components/Timeline';
 import TrainingCalendarCard from '../calendar/components/TrainingCalendarCard';
 import WorkoutModal from '../calendar/components/WorkoutModal';
 import type { WorkoutDetail, RunningPlanData } from '../calendar/components/types';
-import GlobalBottomNav from '../../../components/navigation/GlobalBottomNav';
 import { useTheme } from '../../../contexts/ThemeContext';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -244,7 +243,6 @@ export default function TrainingPlanScreen() {
       </ScrollView>
 
       <WorkoutModal visible={selectedWorkout !== null} workout={selectedWorkout} onClose={() => setSelectedWorkout(null)} />
-      <GlobalBottomNav />
     </SafeAreaView>
   );
 }

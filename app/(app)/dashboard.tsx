@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '../../service/auth';
 import SettingsMenu from '../../components/SettingsMenu';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
-import GlobalBottomNav from '../../components/navigation/GlobalBottomNav';
 import DashboardNoPlan from './DashboardNoPlan';
 import DashboardActivePlan from './DashboardActivePlan';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import { useResponsive } from '../../utils/responsive';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+// import { LocationService } from '../../src/services/locationService';
+// import { getWeatherByLocation, type WeatherData } from '../../service/weather';
 
 export default function DashboardScreen() {
   const { colors } = useTheme();
@@ -19,10 +20,44 @@ export default function DashboardScreen() {
   const { user, logout } = useAuth();
   const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
   const [settingsVisible, setSettingsVisible] = useState(false);
+  // const [weather, setWeather] = useState<WeatherData | null>(null);
+  // const [loadingWeather, setLoadingWeather] = useState(true);
+  // const [weatherError, setWeatherError] = useState<string | null>(null);
 
   useEffect(() => {
     void fetchWorkoutPlan();
   }, [fetchWorkoutPlan]);
+
+  // useEffect(() => {
+  //   let isActive = true;
+
+  //   const fetchWeatherData = async () => {
+  //     try {
+  //       setLoadingWeather(true);
+  //       setWeatherError(null);
+
+  //       const hasPermission = await LocationService.requestForegroundPermissions();
+  //       if (!hasPermission) {
+  //         throw new Error('Location permission is required for weather');
+  //       }
+
+  //       const location = await LocationService.getCurrentLocation();
+  //       const weatherData = await getWeatherByLocation(location.latitude, location.longitude);
+
+  //       if (isActive) setWeather(weatherData);
+  //     } catch (error) {
+  //       console.error('Failed to fetch weather:', error);
+  //       if (isActive) setWeatherError('Weather unavailable');
+  //     } finally {
+  //       if (isActive) setLoadingWeather(false);
+  //     }
+  //   };
+
+  //   void fetchWeatherData();
+  //   return () => {
+  //     isActive = false;
+  //   };
+  // }, []);
 
   const profile = user?.profile;
   const canStartAssessment = Boolean(
@@ -30,6 +65,23 @@ export default function DashboardScreen() {
     profile?.date_of_birth && profile?.height_cm && profile?.weight_kg,
   );
   const userName = user?.first_name?.trim() || user?.username?.trim() || 'Runner';
+  // const parsedTemperature = weather?.temperature == null ? null : Number(weather.temperature);
+  // const weatherTemperature = parsedTemperature != null && Number.isFinite(parsedTemperature)
+  //   ? `${Math.round(parsedTemperature)}°C`
+  //   : '--';
+  // const humidityValue = weather?.humidity ?? weather?.relativeHumidity;
+  // const parsedHumidity = humidityValue == null ? null : Number(humidityValue);
+  // const weatherHumidity = parsedHumidity != null && Number.isFinite(parsedHumidity)
+  //   ? `${Math.round(parsedHumidity)}%%`
+  //   : '--';
+  // const weatherCondition = weather?.condition?.toLowerCase() ?? '';
+  // const weatherIcon = weatherCondition.includes('rain') || weatherCondition.includes('drizzle')
+  //   ? 'cloud-rain'
+  //   : weatherCondition.includes('storm') || weatherCondition.includes('thunder')
+  //     ? 'cloud-lightning'
+  //     : weatherCondition.includes('cloud') || weatherCondition.includes('overcast')
+  //       ? 'cloud'
+  //       : 'sun';
   const today = new Date();
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const workouts = workoutPlan?.weeks.flatMap((week) => week.workouts) ?? [];
@@ -80,17 +132,27 @@ export default function DashboardScreen() {
       <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: spacing(20), paddingBottom: spacing(118) }]} showsVerticalScrollIndicator={false}>
         <View style={[styles.greeting, { minHeight: spacing(82), paddingHorizontal: spacing(18), paddingVertical: spacing(14), marginBottom: spacing(14), backgroundColor: colors.surface }]}>
           <Text style={[styles.greetingText, { color: colors.text, fontSize: fontSize(24, 20, 26) }]} numberOfLines={2}><Text>Hi </Text><Text style={[styles.name, { color: BRAND_GREEN }]}>{userName}</Text></Text>
-          <TouchableOpacity style={[styles.weather, { borderColor: BRAND_GREEN }]} onPress={() => router.push('./screens/weather-details')}>
-            <Feather name="cloud" size={spacing(24)} color={BRAND_GREEN} />
-            <View>
-              <Text style={[styles.weatherValue, { color: colors.text }]}>Chennai</Text>
-              <Text style={[styles.weatherValue, { color: colors.textSecondary }]}>28 C</Text>
-            </View>
-          </TouchableOpacity>
+              {/*
+              <TouchableOpacity
+                accessibilityLabel="Open current weather details"
+                style={[styles.weather, { backgroundColor: colors.surface, borderColor: BRAND_GREEN }]}
+                onPress={() => router.push('./screens/weather-details')}
+              >
+                {loadingWeather ? <ActivityIndicator size="small" color={BRAND_GREEN} /> : weather?.iconUrl ? <Image source={{ uri: weather.iconUrl }} style={{ width: spacing(24), height: spacing(24) }} /> : <Feather name={weatherIcon} size={spacing(24)} color={BRAND_GREEN} />}
+                <View>
+                  <Text style={[styles.weatherValue, { color: colors.text }]} numberOfLines={1}>{weather?.city || weather?.locationName || 'Current location'}</Text>
+                  <Text style={[styles.weatherValue, { color: colors.textSecondary }]}>{weatherTemperature}</Text>
+                  <View style={styles.weatherHumidity}>
+                    <Feather name="droplet" size={spacing(11)} color={colors.textSecondary} />
+                    <Text style={[styles.weatherValue, { color: colors.textSecondary }]}>{weatherHumidity}</Text>
+                  </View>
+                  {weatherError ? <Text style={[styles.weatherStatus, { color: colors.textTertiary }]}>{weatherError}</Text> : null}
+                </View>
+              </TouchableOpacity>
+              */}
         </View>
         {workoutPlan ? <DashboardActivePlan todayWorkout={todayWorkout} nextWorkout={nextWorkout} /> : <DashboardNoPlan canStartAssessment={canStartAssessment} onStartAssessment={startAssessment} />}
       </ScrollView>
-      <GlobalBottomNav />
       <SettingsMenu
         visible={settingsVisible}
         onClose={() => setSettingsVisible(false)}
@@ -113,6 +175,8 @@ const styles = StyleSheet.create({
   weather: { minHeight: 64, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, borderWidth: 1.5, flexShrink: 0 },
   weatherLabel: { color: '#DDE2DE', fontSize: 12, fontWeight: '700' },
   weatherValue: { color: '#DDE2DE', fontSize: 11, lineHeight: 14 },
+  // weatherHumidity: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  // weatherStatus: { fontSize: 9, lineHeight: 12 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#0B0E0F' },
   centerText: { color: '#F7F7F7', textAlign: 'center', marginTop: 14 },
   retry: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 12 },
