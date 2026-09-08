@@ -2,14 +2,14 @@ import * as Location from 'expo-location';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    BackHandler,
-    Platform,
-    Pressable,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Alert,
+  BackHandler,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 import MapView, { Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { workoutPlanService } from '../../../service/workoutPlan';
@@ -52,6 +52,17 @@ interface LocationState {
   };
   timestamp: number;
 }
+
+type MovementState = 'STATIONARY' | 'STARTING' | 'MOVING' | 'STOPPING';
+
+const MOVEMENT_CONFIRMATION_SAMPLES = 3;
+const STATIONARY_CONFIRMATION_SAMPLES = 3;
+// A 30m GPS radius is too large for indoor distance: the displayed point can
+// be several rooms away from the user. Reject low-confidence fixes before
+// they reach the route processor instead of adding false distance.
+const MAX_MOVEMENT_ACCURACY_METERS = 15;
+const MIN_MOVEMENT_DISTANCE_METERS = 2;
+const MIN_MOVEMENT_SPEED_METERS_PER_SECOND = 0.5;
 
 const calculateRouteDistance = (points: RunningGpsPoint[]): number => {
   let total = 0;
@@ -111,6 +122,9 @@ export default function MapScreen() {
   const stepCountRef = useRef(0);
   const lastStepTimestampRef = useRef<number | null>(null);
   const movementConfirmedRef = useRef(false);
+  const movementStateRef = useRef<MovementState>('STATIONARY');
+  const consecutiveMovementRef = useRef(0);
+  const consecutiveStationaryRef = useRef(0);
   const workoutEngineRef = useRef<WorkoutEngine | null>(null);
   const workoutVoiceRef = useRef<WorkoutVoiceService | null>(null);
   const previousWorkoutPointRef = useRef<RunningGpsPoint | null>(null);
@@ -425,7 +439,6 @@ export default function MapScreen() {
       if (!processor) return;
 
       const activityDetection = activityDetectionRef.current;
-      const stepDetection = stepDetectionRef.current;
       const detectedActivity = activityDetection?.getCurrentActivity() ?? 'unknown';
       const hasDetectedMovement = detectedActivity === 'walking' || detectedActivity === 'running';
       const hasRecentStepEvidence = lastStepTimestampRef.current !== null
@@ -433,18 +446,68 @@ export default function MapScreen() {
       const previousPointDistance = previousLocationRef.current
         ? calculateDistanceMeters(previousLocationRef.current, rawGps)
         : 0;
-      const gpsSpeedMotion = rawGps.speed !== null && rawGps.speed !== undefined && rawGps.speed >= 0.8;
-      const hasMeaningfulDisplacement = previousPointDistance >= 3;
-      const hasCurrentMovement = hasDetectedMovement || hasRecentStepEvidence || gpsSpeedMotion || hasMeaningfulDisplacement;
+      const accuracy = rawGps.accuracy ?? Number.POSITIVE_INFINITY;
+      const hasGoodAccuracy = Number.isFinite(accuracy) && accuracy <= MAX_MOVEMENT_ACCURACY_METERS;
+      const speed = rawGps.speed ?? 0;
+      const hasMovementMagnitude = previousLocationRef.current !== null
+        && (previousPointDistance >= MIN_MOVEMENT_DISTANCE_METERS
+          || speed >= MIN_MOVEMENT_SPEED_METERS_PER_SECOND);
+      // Speed or displacement alone is never enough. A route observation must
+      // have Android motion evidence and a plausible GPS movement magnitude.
+      const hasMotionEvidence = hasDetectedMovement || hasRecentStepEvidence;
+      const hasMovementObservation = hasGoodAccuracy && hasMotionEvidence && hasMovementMagnitude;
+      const movementStateBefore = movementStateRef.current;
 
-      if (hasCurrentMovement) {
-        movementConfirmedRef.current = true;
+      if (hasMovementObservation) {
+        consecutiveMovementRef.current += 1;
+        consecutiveStationaryRef.current = 0;
+        if (movementStateRef.current === 'STATIONARY') {
+          movementStateRef.current = 'STARTING';
+        }
+        if (
+          movementStateRef.current === 'STARTING'
+          && consecutiveMovementRef.current >= MOVEMENT_CONFIRMATION_SAMPLES
+        ) {
+          movementStateRef.current = 'MOVING';
+          movementConfirmedRef.current = true;
+        } else if (movementStateRef.current === 'STOPPING') {
+          movementStateRef.current = 'MOVING';
+        }
+      } else {
+        consecutiveMovementRef.current = 0;
+        consecutiveStationaryRef.current += 1;
+        if (movementStateRef.current === 'MOVING') {
+          movementStateRef.current = 'STOPPING';
+        }
+        if (
+          (movementStateRef.current === 'STARTING' || movementStateRef.current === 'STOPPING')
+          && consecutiveStationaryRef.current >= STATIONARY_CONFIRMATION_SAMPLES
+        ) {
+          movementStateRef.current = 'STATIONARY';
+          if (!movementConfirmedRef.current) movementConfirmedRef.current = false;
+        }
       }
 
-      const isExplicitlyStationary = !hasCurrentMovement;
+      const movementState = movementStateRef.current;
+      const shouldProcessRoute = movementState === 'MOVING';
+      console.log(
+        `[MovementGate] timestamp=${timestamp} lat=${rawGps.latitude} lon=${rawGps.longitude} `
+        + `accuracy=${accuracy.toFixed(1)}m speed=${speed.toFixed(2)}m/s `
+        + `distance=${previousPointDistance.toFixed(1)}m activity=${detectedActivity} `
+        + `steps=${hasRecentStepEvidence} state=${movementStateBefore}->${movementState} `
+        + `movementCount=${consecutiveMovementRef.current} stationaryCount=${consecutiveStationaryRef.current} `
+        + `decision=${shouldProcessRoute ? 'ACCEPT' : 'REJECT'} `
+        + `reason=${!hasGoodAccuracy ? 'poor-accuracy' : !hasMotionEvidence ? 'no-motion-evidence' : !hasMovementMagnitude ? 'no-movement-magnitude' : 'movement-gate'}`
+      );
 
-      // The complete raw GPS trace is retained regardless of whether this is
-      // an active lap, rest, pause, or the confirmation popup.
+      previousLocationRef.current = rawGps;
+      if (!shouldProcessRoute) {
+        previousWorkoutPointRef.current = null;
+        moveMapToLocation(rawGps.latitude, rawGps.longitude);
+        return;
+      }
+
+      // Only movement-gated points enter the existing Kalman/RDP path.
       const displayCountBefore = processor.getDisplayPoints().length;
       const retained = processor.ingestRaw(rawGps);
       const workoutEngine = workoutEngineRef.current;
@@ -452,31 +515,16 @@ export default function MapScreen() {
       const countsWorkoutDistance = workoutEngine?.isDistanceCounting() ?? !isPausedRef.current;
 
       // A pause/rest boundary must never be bridged by the next accepted
-      // point after tracking resumes; however, the route still needs to be
-      // visible as a light trace during rest while the SDK distance remains
-      // frozen.
+      // point after tracking resumes; the movement gate still controls which
+      // points are allowed into the route pipeline.
       if (workoutEngine && !countsWorkoutDistance) {
         previousWorkoutPointRef.current = null;
         previousLocationRef.current = rawGps;
       }
 
-      // GPS noise and idle holding can still produce slight position jitter
-      // even when the phone is not moving. Only treat a fresh sample as live
-      // route evidence when the user is clearly moving or the point moved
-      // meaningfully from the last accepted fix.
-      if (!hasCurrentMovement || isExplicitlyStationary) {
-        console.log(
-          `[LocationManager] Live point held: activity=${detectedActivity}, recentSteps=${hasRecentStepEvidence}, movementDelta=${previousPointDistance.toFixed(1)}m; waiting for real motion`
-        );
-        previousLocationRef.current = rawGps;
-        previousWorkoutPointRef.current = null;
-        moveMapToLocation(rawGps.latitude, rawGps.longitude);
-        return;
-      }
-
       if (retained) {
-        // A polyline requires two coordinates. The initial route segment is
-        // seeded at Start; every accepted display point extends that segment.
+        // A polyline requires two coordinates. The first movement-gated point
+        // establishes the route; later accepted points extend it.
         const displayPointWasAdded = processor.getDisplayPoints().length > displayCountBefore;
         const latestDisplayPoint = processor.getDisplayPoints().at(-1);
         if (displayPointWasAdded && latestDisplayPoint) {
@@ -549,7 +597,6 @@ export default function MapScreen() {
         addLog('? GPS point rejected');
       }
 
-      previousLocationRef.current = rawGps;
       console.log(`[WorkoutMapView] Current location: lat=${rawGps.latitude} lon=${rawGps.longitude}`);
       moveMapToLocation(rawGps.latitude, rawGps.longitude);
     },
@@ -600,6 +647,9 @@ export default function MapScreen() {
       stepCountRef.current = 0;
       lastStepTimestampRef.current = null;
       movementConfirmedRef.current = false;
+      movementStateRef.current = 'STATIONARY';
+      consecutiveMovementRef.current = 0;
+      consecutiveStationaryRef.current = 0;
       setPace(0);
       setIsPaused(false);
       setOptimizedStats({ rawPointCount: 0, optimizedPointCount: 0, reductionPercent: 0 });
@@ -673,27 +723,9 @@ export default function MapScreen() {
       pathProcessorRef.current = pathProcessor;
       pathProcessor.reset();
 
-      // Keep the fresh fix in the raw diagnostic trace. It becomes the route
-      // start only when it passes the same quality gate as later GPS points.
-      pathProcessor.ingestRaw(currentLocation);
-      const startRoutePoint = pathProcessor.getDisplayPoints().at(-1) ?? null;
-      if (startRoutePoint) {
-        lastRetainedCoordinateRef.current = {
-          latitude: startRoutePoint.latitude,
-          longitude: startRoutePoint.longitude,
-        };
-        // Seed the mounted polyline with the start fix. The first walking
-        // display point can now draw a visible line immediately instead of
-        // waiting for a third accepted point to extend a one-point segment.
-        const initialSegment: RouteSegment = {
-          id: 0,
-          isLight: false,
-          coordinates: [{ latitude: startRoutePoint.latitude, longitude: startRoutePoint.longitude }],
-        };
-        routeSegmentsRef.current = [initialSegment];
-        setRouteSegments([initialSegment]);
-        console.log('[LocationManager] Start coordinate retained as the first live route point');
-      }
+      // Do not seed Kalman/RDP or the map with the initial fix. The movement
+      // gate will admit the first route point only after motion is confirmed.
+      const startRoutePoint = null;
 
       if (selectedWorkout) {
         const voice = new WorkoutVoiceService();
@@ -832,11 +864,8 @@ export default function MapScreen() {
       void stepDetection.start((steps) => {
         lastStepTimestampRef.current = Date.now();
         stepCountRef.current = steps;
-        if (steps >= 3) {
-          movementConfirmedRef.current = true;
-        }
       }).catch((error) => {
-        console.warn('[LocationManager] Pedometer startup failed; GPS-only tracking continues', error);
+        console.warn('[LocationManager] Pedometer startup failed; movement gate will require activity recognition and GPS evidence', error);
       });
     } catch (error) {
       console.error('Start run error:', error);
@@ -1245,6 +1274,10 @@ export default function MapScreen() {
       workoutVoiceRef.current = null;
       workoutEngineRef.current = null;
       previousWorkoutPointRef.current = null;
+      movementStateRef.current = 'STATIONARY';
+      consecutiveMovementRef.current = 0;
+      consecutiveStationaryRef.current = 0;
+      movementConfirmedRef.current = false;
       setWorkoutSnapshot(null);
       setIsPlannedWorkout(false);
       isPausedRef.current = false;
