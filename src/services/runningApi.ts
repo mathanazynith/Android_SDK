@@ -1,5 +1,5 @@
-import { ActivitySubmissionPayload, RunSessionStartResponse, RunSessionStartPayload, RunStopPayload, UploadBatchPayload } from '../types/running';
 import api from '../../service/api';
+import { ActivitySubmissionPayload, RunSessionStartPayload, RunSessionStartResponse, RunStopPayload, UploadBatchPayload } from '../types/running';
 
 // `service/api.ts` supplies the /api/v1 base URL and authenticated Bearer
 // token, so this resolves to POST /api/v1/rundata/upload/ by default.
@@ -44,6 +44,10 @@ export class RunningApiClient {
     success: boolean;
     activityId: string | number | null;
   }> {
+    console.log(
+      `[Activity] Distance sent to backend: ${payload.distance.toFixed(2)}m; `
+      + `Pace sent to backend: ${payload.pace_seconds_per_km.toFixed(2)}s/km`
+    );
     console.log(`[RunningApiClient] POST ${ACTIVITY_UPLOAD_PATH}`, JSON.stringify(payload, null, 2));
 
     const response = await api.post(ACTIVITY_UPLOAD_PATH, payload, {

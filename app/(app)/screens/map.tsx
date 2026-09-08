@@ -2,14 +2,14 @@ import * as Location from 'expo-location';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  BackHandler,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
+    ActivityIndicator,
+    Alert,
+    BackHandler,
+    Platform,
+    Pressable,
+    StyleSheet,
+    Text,
+    View,
 } from 'react-native';
 import MapView, { Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { workoutPlanService } from '../../../service/workoutPlan';
@@ -24,6 +24,7 @@ import { WorkoutEngine } from '../../../src/services/workoutEngine';
 import { WorkoutVoiceService } from '../../../src/services/workoutVoiceService';
 import { ActivityLapPayload, ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
 import { BackendWorkout, WorkoutEngineSnapshot } from '../../../src/types/workout';
+import { createCatmullRomPolyline } from '../../../src/utils/catmullRom';
 import { calculateDistanceMeters } from '../../../src/utils/distance';
 
 const RUNNING_USER_ID = 'USER-1001';
@@ -1043,8 +1044,21 @@ export default function MapScreen() {
           latitude: point.latitude,
           longitude: point.longitude,
         }));
-        fitMapToRoute(displayedRouteCoordinates);
-        console.log(`[WorkoutMapView] Live route preserved after save: ${displayedRouteCoordinates.length} points`);
+        const smoothedDisplayCoordinates = createCatmullRomPolyline(finalOptimized);
+        if (smoothedDisplayCoordinates.length > 0) {
+          const renderedSegment: RouteSegment = {
+            id: Date.now(),
+            isLight: false,
+            coordinates: smoothedDisplayCoordinates,
+          };
+          routeSegmentsRef.current = [renderedSegment];
+          setRouteSegments([renderedSegment]);
+        }
+        fitMapToRoute(smoothedDisplayCoordinates.length > 0 ? smoothedDisplayCoordinates : displayedRouteCoordinates);
+        console.log(
+          `[WorkoutMapView] Render route prepared: ${smoothedDisplayCoordinates.length} Catmull-Rom points `
+          + `from ${finalOptimized.length} RDP points; upload route unchanged at ${displayedRouteCoordinates.length} points`
+        );
 
         console.log('[Route Saved]', JSON.stringify(finalCoordinates, null, 2));
         console.log(`[Route Saved] ${finalCoordinates.length} coordinate points finalized`);
@@ -1066,6 +1080,9 @@ export default function MapScreen() {
         // non-counting rest/pause trace and make Activity larger than the SDK.
         const totalDistance = trackedDistance;
         setDistance(totalDistance);
+        const paceSecondsPerKm = totalDistance > 0
+          ? elapsedSeconds / (totalDistance / 1000)
+          : 0;
         console.log(
           `[LocationManager] Final distance source: live SDK total `
           + `${trackedDistance.toFixed(2)}m (route geometry ${uploadedRouteDistance.toFixed(2)}m)`
@@ -1155,6 +1172,8 @@ export default function MapScreen() {
           workout_distance_meters: Number(distanceRef.current.toFixed(2)),
           additional_distance_meters: Number(extraDistanceRef.current.toFixed(2)),
           total_distance_meters: Number(totalDistance.toFixed(2)),
+          avg_pace: Number(paceSecondsPerKm.toFixed(2)),
+          pace_seconds_per_km: Number(paceSecondsPerKm.toFixed(2)),
           laps,
         };
         const backendPayloadLog = {

@@ -207,7 +207,6 @@ export default function ActivityDetailScreen() {
 
           <Text style={styles.sectionTitle}>Route data</Text>
           <View style={styles.metricsCard}>
-            <DetailMetric label="GPS points" value={String(activity.gps_points_count)} />
             <DetailMetric label="Elevation gain" value={`${Math.round(activity.elevation_gain)} m`} />
             <DetailMetric label="Elevation loss" value={`${Math.round(activity.elevation_loss)} m`} />
             <DetailMetric label="Route processed" value={activity.is_processed ? 'Yes' : 'No'} />

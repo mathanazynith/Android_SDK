@@ -1,26 +1,29 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { CropRangeSlider } from '../../../../components/CropRangeSlider';
+import { getBackendErrorMessage } from '../../../../service/api';
 import { activityAPI, BackendActivity } from '../../../../src/services/activityApi';
 import { calculateDistanceMeters } from '../../../../src/utils/distance';
 import { decodePolyline } from '../../../../src/utils/polylineDecoder';
+import { addRouteTimestamps } from '../../../../src/utils/routeTimestamps';
 
 interface GPSPoint {
   latitude: number;
   longitude: number;
+  timestamp?: string;
 }
 
 export default function CropActivityScreen() {
@@ -31,6 +34,8 @@ export default function CropActivityScreen() {
   const [startIndex, setStartIndex] = useState(0);
   const [endIndex, setEndIndex] = useState(0);
   const [croppingDistance, setCroppingDistance] = useState(0);
+  const [croppingElapsedTime, setCroppingElapsedTime] = useState(0);
+  const [isSaving, setIsSaving] = useState(false);
   const mapRef = useRef<MapView>(null);
 
   async function loadActivity() {
@@ -42,10 +47,24 @@ export default function CropActivityScreen() {
 
       setActivity(activityData);
 
-      // The backend polyline is the route being cropped. The decoded points are
-      // used only as stable start/end indices because the API has no point times.
-      if (activityData.encoded_polyline) {
-        const decodedPoints = decodePolyline(activityData.encoded_polyline);
+      // Prefer timestamped backend GPS rows so crop indices match the server.
+      const backendPoints = activityData.gps_points;
+      if (backendPoints && backendPoints.length > 0) {
+        const points = addRouteTimestamps(backendPoints.map((point) => ({
+          latitude: Number(point.latitude),
+          longitude: Number(point.longitude),
+          timestamp: point.timestamp,
+        })), activityData.start_time, activityData.end_time);
+        setGpsPoints(points);
+        setStartIndex(0);
+        setEndIndex(points.length - 1);
+        calculateCropDistance(0, points.length - 1, points);
+      } else if (activityData.encoded_polyline) {
+        const decodedPoints = addRouteTimestamps(
+          decodePolyline(activityData.encoded_polyline),
+          activityData.start_time,
+          activityData.end_time,
+        );
         console.log('[CropActivity] Decoded backend GPS points:', decodedPoints.length);
         setGpsPoints(decodedPoints);
 
@@ -88,6 +107,13 @@ export default function CropActivityScreen() {
     }
 
     setCroppingDistance(totalDistance);
+    const startTimestamp = points[start]?.timestamp ? Date.parse(points[start].timestamp) : NaN;
+    const endTimestamp = points[end]?.timestamp ? Date.parse(points[end].timestamp) : NaN;
+    setCroppingElapsedTime(
+      Number.isFinite(startTimestamp) && Number.isFinite(endTimestamp)
+        ? Math.max(0, Math.round((endTimestamp - startTimestamp) / 1000))
+        : 0,
+    );
   };
 
   const fitMapToRoute = (coordinates: GPSPoint[]) => {
@@ -115,26 +141,55 @@ export default function CropActivityScreen() {
     }
   };
 
-  const handleSaveCrop = () => {
+  const handleSaveCrop = async () => {
     if (gpsPoints.length === 0 || !activity) {
       Alert.alert('Error', 'No GPS points to crop');
       return;
     }
 
-    console.log('[CropActivity] Frontend crop selection:', { startIndex, endIndex });
-    Alert.alert('Crop saved', `Showing GPS points ${startIndex} through ${endIndex}.`, [
-      {
-        text: 'OK',
-        onPress: () => router.replace({
-          pathname: '/activity/[id]',
-          params: {
-            id: String(activity.id),
-            cropStart: String(startIndex),
-            cropEnd: String(endIndex),
+    const startTime = gpsPoints[startIndex]?.timestamp;
+    const endTime = gpsPoints[endIndex]?.timestamp;
+    if (!startTime || !endTime) {
+      Alert.alert('Cannot save crop', 'The route does not contain timestamps required by the backend.');
+      return;
+    }
+
+    if (Date.parse(endTime) <= Date.parse(startTime)) {
+      Alert.alert('Cannot save crop', 'The crop end time must be after the start time.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      console.log('[CropActivity] Saving crop selection:', { startTime, endTime });
+      const preview = await activityAPI.cropPreview(activity.id, startTime, endTime);
+      const previewMessage = `Distance ${(Number(preview.distance) / 1000).toFixed(2)} km\n`
+        + `Time ${Math.round(Number(preview.elapsed_time) / 60)} min\n`
+        + `Pace ${formatPace(Number(preview.avg_pace))}`;
+      Alert.alert('Review crop', previewMessage, [
+        { text: 'Cancel', style: 'cancel', onPress: () => setIsSaving(false) },
+        {
+          text: 'Apply',
+          onPress: () => {
+            void activityAPI.crop(activity.id, startTime, endTime)
+              .then((result) => {
+                Alert.alert('Crop saved', `Distance ${(result.distance / 1000).toFixed(2)} km`, [
+                  { text: 'OK', onPress: () => router.dismissTo('/(app)/activity' as any) },
+                ]);
+              })
+              .catch((error) => {
+                console.error('[CropActivity] Crop request failed:', error);
+                Alert.alert('Could not save crop', getBackendErrorMessage(error, 'Please try again.'));
+              })
+              .finally(() => setIsSaving(false));
           },
-        }),
-      },
-    ]);
+        },
+      ]);
+    } catch (error) {
+      console.error('[CropActivity] Crop request failed:', error);
+      Alert.alert('Could not save crop', getBackendErrorMessage(error, 'Please try again.'));
+      setIsSaving(false);
+    }
   };
 
   useEffect(() => {
@@ -159,6 +214,23 @@ export default function CropActivityScreen() {
 
   const selectedPoints = gpsPoints.slice(startIndex, endIndex + 1);
   const hasRoute = gpsPoints.length > 1;
+  const croppingPace = croppingDistance > 0
+    ? croppingElapsedTime / (croppingDistance / 1000)
+    : 0;
+  const formatDuration = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  const formatPace = (secondsPerKm: number) => secondsPerKm > 0
+    ? `${Math.floor(secondsPerKm / 60)}:${String(Math.round(secondsPerKm % 60)).padStart(2, '0')} /km`
+    : '-- /km';
+  const formatCropTime = (timestamp?: string) => timestamp
+    ? new Date(timestamp).toLocaleString(undefined, {
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+    : '--';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -226,11 +298,20 @@ export default function CropActivityScreen() {
 
       <View style={styles.controlsContainer}>
         <Text style={styles.cropTitle}>Crop Workout</Text>
-        <Text style={styles.pointsText}>Showing {selectedPoints.length} GPS points</Text>
         <Text style={styles.distanceText}>{(croppingDistance / 1000).toFixed(2)} km</Text>
-        <View style={styles.pointLabels}>
-          <Text style={styles.pointText}>Start Point: {startIndex}</Text>
-          <Text style={styles.pointText}>End Point: {endIndex}</Text>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryText}>Time {formatDuration(croppingElapsedTime)}</Text>
+          <Text style={styles.summaryText}>Pace {formatPace(croppingPace)}</Text>
+        </View>
+        <View style={styles.timeRangeContainer}>
+          <View style={styles.timeRangeItem}>
+            <Text style={styles.timeRangeLabel}>Start</Text>
+            <Text style={styles.timeRangeValue}>{formatCropTime(gpsPoints[startIndex]?.timestamp)}</Text>
+          </View>
+          <View style={styles.timeRangeItem}>
+            <Text style={styles.timeRangeLabel}>End</Text>
+            <Text style={styles.timeRangeValue}>{formatCropTime(gpsPoints[endIndex]?.timestamp)}</Text>
+          </View>
         </View>
         <CropRangeSlider
           minimumValue={0}
@@ -245,9 +326,12 @@ export default function CropActivityScreen() {
         <View style={styles.buttonRow}>
           <TouchableOpacity
             style={styles.saveButton}
+            disabled={isSaving}
             onPress={handleSaveCrop}
           >
-            <Text style={styles.saveButtonText}>Save Crop</Text>
+            {isSaving
+              ? <ActivityIndicator color="#0B0E0F" />
+              : <Text style={styles.saveButtonText}>Save Crop</Text>}
           </TouchableOpacity>
         </View>
       </View>
@@ -302,28 +386,28 @@ const styles = StyleSheet.create({
   headerSpacer: {
     width: 60,
   },
-  content: { padding: 12, paddingBottom: 20 },
-  mapContainer: { height: 270, overflow: 'hidden', borderRadius: 24 },
+  content: { padding: 12, paddingBottom: 16 },
+  mapContainer: { height: 220, overflow: 'hidden', borderRadius: 20 },
   map: { flex: 1 },
-  controlsContainer: {
-    backgroundColor: '#0B0E0F',
-    paddingTop: 20,
-  },
-  cropTitle: { color: '#F7F7F7', fontSize: 26, fontWeight: '700', textAlign: 'center' },
-  pointsText: { color: '#A9ADAF', fontSize: 16, textAlign: 'center', marginTop: 5 },
-  distanceText: { color: '#F7F7F7', fontSize: 22, fontWeight: '700', textAlign: 'center', marginTop: 16 },
-  pointLabels: { alignItems: 'center', marginTop: 22, marginBottom: 10 },
-  pointText: { color: '#F7F7F7', fontSize: 16, lineHeight: 24 },
+  controlsContainer: { backgroundColor: '#0B0E0F', paddingTop: 14 },
+  cropTitle: { color: '#F7F7F7', fontSize: 22, fontWeight: '700', textAlign: 'center' },
+  distanceText: { color: '#F7F7F7', fontSize: 22, fontWeight: '700', textAlign: 'center', marginTop: 10 },
+  summaryRow: { flexDirection: 'row', justifyContent: 'center', gap: 24, marginTop: 8 },
+  summaryText: { color: '#A9ADAF', fontSize: 14, fontWeight: '600' },
+  timeRangeContainer: { flexDirection: 'row', gap: 16, marginTop: 16 },
+  timeRangeItem: { flex: 1 },
+  timeRangeLabel: { color: '#A9ADAF', fontSize: 12, marginBottom: 3 },
+  timeRangeValue: { color: '#F7F7F7', fontSize: 13 },
   buttonRow: {
     flexDirection: 'row',
     gap: 12,
-    marginTop: 18,
+    marginTop: 14,
   },
   saveButton: {
     flex: 1,
     backgroundColor: '#35C72B',
     borderRadius: 16,
-    paddingVertical: 15,
+    paddingVertical: 13,
     alignItems: 'center',
   },
   saveButtonText: {

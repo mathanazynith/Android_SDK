@@ -1,10 +1,24 @@
-import api from '../../service/api';
 import polyline from '@mapbox/polyline';
+import api from '../../service/api';
 import { activityDistanceOverrides } from './activityDistanceOverrides';
 
 interface BackendGpsPoint {
   latitude: number;
   longitude: number;
+  timestamp?: string;
+}
+
+export interface CropActivityResult {
+  activity_id: string | number;
+  start_time: string;
+  end_time: string;
+  distance: number;
+  distance_km: number;
+  elapsed_time: number;
+  moving_time: number;
+  avg_speed: number;
+  avg_pace: number;
+  gps_points_count: number;
 }
 
 export interface BackendActivity {
@@ -79,12 +93,24 @@ const encodeRouteFallback = (activity: BackendActivity): string | null => {
   return coordinates.length >= 2 ? polyline.encode(coordinates) : null;
 };
 
-const normalizeActivity = (activity: BackendActivity): BackendActivity => ({
-  ...activity,
-  encoded_polyline: activity.encoded_polyline
-    ?? activity.route?.encoded_polyline
-    ?? encodeRouteFallback(activity),
-});
+const getBackendGpsPoints = (activity: BackendActivity): BackendGpsPoint[] | undefined =>
+  activity.gps_points
+  ?? activity.points
+  ?? activity.coordinates
+  ?? activity.route?.gps_points
+  ?? activity.route?.points
+  ?? activity.route?.coordinates;
+
+const normalizeActivity = (activity: BackendActivity): BackendActivity => {
+  const gpsPoints = getBackendGpsPoints(activity);
+  return {
+    ...activity,
+    gps_points: activity.gps_points ?? gpsPoints,
+    encoded_polyline: activity.encoded_polyline
+      ?? activity.route?.encoded_polyline
+      ?? encodeRouteFallback(activity),
+  };
+};
 
 const applySdkDistance = async (activity: BackendActivity): Promise<BackendActivity> => {
   const sdkDistance = await activityDistanceOverrides.get(activity.id);
@@ -123,6 +149,98 @@ export const activityAPI = {
     return typeof response.data?.message === 'string'
       ? response.data.message
       : 'Activity deleted successfully.';
+  },
+
+  async cropPreview(
+    activityId: BackendActivity['id'],
+    startTime: string,
+    endTime: string,
+  ): Promise<CropActivityResult> {
+    const startDate = new Date(startTime);
+    const endDate = new Date(endTime);
+    const startMilliseconds = startDate.getTime();
+    const endMilliseconds = endDate.getTime();
+    if (!Number.isFinite(startMilliseconds) || !Number.isFinite(endMilliseconds) || endMilliseconds <= startMilliseconds) {
+      throw new Error('Crop interval must contain valid timestamps in chronological order.');
+    }
+
+    const payload = {
+      start_time: startTime,
+      end_time: endTime,
+    };
+    const endpoint = `${getActivityDetailPath(activityId)}crop/preview/`;
+
+    console.log('[CropActivity] Preview payload JSON:', JSON.stringify(payload, null, 2));
+    console.log('[CropActivity] Request:', {
+      method: 'POST',
+      url: endpoint,
+      payload,
+      startTimeMilliseconds: startMilliseconds,
+      endTimeMilliseconds: endMilliseconds,
+    });
+
+    let response;
+    try {
+      response = await api.post(endpoint, payload);
+    } catch (error: any) {
+      console.error('[CropActivity] Backend response:', {
+        status: error?.response?.status,
+        data: error?.response?.data,
+        requestUrl: error?.config?.url,
+        requestData: error?.config?.data,
+      });
+      throw error;
+    }
+
+    const result = response.data?.data ?? response.data;
+    return result as CropActivityResult;
+  },
+
+  async crop(
+    activityId: BackendActivity['id'],
+    startTime: string,
+    endTime: string,
+  ): Promise<CropActivityResult> {
+    const startDate = new Date(startTime);
+    const endDate = new Date(endTime);
+    const startMilliseconds = startDate.getTime();
+    const endMilliseconds = endDate.getTime();
+    if (!Number.isFinite(startMilliseconds) || !Number.isFinite(endMilliseconds) || endMilliseconds <= startMilliseconds) {
+      throw new Error('Crop interval must contain valid timestamps in chronological order.');
+    }
+
+    const payload = {
+      start_time: startTime,
+      end_time: endTime,
+    };
+    const endpoint = `${getActivityDetailPath(activityId)}crop/`;
+
+    console.log('[CropActivity] Apply payload JSON:', JSON.stringify(payload, null, 2));
+    console.log('[CropActivity] Apply request:', { method: 'POST', url: endpoint, payload });
+
+    let response;
+    try {
+      response = await api.post(endpoint, payload);
+    } catch (error: any) {
+      console.error('[CropActivity] Backend response:', {
+        status: error?.response?.status,
+        data: error?.response?.data,
+        requestUrl: error?.config?.url,
+        requestData: error?.config?.data,
+      });
+      throw error;
+    }
+
+    const result = response.data?.data ?? response.data;
+    const croppedDistance = Number(result.distance);
+    if (Number.isFinite(croppedDistance)) {
+      await activityDistanceOverrides.save(activityId, croppedDistance);
+    }
+    console.log(
+      `[Activity] Cropped distance returned by backend: ${croppedDistance.toFixed(2)}m; `
+      + `pace returned by backend: ${Number(result.avg_pace).toFixed(2)}s/km`
+    );
+    return result as CropActivityResult;
   },
 
 };
