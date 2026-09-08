@@ -168,7 +168,7 @@ export default function TrainingPlanScreen() {
 
   const safeWeekIndex = plan ? Math.min(selectedWeekIndex, Math.max(0, plan.weeks.length - 1)) : 0;
   const selectedWeek = plan?.weeks[safeWeekIndex] ?? null;
-  const userName = user?.first_name?.trim() || user?.username?.trim() || 'Runner';
+  const userName = user?.username?.trim() || user?.email?.split('@')[0]?.trim() || 'Runner';
 
   const changeWeek = (direction: -1 | 1) => {
     if (!plan) return;

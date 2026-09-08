@@ -61,10 +61,10 @@ export default function DashboardScreen() {
 
   const profile = user?.profile;
   const canStartAssessment = Boolean(
-    user?.first_name && user?.last_name && user?.username && profile?.gender &&
+    user?.username && profile?.gender &&
     profile?.date_of_birth && profile?.height_cm && profile?.weight_kg,
   );
-  const userName = user?.first_name?.trim() || user?.username?.trim() || 'Runner';
+  const userName = user?.username?.trim() || user?.email?.split('@')[0]?.trim() || 'Runner';
   // const parsedTemperature = weather?.temperature == null ? null : Number(weather.temperature);
   // const weatherTemperature = parsedTemperature != null && Number.isFinite(parsedTemperature)
   //   ? `${Math.round(parsedTemperature)}°C`

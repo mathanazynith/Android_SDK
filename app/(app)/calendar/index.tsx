@@ -103,7 +103,7 @@ export default function CalendarScreen() {
   const pagerRef = useRef<FlatList<RunningPlanWeek>>(null);
   const { width: windowWidth } = useWindowDimensions();
   const pageWidth = Math.max(0, windowWidth - 36);
-  const userName = user?.first_name?.trim() || user?.username?.trim() || 'Runner';
+  const userName = user?.username?.trim() || user?.email?.split('@')[0]?.trim() || 'Runner';
   useEffect(() => { fetchWorkoutPlan(); }, [fetchWorkoutPlan]);
   useEffect(() => {
     if (!workoutPlan) return;

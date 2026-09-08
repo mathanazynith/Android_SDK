@@ -126,8 +126,8 @@ export default function ProfileScreen() {
   }
 
   const profile = user.profile as any;
-  const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || "User";
-  const initials = `${user.first_name?.[0] || ""}${user.last_name?.[0] || ""}`.toUpperCase() || "U";
+  const displayName = user.username || user.email?.split("@")[0] || "User";
+  const initials = displayName.slice(0, 2).toUpperCase();
   const account = user as any;
   const memberSince = profile?.member_since || profile?.created_at || account?.date_joined || account?.created_at;
   const profilePicture = profile?.profile_picture_url || profile?.profile_picture;
@@ -175,7 +175,7 @@ export default function ProfileScreen() {
                 <Feather name="camera" size={16} color={BRAND_GREEN} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.name}>{fullName}</Text>
+            <Text style={styles.name}>{displayName}</Text>
             <Text style={styles.username}>@{user.username || "user"}</Text>
           </View>
         </LinearGradient>

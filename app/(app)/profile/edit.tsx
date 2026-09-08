@@ -61,9 +61,7 @@ export default function EditProfileScreen() {
   const { user, updateProfile, uploadProfilePicture, refreshProfile } = useAuth();
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView | null>(null);
-  const [firstName, setFirstName] = useState(user?.first_name || "");
-  const [lastName, setLastName] = useState(user?.last_name || "");
-  const [username] = useState(user?.username || "");
+  const username = user?.username || "";
   const [dateOfBirth, setDateOfBirth] = useState(user?.profile?.date_of_birth || "");
   const [gender, setGender] = useState(user?.profile?.gender || "");
   const [bloodGroup, setBloodGroup] = useState(user?.profile?.blood_group || "");
@@ -106,10 +104,10 @@ export default function EditProfileScreen() {
   ]);
 
   const handleUpdate = async () => {
-    if (!firstName || !lastName || !username) { Alert.alert("Validation Error", "All fields are required"); return; }
+    if (!username.trim()) { Alert.alert("Validation Error", "Username is required"); return; }
     try {
       setLoading(true);
-      await updateProfile({ first_name: firstName, last_name: lastName, username, date_of_birth: dateOfBirth || null, gender: gender || null, blood_group: bloodGroup || null, height_cm: heightCm ? Number(heightCm) : null, weight_kg: weightKg ? Number(weightKg) : null, phone_number: phoneNumber || null, distance_unit: getDistanceUnitCode(unitSystem) });
+      await updateProfile({ username, date_of_birth: dateOfBirth || null, gender: gender || null, blood_group: bloodGroup || null, height_cm: heightCm ? Number(heightCm) : null, weight_kg: weightKg ? Number(weightKg) : null, phone_number: phoneNumber || null, distance_unit: getDistanceUnitCode(unitSystem) });
       Alert.alert("Success", "Profile updated successfully", [
         {
           text: "OK",
@@ -129,7 +127,8 @@ export default function EditProfileScreen() {
   };
 
   const profilePictureUri = resolveApiUrl(user?.profile?.profile_picture_url || user?.profile?.profile_picture);
-  const initials = `${firstName[0] || ""}${lastName[0] || ""}`.toUpperCase() || "U";
+  const displayName = username.trim() || user?.email?.split("@")[0] || "U";
+  const initials = displayName.slice(0, 2).toUpperCase();
   const scrollToField = (offset: number) => {
     scrollRef.current?.scrollTo({ y: offset, animated: true });
   };
@@ -150,6 +149,8 @@ export default function EditProfileScreen() {
       </View></View>
 
       <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>PERSONAL</Text><View style={[styles.formCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <AppInput label="Username" value={username} editable={false} containerStyle={styles.phoneInput} inputStyle={styles.flatInput} />
+        <AppInput label="Email" value={user?.email || ""} editable={false} containerStyle={styles.phoneInput} inputStyle={styles.flatInput} />
         <AppInput label="Phone Number" value={phoneNumber} onChangeText={setPhoneNumber} onFocus={() => scrollToField(70)} keyboardType="phone-pad" containerStyle={styles.phoneInput} inputStyle={styles.flatInput} />
         <Pressable onPress={openDatePicker} style={[styles.formRow, { borderBottomColor: colors.border }]}><Text style={[styles.rowLabel, { color: colors.text }]}>Date of Birth</Text><View style={[styles.datePill, { backgroundColor: colors.surfaceRaised }]}><Text style={[styles.dateText, { color: colors.text }]}>{dateValue(dateOfBirth) || "Select"}</Text></View></Pressable>
         <View style={[styles.formRow, { borderBottomColor: colors.border }]}><Text style={[styles.rowLabel, { color: colors.text }]}>Age</Text><Text style={[styles.rowValueMuted, { color: colors.text }]}>{ageValue(dateOfBirth)}</Text></View>
@@ -175,10 +176,7 @@ export default function EditProfileScreen() {
         </View>
       </View>
 
-      <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ACCOUNT INFO</Text><View style={[styles.accountCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <View style={styles.accountRow}><AppInput label="First Name" value={firstName} editable={false} onChangeText={setFirstName} onFocus={() => scrollToField(440)} containerStyle={styles.accountInput} /><AppInput label="Last Name" value={lastName} editable={false} onChangeText={setLastName} onFocus={() => scrollToField(440)} containerStyle={styles.accountInput} /></View>
-        <AppInput label="User Name" value={`${username}`} editable={false} containerStyle={styles.usernameInput} inputStyle={styles.flatInput} /><Feather name="star" size={25} color="#9B9B9D" style={styles.sparkle} />
-      </View><View style={styles.footerSpacer} />
+      <View style={styles.footerSpacer} />
     </ScrollView></SafeAreaView>
     </TouchableWithoutFeedback>
     <View style={[styles.footer, { bottom: 12 + insets.bottom }]}><TouchableOpacity disabled={loading} onPress={handleUpdate} style={[styles.saveButton, { backgroundColor: BRAND_GREEN }]}><Text style={[styles.saveButtonText, { color: colors.background }]}>{loading ? "Saving..." : "Save Changes"}</Text></TouchableOpacity></View>
@@ -192,6 +190,6 @@ const styles = StyleSheet.create({
   sectionLabel: { color: "#8D8D92", fontSize: 13, fontWeight: "600", marginTop: 10, marginBottom: 6 }, photoCard: { height: 171, borderRadius: 16, backgroundColor: "#171717", alignItems: "center", justifyContent: "center" },
   avatar: { width: 132, height: 132, borderRadius: 66, borderWidth: 3, borderColor: "#DCE9ED", backgroundColor: "#68747B", alignItems: "center", justifyContent: "center", position: "relative" }, avatarImage: { width: "100%", height: "100%", borderRadius: 66 }, photoInitial: { color: "#F7F7F7", fontSize: 42, fontWeight: "500" }, uploadOverlay: { top: 0, right: 0, bottom: 0, left: 0, borderRadius: 66, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.48)", position: "absolute" }, cameraBadge: { position: "absolute", right: -2, bottom: -2, width: 39, height: 39, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "#F4F4F4", borderWidth: 1, borderColor: "#C9C9C9" },
   formCard: { borderRadius: 18, backgroundColor: "#171717", paddingHorizontal: 15, borderWidth: 1, borderColor: "#303030" }, phoneInput: { marginBottom: 0, gap: 3 }, flatInput: { borderWidth: 0, borderRadius: 0, borderBottomWidth: 1, borderBottomColor: "#303030", minHeight: 42, paddingHorizontal: 0, backgroundColor: "transparent" }, lastInput: { borderWidth: 0, borderRadius: 0, minHeight: 42, paddingHorizontal: 0, backgroundColor: "transparent" }, formRow: { minHeight: 43, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#303030" }, lastRow: { borderBottomWidth: 0 }, rowLabel: { color: "#D3D3D5", fontSize: 16, fontStyle: "italic" }, rowValueMuted: { color: "#A8A8AA", fontSize: 15, fontStyle: "italic" }, selectValue: { maxWidth: "60%", flexDirection: "row", alignItems: "center", gap: 6 }, unitValue: { color: "#A8A8AA", fontSize: 15, fontStyle: "italic", textAlign: "right", flexShrink: 1 }, datePill: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 16, backgroundColor: "#454547" }, dateText: { color: "#F1F1F1", fontSize: 14 }, measurementInput: { marginBottom: 0, gap: 0 }, measurementRow: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1 }, measurementLabel: { fontSize: 16, fontWeight: "600" }, measurementValue: { maxWidth: "70%", flexDirection: "row", alignItems: "center", justifyContent: "flex-end" }, measurementTextInput: { minWidth: 70, paddingVertical: 8, paddingHorizontal: 0, fontSize: 16, fontWeight: "600", textAlign: "right" }, measurementUnit: { marginLeft: 8, fontSize: 15, fontWeight: "600" },
-  accountCard: { borderRadius: 18, backgroundColor: "#171717", borderWidth: 1, borderColor: "#303030", paddingHorizontal: 15, position: "relative" }, accountRow: { flexDirection: "row", gap: 16 }, accountInput: { flex: 1, gap: 4 }, usernameInput: { marginTop: 1, gap: 4 }, sparkle: { position: "absolute", right: 14, bottom: 15, transform: [{ rotate: "20deg" }] }, footerSpacer: { height: 68 }, footer: { position: "absolute", left: 15, right: 15 }, saveButton: { minHeight: 49, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "#4910c4" }, saveButtonText: { color: "#DDFBEA", fontSize: 16, fontWeight: "500" },
+  footerSpacer: { height: 68 }, footer: { position: "absolute", left: 15, right: 15 }, saveButton: { minHeight: 49, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "#4910c4" }, saveButtonText: { color: "#DDFBEA", fontSize: 16, fontWeight: "500" },
   modalOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.64)" }, modalContent: { backgroundColor: "#242424", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 22, maxHeight: "70%" }, modalTitle: { color: "#FFFFFF", fontSize: 19, fontWeight: "700", textAlign: "center", marginBottom: 12 }, modalItem: { minHeight: 54, paddingVertical: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#373737" }, modalItemSelected: { paddingHorizontal: 10, borderRadius: 10, backgroundColor: "#1A4420" }, modalItemText: { flex: 1, paddingRight: 12, color: "#EFEFEF", fontSize: 17 }, modalItemTextSelected: { color: Colors.primary, fontWeight: "700" }, modalClose: { paddingTop: 20, alignItems: "center" }, modalCloseText: { color: "#FF5A5A", fontSize: 17, fontWeight: "700" },
 });

@@ -1,10 +1,13 @@
-import { Stack } from 'expo-router';
+import { Stack, usePathname } from 'expo-router';
 import { View } from 'react-native';
-import GlobalBottomNav from '../../components/navigation/GlobalBottomNav';
+import GlobalBottomNav, { isPrimaryTabPath } from '../../components/navigation/GlobalBottomNav';
 
 export default function AppLayout() {
+  const pathname = usePathname();
+  const showBottomNav = isPrimaryTabPath(pathname);
+
   return (
-    <View style={{ flex: 1 }}>
+    <View style={[styles.container, !showBottomNav && styles.subScreenContainer]}>
       <Stack screenOptions={{ headerShown: false, animation: 'fade', animationDuration: 1 }}>
       <Stack.Screen name="dashboard"  />
       <Stack.Screen name="attendance"  />
@@ -51,7 +54,12 @@ export default function AppLayout() {
         }}
       />
       </Stack>
-      <GlobalBottomNav />
+      {showBottomNav && <GlobalBottomNav />}
     </View>
   );
 }
+
+const styles = {
+  container: { flex: 1 },
+  subScreenContainer: { paddingBottom: 0 },
+};

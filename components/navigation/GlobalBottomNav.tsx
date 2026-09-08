@@ -14,6 +14,19 @@ type Tab = {
   route: '/(app)/training-plan' | '/(app)/activity' | '/(app)/dashboard' | '/(app)/attendance' | '/(app)/profile';
 };
 
+export const PRIMARY_TAB_PATHS = [
+  '/training-plan',
+  '/activity',
+  '/dashboard',
+  '/attendance',
+  '/profile',
+] as const;
+
+export const isPrimaryTabPath = (pathname: string) => {
+  const normalizedPathname = pathname.replace('/(app)', '');
+  return PRIMARY_TAB_PATHS.includes(normalizedPathname as (typeof PRIMARY_TAB_PATHS)[number]);
+};
+
 const tabs: Tab[] = [
   { icon: 'clipboard', label: 'Plan', route: '/(app)/training-plan' },
   { icon: 'activity', label: 'Activities', route: '/(app)/activity' },
@@ -147,6 +160,8 @@ export default function GlobalBottomNav() {
     }
     router.replace(tab.route);
   }, []);
+
+  if (!isPrimaryTabPath(pathname)) return null;
 
   return (
     <View style={[styles.container, { bottom: spacing(12) + insets.bottom, minHeight: spacing(78), backgroundColor: colors.surface, borderColor: colors.border }]}>
