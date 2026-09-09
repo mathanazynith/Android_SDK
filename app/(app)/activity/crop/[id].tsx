@@ -1,21 +1,22 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Platform,
+    SafeAreaView,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { CropRangeSlider } from '../../../../components/CropRangeSlider';
 import { getBackendErrorMessage } from '../../../../service/api';
 import { activityAPI, BackendActivity } from '../../../../src/services/activityApi';
+import { createCatmullRomPolyline } from '../../../../src/utils/catmullRom';
 import { calculateDistanceMeters } from '../../../../src/utils/distance';
 import { decodePolyline } from '../../../../src/utils/polylineDecoder';
 import { addRouteTimestamps } from '../../../../src/utils/routeTimestamps';
@@ -24,6 +25,7 @@ interface GPSPoint {
   latitude: number;
   longitude: number;
   timestamp?: string;
+  is_extra_distance?: boolean;
 }
 
 export default function CropActivityScreen() {
@@ -54,6 +56,7 @@ export default function CropActivityScreen() {
           latitude: Number(point.latitude),
           longitude: Number(point.longitude),
           timestamp: point.timestamp,
+          is_extra_distance: point.is_extra_distance,
         })), activityData.start_time, activityData.end_time);
         setGpsPoints(points);
         setStartIndex(0);
@@ -213,6 +216,11 @@ export default function CropActivityScreen() {
   }
 
   const selectedPoints = gpsPoints.slice(startIndex, endIndex + 1);
+  const smoothPoints = (points: GPSPoint[]) => createCatmullRomPolyline(points);
+  const smoothedFullRoute = smoothPoints(gpsPoints);
+  const smoothedSelectedRoute = smoothPoints(selectedPoints);
+  const selectedPlannedRoute = smoothPoints(selectedPoints.filter((point) => !point.is_extra_distance));
+  const selectedExtraRoute = smoothPoints(selectedPoints.filter((point) => point.is_extra_distance));
   const hasRoute = gpsPoints.length > 1;
   const croppingPace = croppingDistance > 0
     ? croppingElapsedTime / (croppingDistance / 1000)
@@ -260,21 +268,41 @@ export default function CropActivityScreen() {
         >
         {/* Full route - faded */}
         <Polyline
-          coordinates={gpsPoints}
+          coordinates={smoothedFullRoute}
           strokeWidth={2}
-          strokeColor="rgba(32, 208, 0, 0.2)"
+          strokeColor="rgba(32, 208, 0, 0.15)"
           lineCap="round"
           lineJoin="round"
         />
 
         {/* Selected route - bright */}
-        <Polyline
-          coordinates={selectedPoints}
-          strokeWidth={5}
-          strokeColor="#20D000"
-          lineCap="round"
-          lineJoin="round"
-        />
+        {selectedPlannedRoute.length < 2 && selectedExtraRoute.length < 2 && (
+          <Polyline
+            coordinates={smoothedSelectedRoute}
+            strokeWidth={3}
+            strokeColor="#20D000"
+            lineCap="round"
+            lineJoin="round"
+          />
+        )}
+        {selectedPlannedRoute.length > 1 && (
+          <Polyline
+            coordinates={selectedPlannedRoute}
+            strokeWidth={3}
+            strokeColor="#20D000"
+            lineCap="round"
+            lineJoin="round"
+          />
+        )}
+        {selectedExtraRoute.length > 1 && (
+          <Polyline
+            coordinates={selectedExtraRoute}
+            strokeWidth={3}
+            strokeColor="#9CA3AF"
+            lineCap="round"
+            lineJoin="round"
+          />
+        )}
 
         {/* Start marker */}
         {gpsPoints[startIndex] && (

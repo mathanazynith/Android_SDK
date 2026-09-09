@@ -6,6 +6,7 @@ interface BackendGpsPoint {
   latitude: number;
   longitude: number;
   timestamp?: string;
+  is_extra_distance?: boolean;
 }
 
 export interface CropActivityResult {
@@ -13,6 +14,10 @@ export interface CropActivityResult {
   start_time: string;
   end_time: string;
   distance: number;
+  planned_distance?: number | null;
+  planned_distance_km?: number | null;
+  extra_distance?: number | null;
+  extra_distance_km?: number | null;
   distance_km: number;
   elapsed_time: number;
   moving_time: number;
@@ -29,6 +34,10 @@ export interface BackendActivity {
   moving_time: number;
   elapsed_time: number;
   distance: number;
+  planned_distance?: number | null;
+  planned_distance_km?: number | null;
+  extra_distance?: number | null;
+  extra_distance_km?: number | null;
   avg_speed: number;
   max_speed: number;
   avg_pace: number;
@@ -38,11 +47,17 @@ export interface BackendActivity {
   gps_points_count: number;
   route_generated: boolean;
   encoded_polyline?: string | null;
+  planned_encoded_polyline?: string | null;
+  extra_encoded_polyline?: string | null;
   route?: {
     encoded_polyline?: string | null;
+    planned_encoded_polyline?: string | null;
+    extra_encoded_polyline?: string | null;
     gps_points?: BackendGpsPoint[];
     points?: BackendGpsPoint[];
     coordinates?: BackendGpsPoint[];
+    planned_points?: BackendGpsPoint[];
+    extra_points?: BackendGpsPoint[];
   } | null;
   gps_points?: BackendGpsPoint[];
   points?: BackendGpsPoint[];
@@ -109,6 +124,12 @@ const normalizeActivity = (activity: BackendActivity): BackendActivity => {
     encoded_polyline: activity.encoded_polyline
       ?? activity.route?.encoded_polyline
       ?? encodeRouteFallback(activity),
+    planned_encoded_polyline: activity.planned_encoded_polyline
+      ?? activity.route?.planned_encoded_polyline
+      ?? null,
+    extra_encoded_polyline: activity.extra_encoded_polyline
+      ?? activity.route?.extra_encoded_polyline
+      ?? null,
   };
 };
 

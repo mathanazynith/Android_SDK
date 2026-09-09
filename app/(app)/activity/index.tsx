@@ -2,21 +2,21 @@ import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
-  RefreshControl,
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    RefreshControl,
+    SafeAreaView,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 
+import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import { getBackendErrorMessage } from '../../../service/api';
 import { activityAPI, BackendActivity } from '../../../src/services/activityApi';
-import ActivityRouteMap from '../../../components/ActivityRouteMap';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
 
@@ -52,22 +52,32 @@ function ActivityCard({ activity, onPress }: {
 }) {
   const activityName = formatActivityType(activity.activity_type);
   const duration = activity.moving_time || activity.elapsed_time;
-  const [encodedPolyline, setEncodedPolyline] = useState(activity.encoded_polyline);
+  const [routeData, setRouteData] = useState({
+    encodedPolyline: activity.encoded_polyline,
+    plannedEncodedPolyline: activity.planned_encoded_polyline,
+    extraEncodedPolyline: activity.extra_encoded_polyline,
+  });
 
   useEffect(() => {
-    if (encodedPolyline) return;
+    if (routeData.encodedPolyline) return;
 
     let isMounted = true;
     void activityAPI.get(activity.id)
       .then((detail) => {
-        if (isMounted) setEncodedPolyline(detail.encoded_polyline);
+        if (isMounted) {
+          setRouteData({
+            encodedPolyline: detail.encoded_polyline,
+            plannedEncodedPolyline: detail.planned_encoded_polyline,
+            extraEncodedPolyline: detail.extra_encoded_polyline,
+          });
+        }
       })
       .catch(() => undefined);
 
     return () => {
       isMounted = false;
     };
-  }, [activity.id, encodedPolyline]);
+  }, [activity.id, routeData.encodedPolyline]);
 
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.82}>
@@ -96,7 +106,12 @@ function ActivityCard({ activity, onPress }: {
         </View>
 
         <View pointerEvents="none" style={styles.routePreview}>
-          <ActivityRouteMap encodedPolyline={encodedPolyline} variant="preview" />
+          <ActivityRouteMap
+            encodedPolyline={routeData.encodedPolyline}
+            plannedEncodedPolyline={routeData.plannedEncodedPolyline}
+            extraEncodedPolyline={routeData.extraEncodedPolyline}
+            variant="preview"
+          />
         </View>
       </View>
     </TouchableOpacity>

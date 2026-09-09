@@ -64,6 +64,7 @@ export interface ActivityGpsPointPayload {
   speed: number | null;
   heading: number | null;
   timestamp: string;
+  is_extra_distance: boolean;
 }
 
 export interface ActivitySubmissionPayload {

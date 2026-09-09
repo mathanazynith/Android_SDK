@@ -1053,6 +1053,9 @@ export default function MapScreen() {
         // above for diagnostics, but must not replace this authoritative route
         // with a different set of points before upload.
         const uploadRoutePoints: RunningGpsPoint[] = processor.getDisplayPoints();
+        const extraRouteCoordinates = routeSegmentsRef.current
+          .filter((segment) => segment.isLight)
+          .flatMap((segment) => segment.coordinates);
         console.log(
           `[LocationManager] Stop & Save route source: live accepted points `
           + `(${uploadRoutePoints.length} points uploaded)`
@@ -1074,7 +1077,14 @@ export default function MapScreen() {
           longitude: point.longitude,
         }));
         const smoothedDisplayCoordinates = createCatmullRomPolyline(finalOptimized);
-        if (smoothedDisplayCoordinates.length > 0) {
+        const smoothedRouteSegments = routeSegmentsRef.current.map((segment) => ({
+          ...segment,
+          coordinates: createCatmullRomPolyline(segment.coordinates),
+        }));
+        if (smoothedRouteSegments.length > 0) {
+          routeSegmentsRef.current = smoothedRouteSegments;
+          setRouteSegments(smoothedRouteSegments);
+        } else if (smoothedDisplayCoordinates.length > 0) {
           const renderedSegment: RouteSegment = {
             id: Date.now(),
             isLight: false,
@@ -1178,6 +1188,12 @@ export default function MapScreen() {
             : null,
           completed: lap.completed,
         }));
+        const isExtraDistancePoint = (point: RunningGpsPoint): boolean => (
+          extraRouteCoordinates.some((coordinate) => (
+            coordinate.latitude === point.latitude
+            && coordinate.longitude === point.longitude
+          ))
+        );
         const iosStyleActivityPayload: ActivitySubmissionPayload = {
           gps_points: uploadRoutePoints.map((point) => ({
             longitude: point.longitude,
@@ -1187,6 +1203,7 @@ export default function MapScreen() {
             speed: point.speed,
             accuracy: point.accuracy,
             altitude: point.altitude,
+            is_extra_distance: isExtraDistancePoint(point),
           })),
           start_time: startTimeRef.current
             ? new Date(startTimeRef.current).toISOString()
@@ -1401,7 +1418,7 @@ export default function MapScreen() {
             <Polyline
               key={segment.id}
               coordinates={segment.coordinates}
-              strokeWidth={6}
+              strokeWidth={3}
               strokeColor={segment.isLight ? '#9CA3AF' : '#20D000'}
               lineCap="round"
               lineJoin="round"
