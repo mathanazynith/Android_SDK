@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { createCatmullRomPolyline } from '../src/utils/catmullRom';
 import { decodePolyline } from '../src/utils/polylineDecoder';
 
 interface ActivityRouteMapProps {
   encodedPolyline?: string | null;
+  plannedEncodedPolyline?: string | null;
+  extraEncodedPolyline?: string | null;
   variant?: 'detail' | 'preview';
   cropStartIndex?: number;
   cropEndIndex?: number;
@@ -12,6 +15,8 @@ interface ActivityRouteMapProps {
 
 export default function ActivityRouteMap({
   encodedPolyline,
+  plannedEncodedPolyline,
+  extraEncodedPolyline,
   variant = 'detail',
   cropStartIndex,
   cropEndIndex,
@@ -27,6 +32,22 @@ export default function ActivityRouteMap({
       return [];
     }
   }, [encodedPolyline]);
+  const plannedRoutePoints = useMemo(() => {
+    if (!plannedEncodedPolyline?.trim()) return [];
+    try {
+      return decodePolyline(plannedEncodedPolyline);
+    } catch {
+      return [];
+    }
+  }, [plannedEncodedPolyline]);
+  const extraRoutePoints = useMemo(() => {
+    if (!extraEncodedPolyline?.trim()) return [];
+    try {
+      return decodePolyline(extraEncodedPolyline);
+    } catch {
+      return [];
+    }
+  }, [extraEncodedPolyline]);
 
   const visibleRoutePoints = useMemo(() => {
     if (routePoints.length === 0 || cropStartIndex === undefined || cropEndIndex === undefined) {
@@ -37,17 +58,29 @@ export default function ActivityRouteMap({
     const end = Math.max(start, Math.min(Math.floor(cropEndIndex), routePoints.length - 1));
     return routePoints.slice(start, end + 1);
   }, [cropEndIndex, cropStartIndex, routePoints]);
+  const smoothedVisibleRoutePoints = useMemo(
+    () => createCatmullRomPolyline(visibleRoutePoints),
+    [visibleRoutePoints],
+  );
+  const smoothedPlannedRoutePoints = useMemo(
+    () => createCatmullRomPolyline(plannedRoutePoints),
+    [plannedRoutePoints],
+  );
+  const smoothedExtraRoutePoints = useMemo(
+    () => createCatmullRomPolyline(extraRoutePoints),
+    [extraRoutePoints],
+  );
 
   const fitRoute = useCallback(() => {
-    if (!mapRef.current || visibleRoutePoints.length < 2) return;
+    if (!mapRef.current || smoothedVisibleRoutePoints.length < 2) return;
 
-    mapRef.current.fitToCoordinates(visibleRoutePoints, {
+    mapRef.current.fitToCoordinates(smoothedVisibleRoutePoints, {
       edgePadding: variant === 'preview'
         ? { top: 16, right: 16, bottom: 16, left: 16 }
         : { top: 36, right: 36, bottom: 36, left: 36 },
       animated: false,
     });
-  }, [variant, visibleRoutePoints]);
+  }, [smoothedVisibleRoutePoints, variant]);
 
   // A history card first receives its list data and then its detailed route.
   // Re-fit after that asynchronous prop update; onMapReady alone can run
@@ -83,8 +116,14 @@ export default function ActivityRouteMap({
         }}
         onMapReady={() => setMapReady(true)}
       >
-        {visibleRoutePoints.length > 1 && (
-          <Polyline coordinates={visibleRoutePoints} strokeColor="#35C72B" strokeWidth={variant === 'preview' ? 3 : 5} />
+        {visibleRoutePoints.length > 1 && plannedRoutePoints.length < 2 && extraRoutePoints.length < 2 && (
+          <Polyline coordinates={smoothedVisibleRoutePoints} strokeColor="#35C72B" strokeWidth={variant === 'preview' ? 2 : 3} />
+        )}
+        {smoothedPlannedRoutePoints.length > 1 && (
+          <Polyline coordinates={smoothedPlannedRoutePoints} strokeColor="#35C72B" strokeWidth={variant === 'preview' ? 2 : 3} />
+        )}
+        {smoothedExtraRoutePoints.length > 1 && (
+          <Polyline coordinates={smoothedExtraRoutePoints} strokeColor="#9CA3AF" strokeWidth={variant === 'preview' ? 2 : 3} />
         )}
         <Marker coordinate={firstPoint} pinColor="#35C72B" title="Start" />
         <Marker coordinate={lastPoint} pinColor="#FF5B5B" title="Finish" />

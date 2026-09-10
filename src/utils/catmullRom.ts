@@ -3,13 +3,11 @@ import { RunningCoordinate } from '../types/running';
 export interface CatmullRomConfig {
   subdivisions: number;
   maxJumpMeters: number;
-  sharpTurnDegrees: number;
 }
 
 export const DEFAULT_CATMULL_ROM_CONFIG: CatmullRomConfig = {
   subdivisions: 4,
   maxJumpMeters: 100,
-  sharpTurnDegrees: 110,
 };
 
 const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
@@ -20,23 +18,6 @@ const distanceSquared = (first: RunningCoordinate, second: RunningCoordinate) =>
   const deltaLatitude = (second.latitude - first.latitude) * latitudeScale;
   const deltaLongitude = (second.longitude - first.longitude) * longitudeScale;
   return deltaLatitude ** 2 + deltaLongitude ** 2;
-};
-
-const bearingRadians = (from: RunningCoordinate, to: RunningCoordinate) => {
-  const longitudeScale = Math.cos(toRadians(from.latitude));
-  return Math.atan2(
-    (to.longitude - from.longitude) * longitudeScale,
-    to.latitude - from.latitude
-  );
-};
-
-const turnDegrees = (
-  previous: RunningCoordinate,
-  current: RunningCoordinate,
-  next: RunningCoordinate
-) => {
-  const difference = Math.abs(bearingRadians(current, next) - bearingRadians(previous, current));
-  return (Math.min(difference, 2 * Math.PI - difference) * 180) / Math.PI;
 };
 
 const interpolate = (
@@ -100,7 +81,7 @@ export const createCatmullRomPolyline = (
   const source = points.map((point) => ({ latitude: point.latitude, longitude: point.longitude }));
   const usablePoints = removeStationaryPoints(source);
 
-  if (usablePoints.length < 4) {
+  if (usablePoints.length < 2) {
     return source;
   }
 
@@ -118,18 +99,9 @@ export const createCatmullRomPolyline = (
     const start = usablePoints[index];
     const end = usablePoints[index + 1];
     const next = usablePoints[Math.min(usablePoints.length - 1, index + 2)];
-    const isSharpTurn = index > 0
-      && index < usablePoints.length - 2
-      && turnDegrees(previous, start, end) >= config.sharpTurnDegrees;
-
     for (let step = 1; step <= subdivisions; step += 1) {
       const amount = step / subdivisions;
-      const candidate = isSharpTurn
-        ? {
-            latitude: start.latitude + (end.latitude - start.latitude) * amount,
-            longitude: start.longitude + (end.longitude - start.longitude) * amount,
-          }
-        : interpolate(previous, start, end, next, amount);
+      const candidate = interpolate(previous, start, end, next, amount);
       const bounded = clampToSegmentBounds(candidate, start, end);
       const last = smoothed[smoothed.length - 1];
       if (distanceSquared(last, bounded) > 0.01) {

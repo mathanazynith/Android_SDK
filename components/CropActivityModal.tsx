@@ -15,6 +15,7 @@ import {
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { getBackendErrorMessage } from '../service/api';
 import { activityAPI, BackendActivity } from '../src/services/activityApi';
+import { createCatmullRomPolyline } from '../src/utils/catmullRom';
 import { calculateDistanceMeters } from '../src/utils/distance';
 import { decodePolyline } from '../src/utils/polylineDecoder';
 import { addRouteTimestamps } from '../src/utils/routeTimestamps';
@@ -24,6 +25,7 @@ interface GPSPoint {
   latitude: number;
   longitude: number;
   timestamp?: string;
+  is_extra_distance?: boolean;
 }
 
 interface CropActivityModalProps {
@@ -67,6 +69,25 @@ export default function CropActivityModal({
   const loadGPSPoints = useCallback(async () => {
     setLoading(true);
     try {
+      const backendPoints = activity.gps_points;
+      if (backendPoints && backendPoints.length > 1) {
+        const points = addRouteTimestamps(
+          backendPoints.map((point) => ({
+            latitude: Number(point.latitude),
+            longitude: Number(point.longitude),
+            timestamp: point.timestamp,
+            is_extra_distance: point.is_extra_distance,
+          })),
+          activity.start_time,
+          activity.end_time,
+        );
+        setGpsPoints(points);
+        setStartIndex(0);
+        setEndIndex(points.length - 1);
+        calculateCropDistance(0, points.length - 1, points);
+        return;
+      }
+
       // Decode GPS points from encoded polyline in the activity's route data
       if (!activity.encoded_polyline) {
         console.warn('No encoded polyline available');
@@ -96,7 +117,7 @@ export default function CropActivityModal({
     } finally {
       setLoading(false);
     }
-  }, [activity.encoded_polyline, activity.end_time, activity.start_time]);
+  }, [activity.encoded_polyline, activity.end_time, activity.gps_points, activity.start_time]);
 
   useEffect(() => {
     if (isVisible && activity.id) {
@@ -210,6 +231,22 @@ export default function CropActivityModal({
     }));
   };
 
+  const fullRouteCoordinates = createCatmullRomPolyline(getPolylineCoordinates());
+  const selectedRouteCoordinates = createCatmullRomPolyline(getSelectedPolylineCoordinates());
+  const selectedPoints = gpsPoints.slice(startIndex, endIndex + 1);
+  const selectedPlannedCoordinates = createCatmullRomPolyline(
+    selectedPoints.filter((point) => !point.is_extra_distance).map((point) => ({
+      latitude: point.latitude,
+      longitude: point.longitude,
+    })),
+  );
+  const selectedExtraCoordinates = createCatmullRomPolyline(
+    selectedPoints.filter((point) => point.is_extra_distance).map((point) => ({
+      latitude: point.latitude,
+      longitude: point.longitude,
+    })),
+  );
+
   return (
     <Modal
       visible={isVisible}
@@ -252,7 +289,7 @@ export default function CropActivityModal({
               >
                 {/* Full route */}
                 <Polyline
-                  coordinates={getPolylineCoordinates()}
+                  coordinates={fullRouteCoordinates}
                   strokeWidth={3}
                   strokeColor="rgba(32, 208, 0, 0.3)"
                   lineCap="round"
@@ -260,13 +297,33 @@ export default function CropActivityModal({
                 />
 
                 {/* Selected portion */}
-                <Polyline
-                  coordinates={getSelectedPolylineCoordinates()}
-                  strokeWidth={5}
-                  strokeColor="#20D000"
-                  lineCap="round"
-                  lineJoin="round"
-                />
+                {selectedPlannedCoordinates.length < 2 && selectedExtraCoordinates.length < 2 && (
+                  <Polyline
+                    coordinates={selectedRouteCoordinates}
+                    strokeWidth={3}
+                    strokeColor="#20D000"
+                    lineCap="round"
+                    lineJoin="round"
+                  />
+                )}
+                {selectedPlannedCoordinates.length > 1 && (
+                  <Polyline
+                    coordinates={selectedPlannedCoordinates}
+                    strokeWidth={3}
+                    strokeColor="#20D000"
+                    lineCap="round"
+                    lineJoin="round"
+                  />
+                )}
+                {selectedExtraCoordinates.length > 1 && (
+                  <Polyline
+                    coordinates={selectedExtraCoordinates}
+                    strokeWidth={3}
+                    strokeColor="#9CA3AF"
+                    lineCap="round"
+                    lineJoin="round"
+                  />
+                )}
 
                 {/* Start marker */}
                 {gpsPoints[startIndex] && (
