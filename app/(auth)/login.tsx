@@ -1,24 +1,28 @@
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useState } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
   Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../service/auth';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppInput } from '../../components/common/AppInput';
 import { PrimaryButton } from '../../components/common/PrimaryButton';
 import GoogleLoginButton from '../../components/GoogleLoginButton';
 import { Colors, Spacing, Typography } from '../../constants/theme';
+import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../service/auth';
 
 export default function LoginScreen() {
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -153,11 +157,13 @@ export default function LoginScreen() {
     try {
       setGoogleLoading(true);
       const result = await googleLogin();
+
       if (result?.requiresSignup) {
-        router.push('/(auth)/signup');
-      } else {
-        router.replace('/(app)/dashboard');
+        router.replace('/(auth)/signup');
+        return;
       }
+
+      router.replace('/(app)/dashboard');
     } catch (error: any) {
       console.error('Google Login Error:', error);
       Alert.alert(
@@ -171,17 +177,17 @@ export default function LoginScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
+      <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} backgroundColor={colors.background} />
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 18 }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.authCard}>
-          <View style={styles.segmentedControl}>
-            <View style={[styles.segment, styles.activeSegment]}><Text style={styles.activeSegmentText}>Sign in</Text></View>
+          <View style={[styles.segmentedControl, { backgroundColor: colors.surfaceRaised }]}>
+            <View style={[styles.segment, { backgroundColor: BRAND_GREEN }]}><Text style={styles.activeSegmentText}>Sign in</Text></View>
             <TouchableOpacity style={styles.segment} onPress={() => router.push('/(auth)/signup')}>
               <Text style={styles.segmentText}>Sign up</Text>
             </TouchableOpacity>
@@ -190,7 +196,7 @@ export default function LoginScreen() {
           <View style={styles.runnerBadge}>
             <Ionicons name="walk" size={34} color={Colors.background} />
           </View>
-          <Text style={styles.title}>Let's get moving</Text>
+          <Text style={styles.title}>Let&apos;s get moving</Text>
           <Text style={styles.subtitle}>Sign in to pick up your streak</Text>
 
         <AppInput
@@ -262,14 +268,14 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 26,
-    paddingVertical: 22,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 30,
   },
   title: {
     fontSize: 20,
     fontWeight: '700',
-    color: Colors.text,
+    color: BRAND_GREEN,
     textAlign: 'center',
     marginBottom: 3,
   },
@@ -330,9 +336,9 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontWeight: '600',
   },
-  authCard: { width: '100%', maxWidth: 420, alignSelf: 'center' },
-  segmentedControl: { flexDirection: 'row', backgroundColor: '#202124', borderRadius: 9, padding: 3, marginBottom: 24 },
-  segment: { flex: 1, minHeight: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 7 },
+  authCard: { width: '100%', maxWidth: 520, alignSelf: 'center' },
+  segmentedControl: { flexDirection: 'row', backgroundColor: '#202124', borderRadius: 10, padding: 3, marginBottom: 14 },
+  segment: { flex: 1, minHeight: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
   activeSegment: { backgroundColor: '#63C438' },
   segmentText: { color: Colors.textSecondary, fontSize: 11, fontWeight: '600' },
   activeSegmentText: { color: '#101510', fontSize: 11, fontWeight: '700' },

@@ -14,7 +14,10 @@ import DatePicker from "../../../app/(app)/questionnaire/QuestionTypes/DatePicke
 import DistanceTimePaceSelector, { getDistanceInKilometers } from "../../../app/(app)/questionnaire/QuestionTypes/DistanceTimePaceSelector";
 import PlanSelection from "../../../app/(app)/questionnaire/QuestionTypes/PlanSelection";
 import RecentLongRun from "../../../app/(app)/questionnaire/QuestionTypes/RecentLongRun";
-import YesNo from "../../../app/(app)/questionnaire/QuestionTypes/YesNo";
+import YesNo, {
+  getYesNoOptionValues,
+  getYesNoValue,
+} from "../../../app/(app)/questionnaire/QuestionTypes/YesNo";
 import EventRegistration from "../../../app/(app)/questionnaire/components/QuestionTypes/EventRegistration";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { useQuestionnaire } from "../../../contexts/QuestionnaireContext";
@@ -23,6 +26,8 @@ import type { Question } from "../../../service/questionnaire/questionnaireServi
 import { validateAnswer } from "../../../service/validation/AssessmentValidator";
 import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import { calculatePace, timeToSeconds } from "../../../utils/validators";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
 
 // Helper to get numeric ID
 const getNumericId = (id: number | string): number => {
@@ -32,14 +37,15 @@ const getNumericId = (id: number | string): number => {
 };
 
 // SingleChoice component
-const SingleChoice = ({ options, selectedValue, onSelect }: any) => {
+const SingleChoice = ({ options, selectedValue, onSelect, stacked = false }: any) => {
   return (
-    <View style={styles.optionsContainer}>
+    <View style={stacked ? styles.dayOptionsContainer : styles.optionsContainer}>
       {options.map((opt: any) => (
         <TouchableOpacity
           key={opt.id}
           style={[
             styles.optionButton,
+            stacked && styles.dayOptionButton,
             selectedValue === opt.value && styles.optionSelected,
           ]}
           onPress={() => {
@@ -66,7 +72,10 @@ const QuestionField = ({
   computedResponses,
   goalPacePreview,
   maxDistanceKm,
+  allQuestions,
+  allAnswers,
 }: any) => {
+  const { colors } = useTheme();
   const {
     id,
     type: rawType,
@@ -76,10 +85,55 @@ const QuestionField = ({
     isRequired,
   } = question;
   const type = String(rawType ?? "").toLowerCase();
+  const questionSurface = { backgroundColor: colors.card, borderColor: colors.border };
+  const questionHeading = { color: colors.textPrimary };
   const questionIdentifier = `${questionText ?? ""} ${question.slug ?? ""}`;
   const isPrimaryRunningGoal = question.isGoalQuestion === true || /primary\s+running\s+goal|what\s+is\s+your\s+goal/i.test(questionIdentifier);
   const isTargetFinishTime = /target\s+finish\s+time|goal[_\s-]*target[_\s-]*time|target.*time.*goal/i.test(questionIdentifier);
   const isGoalTargetPace = /goal[_\s-]*target[_\s-]*pace|goal.*target.*pace/i.test(questionIdentifier);
+  const yesNoOptionValues = getYesNoOptionValues(options);
+  const normalizedQuestionText = String(questionText ?? "").toLowerCase();
+  const isRunningDaysQuestion =
+    type === "multiple" && /which days of the week.*usually run/.test(normalizedQuestionText);
+  const isLongRunDayQuestion =
+    /which of your running days.*long run/.test(normalizedQuestionText);
+
+  const getStoredAnswer = (sourceQuestion: any) => {
+    if (!sourceQuestion) return undefined;
+    const key = String(sourceQuestion.backendId ?? getNumericId(sourceQuestion.id));
+    return allAnswers?.[key]?.value;
+  };
+
+  const runningDaysQuestion = allQuestions?.find((candidate: any) =>
+    String(candidate.type ?? "").toLowerCase() === "multiple" &&
+    /which days of the week.*usually run/.test(String(candidate.question ?? "").toLowerCase())
+  );
+  const selectedRunningDayValues = Array.isArray(getStoredAnswer(runningDaysQuestion))
+    ? getStoredAnswer(runningDaysQuestion)
+    : [];
+  const selectedRunningDayLabels = new Set(
+    (runningDaysQuestion?.options ?? [])
+      .filter((option: any) => selectedRunningDayValues.map(String).includes(String(option.value)))
+      .map((option: any) => String(option.label ?? option.text ?? "").trim().toLowerCase())
+  );
+  const visibleOptions = isLongRunDayQuestion
+    ? (options ?? []).filter((option: any) =>
+        selectedRunningDayLabels.has(String(option.label ?? option.text ?? "").trim().toLowerCase())
+      )
+    : options ?? [];
+
+  const runningDaysCountQuestion = allQuestions?.find((candidate: any) =>
+    /how many days per week.*run/.test(String(candidate.question ?? "").toLowerCase())
+  );
+  const selectedRunningDaysCountValue = getStoredAnswer(runningDaysCountQuestion);
+  const selectedRunningDaysCountOption = runningDaysCountQuestion?.options?.find(
+    (option: any) => String(option.value) === String(selectedRunningDaysCountValue)
+  );
+  const selectedRunningDaysLimit = Number(
+    selectedRunningDaysCountOption?.numeric_value ??
+      selectedRunningDaysCountOption?.label ??
+      selectedRunningDaysCountValue
+  );
 
   const resolveComputedValue = () => {
     const responseCandidates = [
@@ -114,14 +168,14 @@ const QuestionField = ({
   // identified questions through the same Page 2 primitives.
   if (isPrimaryRunningGoal) {
     return (
-      <View style={styles.questionContainer}>
-        <Text style={styles.questionText}>
+      <View style={[styles.questionContainer, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]}>
+        <Text style={[styles.questionText, { color: colors.text }]}>
           {questionText}
           {isRequired && <Text style={styles.requiredStar}> *</Text>}
         </Text>
         <DistanceTimePaceSelector
-          title=""
-          subtitle=""
+          title={question.title || questionText}
+          subtitle={question.subTitle || question.description || question.helperText}
           options={options || []}
           selectedValue={value}
           onSelect={(val: string, nextCustomValues?: Record<string, any> | null) =>
@@ -134,9 +188,9 @@ const QuestionField = ({
           distanceField="distance"
           timeField="time"
           paceField="pace"
-          distanceLabel="Distance"
-          customDistanceLabel="Enter Distance"
-          optionsHint="Select a common distance or custom option"
+          distanceLabel={question.fieldLabels?.distance || question.label}
+          customDistanceLabel={question.fieldLabels?.customDistance || question.label}
+          optionsHint={question.fieldLabels?.optionsHint || question.description}
           showHeader={false}
           showTimeInput={false}
           showPace={false}
@@ -148,27 +202,63 @@ const QuestionField = ({
 
   if (isTargetFinishTime) {
     return (
-      <View style={styles.questionContainer}>
-        <Text style={styles.questionText}>
+      <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+        <Text style={[styles.questionText, questionHeading]}>
           {questionText}
           {isRequired && <Text style={styles.requiredStar}> *</Text>}
         </Text>
-        <ScrollTimePicker value={value || "00:00:00"} onChange={(nextValue) => onAnswer(id, nextValue)} />
+        <ScrollTimePicker value={value} onChange={(nextValue) => onAnswer(id, nextValue)} />
+      </View>
+    );
+  }
+
+  // The long-run-day answer is intentionally single-select, even if legacy
+  // question metadata describes it as a multiple-choice field.
+  if (isLongRunDayQuestion) {
+    return (
+      <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+        <Text style={[styles.questionText, questionHeading]}>
+          {questionText}
+          {isRequired && <Text style={styles.requiredStar}> *</Text>}
+        </Text>
+        <SingleChoice
+          options={visibleOptions}
+          selectedValue={value}
+          stacked
+          onSelect={(val: string) => onAnswer(id, val)}
+        />
       </View>
     );
   }
 
   switch (type) {
     case "single":
+      if (yesNoOptionValues) {
+        return (
+          <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+            <Text style={[styles.questionText, questionHeading]}>
+              {questionText}
+              {isRequired && <Text style={styles.requiredStar}> *</Text>}
+            </Text>
+            <YesNo
+              value={getYesNoValue(value, yesNoOptionValues)}
+              onChange={(isYes) =>
+                onAnswer(id, String((isYes ? yesNoOptionValues.yes : yesNoOptionValues.no).value))
+              }
+            />
+          </View>
+        );
+      }
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
           <SingleChoice
-            options={options || []}
+            options={visibleOptions}
             selectedValue={value}
+            stacked={isLongRunDayQuestion}
             onSelect={(val: string) => onAnswer(id, val)}
           />
         </View>
@@ -176,33 +266,46 @@ const QuestionField = ({
 
     case "yesno":
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
-          <YesNo value={Boolean(value)} onChange={(val: boolean) => onAnswer(id, val)} />
+          <YesNo
+            value={getYesNoValue(value)}
+            onChange={(val: boolean) => onAnswer(id, val)}
+          />
         </View>
       );
 
     case "multiple":
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
-          <View style={styles.optionsContainer}>
-            {options?.map((opt: any) => {
+          <View style={isRunningDaysQuestion ? styles.dayOptionsContainer : styles.optionsContainer}>
+            {visibleOptions.map((opt: any) => {
               const selected = Array.isArray(value) && value.includes(opt.value);
               return (
                 <TouchableOpacity
                   key={opt.id}
-                  style={[styles.optionButton, selected && styles.optionSelected]}
+                  style={[
+                    styles.optionButton,
+                    isRunningDaysQuestion && styles.dayOptionButton,
+                    selected && styles.optionSelected,
+                  ]}
                   onPress={() => {
                     let newVal = Array.isArray(value) ? [...value] : [];
                     if (selected) {
                       newVal = newVal.filter(v => v !== opt.value);
+                    } else if (
+                      isRunningDaysQuestion &&
+                      Number.isFinite(selectedRunningDaysLimit) &&
+                      newVal.length >= selectedRunningDaysLimit
+                    ) {
+                      return;
                     } else {
                       newVal.push(opt.value);
                     }
@@ -223,8 +326,8 @@ const QuestionField = ({
     case "computed":
     case "calculated_pace":
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
@@ -242,10 +345,10 @@ const QuestionField = ({
             </Text>
           ) : (
             <RNTextInput
-              style={styles.textInput}
+              style={[styles.textInput, { backgroundColor: colors.surfaceRaised, borderColor: colors.border, color: colors.text }]}
               value={value || ""}
               onChangeText={(text) => onAnswer(id, text)}
-              placeholder={placeholder || ""}
+              placeholder={placeholder || "Enter your answer..."}
               keyboardType={type === "number" ? "numeric" : "default"}
             />
           )}
@@ -254,8 +357,8 @@ const QuestionField = ({
 
     case "dropdown":
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
@@ -275,8 +378,8 @@ const QuestionField = ({
 
     case "rating":
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
@@ -296,8 +399,8 @@ const QuestionField = ({
 
     case "date":
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
@@ -307,13 +410,19 @@ const QuestionField = ({
 
     case "recent_long_run":
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
           <RecentLongRun
             options={options || []}
+            title={question.title || questionText}
+            subtitle={question.subTitle || question.description || question.helperText}
+            distanceLabel={question.fieldLabels?.distance || question.label}
+            timeLabel={question.fieldLabels?.time}
+            timeHint={question.fieldLabels?.timeHint || question.helperText || question.placeholder}
+            optionsHint={question.fieldLabels?.optionsHint || question.description}
             selectedValue={value}
             onSelect={(val: string, customValues?: Record<string, any> | null) =>
               onAnswer(id, val, undefined, customValues)
@@ -328,13 +437,19 @@ const QuestionField = ({
 
     case "plan_selection":
       return (
-        <View style={styles.questionContainer}>
-          <Text style={styles.questionText}>
+        <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
+          <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
           <PlanSelection
             options={options || []}
+            title={question.title || questionText}
+            subtitle={question.subTitle || question.description || question.helperText}
+            distanceLabel={question.fieldLabels?.distance || question.label}
+            timeLabel={question.fieldLabels?.time}
+            timeHint={question.fieldLabels?.timeHint || question.helperText || question.placeholder}
+            optionsHint={question.fieldLabels?.optionsHint || question.description}
             selectedValue={value}
             onSelect={(val: string, customValuesPayload?: Record<string, any> | null) =>
               onAnswer(id, val, undefined, customValuesPayload)
@@ -369,6 +484,7 @@ const QuestionField = ({
 };
 
 export default function QuestionnaireScreen() {
+  const { colors } = useTheme();
   const {
     questions,
     currentNavigation,
@@ -389,9 +505,11 @@ export default function QuestionnaireScreen() {
     canGoBack,
   } = useQuestionnaire();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrorQuestionId, setValidationErrorQuestionId] = useState<string | null>(null);
+  const [daySelectionError, setDaySelectionError] = useState<string | null>(null);
 
   const getQuestionValidationMessages = (question: Question): string[] => {
     const keys = [
@@ -481,6 +599,7 @@ export default function QuestionnaireScreen() {
         answer: value,
         allAnswers,
         questions,
+        allowIncompleteSelectionCount: true,
       });
       if (!validationResult.valid) {
         setValidationErrorQuestionId(String(getNumericId(questionId)));
@@ -492,6 +611,7 @@ export default function QuestionnaireScreen() {
     // server response now so it cannot keep Next disabled.
     clearValidationErrors();
     setValidationErrorQuestionId(null);
+    setDaySelectionError(null);
     setAnswer(questionId, value, unit, customValues);
   };
 
@@ -608,6 +728,29 @@ export default function QuestionnaireScreen() {
   };
 
   const handleNext = async () => {
+    const runningDaysQuestion = currentPageQuestions.find(
+      (question) => /which days of the week.*usually run/i.test(question.question)
+    );
+    if (runningDaysQuestion) {
+      const selectedDays = getAnswerForQuestion(runningDaysQuestion).value;
+      const countQuestion = questions.find(
+        (question) => /how many days per week.*run/i.test(question.question)
+      );
+      const countAnswer = countQuestion ? getAnswerForQuestion(countQuestion).value : undefined;
+      const selectedCountOption = countQuestion?.options?.find(
+        (option) => String(option.value) === String(countAnswer)
+      );
+      const requiredCount = Number(
+        selectedCountOption?.numeric_value ?? selectedCountOption?.label ?? countAnswer
+      );
+
+      if (Number.isFinite(requiredCount) && (!Array.isArray(selectedDays) || selectedDays.length !== requiredCount)) {
+        setValidationErrorQuestionId(String(runningDaysQuestion.backendId ?? getNumericId(runningDaysQuestion.id)));
+        setDaySelectionError(`Please select exactly ${requiredCount} running days.`);
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     try {
       await goToNext();
@@ -623,6 +766,8 @@ export default function QuestionnaireScreen() {
     total: totalPages,
     label: currentNavigation.page_title || `Page ${currentNavigation.page_no}`,
   };
+
+  const isFirstAssessmentPage = stepInfo.current === 1;
 
   const getAnswerForQuestion = (question: Question) => {
     const key = String(question.backendId ?? getNumericId(question.id));
@@ -896,20 +1041,33 @@ export default function QuestionnaireScreen() {
     : undefined;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.progressHeader}>
-        <Text style={styles.assessmentTitle}>Assessment</Text>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.progressHeader, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+        <View style={styles.assessmentTitleRow}>
+          {isFirstAssessmentPage ? (
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => router.replace('/(app)/dashboard')}
+              accessibilityRole="button"
+              accessibilityLabel="Back to Dashboard"
+            >
+              <Feather name="arrow-left" size={22} color={BRAND_GREEN} />
+            </TouchableOpacity>
+          ) : <View style={styles.backButtonPlaceholder} />}
+          <Text style={[styles.assessmentTitle, { color: colors.textPrimary }]}>Assessment</Text>
+          <View style={styles.backButtonPlaceholder} />
+        </View>
         <View style={styles.progressHeaderRow}>
-          <Text style={styles.progressHeaderText}>
+          <Text style={[styles.progressHeaderText, { color: colors.textSecondary }]}>
             Page {stepInfo.current} of {stepInfo.total}
           </Text>
-          <Text style={styles.progressLabel}>{stepInfo.label}</Text>
+          <Text style={[styles.progressLabel, { color: colors.textSecondary }]}>{stepInfo.label}</Text>
         </View>
-        <View style={styles.progressBar}>
+        <View style={[styles.progressBar, { backgroundColor: colors.surfaceRaised }]}>
           <View
             style={[
               styles.progressFill,
-              { width: `${Math.min((stepInfo.current / 10) * 100, 100)}%` },
+              { width: `${Math.min((stepInfo.current / 10) * 100, 100)}%`, backgroundColor: BRAND_GREEN },
             ]}
           />
         </View>
@@ -917,14 +1075,20 @@ export default function QuestionnaireScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContainer} nestedScrollEnabled={true}>
         <View style={styles.pageContainer}>
-          {(error || validationErrorQuestionId) && (
+          {(error || validationErrorQuestionId || daySelectionError) && (
             <View style={styles.validationBanner}>
-              <Text style={styles.validationBannerText}>{error || "This answer does not meet the configured validation rules."}</Text>
+              <Text style={styles.validationBannerText}>{error || daySelectionError || "This answer does not meet the configured validation rules."}</Text>
             </View>
           )}
           {recentLongRunGroup && (
             <RecentLongRun
               options={recentLongRunGroup.singleQuestion.options || []}
+              title={recentLongRunGroup.singleQuestion.title || recentLongRunGroup.singleQuestion.question}
+              subtitle={recentLongRunGroup.singleQuestion.subTitle || recentLongRunGroup.singleQuestion.description || recentLongRunGroup.singleQuestion.helperText}
+              distanceLabel={recentLongRunGroup.singleQuestion.fieldLabels?.distance || recentLongRunGroup.singleQuestion.label}
+              timeLabel={recentLongRunGroup.timeQuestion.label}
+              timeHint={recentLongRunGroup.timeQuestion.helperText || recentLongRunGroup.timeQuestion.placeholder}
+              optionsHint={recentLongRunGroup.singleQuestion.fieldLabels?.optionsHint || recentLongRunGroup.singleQuestion.description}
               selectedValue={recentLongRunSelectedValue}
               customValues={recentLongRunCustomValues}
               onSelect={(val: string, customValues?: Record<string, any> | null) =>
@@ -971,6 +1135,19 @@ export default function QuestionnaireScreen() {
                 targetTime: eventRegistrationGroup.targetTimeQuestion
                   ? getQuestionValidationMessages(eventRegistrationGroup.targetTimeQuestion)
                   : [],
+              }}
+              labels={{
+                eventName: eventRegistrationGroup.eventNameQuestion.label || eventRegistrationGroup.eventNameQuestion.question,
+                eventNamePlaceholder: eventRegistrationGroup.eventNameQuestion.placeholder,
+                eventDate: eventRegistrationGroup.eventDateQuestion.label || eventRegistrationGroup.eventDateQuestion.question,
+                trainingStartDate: eventRegistrationGroup.trainingStartDateQuestion?.label || eventRegistrationGroup.trainingStartDateQuestion?.question,
+                trainingDays: eventRegistrationGroup.eventDateQuestion.fieldLabels?.trainingDays,
+                detailsTitle: eventRegistrationGroup.distanceQuestion?.title || eventRegistrationGroup.distanceQuestion?.question,
+                detailsDescription: eventRegistrationGroup.distanceQuestion?.description,
+                distance: eventRegistrationGroup.distanceQuestion?.fieldLabels?.distance || eventRegistrationGroup.distanceQuestion?.label,
+                targetTime: eventRegistrationGroup.targetTimeQuestion?.label || eventRegistrationGroup.targetTimeQuestion?.question,
+                timeHint: eventRegistrationGroup.targetTimeQuestion?.helperText || eventRegistrationGroup.targetTimeQuestion?.placeholder,
+                optionsHint: eventRegistrationGroup.distanceQuestion?.fieldLabels?.optionsHint || eventRegistrationGroup.distanceQuestion?.description,
               }}
               onChange={(nextValue: Record<string, any>) => {
                 // Set event name
@@ -1036,6 +1213,8 @@ export default function QuestionnaireScreen() {
                     computedResponses={computedResponses}
                     goalPacePreview={goalPacePreview}
                     maxDistanceKm={maxTargetDistanceKm}
+                    allQuestions={questions}
+                    allAnswers={allAnswers}
                     onAnswer={(
                       questionKey: string,
                       val: any,
@@ -1055,42 +1234,34 @@ export default function QuestionnaireScreen() {
                 </View>
               );
             })}
-
-          {Object.keys(computedResponses).length > 0 && (
-            <View style={styles.computedContainer}>
-              <Text style={styles.computedTitle}>Computed Values:</Text>
-              {Object.entries(computedResponses).map(([key, value]) => (
-                <Text key={key} style={styles.computedItem}>
-                  {key}: {JSON.stringify(value)}
-                </Text>
-              ))}
-            </View>
-          )}
         </View>
       </ScrollView>
 
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity
-          style={[styles.button, styles.prevButton]}
-          onPress={goToPrevious}
-          disabled={!canGoBack || isLoading}
-        >
-          <Feather name="arrow-left" size={18} color="#34C759" />
-          <Text
-            style={[
-              styles.buttonText,
-              styles.prevButtonText,
-              (!canGoBack || isLoading) && styles.disabledText,
-            ]}
+      <View style={[styles.buttonContainer, { paddingBottom: 12 + insets.bottom, backgroundColor: colors.background }]}>
+        {!isFirstAssessmentPage && (
+          <TouchableOpacity
+            style={[styles.button, styles.prevButton]}
+            onPress={goToPrevious}
+            disabled={!canGoBack || isLoading}
           >
-            Previous
-          </Text>
-        </TouchableOpacity>
+            <Feather name="arrow-left" size={18} color={BRAND_GREEN} />
+            <Text
+              style={[
+                styles.buttonText,
+                styles.prevButtonText,
+                (!canGoBack || isLoading) && styles.disabledText,
+              ]}
+            >
+              Previous
+            </Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity
           style={[
             styles.button,
             styles.nextButton,
+            { backgroundColor: BRAND_GREEN },
             (!isPageReadyToSubmit || isSubmitting || isLoading) && styles.nextButtonDisabled,
           ]}
           onPress={handleNext}
@@ -1207,7 +1378,7 @@ const styles = StyleSheet.create({
     gap: 16,
     paddingHorizontal: 30,
     paddingTop: 14,
-    paddingBottom: 24,
+    paddingBottom: 12,
     backgroundColor: "#0B0D0E",
   },
   button: {
@@ -1215,7 +1386,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    paddingVertical: 16,
+    paddingVertical: 13,
     paddingHorizontal: 12,
     borderRadius: 12,
     flex: 1,
@@ -1231,7 +1402,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   buttonText: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "500",
     color: "#FFFFFF",
   },
@@ -1243,19 +1414,19 @@ const styles = StyleSheet.create({
   },
   pageContainer: {
     paddingHorizontal: 30,
-    paddingTop: 4,
+    paddingTop: 2,
   },
   questionContainer: {
-    marginBottom: 24,
-    padding: 22,
+    marginBottom: 18,
+    padding: 18,
     borderRadius: 18,
     backgroundColor: "#202124",
   },
   questionText: {
-    fontSize: 23,
+    fontSize: 20,
     fontWeight: "700",
-    lineHeight: 31,
-    marginBottom: 20,
+    lineHeight: 27,
+    marginBottom: 16,
     color: "#F4F4F5",
   },
   requiredStar: {
@@ -1266,6 +1437,9 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 10,
   },
+  dayOptionsContainer: {
+    gap: 10,
+  },
   optionButton: {
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -1274,6 +1448,10 @@ const styles = StyleSheet.create({
     borderColor: "#3D4044",
     backgroundColor: "#303236",
     marginBottom: 8,
+  },
+  dayOptionButton: {
+    width: "100%",
+    marginBottom: 0,
   },
   optionSelected: {
     borderColor: "#34C759",
@@ -1323,20 +1501,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-  computedContainer: {
-    marginTop: 16,
-    padding: 12,
-    backgroundColor: "#f0f8ff",
-    borderRadius: 8,
-  },
-  computedTitle: {
-    fontWeight: "600",
-    marginBottom: 4,
-  },
-  computedItem: {
-    fontSize: 14,
-    color: "#333",
-  },
   computedValue: {
     fontSize: 36,
     fontWeight: "700",
@@ -1372,4 +1536,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   assessmentTitle: { color: "#F4F4F5", fontSize: 24, fontWeight: "700", textAlign: "center", marginBottom: 28 },
+  assessmentTitleRow: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  backButton: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#202A22", borderWidth: 1, borderColor: "#34C759" },
+  backButtonPlaceholder: { width: 44, height: 44 },
 });

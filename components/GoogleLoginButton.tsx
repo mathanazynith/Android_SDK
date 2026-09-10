@@ -41,7 +41,13 @@ const GoogleLoginButton: React.FC<GoogleLoginButtonProps> = ({
           <View style={styles.iconContainer}>
             <Text style={styles.googleIcon}>G</Text>
           </View>
-          <Text style={styles.buttonText}>{title}</Text>
+          <Text style={styles.buttonText}>
+            {title === "Continue with Google" ? (
+              <>
+                Continue with <Text style={styles.googleBlue}>G</Text><Text style={styles.googleRed}>o</Text><Text style={styles.googleYellow}>o</Text><Text style={styles.googleBlue}>g</Text><Text style={styles.googleGreen}>l</Text><Text style={styles.googleRed}>e</Text>
+              </>
+            ) : title}
+          </Text>
         </View>
       )}
     </TouchableOpacity>
@@ -88,6 +94,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
+  googleBlue: { color: "#4285F4" },
+  googleRed: { color: "#EA4335" },
+  googleYellow: { color: "#FBBC05" },
+  googleGreen: { color: "#34A853" },
   authButton: {
     backgroundColor: "#202124",
     borderWidth: 1,

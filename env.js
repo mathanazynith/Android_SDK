@@ -11,7 +11,7 @@ console.log('📦 Config loaded:', {
 });
 
 const ENV = {
-  API_URL: config.apiUrl || 'http://18.61.143.223',
+  API_URL: config.apiUrl || 'https://zyrun.zynith-it.com',
   GOOGLE_MAPS_API_KEY: config.googleMapsApiKey || 'AIzaSyCbfFEhN28i6_DmvgUdRN6FUH9UVaTJoAk',
   GOOGLE_WEB_CLIENT_ID: config.googleWebClientId || '',
   GOOGLE_ANDROID_CLIENT_ID: config.googleAndroidClientId || '',

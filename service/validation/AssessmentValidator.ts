@@ -16,6 +16,7 @@ export interface QuestionOptionLike {
   label?: string;
   value?: string | number;
   display_order?: number;
+  numeric_value?: string | number;
 }
 
 export interface QuestionLike {
@@ -42,6 +43,8 @@ export interface ValidationContext {
   answer: any;
   allAnswers: Record<string, AnswerDataLike>;
   questions?: QuestionLike[];
+  /** Allows a multi-select control to be built one choice at a time. */
+  allowIncompleteSelectionCount?: boolean;
 }
 
 const normalizeAnswerValue = (value: any): Array<string | number> => {
@@ -89,7 +92,16 @@ const resolveSelectionCount = (context: ValidationContext): number => {
     throw new ValidationError("The required source question must be answered before this question can be validated.");
   }
 
-  const numericValue = Number(resolvedValue);
+  const selectedOption = (sourceQuestion.options || []).find(
+    (option) => String(option.id ?? option.value) === String(resolvedValue)
+  );
+  const numericValue = Number(
+    selectedOption?.numeric_value ??
+      selectedOption?.value ??
+      selectedOption?.label ??
+      selectedOption?.text ??
+      resolvedValue
+  );
   if (!Number.isFinite(numericValue) || numericValue <= 0 || !Number.isInteger(numericValue)) {
     throw new ValidationError("The selection-count source question must resolve to a positive whole number.");
   }
@@ -97,12 +109,16 @@ const resolveSelectionCount = (context: ValidationContext): number => {
   return numericValue;
 };
 
-const validateExactSelectionCount = (submittedOptionIds: Array<string | number>, requiredCount: number): ValidationResult => {
+const validateExactSelectionCount = (
+  submittedOptionIds: Array<string | number>,
+  requiredCount: number,
+  allowIncomplete = false
+): ValidationResult => {
   if (submittedOptionIds.length !== new Set(submittedOptionIds.map(String)).size) {
     return { valid: false, message: "Duplicate option selections are not allowed." };
   }
 
-  if (submittedOptionIds.length !== requiredCount) {
+  if (submittedOptionIds.length > requiredCount || (!allowIncomplete && submittedOptionIds.length !== requiredCount)) {
     return { valid: false, message: `You must select exactly ${requiredCount} options.` };
   }
 
@@ -226,7 +242,11 @@ export const validateAnswer = (context: ValidationContext): ValidationResult => 
   if (context.question.selection_count_source_id || context.question.selection_count_source) {
     try {
       const requiredCount = resolveSelectionCount(context);
-      const exactCountResult = validateExactSelectionCount(submittedOptionIds, requiredCount);
+      const exactCountResult = validateExactSelectionCount(
+        submittedOptionIds,
+        requiredCount,
+        context.allowIncompleteSelectionCount
+      );
       if (!exactCountResult.valid) {
         return exactCountResult;
       }

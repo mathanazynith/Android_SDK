@@ -164,6 +164,32 @@ export const trainingStyles = StyleSheet.create({
   weekTabTextActive: {
     color: '#FFFFFF',
   },
+  loadingState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F2F4F8',
+    padding: 24,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1A1A1A',
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 16,
+    backgroundColor: '#34C759',
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+  },
+  retryText: {
+    color: '#1A1A1A',
+    fontSize: 14,
+    fontWeight: '700',
+  },
   // Weekly Schedule
   weeklySchedule: {
     paddingHorizontal: 16,
@@ -287,3 +313,5 @@ export const trainingStyles = StyleSheet.create({
     backgroundColor: '#E8ECF1',
   },
 });
+
+export default trainingStyles;

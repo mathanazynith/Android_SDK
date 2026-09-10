@@ -166,7 +166,6 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
   return (
     <View style={styles.card}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
-      {hint ? <Text style={styles.hint}>{hint}</Text> : null}
       <View style={styles.row}>
         <View style={styles.fieldWrap}>
           <TextInput
@@ -247,6 +246,8 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
     </View>
   );
 };
+
+export default TimeInput;
 
 const styles = StyleSheet.create({
   card: { marginTop: 8, marginBottom: 8 },

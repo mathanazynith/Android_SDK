@@ -10,10 +10,11 @@ export const QuestionInputLabel: React.FC<QuestionInputLabelProps> = ({ label, h
   return (
     <>
       <Text style={styles.label}>{label}</Text>
-      {hint ? <Text style={styles.hint}>{hint}</Text> : null}
     </>
   );
 };
+
+export default QuestionInputLabel;
 
 const styles = StyleSheet.create({
   label: {

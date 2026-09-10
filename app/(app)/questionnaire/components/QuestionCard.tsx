@@ -7,7 +7,10 @@ import TextInput from "../QuestionTypes/TextInput";
 import Dropdown from "../QuestionTypes/DropDown";
 import Rating from "../QuestionTypes/Rating";
 import DatePicker from "../QuestionTypes/DatePicker";
-import YesNo from "../QuestionTypes/YesNo";
+import YesNo, {
+  getYesNoOptionValues,
+  getYesNoValue,
+} from "../QuestionTypes/YesNo";
 
 interface QuestionCardProps {
   question: Question;
@@ -27,6 +30,17 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
   const renderQuestionType = () => {
     switch (question.type) {
       case "single":
+        const yesNoOptionValues = getYesNoOptionValues(question.options);
+        if (yesNoOptionValues) {
+          return (
+            <YesNo
+              value={getYesNoValue(currentAnswer, yesNoOptionValues)}
+              onChange={(isYes) =>
+                onAnswer(String((isYes ? yesNoOptionValues.yes : yesNoOptionValues.no).value))
+              }
+            />
+          );
+        }
         return (
           <SingleChoice
             options={question.options || []}

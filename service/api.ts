@@ -227,11 +227,26 @@ export const authAPI = {
 
   updateProfile: (data: any) => api.patch("/auth/profile/", data),
 
+  uploadProfilePicture: (data: FormData) =>
+    api.patch("/auth/profile/", data, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+
   changePassword: (data: {
     current_password?: string;
     password: string;
     password2: string;
   }) => api.post("/auth/change-password/", data),
+
+  updatePassword: (data: {
+    currentPassword?: string;
+    newPassword: string;
+    confirmPassword: string;
+  }) => api.post("/auth/change-password/", {
+    ...(data.currentPassword ? { current_password: data.currentPassword } : {}),
+    password: data.newPassword,
+    password2: data.confirmPassword,
+  }),
 
   logout: (data: { refresh?: string }) => api.post("/auth/logout/", data),
 
@@ -346,6 +361,7 @@ export const assessmentAPI = {
 // result, which only contains recommendation metadata.
 export const workoutPlanAPI = {
   getCurrent: () => api.get("/workout-plans/current/"),
+  endCurrent: () => api.post("/workout-plans/end/"),
 };
 
 export default api;

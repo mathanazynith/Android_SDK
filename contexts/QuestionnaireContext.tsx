@@ -12,6 +12,7 @@ import { useAuth } from "../service/auth";
 import { assessmentService } from "../service/questionnaire/questionnaireService";
 import { getBackendErrorMessage } from "../service/api";
 import { CurrentWorkoutPlan, workoutPlanService } from "../service/workoutPlan";
+import { storage } from "../service/storage";
 import { validateAnswer, ValidationError } from "../service/validation/AssessmentValidator";
 import type {
   Question,
@@ -101,9 +102,11 @@ interface QuestionnaireContextType {
   isAssessmentResultLoading: boolean;
   fetchAssessmentResult: () => Promise<any | null>;
   workoutPlan: CurrentWorkoutPlan | null;
+  isWorkoutPlanLoaded: boolean;
   workoutPlanError: string | null;
   isWorkoutPlanLoading: boolean;
   fetchWorkoutPlan: (force?: boolean) => Promise<CurrentWorkoutPlan | null>;
+  endWorkoutPlan: () => Promise<void>;
   canGoBack: boolean;
   loadQuestions: () => Promise<void>;
   startAssessment: () => Promise<void>;
@@ -145,8 +148,10 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
   const [assessmentResultLoaded, setAssessmentResultLoaded] = useState(false);
   const [isAssessmentResultLoading, setIsAssessmentResultLoading] = useState(false);
   const [workoutPlan, setWorkoutPlan] = useState<CurrentWorkoutPlan | null>(null);
+  const [isWorkoutPlanLoaded, setIsWorkoutPlanLoaded] = useState(false);
   const [workoutPlanError, setWorkoutPlanError] = useState<string | null>(null);
   const [isWorkoutPlanLoading, setIsWorkoutPlanLoading] = useState(false);
+  const workoutPlanRequest = useRef<Promise<CurrentWorkoutPlan | null> | null>(null);
 
   const clearValidationErrors = useCallback(() => {
     setValidationErrors({});
@@ -274,6 +279,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     setAssessmentResultLoaded(false);
     setIsAssessmentResultLoading(false);
     setWorkoutPlan(null);
+    setIsWorkoutPlanLoaded(false);
     setWorkoutPlanError(null);
     setIsWorkoutPlanLoading(false);
     navigationHistory.current = [];
@@ -315,27 +321,71 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
 
   const fetchWorkoutPlan = useCallback(async (force = false) => {
     if (workoutPlan && !force) return workoutPlan;
+    if (workoutPlanRequest.current && !force) return workoutPlanRequest.current;
 
+    const request = (async () => {
+      setIsWorkoutPlanLoading(true);
+      setWorkoutPlanError(null);
+      try {
+        const plan = await workoutPlanService.getCurrent();
+        setWorkoutPlan(plan);
+        return plan;
+      } catch (err: any) {
+        if (err?.response?.status === 404) {
+          setWorkoutPlan(null);
+          return null;
+        }
+        if (!workoutPlan) setWorkoutPlan(null);
+        setWorkoutPlanError(getBackendErrorMessage(err, "Failed to load your training plan."));
+        return null;
+      } finally {
+        setIsWorkoutPlanLoaded(true);
+        setIsWorkoutPlanLoading(false);
+        workoutPlanRequest.current = null;
+      }
+    })();
+
+    workoutPlanRequest.current = request;
+    return request;
+  }, [workoutPlan]);
+
+  const endWorkoutPlan = useCallback(async () => {
     setIsWorkoutPlanLoading(true);
     setWorkoutPlanError(null);
     try {
-      const plan = await workoutPlanService.getCurrent();
-      setWorkoutPlan(plan);
-      return plan;
-    } catch (err: any) {
+      await workoutPlanService.endCurrent();
       setWorkoutPlan(null);
-      setWorkoutPlanError(getBackendErrorMessage(err, "Failed to load your training plan."));
-      return null;
+      setAssessmentResult(null);
+      setAssessmentResultLoaded(false);
+      setAssessmentId(null);
+      setCurrentNavigation(null);
+      setIsComplete(false);
+      setComputedResponses({});
+      setAllAnswers({});
+      navigationHistory.current = [];
+      await storage.removeItem(storage.KEYS.TRAINING_PLAN);
+    } catch (err: any) {
+      const message = getBackendErrorMessage(err, "Unable to end your training plan.");
+      setWorkoutPlanError(message);
+      throw new Error(message);
     } finally {
       setIsWorkoutPlanLoading(false);
     }
-  }, [workoutPlan]);
+  }, []);
 
   useEffect(() => {
     if (assessmentId && isComplete && !assessmentResultLoaded && !isAssessmentResultLoading) {
       fetchAssessmentResult().catch(() => {});
     }
   }, [assessmentId, isComplete, assessmentResultLoaded, isAssessmentResultLoading, fetchAssessmentResult]);
+
+  useEffect(() => {
+    if (assessmentId && isComplete) {
+      // A completed assessment creates a new plan on the backend. Refresh the
+      // shared cache immediately so every plan-dependent screen sees it.
+      fetchWorkoutPlan(true).catch(() => {});
+    }
+  }, [assessmentId, isComplete]);
 
   const startAssessment = async () => {
     if (isStartingAssessment.current) {
@@ -352,6 +402,11 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setCurrentNavigation(result.navigation);
       setComputedResponses(result.computedResponses);
       setIsComplete(result.complete);
+      setAssessmentResult(null);
+      setAssessmentResultLoaded(false);
+      setWorkoutPlan(null);
+      setIsWorkoutPlanLoaded(false);
+      setWorkoutPlanError(null);
       setAllAnswers({});
       navigationHistory.current = [];
     } catch (err: any) {
@@ -403,7 +458,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       const numericId = getNumericId(questionId);
       const key = String(numericId);
 
-      const validationResult = validateCurrentAnswer(key, value);
+      const validationResult = validateCurrentAnswer(key, value, true);
       if (!validationResult.valid) {
         return;
       }
@@ -458,7 +513,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
   );
 
   const validateCurrentAnswer = useCallback(
-    (questionId: string, value: any) => {
+    (questionId: string, value: any, allowIncompleteSelectionCount = false) => {
       const question = questions.find((item) => String(item.backendId ?? getNumericId(item.id)) === String(getNumericId(questionId)));
       if (!question) return { valid: true };
 
@@ -470,6 +525,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
         answer: value,
         allAnswers,
         questions,
+        allowIncompleteSelectionCount,
       });
 
       if (!validationResult.valid) {
@@ -670,9 +726,11 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
         isAssessmentResultLoading,
         fetchAssessmentResult,
         workoutPlan,
+        isWorkoutPlanLoaded,
         workoutPlanError,
         isWorkoutPlanLoading,
         fetchWorkoutPlan,
+        endWorkoutPlan,
         canGoBack,
         loadQuestions,
         startAssessment,

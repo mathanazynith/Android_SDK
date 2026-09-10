@@ -3,6 +3,7 @@ import { View, Text, TextInput, StyleSheet, TouchableOpacity } from "react-nativ
 import { Feather } from "@expo/vector-icons";
 import DatePicker from "../../QuestionTypes/DatePicker";
 import DistanceTimePaceSelector from "../../QuestionTypes/DistanceTimePaceSelector";
+import { useTheme } from "../../../../../contexts/ThemeContext";
 
 interface EventRegistrationProps {
   value?: {
@@ -28,6 +29,19 @@ interface EventRegistrationProps {
     distance?: string[];
     targetTime?: string[];
   };
+  labels?: {
+    eventName?: string;
+    eventNamePlaceholder?: string;
+    eventDate?: string;
+    trainingStartDate?: string;
+    trainingDays?: string;
+    detailsTitle?: string;
+    detailsDescription?: string;
+    distance?: string;
+    targetTime?: string;
+    timeHint?: string;
+    optionsHint?: string;
+  };
 }
 
 const EventRegistration: React.FC<EventRegistrationProps> = ({
@@ -39,7 +53,9 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   trainingDaysComputed,
   maxDistanceKm,
   validationMessages,
+  labels,
 }) => {
+  const { colors } = useTheme();
   const [eventName, setEventName] = useState(value?.eventName || "");
   const [eventDate, setEventDate] = useState(value?.eventDate || "");
   const [trainingStartDate, setTrainingStartDate] = useState(value?.trainingStartDate || "");
@@ -103,17 +119,17 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   return (
     <View style={styles.container}>
       {/* 1. Event Name Input */}
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>What is your event name?</Text>
+      <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+        <Text style={[styles.sectionLabel, { color: colors.textPrimary }]}>{labels?.eventName || "What is your event name?"}</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.surfaceRaised, borderColor: colors.border, color: colors.text }]}
           value={eventName}
           onChangeText={(val) => {
             setEventName(val);
             emitChange({ eventName: val });
           }}
-          placeholder="Enter event name"
-          placeholderTextColor="#999"
+          placeholder={labels?.eventNamePlaceholder || "Enter event name"}
+          placeholderTextColor={colors.textSecondary}
         />
         {validationMessages?.eventName?.map((message) => (
           <Text key={message} style={styles.validationText}>{message}</Text>
@@ -121,8 +137,8 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       </View>
 
       {/* 2. Event Date Picker */}
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>When is your event?</Text>
+      <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+        <Text style={[styles.sectionLabel, { color: colors.textPrimary }]}>{labels?.eventDate || "When is your event?"}</Text>
         <DatePicker
           value={eventDate}
           onChange={(date) => {
@@ -136,8 +152,8 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       </View>
 
       {/* 3. Training Start Date Picker */}
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>When can you start training for this event?</Text>
+      <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+        <Text style={[styles.sectionLabel, { color: colors.textPrimary }]}>{labels?.trainingStartDate || "When can you start training for this event?"}</Text>
         <DatePicker
           value={trainingStartDate}
           onChange={(date) => {
@@ -152,9 +168,9 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
 
       {/* 4. Training Days Available (Computed) */}
       {trainingDaysComputed !== undefined && (
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Training Days Available</Text>
-          <View style={styles.computedValueBox}>
+        <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+          <Text style={[styles.sectionLabel, { color: colors.textPrimary }]}>{labels?.trainingDays || "Training Days Available"}</Text>
+          <View style={[styles.computedValueBox, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
             <Text style={styles.computedValue}>{trainingDaysComputed}</Text>
           </View>
         </View>
@@ -162,9 +178,9 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
 
       {/* 5. Distance & Target Time Section - Reusing Page 2 Components */}
       <DistanceTimePaceSelector
-        title="Event Details"
-        subtitle="Pick a preset distance or enter your own details"
-        icon={<Feather name="flag" size={18} color="#34C759" />}
+        title={labels?.detailsTitle || "Event Details"}
+        subtitle={labels?.detailsDescription || "Pick a preset distance or enter your own details"}
+        icon={<Feather name="flag" size={18} color={colors.primary} />}
         options={options}
         selectedValue={selectedDistanceValue}
         onSelect={(val: string, nextCustomValues?: Record<string, any> | null) => {
@@ -216,11 +232,11 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         distanceField="targetDistance"
         timeField="targetTime"
         paceField="targetPace"
-        distanceLabel="Distance"
-        timeLabel="Target time"
+        distanceLabel={labels?.distance || "Distance"}
+        timeLabel={labels?.targetTime || "Target time"}
         customDistanceLabel="Enter Distance"
-        timeHint="Enter HH:MM:SS"
-        optionsHint="Select a common distance or custom option"
+        timeHint={labels?.timeHint || "Enter HH:MM:SS"}
+        optionsHint={labels?.optionsHint || "Select a common distance or custom option"}
         maxDistanceKm={maxDistanceKm}
       />
       {[...(validationMessages?.distance ?? []), ...(validationMessages?.targetTime ?? [])].map((message) => (

@@ -5,7 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
-  SafeAreaView,
+  // SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import { getBackendErrorMessage } from '../../../service/api';
@@ -112,8 +113,16 @@ export default function ActivityDetailScreen() {
 
   const showDeleteSuccess = (message: string) => {
     Alert.alert('Workout deleted', message, [
-      { text: 'OK', onPress: () => router.back() },
+      { text: 'OK', onPress: () => handleBack() },
     ]);
+  };
+
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/(app)/activity');
   };
 
   const confirmDelete = () => {
@@ -133,7 +142,7 @@ export default function ActivityDetailScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       <View style={styles.header}>
-        <TouchableOpacity accessibilityLabel="Back to workout history" onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity accessibilityLabel="Back to workout history" onPress={handleBack} style={styles.backButton}>
           <Feather name="arrow-left" size={24} color="#F7F7F7" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Activity Details</Text>
@@ -235,7 +244,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0B0E0F',
     paddingHorizontal: 22,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0,
+    paddingTop: 0,
   },
   header: { height: 68, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   backButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },

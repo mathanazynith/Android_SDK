@@ -10,6 +10,12 @@ interface PlanOption {
 
 interface PlanSelectionProps {
   options: PlanOption[];
+  title?: string;
+  subtitle?: string;
+  distanceLabel?: string;
+  timeLabel?: string;
+  timeHint?: string;
+  optionsHint?: string;
   selectedValue?: string;
   onSelect: (value: any, customValues?: Record<string, any> | null) => void;
   customValues?: {
@@ -23,6 +29,12 @@ interface PlanSelectionProps {
 
 const PlanSelection: React.FC<PlanSelectionProps> = ({
   options,
+  title = "What is your primary running goal?",
+  subtitle = "Pick a preset distance or enter your own details",
+  distanceLabel = "Distance",
+  timeLabel = "What is your target finish time for this goal?",
+  timeHint = "Enter HH:MM:SS",
+  optionsHint = "Select a common distance or custom option",
   selectedValue,
   onSelect,
   customValues,
@@ -30,8 +42,8 @@ const PlanSelection: React.FC<PlanSelectionProps> = ({
 }) => {
   return (
     <DistanceTimePaceSelector
-      title="What is your primary running goal?"
-      subtitle="Pick a preset distance or enter your own details"
+      title={title}
+      subtitle={subtitle}
       icon={<Feather name="flag" size={18} color="#34C759" />}
       options={options}
       selectedValue={selectedValue}
@@ -41,11 +53,11 @@ const PlanSelection: React.FC<PlanSelectionProps> = ({
       distanceField="distance"
       timeField="time"
       paceField="pace"
-      distanceLabel="Distance"
-      timeLabel="What is your target finish time for this goal?"
+      distanceLabel={distanceLabel}
+      timeLabel={timeLabel}
       customDistanceLabel="Enter Distance"
-      timeHint="Enter HH:MM:SS"
-      optionsHint="Select a common distance or custom option"
+      timeHint={timeHint}
+      optionsHint={optionsHint}
     />
   );
 };

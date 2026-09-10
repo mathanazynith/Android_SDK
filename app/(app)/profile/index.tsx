@@ -1,10 +1,9 @@
 import React from "react";
 import {
   Alert,
-  Platform,
-  SafeAreaView,
+  ActivityIndicator,
+  Image,
   ScrollView,
-  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -13,16 +12,21 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../../../service/auth";
 import { Colors } from "../../../constants/theme";
+import { resolveApiUrl } from "../../../service/api";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
 
 type DetailRowProps = { label: string; value: string };
 
 function DetailRow({ label, value }: DetailRowProps) {
+  const { colors } = useTheme();
   return (
-    <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue} numberOfLines={1}>{value}</Text>
+    <View style={[styles.detailRow, { borderBottomColor: colors.border }]}>
+      <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{label}</Text>
+      <Text style={[styles.detailValue, { color: colors.text }]} numberOfLines={1}>{value}</Text>
     </View>
   );
 }
@@ -52,7 +56,13 @@ const calculateAge = (dateOfBirth?: string) => {
 };
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuth();
+  const { colors } = useTheme();
+  const { user, logout, uploadProfilePicture } = useAuth();
+  const [isUploadingPicture, setIsUploadingPicture] = React.useState(false);
+
+  const handleBackPress = () => {
+    router.replace('/(app)/dashboard');
+  };
 
   const handleLogout = () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
@@ -68,6 +78,45 @@ export default function ProfileScreen() {
     ]);
   };
 
+  const selectProfilePicture = async (source: "camera" | "gallery") => {
+    try {
+      const permission = source === "camera"
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert("Permission needed", `Allow ${source === "camera" ? "camera" : "photo library"} access to choose a profile picture.`);
+        return;
+      }
+
+      const result = source === "camera"
+        ? await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.85 })
+        : await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.85, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+
+      const asset = result.canceled ? null : result.assets[0];
+      if (!asset) return;
+
+      setIsUploadingPicture(true);
+      await uploadProfilePicture({
+        uri: asset.uri,
+        name: asset.fileName || `profile-${Date.now()}.jpg`,
+        type: asset.mimeType || "image/jpeg",
+      });
+    } catch (error: any) {
+      Alert.alert("Upload failed", error?.response?.data?.detail || "Unable to update your profile picture.");
+    } finally {
+      setIsUploadingPicture(false);
+    }
+  };
+
+  const openPictureOptions = () => {
+    Alert.alert("Profile picture", "Choose a source", [
+      { text: "Camera", onPress: () => selectProfilePicture("camera") },
+      { text: "Gallery", onPress: () => selectProfilePicture("gallery") },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
+
   if (!user) {
     return (
       <View style={styles.loadingContainer}>
@@ -77,13 +126,15 @@ export default function ProfileScreen() {
   }
 
   const profile = user.profile as any;
-  const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || "User";
-  const initials = `${user.first_name?.[0] || ""}${user.last_name?.[0] || ""}`.toUpperCase() || "U";
+  const displayName = user.username || user.email?.split("@")[0] || "User";
+  const initials = displayName.slice(0, 2).toUpperCase();
   const account = user as any;
   const memberSince = profile?.member_since || profile?.created_at || account?.date_joined || account?.created_at;
+  const profilePicture = profile?.profile_picture_url || profile?.profile_picture;
+  const profilePictureUri = resolveApiUrl(profilePicture);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
@@ -100,10 +151,10 @@ export default function ProfileScreen() {
             <TouchableOpacity
               accessibilityLabel="Go back"
               accessibilityRole="button"
-              onPress={() => router.back()}
+              onPress={handleBackPress}
               style={styles.circleButton}
             >
-              <Feather name="chevron-left" size={29} color="#FFFFFF" />
+              <Feather name="chevron-left" size={29} color={colors.text} />
             </TouchableOpacity>
             <Text style={styles.heroTitle}>Profile</Text>
             <TouchableOpacity
@@ -118,17 +169,18 @@ export default function ProfileScreen() {
 
           <View style={styles.profileIdentity}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initials}</Text>
-              <View style={styles.cameraBadge}>
-                <Feather name="camera" size={16} color={Colors.primaryDark} />
-              </View>
+              {profilePictureUri ? <Image source={{ uri: profilePictureUri }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initials}</Text>}
+              {isUploadingPicture ? <View style={styles.uploadOverlay}><ActivityIndicator color="#FFFFFF" /></View> : null}
+              <TouchableOpacity accessibilityLabel="Change profile picture" accessibilityRole="button" onPress={openPictureOptions} style={styles.cameraBadge} disabled={isUploadingPicture}>
+                <Feather name="camera" size={16} color={BRAND_GREEN} />
+              </TouchableOpacity>
             </View>
-            <Text style={styles.name}>{fullName}</Text>
+            <Text style={styles.name}>{displayName}</Text>
             <Text style={styles.username}>@{user.username || "user"}</Text>
           </View>
         </LinearGradient>
 
-        <View style={styles.detailsCard}>
+        <View style={[styles.detailsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <DetailRow label="Email" value={user.email || "--"} />
           <DetailRow label="Phone Number" value={user.phone_number || profile?.phone_number || "--"} />
           <DetailRow label="Date of Birth" value={formatDate(profile?.date_of_birth)} />
@@ -145,8 +197,8 @@ export default function ProfileScreen() {
           onPress={handleLogout}
           style={styles.logoutButton}
         >
-          <Feather name="log-out" size={17} color="#B8B8B8" />
-          <Text style={styles.logoutText}>Log out</Text>
+          <Feather name="log-out" size={17} color="#EF4444" />
+          <Text style={[styles.logoutText, { color: '#EF4444' }]}>Log out</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -157,35 +209,36 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: "#090B0C",
-    paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight || 0) + 14 : 14,
   },
   container: { flex: 1, backgroundColor: "#090B0C" },
-  scrollContent: { paddingBottom: Platform.OS === "ios" ? 16 : 10 },
-  loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#090B0C" },
+  scrollContent: { paddingBottom: 118 },
+  loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
   loadingText: { color: Colors.text, fontSize: 16 },
   hero: {
-    minHeight: 218,
-    paddingHorizontal: 20,
-    paddingTop: 8,
+    minHeight: 184,
+    paddingHorizontal: 18,
+    paddingTop: 4,
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
     overflow: "hidden",
   },
   heroNavigation: { height: 40, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  heroTitle: { color: "#FFFFFF", fontSize: 21, fontWeight: "700" },
+  heroTitle: { color: "#FFFFFF", fontSize: 19, fontWeight: "700" },
   circleButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)" },
   editButton: { minWidth: 68, height: 40, paddingHorizontal: 14, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.19)" },
-  editButtonText: { color: "#FFFFFF", fontSize: 17, fontWeight: "700" },
-  profileIdentity: { flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: 15 },
-  avatar: { width: 82, height: 82, borderRadius: 41, borderWidth: 3, borderColor: "#FFFFFF", alignItems: "center", justifyContent: "center", position: "relative", marginBottom: 7, backgroundColor: "rgba(255,255,255,0.16)" },
+  editButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
+  profileIdentity: { flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: 10 },
+  avatar: { width: 76, height: 76, borderRadius: 38, borderWidth: 3, borderColor: "#FFFFFF", alignItems: "center", justifyContent: "center", position: "relative", marginBottom: 6, backgroundColor: "rgba(255,255,255,0.16)" },
+  avatarImage: { width: "100%", height: "100%", borderRadius: 41 },
   avatarText: { color: "#FFFFFF", fontSize: 31, fontWeight: "600" },
+  uploadOverlay: { ...StyleSheet.absoluteFill, borderRadius: 41, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.42)" },
   cameraBadge: { position: "absolute", right: -6, bottom: -4, width: 29, height: 29, borderRadius: 15, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#26B705", backgroundColor: "#FFFFFF" },
-  name: { color: "#FFFFFF", fontSize: 20, lineHeight: 25, fontWeight: "700", textAlign: "center" },
+  name: { color: "#FFFFFF", fontSize: 18, lineHeight: 23, fontWeight: "700", textAlign: "center" },
   username: { color: "rgba(255,255,255,0.72)", fontSize: 14, fontWeight: "500", marginTop: 0 },
-  detailsCard: { marginHorizontal: 16, marginTop: 14, borderRadius: 23, backgroundColor: "#242627", borderWidth: 1.25, borderColor: "#66686A", paddingHorizontal: 17, paddingVertical: 7, shadowColor: "#000000", shadowOpacity: 0.2, shadowOffset: { width: 0, height: 6 }, shadowRadius: 10, elevation: 3 },
-  detailRow: { minHeight: 37, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#515354" },
-  detailLabel: { flex: 0.45, color: "#BDBEC0", fontSize: 14, fontWeight: "500" },
-  detailValue: { flex: 0.55, color: "#F7F7F7", fontSize: 14, fontWeight: "700", textAlign: "right" },
+  detailsCard: { marginHorizontal: 16, marginTop: 12, borderRadius: 20, backgroundColor: "#242627", borderWidth: 1.25, borderColor: "#66686A", paddingHorizontal: 15, paddingVertical: 5, shadowColor: "#000000", shadowOpacity: 0.2, shadowOffset: { width: 0, height: 6 }, shadowRadius: 10, elevation: 3 },
+  detailRow: { minHeight: 34, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#515354" },
+  detailLabel: { flex: 0.45, color: "#BDBEC0", fontSize: 13, fontWeight: "500" },
+  detailValue: { flex: 0.55, color: "#F7F7F7", fontSize: 13, fontWeight: "700", textAlign: "right" },
   logoutButton: { alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 7, padding: 7 },
   logoutText: { color: "#B8B8B8", fontSize: 13, fontWeight: "600" },
 });

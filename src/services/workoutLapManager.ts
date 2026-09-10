@@ -34,35 +34,12 @@ export class WorkoutLapManager {
     this.lastPoint = gpsPoint;
 
     this.currentLap = {
-      id: `${segment.segmentOrder}-${segment.repeatNumber}-${now}`,
-
-      segmentOrder: segment.segmentOrder,
-
-      segmentType: segment.segmentType,
-
-      repeatNumber: segment.repeatNumber,
-
-      totalRepeats: segment.totalRepeats,
-
-      targetDistanceMeters: segment.targetDistanceMeters,
-
-      targetDurationSeconds: segment.targetDurationSeconds,
-
-      targetPace: segment.targetPace,
-
-      startTimestamp: now,
-
-      endTimestamp: null,
-
-      completed: false,
-
+      ...segment,
+      startedAt: now,
+      completedAt: null,
       distanceMeters: 0,
-
-      durationSeconds: 0,
-
-      startGpsSequence: gpsPoint?.sequence ?? null,
-
-      endGpsSequence: null,
+      elapsedSeconds: 0,
+      completed: false,
     };
 
     return this.currentLap;
@@ -94,10 +71,10 @@ export class WorkoutLapManager {
 
     this.currentLap.distanceMeters = this.segmentDistance;
 
-    this.currentLap.durationSeconds =
+    this.currentLap.elapsedSeconds =
       Math.max(
         0,
-        (point.timestamp - this.currentLap.startTimestamp) / 1000,
+        (point.timestamp - this.currentLap.startedAt) / 1000,
       );
   }
 
@@ -112,20 +89,17 @@ export class WorkoutLapManager {
     const endTimestamp =
       gpsPoint?.timestamp ?? Date.now();
 
-    this.currentLap.endTimestamp = endTimestamp;
+    this.currentLap.completedAt = endTimestamp;
 
     this.currentLap.completed = true;
-
-    this.currentLap.endGpsSequence =
-      gpsPoint?.sequence ?? null;
 
     this.currentLap.distanceMeters =
       this.segmentDistance;
 
-    this.currentLap.durationSeconds =
+    this.currentLap.elapsedSeconds =
       Math.max(
         0,
-        (endTimestamp - this.currentLap.startTimestamp) / 1000,
+        (endTimestamp - this.currentLap.startedAt) / 1000,
       );
 
     const completed = {
@@ -195,7 +169,7 @@ export class WorkoutLapManager {
       return;
     }
 
-    this.currentLap.startTimestamp += milliseconds;
+    this.currentLap.startedAt += milliseconds;
   }
 
   public reset(): void {

@@ -10,6 +10,7 @@ export interface QuestionOption {
   numeric_unit?: string;
   requires_input?: boolean;
   input_type?: string;
+  display_order?: number;
 }
 
 export interface SubQuestion {
@@ -32,6 +33,12 @@ export interface Question {
   options?: QuestionOption[];
   isRequired: boolean;
   placeholder?: string;
+  title?: string;
+  label?: string;
+  description?: string;
+  subTitle?: string;
+  helperText?: string;
+  fieldLabels?: Record<string, string>;
   subQuestions?: SubQuestion[];
   validation?: {
     min?: number;
@@ -44,6 +51,9 @@ export interface Question {
   slug?: string;
   isGoalQuestion?: boolean;
   allowed_input_units?: string;  // comma-separated
+  selection_count_source_id?: number | null;
+  selection_subset_source_id?: number | null;
+  validate_consecutive_selections?: boolean;
 }
 
 export interface Navigation {
@@ -181,9 +191,15 @@ class AssessmentService {
       numeric_unit: option.numeric_unit ?? option.unit ?? "km",
       requires_input: option.requires_input ?? false,
       input_type: option.input_type ?? "",
+      display_order: option.display_order,
     })),
     isRequired: Boolean(item.is_required ?? item.required ?? false),
     placeholder: item.placeholder ?? undefined,
+    title: item.title ?? item.heading ?? undefined,
+    label: item.label ?? item.field_label ?? undefined,
+    description: item.description ?? item.subtitle ?? undefined,
+    helperText: item.helper_text ?? item.help_text ?? item.hint ?? undefined,
+    fieldLabels: item.field_labels ?? item.labels ?? item.metadata?.field_labels ?? undefined,
     validation: {
       min: item.validation?.min,
       max: item.validation?.max,
@@ -196,6 +212,9 @@ class AssessmentService {
     allowed_input_units: Array.isArray(item.input_units)
       ? item.input_units.join(",")
       : item.allowed_input_units,
+    selection_count_source_id: item.selection_count_source_id ?? null,
+    selection_subset_source_id: item.selection_subset_source_id ?? null,
+    validate_consecutive_selections: Boolean(item.validate_consecutive_selections),
   }));
 
   // ================= DEBUG LOGS =================

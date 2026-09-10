@@ -64,6 +64,9 @@ export const getUnitSystemLabel = (value?: string | null): string => {
     : "Standard (Km / cm / kg)";
 };
 
+export const getUnitSystemShortLabel = (value?: string | null): string =>
+  getDistanceUnitPreference(value) === "imperial" ? "Imperial" : "Standard";
+
 export const convertDistanceToKilometers = (distance: number, value?: string | null): number => {
   if (getDistanceUnitCode(value) === "mile") {
     return distance * 1.60934;

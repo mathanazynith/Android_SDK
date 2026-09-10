@@ -4,7 +4,6 @@ import {
     ActivityIndicator,
     Alert,
     Platform,
-    SafeAreaView,
     ScrollView,
     StatusBar,
     StyleSheet,
@@ -12,6 +11,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { CropRangeSlider } from '../../../../components/CropRangeSlider';
 import { getBackendErrorMessage } from '../../../../service/api';
@@ -39,6 +39,14 @@ export default function CropActivityScreen() {
   const [croppingElapsedTime, setCroppingElapsedTime] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const mapRef = useRef<MapView>(null);
+
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace({ pathname: '/activity/[id]', params: { id: String(id) } });
+  };
 
   async function loadActivity() {
     try {
@@ -80,7 +88,7 @@ export default function CropActivityScreen() {
     } catch (error) {
       console.error('Error loading activity:', error);
       Alert.alert('Error', 'Failed to load activity for cropping');
-      router.back();
+      handleBack();
     } finally {
       setLoading(false);
     }
@@ -246,7 +254,7 @@ export default function CropActivityScreen() {
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.cancelButton}>
+        <TouchableOpacity onPress={handleBack} style={styles.cancelButton}>
           <Text style={styles.cancelText}>Cancel</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Crop</Text>
@@ -373,7 +381,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0B0E0F',
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0,
+    paddingTop: 0,
   },
   centerContainer: {
     flex: 1,
