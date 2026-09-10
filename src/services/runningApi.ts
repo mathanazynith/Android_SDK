@@ -1,5 +1,5 @@
-import { ActivitySubmissionPayload, RunSessionStartResponse, RunSessionStartPayload, RunStopPayload, UploadBatchPayload } from '../types/running';
 import api from '../../service/api';
+import { ActivitySubmissionPayload, RunSessionStartPayload, RunSessionStartResponse, RunStopPayload, UploadBatchPayload } from '../types/running';
 
 // `service/api.ts` supplies the /api/v1 base URL and authenticated Bearer
 // token, so this resolves to POST /api/v1/rundata/upload/ by default.
