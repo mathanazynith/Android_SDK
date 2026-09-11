@@ -17,13 +17,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { customWorkoutAPI } from '../../service/customWorkout';
+import { customWorkoutAPI, type UserWorkoutResponse } from '../../service/customWorkout';
 import { activityAPI, BackendActivity } from '../../src/services/activityApi';
 import ActivityStore from '../../src/services/activityStore';
+import { BenchmarkStore } from '../../src/services/benchmarkStore';
 import {
   AggregatedStats,
   calculatePeriodStats,
-  calculateWeekCompletion,
   calculateYearStats,
   ChartBarPoint,
   formatKm,
@@ -32,8 +32,9 @@ import {
   getAvailableYears,
   normalizeActivities,
   PeriodFilter,
-  UnifiedActivity,
+  UnifiedActivity
 } from '../../src/utils/statsCalculations';
+import { buildWorkoutExecutionPlan } from '../../src/utils/workoutPlanBuilder';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -46,7 +47,9 @@ export default function StatsScreen() {
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [showYearModal, setShowYearModal] = useState(false);
   const [showBenchmarkModal, setShowBenchmarkModal] = useState(false);
-  const [benchmarkCount, setBenchmarkCount] = useState(3);
+  const [customWorkouts, setCustomWorkouts] = useState<UserWorkoutResponse[]>([]);
+  const [benchmarkIds, setBenchmarkIds] = useState<number[]>([]);
+  const [startingWorkoutId, setStartingWorkoutId] = useState<number | null>(null);
 
   const loadActivities = useCallback(async () => {
     try {
@@ -62,15 +65,15 @@ export default function StatsScreen() {
       setActivities(unified);
 
       try {
-        const customRes = await customWorkoutAPI.list();
-        const customList = customRes.data || [];
-        if (Array.isArray(customList) && customList.length > 0) {
-          setBenchmarkCount(customList.length);
-        } else {
-          setBenchmarkCount(3);
-        }
-      } catch {
-        setBenchmarkCount(3);
+        const [customRes, benchIds] = await Promise.all([
+          customWorkoutAPI.list(),
+          BenchmarkStore.getBenchmarkIds(),
+        ]);
+        const customList = Array.isArray(customRes.data) ? customRes.data : [];
+        setCustomWorkouts(customList);
+        setBenchmarkIds(benchIds);
+      } catch (err) {
+        console.warn('Error loading custom workouts for stats benchmarks:', err);
       }
     } catch (e) {
       console.warn('Error loading stats activities:', e);
@@ -83,8 +86,30 @@ export default function StatsScreen() {
   useFocusEffect(
     useCallback(() => {
       loadActivities();
+      BenchmarkStore.getBenchmarkIds().then(setBenchmarkIds);
+      const unsub = BenchmarkStore.subscribe(setBenchmarkIds);
+      return () => unsub();
     }, [loadActivities])
   );
+
+  // Filter custom workouts that are marked as benchmarks
+  const benchmarkWorkouts = useMemo(() => {
+    return customWorkouts.filter((w) => benchmarkIds.includes(w.id));
+  }, [customWorkouts, benchmarkIds]);
+
+  const handleStartBenchmarkWorkout = (workout: UserWorkoutResponse) => {
+    setStartingWorkoutId(workout.id);
+    const plan = buildWorkoutExecutionPlan(workout);
+    setShowBenchmarkModal(false);
+    router.push({
+      pathname: '/(app)/screens/map',
+      params: {
+        workoutTitle: workout.title || 'Benchmark Workout',
+        workoutPlan: JSON.stringify(plan),
+      },
+    });
+    setTimeout(() => setStartingWorkoutId(null), 1000);
+  };
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -96,6 +121,14 @@ export default function StatsScreen() {
     return calculatePeriodStats(activities, period, selectedYear);
   }, [activities, period, selectedYear]);
 
+  const weekCompletion = useMemo(() => {
+    const weeklyStats = calculatePeriodStats(activities, 'week', selectedYear);
+    return {
+      workouts: weeklyStats.totalWorkouts,
+      distanceKm: weeklyStats.totalDistanceKm,
+    };
+  }, [activities, selectedYear]);
+
   // Available years from recorded activities
   const availableYears = useMemo(() => {
     return getAvailableYears(activities);
@@ -106,10 +139,6 @@ export default function StatsScreen() {
     return calculateYearStats(activities, selectedYear);
   }, [activities, selectedYear]);
 
-  // Stats for the current week (This Week Completion Card)
-  const weekCompletion = useMemo(() => {
-    return calculateWeekCompletion(activities);
-  }, [activities]);
 
   // Active selected chart point (or current/latest active point by default)
   const activePoint: ChartBarPoint | null = useMemo(() => {
@@ -200,24 +229,13 @@ export default function StatsScreen() {
             </View>
             <View style={styles.benchmarkTextCol}>
               <Text style={styles.benchmarkTitle}>Benchmark workouts</Text>
-              <Text style={styles.benchmarkSubtitle}>{benchmarkCount} saved</Text>
+              <Text style={styles.benchmarkSubtitle}>{benchmarkWorkouts.length} saved</Text>
             </View>
           </View>
           <Feather name="chevron-right" size={20} color="#8E8E93" />
         </TouchableOpacity>
 
-        {/* 2. This Week Completion Card */}
-        <View style={styles.weekCompletionWrapper}>
-          <View style={styles.weekCompletionCard}>
-            <Text style={styles.weekCompletionTitle}>This Week Completion</Text>
-            <Text style={styles.weekCompletionCount}>
-              {weekCompletion.workouts} {weekCompletion.workouts === 1 ? 'workout' : 'workouts'} completed
-            </Text>
-            <Text style={styles.weekCompletionDistance}>
-              {weekCompletion.distanceKm.toFixed(1)} km completed
-            </Text>
-          </View>
-        </View>
+
 
         {/* Section Header: Trends & Detailed Visualizations */}
         <View style={styles.sectionHeaderRow}>
@@ -686,37 +704,72 @@ export default function StatsScreen() {
             </View>
 
             {/* Benchmark items */}
-            <View style={styles.benchmarkList}>
-              <View style={styles.benchmarkItem}>
-                <View style={[styles.benchmarkItemIcon, { backgroundColor: 'rgba(48, 209, 88, 0.12)' }]}>
-                  <Feather name="zap" size={18} color="#30D158" />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={styles.benchmarkItemTitle}>1 km Benchmark</Text>
-                  <Text style={styles.benchmarkItemDesc}>All-out test to evaluate peak aerobic speed & baseline pace</Text>
-                </View>
-              </View>
+            <ScrollView
+              style={styles.benchmarkList}
+              contentContainerStyle={{ flexGrow: 1 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {benchmarkWorkouts.length > 0 ? (
+                benchmarkWorkouts.map((workout, idx) => {
+                  const isStarting = startingWorkoutId === workout.id;
+                  const distStr =
+                    workout.display_distance != null && workout.display_distance > 0
+                      ? `${workout.display_distance} ${workout.distance_unit || 'km'}`
+                      : workout.distance != null && workout.distance > 0
+                      ? `${(workout.distance / 1000).toFixed(2)} km`
+                      : null;
+                  const durStr = workout.duration ? formatTimeHoursMins(workout.duration) : null;
+                  const paceStr = workout.target_pace || workout.pace;
+                  const metaParts = [distStr, durStr, paceStr ? `@ ${paceStr}` : null].filter(Boolean);
+                  const isLast = idx === benchmarkWorkouts.length - 1;
 
-              <View style={styles.benchmarkItem}>
-                <View style={[styles.benchmarkItemIcon, { backgroundColor: 'rgba(10, 132, 255, 0.12)' }]}>
-                  <Feather name="activity" size={18} color="#0A84FF" />
+                  return (
+                    <View
+                      key={workout.id}
+                      style={[styles.benchmarkItem, isLast && { borderBottomWidth: 0 }]}
+                    >
+                      <View style={[styles.benchmarkItemIcon, { backgroundColor: 'rgba(48, 209, 88, 0.15)' }]}>
+                        <Feather name="trending-up" size={18} color="#30D158" />
+                      </View>
+                      <View style={{ flex: 1, marginLeft: 12, marginRight: 8 }}>
+                        <Text style={styles.benchmarkItemTitle} numberOfLines={1}>
+                          {workout.title || 'Benchmark Workout'}
+                        </Text>
+                        <Text style={styles.benchmarkItemDesc} numberOfLines={1}>
+                          {metaParts.length > 0 ? metaParts.join(' · ') : 'Custom Benchmark Run'}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.benchmarkStartBtn}
+                        onPress={() => handleStartBenchmarkWorkout(workout)}
+                        disabled={isStarting}
+                        activeOpacity={0.8}
+                        accessibilityLabel={`Start ${workout.title || 'Benchmark Workout'}`}
+                      >
+                        {isStarting ? (
+                          <ActivityIndicator size="small" color="#000000" />
+                        ) : (
+                          <>
+                            <Feather name="play" size={13} color="#000000" style={{ marginRight: 4 }} />
+                            <Text style={styles.benchmarkStartBtnText}>START</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })
+              ) : (
+                <View style={styles.benchmarkEmptyState}>
+                  <View style={styles.benchmarkEmptyIcon}>
+                    <Feather name="trending-up" size={26} color="#8E8E93" />
+                  </View>
+                  <Text style={styles.benchmarkEmptyTitle}>No Benchmark Workouts Yet</Text>
+                  <Text style={styles.benchmarkEmptySubtitle}>
+                    Open any custom workout and tap the 3-dots menu to designate it as a Benchmark test.
+                  </Text>
                 </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={styles.benchmarkItemTitle}>5 km Benchmark</Text>
-                  <Text style={styles.benchmarkItemDesc}>Aerobic threshold test to optimize personal pacing zones</Text>
-                </View>
-              </View>
-
-              <View style={[styles.benchmarkItem, { borderBottomWidth: 0 }]}>
-                <View style={[styles.benchmarkItemIcon, { backgroundColor: 'rgba(191, 90, 242, 0.12)' }]}>
-                  <Feather name="clock" size={18} color="#BF5AF2" />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={styles.benchmarkItemTitle}>12-Minute Cooper Test</Text>
-                  <Text style={styles.benchmarkItemDesc}>Measure maximal distance covered in 12 continuous minutes</Text>
-                </View>
-              </View>
-            </View>
+              )}
+            </ScrollView>
 
             {/* Action button: view saved custom workouts */}
             <TouchableOpacity
@@ -1386,6 +1439,7 @@ const styles = StyleSheet.create({
   benchmarkSheet: {
     width: '100%',
     maxWidth: 420,
+    maxHeight: '80%',
     backgroundColor: '#1C1E24',
     borderRadius: 24,
     padding: 22,
@@ -1395,6 +1449,7 @@ const styles = StyleSheet.create({
   benchmarkList: {
     marginTop: 6,
     marginBottom: 20,
+    maxHeight: 320,
   },
   benchmarkItem: {
     flexDirection: 'row',
@@ -1420,6 +1475,47 @@ const styles = StyleSheet.create({
     color: '#8E8E93',
     marginTop: 2,
     lineHeight: 16,
+  },
+  benchmarkStartBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#30D158',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+  },
+  benchmarkStartBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#000000',
+    letterSpacing: 0.5,
+  },
+  benchmarkEmptyState: {
+    alignItems: 'center',
+    paddingVertical: 28,
+    paddingHorizontal: 16,
+  },
+  benchmarkEmptyIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  benchmarkEmptyTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  benchmarkEmptySubtitle: {
+    color: '#8E8E93',
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   benchmarkActionBtn: {
     flexDirection: 'row',

@@ -20,6 +20,7 @@ import {
     type UserWorkoutResponse,
     type UserWorkoutSegmentResponse,
 } from "../../../service/customWorkout";
+import { BenchmarkStore } from "../../../src/services/benchmarkStore";
 import { buildWorkoutExecutionPlan } from "../../../src/utils/workoutPlanBuilder";
 import { useCustomWorkout } from "./workout-context";
 
@@ -110,6 +111,25 @@ export default function CustomWorkoutCards() {
     id: number;
     action: "edit" | "start";
   } | null>(null);
+  const [benchmarkIds, setBenchmarkIds] = useState<number[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      BenchmarkStore.getBenchmarkIds().then(setBenchmarkIds);
+      const unsub = BenchmarkStore.subscribe(setBenchmarkIds);
+      return () => unsub();
+    }, [])
+  );
+
+  const handleToggleBenchmark = async (id: number, title?: string) => {
+    const nextState = await BenchmarkStore.toggleBenchmark(id);
+    Alert.alert(
+      nextState ? "Marked as Benchmark" : "Benchmark Removed",
+      nextState
+        ? `"${title || "Workout"}" is now set as a Benchmark Workout in Statistics.`
+        : `"${title || "Workout"}" removed from Benchmark Workouts in Statistics.`
+    );
+  };
 
   // Handle hardware back press on Android to return to Dashboard/Home
   useFocusEffect(
@@ -179,6 +199,7 @@ export default function CustomWorkoutCards() {
     const isEditing = actionLoading?.id === item.id && actionLoading?.action === "edit";
     const isStarting = actionLoading?.id === item.id && actionLoading?.action === "start";
     const isAnyLoading = Boolean(actionLoading);
+    const isBenchmark = benchmarkIds.includes(item.id);
     const segmentCount = (item.segments || []).length;
 
     return (
@@ -195,6 +216,12 @@ export default function CustomWorkoutCards() {
               <View style={styles.customBadge}>
                 <Text style={styles.customBadgeText}>CUSTOM</Text>
               </View>
+              {isBenchmark ? (
+                <View style={styles.benchmarkBadge}>
+                  <Feather name="trending-up" size={10} color="#30D158" />
+                  <Text style={styles.benchmarkBadgeText}>BENCHMARK</Text>
+                </View>
+              ) : null}
               {item.workout_date ? (
                 <View style={styles.dateBadge}>
                   <Feather name="calendar" size={11} color={Colors.primaryLight} />
@@ -208,6 +235,22 @@ export default function CustomWorkoutCards() {
           </View>
 
           <View style={styles.cardHeaderRight}>
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation();
+                handleToggleBenchmark(item.id, item.title);
+              }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              style={styles.cardBenchmarkBtn}
+              accessibilityLabel={isBenchmark ? "Remove from benchmark" : "Set as benchmark"}
+            >
+              <Feather
+                name="trending-up"
+                size={17}
+                color={isBenchmark ? "#30D158" : "#8E8E93"}
+              />
+            </TouchableOpacity>
+
             {isEditing ? (
               <ActivityIndicator size="small" color={Colors.primaryLight} />
             ) : (
@@ -474,6 +517,23 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.5,
   },
+  benchmarkBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(48, 209, 88, 0.15)",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "rgba(48, 209, 88, 0.35)",
+  },
+  benchmarkBadgeText: {
+    color: "#30D158",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
   dateBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -486,9 +546,15 @@ const styles = StyleSheet.create({
   dateBadgeText: { color: Colors.primaryLight, fontSize: 11, fontWeight: "600" },
   cardTitle: { color: Colors.text, fontSize: 19, fontWeight: "700" },
   cardHeaderRight: {
-    paddingLeft: 8,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    paddingLeft: 8,
+  },
+  cardBenchmarkBtn: {
+    padding: 6,
+    marginRight: 6,
+    borderRadius: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
   },
   metricsRow: {
     flexDirection: "row",
