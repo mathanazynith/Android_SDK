@@ -1,10 +1,26 @@
 import { Stack, usePathname } from 'expo-router';
-import { View } from 'react-native';
+import { useEffect } from 'react';
+import { Alert, BackHandler, View } from 'react-native';
 import GlobalBottomNav, { isPrimaryTabPath } from '../../components/navigation/GlobalBottomNav';
 
 export default function AppLayout() {
   const pathname = usePathname();
   const showBottomNav = isPrimaryTabPath(pathname);
+
+  useEffect(() => {
+    if (!showBottomNav) return;
+
+    const handleBackPress = () => {
+      Alert.alert('Exit App', 'Are you sure you want to close the app?', [
+        { text: 'Cancel', onPress: () => null, style: 'cancel' },
+        { text: 'OK', onPress: () => BackHandler.exitApp() },
+      ]);
+      return true;
+    };
+
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', handleBackPress);
+    return () => backHandler.remove();
+  }, [showBottomNav]);
 
   return (
     <View style={[styles.container, !showBottomNav && styles.subScreenContainer]}>

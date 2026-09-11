@@ -48,6 +48,10 @@ export class RunningApiClient {
     success: boolean;
     activityId: string | number | null;
   }> {
+    console.log(
+      `[Activity] Distance sent to backend: ${payload.distance.toFixed(2)}m; `
+      + `Pace sent to backend: ${payload.pace_seconds_per_km.toFixed(2)}s/km`
+    );
     console.log(`[RunningApiClient] POST ${ACTIVITY_UPLOAD_PATH}`, JSON.stringify(payload, null, 2));
 
     const response = await api.post(ACTIVITY_UPLOAD_PATH, payload, {

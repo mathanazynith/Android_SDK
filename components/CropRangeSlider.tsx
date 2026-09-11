@@ -58,7 +58,13 @@ export function CropRangeSlider({
 }
 
 const styles = StyleSheet.create({
-  touchArea: { height: 44, justifyContent: 'center' },
+  touchArea: {
+    width: '72%',
+    maxWidth: 320,
+    height: 44,
+    alignSelf: 'center',
+    justifyContent: 'center',
+  },
   track: { height: 8, borderRadius: 4, backgroundColor: '#393C3E' },
   selectedTrack: { position: 'absolute', top: 18, height: 8, borderRadius: 4, backgroundColor: '#2FD45B' },
   thumb: {

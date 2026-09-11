@@ -17,13 +17,13 @@ export class StepDetectionService {
 
     const available = await Pedometer.isAvailableAsync();
     if (!available) {
-      console.warn('[LocationManager] Pedometer unavailable; GPS-only tracking continues');
+      console.warn('[LocationManager] Pedometer unavailable; movement gate will rely on activity recognition');
       return;
     }
 
     const permission = await Pedometer.requestPermissionsAsync();
     if (permission.status !== 'granted') {
-      console.warn('[LocationManager] Pedometer permission not granted; GPS-only tracking continues');
+      console.warn('[LocationManager] Pedometer permission not granted; movement gate will rely on activity recognition');
       return;
     }
 

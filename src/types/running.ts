@@ -64,6 +64,7 @@ export interface ActivityGpsPointPayload {
   speed: number | null;
   heading: number | null;
   timestamp: string;
+  is_extra_distance: boolean;
 }
 
 export interface ActivitySubmissionPayload {
@@ -77,6 +78,8 @@ export interface ActivitySubmissionPayload {
   workout_distance_meters: number;
   additional_distance_meters: number;
   total_distance_meters: number;
+  avg_pace: number;
+  pace_seconds_per_km: number;
   laps?: ActivityLapPayload[];
 }
 

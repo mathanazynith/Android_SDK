@@ -2,14 +2,16 @@ import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  Platform,
+  // SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -198,6 +200,8 @@ export default function ActivityDetailScreen() {
           <Text style={styles.sectionTitle}>Route</Text>
           <ActivityRouteMap
             encodedPolyline={activity.encoded_polyline}
+            plannedEncodedPolyline={activity.planned_encoded_polyline}
+            extraEncodedPolyline={activity.extra_encoded_polyline}
             cropStartIndex={Number.isFinite(cropStartIndex) ? cropStartIndex : undefined}
             cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
           />
@@ -212,9 +216,19 @@ export default function ActivityDetailScreen() {
             <DetailMetric label="Calories" value={`${Math.round(activity.calories)} kcal`} />
           </View>
 
+          {(activity.planned_distance_km !== null && activity.planned_distance_km !== undefined)
+            || (activity.extra_distance_km !== null && activity.extra_distance_km !== undefined) ? (
+            <>
+              <Text style={styles.sectionTitle}>Distance breakdown</Text>
+              <View style={styles.metricsCard}>
+                <DetailMetric label="Planned distance" value={formatDistance(Number(activity.planned_distance ?? (activity.planned_distance_km ?? 0) * 1000))} />
+                <DetailMetric label="Extra distance" value={formatDistance(Number(activity.extra_distance ?? (activity.extra_distance_km ?? 0) * 1000))} />
+              </View>
+            </>
+          ) : null}
+
           <Text style={styles.sectionTitle}>Route data</Text>
           <View style={styles.metricsCard}>
-            <DetailMetric label="GPS points" value={String(activity.gps_points_count)} />
             <DetailMetric label="Elevation gain" value={`${Math.round(activity.elevation_gain)} m`} />
             <DetailMetric label="Elevation loss" value={`${Math.round(activity.elevation_loss)} m`} />
             <DetailMetric label="Route processed" value={activity.is_processed ? 'Yes' : 'No'} />
