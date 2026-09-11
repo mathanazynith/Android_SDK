@@ -1,8 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { router, usePathname } from 'expo-router';
-import { memo, useCallback, useEffect, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Animated, { interpolate, interpolateColor, useAnimatedProps, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
@@ -39,8 +38,6 @@ const NAV_HORIZONTAL_PADDING = 8;
 const ACTIVE_PILL_WIDTH = 45;
 const ACTIVE_PILL_HEIGHT = 45;
 
-const AnimatedFeather = Animated.createAnimatedComponent(Feather);
-
 type TabButtonProps = {
   tab: Tab;
   active: boolean;
@@ -60,22 +57,16 @@ const TabButton = memo(function TabButton({
   labelSize,
   onPress,
 }: TabButtonProps) {
-  const progress = useSharedValue(active ? 1 : 0);
+  const scale = useRef(new Animated.Value(active ? 1.12 : 1)).current;
 
   useEffect(() => {
-    progress.value = withSpring(active ? 1 : 0, {
-      damping: 18,
-      stiffness: 240,
-      mass: 0.7,
-    });
-  }, [active, progress]);
-
-  const iconStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: interpolate(progress.value, [0, 1], [1, 1.12]) }],
-  }));
-  const iconProps = useAnimatedProps(() => ({
-    color: interpolateColor(progress.value, [0, 1], [inactiveColor, BRAND_GREEN]),
-  }));
+    Animated.spring(scale, {
+      toValue: active ? 1.12 : 1,
+      useNativeDriver: true,
+      friction: 8,
+      tension: 100,
+    }).start();
+  }, [active, scale]);
 
   return (
     <TouchableOpacity
@@ -85,14 +76,19 @@ const TabButton = memo(function TabButton({
       accessibilityRole="button"
       accessibilityState={{ selected: active, disabled: !enabled }}
     >
-      <Animated.View style={[styles.iconWrapper, iconStyle]}>
-        <AnimatedFeather animatedProps={iconProps} name={tab.icon} size={iconSize} />
+      <Animated.View style={[styles.iconWrapper, { transform: [{ scale }] }]}>
+        <Feather name={tab.icon} size={iconSize} color={active ? BRAND_GREEN : inactiveColor} />
       </Animated.View>
       <Text
         numberOfLines={1}
         adjustsFontSizeToFit
         minimumFontScale={0.8}
-        style={[styles.label, { color: active ? BRAND_GREEN : inactiveColor, fontSize: labelSize }, active && styles.activeLabel, !enabled && styles.disabledLabel]}
+        style={[
+          styles.label,
+          { color: active ? BRAND_GREEN : inactiveColor, fontSize: labelSize },
+          active && styles.activeLabel,
+          !enabled && styles.disabledLabel,
+        ]}
       >
         {tab.label}
       </Text>
@@ -117,9 +113,10 @@ export default function GlobalBottomNav() {
   const { workoutPlan, isWorkoutPlanLoaded, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
   const [rowWidth, setRowWidth] = useState(0);
   const activeIndex = tabs.findIndex((tab) => isTabActive(pathname, tab.route));
-  const indicatorPosition = useSharedValue(0);
-  const indicatorOpacity = useSharedValue(0);
-  const tabWidth = rowWidth / tabs.length;
+  const tabWidth = rowWidth > 0 ? rowWidth / tabs.length : 0;
+
+  const pillTranslateX = useRef(new Animated.Value(0)).current;
+  const pillOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (!isWorkoutPlanLoaded && !isWorkoutPlanLoading) void fetchWorkoutPlan();
@@ -127,26 +124,28 @@ export default function GlobalBottomNav() {
 
   useEffect(() => {
     const hasActiveTab = activeIndex >= 0 && rowWidth > 0;
-    const nextPosition = hasActiveTab
-      ? activeIndex * tabWidth + (tabWidth - ACTIVE_PILL_WIDTH) / 2
-      : indicatorPosition.value;
+    if (hasActiveTab) {
+      const nextPosition = activeIndex * tabWidth + (tabWidth - ACTIVE_PILL_WIDTH) / 2;
+      Animated.spring(pillTranslateX, {
+        toValue: nextPosition,
+        useNativeDriver: true,
+        friction: 8,
+        tension: 100,
+      }).start();
 
-    indicatorPosition.value = withSpring(nextPosition, {
-      damping: 18,
-      stiffness: 150,
-      mass: 0.7,
-    });
-    indicatorOpacity.value = withSpring(hasActiveTab ? 1 : 0, {
-      damping: 18,
-      stiffness: 150,
-      mass: 0.7,
-    });
-  }, [activeIndex, indicatorOpacity, indicatorPosition, rowWidth, tabWidth]);
-
-  const indicatorStyle = useAnimatedStyle(() => ({
-    opacity: indicatorOpacity.value,
-    transform: [{ translateX: indicatorPosition.value }],
-  }));
+      Animated.timing(pillOpacity, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(pillOpacity, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [activeIndex, pillOpacity, pillTranslateX, rowWidth, tabWidth]);
 
   const hasActivePlan = isWorkoutPlanLoaded && Boolean(workoutPlan?.weeks?.length);
   const handleTabPress = useCallback((tab: Tab) => {
@@ -164,12 +163,33 @@ export default function GlobalBottomNav() {
   if (!isPrimaryTabPath(pathname)) return null;
 
   return (
-    <View style={[styles.container, { bottom: spacing(12) + insets.bottom, minHeight: spacing(78), backgroundColor: colors.surface, borderColor: colors.border }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          bottom: spacing(12) + insets.bottom,
+          minHeight: spacing(78),
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+        },
+      ]}
+    >
       <View
         onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
         style={styles.tabRow}
       >
-        {rowWidth > 0 ? <Animated.View pointerEvents="none" style={[styles.activePill, indicatorStyle]} /> : null}
+        {rowWidth > 0 ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.activePill,
+              {
+                opacity: pillOpacity,
+                transform: [{ translateX: pillTranslateX }],
+              },
+            ]}
+          />
+        ) : null}
         {tabs.map((tab) => {
           const active = isTabActive(pathname, tab.route);
           return (
@@ -191,12 +211,31 @@ export default function GlobalBottomNav() {
 }
 
 const styles = StyleSheet.create({
-  container: { position: 'absolute', left: 12, right: 12, minHeight: 78, paddingHorizontal: NAV_HORIZONTAL_PADDING, paddingVertical: 6, borderRadius: 42, borderWidth: 1, zIndex: 10 },
+  container: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    minHeight: 78,
+    paddingHorizontal: NAV_HORIZONTAL_PADDING,
+    paddingVertical: 6,
+    borderRadius: 42,
+    borderWidth: 1,
+    zIndex: 10,
+  },
   tabRow: { flex: 1, flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center' },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minWidth: 0, position: 'relative' },
   iconWrapper: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
   label: { fontSize: 10, lineHeight: 12, marginTop: 3, textAlign: 'center', includeFontPadding: false, maxWidth: '100%' },
   activeLabel: { fontWeight: '700' },
   disabledLabel: { opacity: 0.5 },
-  activePill: { position: 'absolute', left: 0, top: '45%', marginTop: -ACTIVE_PILL_HEIGHT / 2, width: ACTIVE_PILL_WIDTH, height: ACTIVE_PILL_HEIGHT, borderRadius: ACTIVE_PILL_HEIGHT / 2, backgroundColor: '#22C55E40' },
+  activePill: {
+    position: 'absolute',
+    left: 0,
+    top: '45%',
+    marginTop: -ACTIVE_PILL_HEIGHT / 2,
+    width: ACTIVE_PILL_WIDTH,
+    height: ACTIVE_PILL_HEIGHT,
+    borderRadius: ACTIVE_PILL_HEIGHT / 2,
+    backgroundColor: '#22C55E40',
+  },
 });

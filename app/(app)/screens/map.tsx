@@ -3,16 +3,17 @@ import * as Location from 'expo-location';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  BackHandler,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
+    ActivityIndicator,
+    Alert,
+    BackHandler,
+    Platform,
+    Pressable,
+    StyleSheet,
+    Text,
+    View,
 } from 'react-native';
 import MapView, { Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { useAuth } from '../../../service/auth';
 import { workoutPlanService } from '../../../service/workoutPlan';
 import { ActivityDetectionService } from '../../../src/services/activityDetectionService';
 import { activityDistanceOverrides } from '../../../src/services/activityDistanceOverrides';
@@ -29,7 +30,6 @@ import { BackendWorkout, WorkoutEngineSnapshot } from '../../../src/types/workou
 import { createCatmullRomPolyline } from '../../../src/utils/catmullRom';
 import { calculateDistanceMeters } from '../../../src/utils/distance';
 import { formatStepTarget, WorkoutExecutionStep } from '../../../src/utils/workoutPlanBuilder';
-import { useAuth } from '../../../service/auth';
 
 const formatTimerDisplay = (totalSec: number) => {
   const m = Math.floor(Math.max(0, totalSec) / 60);
@@ -782,14 +782,19 @@ export default function MapScreen() {
       }
 
       let selectedWorkout: BackendWorkout | null = null;
-      if (params.workoutTitle) {
-        const plan = await workoutPlanService.getCurrent();
-        selectedWorkout = plan.weeks
-          .flatMap((week) => week.workouts)
-          .find((workout) => workout.title === params.workoutTitle) ?? null;
-        if (!selectedWorkout) {
-          Alert.alert('Workout unavailable', 'The selected workout was not found in your current plan.');
-          return;
+      // Only query backend training plan if this is NOT a custom workout execution plan
+      if (params.workoutTitle && !params.workoutPlan && executionPlan.length === 0) {
+        try {
+          const plan = await workoutPlanService.getCurrent();
+          selectedWorkout =
+            plan?.weeks
+              ?.flatMap((week) => week.workouts)
+              ?.find((workout) => workout.title === params.workoutTitle) ?? null;
+          if (!selectedWorkout) {
+            console.warn('[MapScreen] Workout not found in backend plan:', params.workoutTitle);
+          }
+        } catch (planError) {
+          console.warn('[MapScreen] Failed to fetch backend training plan (proceeding without backend plan):', planError);
         }
       }
 

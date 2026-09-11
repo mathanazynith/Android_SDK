@@ -3,30 +3,31 @@ import DateTimePicker, { type DateTimePickerEvent } from "@react-native-communit
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { Colors } from "../../../constants/theme";
 import { customWorkoutAPI } from "../../../service/customWorkout";
+import { BenchmarkStore } from "../../../src/services/benchmarkStore";
 import {
-  normalizeUnit,
-  parsePaceToSeconds,
+    normalizeUnit,
+    parsePaceToSeconds,
 } from "../../../src/utils/workoutCalculations";
 import { buildWorkoutExecutionPlan } from "../../../src/utils/workoutPlanBuilder";
 import {
-  useCustomWorkout,
-  type WorkoutStep,
+    useCustomWorkout,
+    type WorkoutStep,
 } from "./workout-context";
 
 const seconds = (value: string) => {
@@ -473,6 +474,34 @@ export default function CustomWorkoutOverview() {
   // 3-dot Action Menu and DatePicker states
   const [showActionMenu, setShowActionMenu] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [isBenchmark, setIsBenchmark] = useState(false);
+
+  useEffect(() => {
+    if (workout.id) {
+      BenchmarkStore.isBenchmark(workout.id).then(setIsBenchmark);
+    } else {
+      setIsBenchmark(false);
+    }
+  }, [workout.id]);
+
+  const handleToggleBenchmark = async () => {
+    if (!workout.id) {
+      Alert.alert(
+        "Save Workout First",
+        "Please save this custom workout before setting it as a benchmark test."
+      );
+      return;
+    }
+    const nextState = await BenchmarkStore.toggleBenchmark(workout.id);
+    setIsBenchmark(nextState);
+    setShowActionMenu(false);
+    Alert.alert(
+      nextState ? "Marked as Benchmark" : "Benchmark Removed",
+      nextState
+        ? `"${workout.title || "Workout"}" is now set as a Benchmark Workout in Statistics.`
+        : `"${workout.title || "Workout"}" removed from Benchmark Workouts in Statistics.`
+    );
+  };
 
   // Individual Card 3-Dot Action Menu state
   const [cardMenu, setCardMenu] = useState<{
@@ -734,9 +763,17 @@ export default function CustomWorkoutOverview() {
           }}
           activeOpacity={isEditing ? 0.7 : 1}
         >
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {workout.title || "Run Workout"}
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {workout.title || "Run Workout"}
+            </Text>
+            {isBenchmark ? (
+              <View style={styles.benchmarkHeaderBadge}>
+                <Feather name="trending-up" size={10} color="#30D158" />
+                <Text style={styles.benchmarkHeaderBadgeText}>BENCHMARK</Text>
+              </View>
+            ) : null}
+          </View>
           {isEditing ? (
             <Feather name="edit-2" size={13} color={Colors.primaryLight} style={{ marginLeft: 6 }} />
           ) : null}
@@ -1344,6 +1381,45 @@ export default function CustomWorkoutOverview() {
               </TouchableOpacity>
             )}
 
+            {/* Menu Option: Benchmark Workout Toggle */}
+            <TouchableOpacity
+              style={styles.menuItem}
+              activeOpacity={0.7}
+              onPress={handleToggleBenchmark}
+            >
+              <View
+                style={[
+                  styles.menuItemIcon,
+                  {
+                    backgroundColor: isBenchmark
+                      ? "rgba(48, 209, 88, 0.15)"
+                      : "rgba(255, 214, 10, 0.15)",
+                  },
+                ]}
+              >
+                <Feather
+                  name="trending-up"
+                  size={18}
+                  color={isBenchmark ? "#30D158" : "#FFD60A"}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuItemText}>
+                  {isBenchmark ? "Remove from Benchmark" : "Make as Benchmark"}
+                </Text>
+                <Text style={styles.menuItemSubtext}>
+                  {isBenchmark
+                    ? "Currently included in Statistics Benchmark tests"
+                    : "Add as a standardized test in Statistics"}
+                </Text>
+              </View>
+              {isBenchmark ? (
+                <Feather name="check" size={18} color="#30D158" />
+              ) : (
+                <Feather name="chevron-right" size={16} color={Colors.textMuted} />
+              )}
+            </TouchableOpacity>
+
             {/* Menu Option 1: Duplicate */}
             <TouchableOpacity
               style={styles.menuItem}
@@ -1468,6 +1544,22 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "700",
     maxWidth: "80%",
+  },
+  benchmarkHeaderBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(48, 209, 88, 0.15)",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+    marginLeft: 8,
+    gap: 4,
+  },
+  benchmarkHeaderBadgeText: {
+    color: "#30D158",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.5,
   },
   headerRightActions: {
     flexDirection: "row",
