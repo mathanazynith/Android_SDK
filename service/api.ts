@@ -270,9 +270,13 @@ export interface LegalPolicy {
 
 /** Public endpoints: published documents do not require authentication. */
 export const legalAPI = {
-  getPolicies: () => api.get<LegalPolicy[]>(`${API_ROOT_URL}/api/legal/`),
+  getPolicies: () => api.get<LegalPolicy[]>(API_ENDPOINTS.legal.list),
   getPolicy: (policyType: LegalPolicyType) =>
-    api.get<LegalPolicy>(`${API_ROOT_URL}/api/legal/${policyType}/`),
+    api.get<LegalPolicy>(
+      policyType === "privacy-policy"
+        ? API_ENDPOINTS.legal.privacyPolicy
+        : API_ENDPOINTS.legal.termsAndConditions
+    ),
 };
 
 const normalizeErrorResponse = (value: any): string | null => {
