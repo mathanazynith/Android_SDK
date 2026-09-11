@@ -54,9 +54,18 @@ export class RunningApiClient {
     );
     console.log(`[RunningApiClient] POST ${ACTIVITY_UPLOAD_PATH}`, JSON.stringify(payload, null, 2));
 
-    const response = await api.post(ACTIVITY_UPLOAD_PATH, payload, {
-      headers: { 'Content-Type': 'application/json' },
-    });
+    let response;
+    try {
+      response = await api.post(ACTIVITY_UPLOAD_PATH, payload, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error: any) {
+      console.log('[RunningApiClient] Activity upload failed', {
+        status: error?.response?.status,
+        data: error?.response?.data,
+      });
+      throw error;
+    }
 
     console.log('[RunningApiClient] Activity upload response', JSON.stringify(response.data, null, 2));
     const data = response.data?.data ?? response.data;
