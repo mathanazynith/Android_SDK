@@ -78,9 +78,42 @@ export interface ActivitySubmissionPayload {
   workout_distance_meters: number;
   additional_distance_meters: number;
   total_distance_meters: number;
+  split_distance_m: number;
   avg_pace: number;
   pace_seconds_per_km: number;
   laps?: ActivityLapPayload[];
+  segments?: ActivitySegmentPayload[];
+  extra?: ActivityExtraPayload | null;
+}
+
+export interface ActivitySegmentPayload {
+  sequence: number;
+  type: 'WARM_UP' | 'RUN' | 'COOLDOWN';
+  planned_distance_m: number;
+  planned_time_s: number;
+  completed_distance_m: number;
+  actual_time_s: number;
+  actual_pace_s_per_km: number;
+  gps_points: ActivityGpsPointPayload[];
+  recovery?: ActivityRecoveryPayload | null;
+}
+
+export interface ActivityRecoveryPayload {
+  sequence: number;
+  type: 'RECOVERY';
+  planned_time_s: number;
+  actual_time_s: number;
+  distance_m: number;
+  pace_s_per_km: number;
+  gps_points: ActivityGpsPointPayload[];
+}
+
+export interface ActivityExtraPayload {
+  type: 'EXTRA';
+  distance_m: number;
+  actual_time_s: number;
+  pace_s_per_km: number;
+  gps_points: ActivityGpsPointPayload[];
 }
 
 export interface ActivityLapPayload {

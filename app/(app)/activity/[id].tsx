@@ -2,21 +2,23 @@ import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    Alert,
+    Platform,
+    SafeAreaView,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
+import ActivitySplitsModal from '../../../components/ActivitySplitsModal';
 import { getBackendErrorMessage } from '../../../service/api';
-import { activityAPI, BackendActivity } from '../../../src/services/activityApi';
+import { activityAPI, BackendActivity, normalizeActivitySplits } from '../../../src/services/activityApi';
+import { ActivityExtraSplits, ActivitySegmentSplits } from '../../../src/types/activity';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
 
@@ -57,6 +59,11 @@ export default function ActivityDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [splitsVisible, setSplitsVisible] = useState(false);
+  const [splitsLoading, setSplitsLoading] = useState(false);
+  const [splitsError, setSplitsError] = useState<string | null>(null);
+  const [splitSegments, setSplitSegments] = useState<ActivitySegmentSplits[]>([]);
+  const [extraSplits, setExtraSplits] = useState<ActivityExtraSplits['splits']>([]);
   const cropStartIndex = cropStart === undefined ? undefined : Number(cropStart);
   const cropEndIndex = cropEnd === undefined ? undefined : Number(cropEnd);
 
@@ -129,6 +136,23 @@ export default function ActivityDetailScreen() {
     );
   };
 
+  const loadSplits = async () => {
+    if (!activity) return;
+    setSplitsVisible(true);
+    setSplitsLoading(true);
+    setSplitsError(null);
+    try {
+      const detail = await activityAPI.get(activity.id);
+      const splitData = normalizeActivitySplits(detail);
+      setSplitSegments(splitData.segments);
+      setExtraSplits(splitData.extra?.splits ?? []);
+    } catch (requestError) {
+      setSplitsError(getBackendErrorMessage(requestError, 'Unable to load split details.'));
+    } finally {
+      setSplitsLoading(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
@@ -145,6 +169,13 @@ export default function ActivityDetailScreen() {
               style={styles.cropButton}
             >
               <Feather name="crop" size={20} color="#FFB020" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityLabel="Open split details"
+              onPress={() => void loadSplits()}
+              style={styles.splitButton}
+            >
+              <Feather name="list" size={20} color="#35C72B" />
             </TouchableOpacity>
             <TouchableOpacity
               accessibilityLabel="Delete workout"
@@ -226,6 +257,15 @@ export default function ActivityDetailScreen() {
           </View>
         </ScrollView>
       ) : null}
+      <ActivitySplitsModal
+        visible={splitsVisible}
+        loading={splitsLoading}
+        error={splitsError}
+        segments={splitSegments}
+        extraSplits={extraSplits}
+        onClose={() => setSplitsVisible(false)}
+        onRetry={() => void loadSplits()}
+      />
     </SafeAreaView>
   );
 }
@@ -241,6 +281,7 @@ const styles = StyleSheet.create({
   backButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
   headerButtonsContainer: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   cropButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
+  splitButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
   deleteButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
   headerTitle: { color: '#F7F7F7', fontSize: 19, fontWeight: '700' },
   headerSpacer: { width: 42 },

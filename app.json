@@ -3,7 +3,6 @@
     "name": "frontend",
     "slug": "frontend",
     "version": "1.0.0",
-    // "newArchEnabled": false,
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "frontend",
@@ -56,6 +55,7 @@
       "@react-native-community/datetimepicker",
       "expo-secure-store",
       "expo-image",
+      "expo-image-picker",
       "expo-status-bar",
       "expo-web-browser"
     ],
