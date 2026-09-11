@@ -4,24 +4,24 @@
     "slug": "zy-run",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/ZyRunLOGO.png",
+    "icon": "./assets/ZyRunLOGO.jpg",
     "scheme": "com.zyapp",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/ZyRunLOGO.png"
+      "icon": "./assets/ZyRunLOGO.jpg"
     },
     "android": {
-      "icon": "./assets/ZyRunLOGO.png",
+      "icon": "./assets/ZyRunLOGO.jpg",
       "adaptiveIcon": {
         "backgroundColor": "#FAFAFA",
-        "foregroundImage": "./assets/ZyRunLOGO.png"
+        "foregroundImage": "./assets/ZyRunLOGO.jpg"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.zyapp"
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/ZyRunLOGO.png",
+      "favicon": "./assets/ZyRunLOGO.jpg",
       "bundler": "metro"
     },
     "plugins": [
@@ -47,7 +47,7 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#FAFAFA",
-          "image": "./assets/ZyRunLOGO.png",
+          "image": "./assets/ZyRunLOGO.jpg",
           "imageWidth": 200
         }
       ],

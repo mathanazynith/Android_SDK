@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppInput } from '../../components/common/AppInput';
 import { PrimaryButton } from '../../components/common/PrimaryButton';
 import GoogleLoginButton from '../../components/GoogleLoginButton';
+import { LegalConsent } from '../../components/LegalConsent';
 import { Colors, Spacing, Typography } from '../../constants/theme';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../service/auth';
@@ -233,6 +234,7 @@ export default function LoginScreen() {
           <Text style={styles.forgotPasswordText}>Forgot password?</Text>
         </TouchableOpacity>
 
+        <LegalConsent />
         <PrimaryButton
           title="Sign in  →"
           onPress={handleLogin}

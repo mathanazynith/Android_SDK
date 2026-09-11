@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from '../service/auth';
 import { QuestionnaireProvider } from '../contexts/QuestionnaireContext';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
+import '../src/services/backgroundLocationTask';
 
 function RootSurface({ children }: { children: ReactNode }) {
   const { isDark } = useTheme();

@@ -1,6 +1,6 @@
 import { router, useRootNavigationState } from 'expo-router';
 import { useEffect, useRef } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 import { useAuth } from '../service/auth';
 
 export default function SplashScreen() {
@@ -20,9 +20,12 @@ export default function SplashScreen() {
 
   return (
     <View style={styles.container}>
-      <ActivityIndicator size="large" color="#34C759" />
-      <Text style={styles.logo}>Zy-Run</Text>
-      <Text style={styles.subtitle}>Loading...</Text>
+      <Image
+        source={require('../assets/Loading_image_app.jpg')}
+        style={styles.loadingImage}
+        resizeMode="cover"
+        accessibilityLabel="Zy-Run loading"
+      />
     </View>
   );
 }
@@ -34,15 +37,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  logo: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#34C759',
-    marginTop: 20,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#8E8E93',
-    marginTop: 8,
+  loadingImage: {
+    width: '100%',
+    height: '100%',
   },
 });
