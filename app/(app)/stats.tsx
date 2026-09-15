@@ -1562,8 +1562,8 @@ const lightStyles = StyleSheet.create({
     paddingBottom: 112,
   },
   periodTabsContainer: {
-    backgroundColor: 'white',
-    borderColor: 'black',
+    backgroundColor: '#D7D8DA',
+    borderColor: '#D7D8DA',
     shadowColor: '#000000',
     shadowOpacity: 0.04,
     shadowRadius: 6,
@@ -1573,10 +1573,10 @@ const lightStyles = StyleSheet.create({
     backgroundColor: '#30D158',
   },
   periodTabText: {
-    color: 'Black',
+    color: '#55575B',
   },
   periodTabTextActive: {
-    color: 'Black',
+    color: '#000000',
   },
   heroCard: {
     backgroundColor: '#F1F2F4',

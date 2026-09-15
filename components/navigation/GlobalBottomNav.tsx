@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { router, usePathname } from 'expo-router';
 import { memo, useCallback, useEffect, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -100,6 +100,7 @@ const isTabActive = (pathname: string, route: Tab['route']) => {
 export default function GlobalBottomNav() {
   const pathname = usePathname();
   const { isDark } = useTheme();
+  const isLegacyAndroidBlur = Platform.OS === 'android' && Number(Platform.Version) < 31;
   const { workoutPlan, isWorkoutPlanLoaded, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
   const [rowWidth, setRowWidth] = useState(0);
   const activeIndex = tabs.findIndex((tab) => isTabActive(pathname, tab.route));
@@ -143,18 +144,23 @@ export default function GlobalBottomNav() {
 
   return (
     <BlurView
-      intensity={60}
+      intensity={isLegacyAndroidBlur ? 0 : isDark ? 85 : 80}
       tint={isDark ? 'dark' : 'light'}
+      experimentalBlurMethod="dimezisBlurView"
       style={[
         styles.container,
         {
-          backgroundColor: isDark ? 'rgba(25, 25, 25, 0.65)' : 'rgba(255, 255, 255, 0.65)',
-          borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.8)',
-          shadowColor: '#000',
+          backgroundColor: isLegacyAndroidBlur
+            ? isDark ? 'rgba(28, 28, 30, 0.88)' : 'rgba(255, 255, 255, 0.88)'
+            : isDark ? 'rgba(18, 18, 22, 0.55)' : 'rgba(255, 255, 255, 0.70)',
+          borderColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(226, 226, 226, 0.75)',
+          borderWidth: isDark ? 1.2 : 1.5,
+          shadowColor: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(0, 0, 0, 0.08)',
+          elevation: isDark ? 12 : 8,
         },
       ]}
     >
-      <View pointerEvents="none" style={[styles.glassSheen, { borderColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.72)' }]} />
+      <View pointerEvents="none" style={[styles.glassSheen, { borderColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.10)' }]} />
       <LinearGradient
         pointerEvents="none"
         colors={isDark ? ['rgba(255, 255, 255, 0.12)', 'rgba(255, 255, 255, 0.02)', 'rgba(0, 0, 0, 0.12)'] : ['rgba(255, 255, 255, 0.42)', 'rgba(255, 255, 255, 0.08)', 'rgba(255, 255, 255, 0.02)']}
@@ -179,8 +185,8 @@ export default function GlobalBottomNav() {
               tab={tab}
               active={active}
               enabled={tab.label !== 'Plan' || hasActivePlan}
-              activeColor={isDark ? BRAND_GREEN : '#15803D'}
-              inactiveColor={isDark ? '#FFFFFF' : '#64748B'}
+              activeColor={isDark ? BRAND_GREEN : '#16A34A'}
+              inactiveColor={isDark ? '#FFFFFF' : '#000000'}
               iconSize={24}
               labelSize={12}
               onPress={handleTabPress}
@@ -196,18 +202,15 @@ const styles = StyleSheet.create({
   container: {
     position: 'absolute',
     bottom: 20,
-    left: 0,
-    right: 0,
-    marginHorizontal: 16,
+    left: 16,
+    right: 16,
     height: 64,
-    borderRadius: 40,
-    borderWidth: 1,
+    borderRadius: 30,
     overflow: 'hidden',
     zIndex: 10,
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 1,
     shadowRadius: 20,
-    elevation: 12,
   },
   tabRow: {
     flex: 1,
@@ -217,7 +220,7 @@ const styles = StyleSheet.create({
   },
   glassSheen: {
     ...StyleSheet.absoluteFill,
-    borderRadius: 40,
+    borderRadius: 30,
     borderWidth: 1,
     borderBottomColor: 'transparent',
     backgroundColor: 'rgba(255, 255, 255, 0.04)',

@@ -2,6 +2,7 @@
 import * as Location from 'expo-location';
 import * as SecureStore from 'expo-secure-store';
 import * as TaskManager from 'expo-task-manager';
+import { AppState } from 'react-native';
 import { RawGpsPayload } from '../types/running';
 import { appendActiveRunPoints } from './activeRunJournal';
 
@@ -10,6 +11,7 @@ export const BACKGROUND_LOCATION_SESSION_KEY = 'zyrun:background-location-sessio
 
 export interface BackgroundLocationSessionState {
   active: boolean;
+  paused?: boolean;
   runId?: string | null;
   userId?: string | null;
   startedAt?: string | null;
@@ -79,12 +81,16 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, async ({ data, error }) =>
   const locations = (data as { locations?: Location.LocationObject[] } | undefined)?.locations ?? [];
   if (!locations.length) return;
 
-  const payloads = locations.map(hydrateLocationPayload);
+  const payloads = locations
+    .map(hydrateLocationPayload)
+    .sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
   const payload = payloads[payloads.length - 1];
   const previous = await readSessionState();
+  if (!previous?.active || previous.paused) return;
 
   const nextState: BackgroundLocationSessionState = {
     active: true,
+    paused: false,
     runId: previous?.runId ?? null,
     userId: previous?.userId ?? null,
     startedAt: previous?.startedAt ?? null,
@@ -93,10 +99,13 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, async ({ data, error }) =>
   };
 
   await persistBackgroundLocationSession(nextState);
-  await appendActiveRunPoints(payloads);
 
+  // Keep the screen-on watchPositionAsync pipeline completely untouched. The
+  // task records only fixes received after Android backgrounds the app.
+  if (AppState.currentState === 'active') return;
+  await appendActiveRunPoints(payloads);
   if (typeof globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__ === 'function') {
-    for (const location of payloads) globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__(location);
+    payloads.forEach(globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__);
   }
 
   console.log(
@@ -104,3 +113,26 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, async ({ data, error }) =>
       `acc=${payload.accuracy ?? 0}m speed=${payload.speed ?? 0}m/s`
   );
 });
+
+export const startBackgroundLocationTracking = async (): Promise<void> => {
+  if (await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME)) return;
+  await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME, {
+    accuracy: Location.Accuracy.BestForNavigation,
+    timeInterval: 1_000,
+    distanceInterval: 0,
+    foregroundService: {
+      notificationTitle: 'Workout tracking is active',
+      notificationBody: 'Zy-Run is recording your route.',
+      notificationColor: '#20D000',
+      killServiceOnDestroy: false,
+    },
+  });
+  console.log('[BackgroundLocationTask] Android foreground service started');
+};
+
+export const stopBackgroundLocationTracking = async (): Promise<void> => {
+  if (await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME)) {
+    await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME);
+  }
+  console.log('[BackgroundLocationTask] Android foreground service stopped');
+};

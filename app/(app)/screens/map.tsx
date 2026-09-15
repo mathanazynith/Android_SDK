@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    AppState,
     BackHandler,
     Platform,
     Pressable,
@@ -19,6 +20,14 @@ import { ActivityDetectionService } from '../../../src/services/activityDetectio
 import { activityDistanceOverrides } from '../../../src/services/activityDistanceOverrides';
 import { LocationQueue } from '../../../src/services/locationQueue';
 import { LocationService } from '../../../src/services/locationService';
+import {
+  clearBackgroundLocationSession,
+  persistBackgroundLocationSession,
+  setBackgroundLocationListener,
+  startBackgroundLocationTracking,
+  stopBackgroundLocationTracking,
+} from '../../../src/services/backgroundLocationTask';
+import { beginActiveRunJournal, clearActiveRunJournal, readActiveRunJournal } from '../../../src/services/activeRunJournal';
 import { PathProcessor } from '../../../src/services/pathProcessor';
 import { RunningApiClient } from '../../../src/services/runningApi';
 import { DistanceSplitEngine } from '../../../src/services/splitEngine';
@@ -178,6 +187,7 @@ export default function MapScreen() {
   const stepDetectionRef = useRef<StepDetectionService | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const previousLocationRef = useRef<RawGpsPayload | null>(null);
+  const processedLocationKeysRef = useRef<Set<string>>(new Set());
   const runIdRef = useRef<string | null>(null);
   const apiClientRef = useRef<RunningApiClient | null>(null);
   const pathProcessorRef = useRef<PathProcessor | null>(null);
@@ -575,6 +585,9 @@ export default function MapScreen() {
         : typeof rawGps.timestamp === 'string'
           ? parseInt(rawGps.timestamp, 10)
           : Date.now();
+      const pointKey = `${timestamp}|${rawGps.latitude}|${rawGps.longitude}`;
+      if (processedLocationKeysRef.current.has(pointKey)) return;
+      processedLocationKeysRef.current.add(pointKey);
 
       setLocation({
         coords: {
@@ -775,8 +788,26 @@ export default function MapScreen() {
     }
 
     locationSubscription.current = await LocationService.watchLocation(handleLocationUpdate);
+    // This supplements the untouched watcher only after the workout starts.
+    setBackgroundLocationListener(handleLocationUpdate);
+    await startBackgroundLocationTracking();
     addLog('?? Live GPS tracking started');
   }, [addLog, handleLocationUpdate]);
+
+  useEffect(() => {
+    const reconcileBackgroundPoints = async () => {
+      if (!isRunningRef.current) return;
+      const journal = await readActiveRunJournal();
+      if (!journal?.active || journal.runId !== runIdRef.current) return;
+      [...journal.points]
+        .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0))
+        .forEach(handleLocationUpdate);
+    };
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void reconcileBackgroundPoints();
+    });
+    return () => subscription.remove();
+  }, [handleLocationUpdate]);
 
   const startRun = async () => {
     if (isStartingRef.current || isRunningRef.current) {
@@ -814,6 +845,7 @@ export default function MapScreen() {
       }
 
       routeSegmentsRef.current = [];
+      processedLocationKeysRef.current = new Set();
       setRouteSegments([]);
       distanceRef.current = 0;
       extraDistanceRef.current = 0;
@@ -858,6 +890,15 @@ export default function MapScreen() {
 
       const runId = startResponse.run_id;
       runIdRef.current = runId;
+      await beginActiveRunJournal(runId, startedAt);
+      await persistBackgroundLocationSession({
+        active: true,
+        paused: false,
+        runId,
+        userId,
+        startedAt,
+        updatedAt: new Date(startedAt).getTime(),
+      });
 
       // ============================================================
       // 🏃 RUN STARTED - Enhanced Logging
@@ -1088,6 +1129,14 @@ export default function MapScreen() {
       pauseStartTimeRef.current = Date.now();
       isPausedRef.current = true;
       setIsPaused(true);
+      await persistBackgroundLocationSession({
+        active: true,
+        paused: true,
+        runId: runIdRef.current,
+        userId: user?.id ? String(user.id) : null,
+        startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+        updatedAt: pauseStartTimeRef.current,
+      });
 
       console.log('[RecordView] Run paused - GPS continues as light trace');
       addLog('⏸ Run paused - tracking stopped');
@@ -1116,6 +1165,14 @@ export default function MapScreen() {
 
       isPausedRef.current = false;
       setIsPaused(false);
+      await persistBackgroundLocationSession({
+        active: true,
+        paused: false,
+        runId: runIdRef.current,
+        userId: user?.id ? String(user.id) : null,
+        startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+        updatedAt: startTimeRef.current,
+      });
 
       // The watcher was never stopped; only active-distance accounting resumes.
       workoutEngineRef.current?.resume();
@@ -1151,6 +1208,7 @@ export default function MapScreen() {
       console.log(`[RecordView] Recording stopped at ${stoppedAt.toISOString()}`);
       console.log('[RecordView] Stop finalization started');
       isRunningRef.current = false;
+      await persistBackgroundLocationSession({ active: false, paused: false, updatedAt: startTimeRef.current });
 
       if (locationSubscription.current) {
         locationSubscription.current.remove();
@@ -1578,6 +1636,9 @@ export default function MapScreen() {
       }
 
       voiceCoach?.stop?.();
+      setBackgroundLocationListener(undefined);
+      await clearBackgroundLocationSession();
+      await clearActiveRunJournal();
       setIsRunning(false);
       isRunningRef.current = false;
       startTimeRef.current = null;
@@ -1628,6 +1689,12 @@ export default function MapScreen() {
         backendMessage || 'The activity could not be uploaded. Your route is still available for retry.',
       );
     } finally {
+      setBackgroundLocationListener(undefined);
+      try {
+        await stopBackgroundLocationTracking();
+      } catch (stopError) {
+        console.warn('[BackgroundLocationTask] Unable to stop Android foreground service', stopError);
+      }
       console.log('[RecordView] Stop & Save finalization finished');
       isStoppingRef.current = false;
     }
