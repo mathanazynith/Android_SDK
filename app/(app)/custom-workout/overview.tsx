@@ -16,6 +16,7 @@ import {
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { Colors } from "../../../constants/theme";
 import { customWorkoutAPI } from "../../../service/customWorkout";
@@ -1397,8 +1398,7 @@ export default function CustomWorkoutOverview() {
                   },
                 ]}
               >
-                <Feather
-                  name="trending-up"
+                <BenchmarkBadgeIcon
                   size={18}
                   color={isBenchmark ? "#30D158" : "#FFD60A"}
                 />

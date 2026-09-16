@@ -1,26 +1,30 @@
+import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  PanResponder,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    PanResponder,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams } from 'expo-router';
-import { useAuth } from '../../../service/auth';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
+import { useTheme } from '../../../contexts/ThemeContext';
+import { useAuth } from '../../../service/auth';
 import type { CurrentWorkout } from '../../../service/workoutPlan';
+import {
+    PlanBenchmarkStore,
+    type PlanBenchmarkAssignment,
+} from '../../../src/services/planBenchmarkStore';
 import RunningPlanHeader from '../calendar/components/RunningPlanHeader';
 import Timeline from '../calendar/components/Timeline';
 import TrainingCalendarCard from '../calendar/components/TrainingCalendarCard';
 import WorkoutModal from '../calendar/components/WorkoutModal';
-import type { WorkoutDetail, RunningPlanData } from '../calendar/components/types';
-import { useTheme } from '../../../contexts/ThemeContext';
+import type { RunningPlanData, WorkoutDetail } from '../calendar/components/types';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -86,22 +90,38 @@ const iconForWorkout = (workout: CurrentWorkout): WorkoutDetail['iconName'] => {
 const formatDuration = (seconds: number | null) => seconds == null ? '' : `${Math.round(seconds / 60)} min`;
 const formatDistance = (metres: number | null) => metres == null ? '' : `${(metres / 1000).toFixed(1)} km`;
 
-const toWorkoutDetail = (workout: CurrentWorkout): WorkoutDetail => {
+const toWorkoutDetail = (
+  workout: CurrentWorkout,
+  benchmarkAssignments: Record<string, PlanBenchmarkAssignment> = {}
+): WorkoutDetail => {
   const isRest = `${workout.workout_type} ${workout.title}`.toLowerCase().includes('rest');
   const date = workout.workout_date ? new Date(`${workout.workout_date}T00:00:00`) : null;
   const title = workout.title || workout.workout_type || 'Workout';
   const description = workout.notes || (isRest ? 'Active recovery' : 'Easy aerobic run');
   const workoutType = isRest ? 'Recovery' : workout.workout_type;
 
+  const workoutId = `${workout.week_number}-${workout.display_order}-${workout.workout_date}`;
+  const assignment = isRest
+    ? undefined
+    : (workout.workout_date && benchmarkAssignments[workout.workout_date]) ||
+      benchmarkAssignments[workoutId] ||
+      undefined;
+
+  const isBenchmark = Boolean(assignment?.isBenchmark);
+
   return {
-    id: `${workout.week_number}-${workout.display_order}-${workout.workout_date}`,
+    id: workoutId,
+    rawDate: workout.workout_date,
     day: workout.weekday ? workout.weekday.slice(0, 3) : '',
     date: date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '',
     title,
     workoutType,
     iconName: iconForWorkout(workout),
-    accentColor: isRest ? '#8A8F94' : '#63C72B',
+    accentColor: isRest ? '#8A8F94' : isBenchmark ? '#F59E0B' : '#63C72B',
     isRest,
+    isBenchmark,
+    benchmarkTitle: assignment?.benchmarkTitle,
+    benchmarkType: assignment?.benchmarkType,
     description,
     instructions: '',
     warmUp: formatDistance(workout.warmup),
@@ -135,10 +155,17 @@ export default function TrainingPlanScreen() {
     return Number.isFinite(requestedWeek) && requestedWeek > 0 ? requestedWeek - 1 : 0;
   });
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutDetail | null>(null);
+  const [benchmarkAssignments, setBenchmarkAssignments] = useState<Record<string, PlanBenchmarkAssignment>>({});
 
   useEffect(() => {
     void fetchWorkoutPlan();
   }, [fetchWorkoutPlan]);
+
+  useEffect(() => {
+    PlanBenchmarkStore.getAssignments().then(setBenchmarkAssignments);
+    const unsub = PlanBenchmarkStore.subscribe(setBenchmarkAssignments);
+    return () => unsub();
+  }, []);
 
   const plan = useMemo<RunningPlanData | null>(() => {
     if (!workoutPlan) return null;
@@ -160,11 +187,11 @@ export default function TrainingPlanScreen() {
           label: `Week ${week.week_number} of ${workoutPlan.weeks.length}`,
           dateRange: range,
           statusText: scheduleNote,
-          workouts: completedWorkouts.map(toWorkoutDetail),
+          workouts: completedWorkouts.map((w) => toWorkoutDetail(w, benchmarkAssignments)),
         };
       }),
     };
-  }, [workoutPlan]);
+  }, [workoutPlan, benchmarkAssignments]);
 
   const safeWeekIndex = plan ? Math.min(selectedWeekIndex, Math.max(0, plan.weeks.length - 1)) : 0;
   const selectedWeek = plan?.weeks[safeWeekIndex] ?? null;
@@ -242,7 +269,21 @@ export default function TrainingPlanScreen() {
         </View>
       </ScrollView>
 
-      <WorkoutModal visible={selectedWorkout !== null} workout={selectedWorkout} onClose={() => setSelectedWorkout(null)} />
+      <WorkoutModal
+        visible={selectedWorkout !== null}
+        workout={selectedWorkout}
+        onClose={() => setSelectedWorkout(null)}
+        onUpdateBenchmark={(workoutId, isBenchmark, assignment) => {
+          if (selectedWorkout) {
+            setSelectedWorkout({
+              ...selectedWorkout,
+              isBenchmark,
+              benchmarkTitle: assignment?.benchmarkTitle,
+              benchmarkType: assignment?.benchmarkType,
+            });
+          }
+        }}
+      />
     </SafeAreaView>
   );
 }

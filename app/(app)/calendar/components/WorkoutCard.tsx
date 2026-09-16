@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import BenchmarkBadgeIcon from '../../../../components/BenchmarkBadgeIcon';
+import { useTheme } from '../../../../contexts/ThemeContext';
 import WorkoutIcon from './WorkoutIcon';
 import { WorkoutDetail } from './types';
-import { useTheme } from '../../../../contexts/ThemeContext';
 
 interface WorkoutCardProps {
   workout: WorkoutDetail;
@@ -26,14 +27,26 @@ export default function WorkoutCard({ workout, onPress, onSwap }: WorkoutCardPro
         onPressIn={() => animate(0.98)}
         onPressOut={() => animate(1)}
         style={[styles.card, isActiveWorkout
-          ? { backgroundColor: '#22C55ECC', borderColor: 'rgba(255,255,255,0.25)' }
+          ? {
+              backgroundColor: '#22C55ECC',
+              borderColor: workout.isBenchmark ? '#F59E0B' : 'rgba(255,255,255,0.25)',
+              borderWidth: workout.isBenchmark ? 1.5 : 1,
+            }
           : { backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF', borderColor: isDark ? '#334155' : '#E2E8F0' }]}
       >
         <View style={styles.iconBox}>
           {workout.isRest ? <View style={styles.sleepIcon}><WorkoutIcon name="moon-outline" backgroundColor="transparent" color="#22C55E" size={30} /><Text style={styles.sleepZ}>Z</Text></View> : <WorkoutIcon name={workout.iconName} backgroundColor="transparent" color="#FFFFFF" size={30} />}
         </View>
         <View style={styles.detailBlock}>
-          <Text style={[styles.dayText, { color: isActiveWorkout ? '#FFFFFF' : secondaryText }]}>{workout.day}, {workout.date}</Text>
+          <View style={styles.headerRow}>
+            <Text style={[styles.dayText, { color: isActiveWorkout ? '#FFFFFF' : secondaryText }]}>{workout.day}, {workout.date}</Text>
+            {workout.isBenchmark && (
+              <View style={styles.benchmarkBadge}>
+                <BenchmarkBadgeIcon size={14} color="#F59E0B" />
+                <Text style={styles.benchmarkBadgeText}>BENCHMARK</Text>
+              </View>
+            )}
+          </View>
           <Text style={[styles.titleText, { color: isActiveWorkout ? '#FFFFFF' : colors.textPrimary }]}>{workout.title}</Text>
           <Text style={[styles.subtitleText, { color: isActiveWorkout ? '#FFFFFF' : secondaryText }]}>{workout.workoutType}</Text>
           {!workout.isRest && (
@@ -146,5 +159,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 10,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  benchmarkBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.22)',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.45)',
+  },
+  benchmarkBadgeText: {
+    color: '#F59E0B',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
 });

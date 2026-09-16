@@ -1,5 +1,5 @@
-import type { ComponentProps } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import type { ComponentProps } from 'react';
 
 export type WorkoutIconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -35,6 +35,11 @@ export interface WorkoutDetail {
   distance: string;
   notes: string;
   segments: WorkoutSegment[];
+  rawDate?: string;
+  isBenchmark?: boolean;
+  benchmarkTitle?: string;
+  benchmarkType?: '1k' | '5k' | 'cooper' | 'custom' | 'plan';
+  customWorkoutId?: number;
 }
 
 export interface RunningPlanWeek {

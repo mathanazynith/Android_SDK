@@ -660,3 +660,9 @@ export function useCustomWorkout() {
   }
   return context;
 }
+  
+/** Default export to satisfy Expo Router route requirement for files inside app/ */
+export default function WorkoutContextRoute() {
+  return null;
+}
+

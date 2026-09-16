@@ -14,6 +14,7 @@ import {
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
 import { Colors } from "../../../constants/theme";
 import {
     customWorkoutAPI,
@@ -218,7 +219,7 @@ export default function CustomWorkoutCards() {
               </View>
               {isBenchmark ? (
                 <View style={styles.benchmarkBadge}>
-                  <Feather name="trending-up" size={10} color="#30D158" />
+                  <BenchmarkBadgeIcon size={12} color="#30D158" />
                   <Text style={styles.benchmarkBadgeText}>BENCHMARK</Text>
                 </View>
               ) : null}
@@ -244,9 +245,8 @@ export default function CustomWorkoutCards() {
               style={styles.cardBenchmarkBtn}
               accessibilityLabel={isBenchmark ? "Remove from benchmark" : "Set as benchmark"}
             >
-              <Feather
-                name="trending-up"
-                size={17}
+              <BenchmarkBadgeIcon
+                size={18}
                 color={isBenchmark ? "#30D158" : "#8E8E93"}
               />
             </TouchableOpacity>

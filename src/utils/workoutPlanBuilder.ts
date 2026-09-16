@@ -44,12 +44,27 @@ export interface WorkoutExecutionStep {
   targetText?: string;
 }
 
-const parseMetersFromDistance = (distStr?: string, unitStr?: string): number | undefined => {
+export const parseFlexibleSeconds = (str?: string): number => {
+  if (!str || !str.trim()) return 0;
+  const direct = timeStringToSeconds(str);
+  if (direct != null && direct > 0) return direct;
+  const minMatch = str.match(/(\d+(?:\.\d+)?)\s*(?:min|m\b)/i);
+  if (minMatch) return Math.round(parseFloat(minMatch[1]) * 60);
+  const secMatch = str.match(/(\d+)\s*(?:sec|s\b)/i);
+  if (secMatch) return parseInt(secMatch[1], 10);
+  return 0;
+};
+
+export const parseMetersFromDistance = (distStr?: string, unitStr?: string): number | undefined => {
   if (!distStr || !distStr.trim()) return undefined;
   const num = parseFloat(distStr);
   if (isNaN(num) || num <= 0) return undefined;
 
-  const lowerUnit = (unitStr || "km").toLowerCase();
+  const rawLower = distStr.toLowerCase();
+  if (rawLower.includes("m") && !rawLower.includes("km") && !rawLower.includes("mi")) {
+    return Math.round(num);
+  }
+  const lowerUnit = (unitStr || (rawLower.includes("mi") ? "mi" : "km")).toLowerCase();
   if (lowerUnit.includes("mi")) {
     return Math.round(num * 1609.344);
   }
@@ -200,6 +215,81 @@ export function buildPlanFromUserWorkout(workout: UserWorkoutResponse): WorkoutE
         steps.push({
           id: `step-${stepIndex++}-rest-${seg.id || set}`,
           title: totalSets > 1 ? `Recovery Rest (${set}/${totalSets})` : "Recovery Rest",
+          stepType: "Rest",
+          setNumber: set,
+          totalSets,
+          targetType: "DURATION",
+          targetDurationSeconds: restSec,
+          unit: "Seconds",
+        });
+      }
+    }
+  }
+
+  return steps;
+}
+
+export function buildPlanFromPlanSegments(
+  segments: any[],
+  workoutTitle: string = "Running"
+): WorkoutExecutionStep[] {
+  const steps: WorkoutExecutionStep[] = [];
+  let stepIndex = 1;
+
+  for (const seg of segments) {
+    const rawType = String(seg.type || seg.segment_type || "run").toLowerCase();
+    const isWarmup = rawType.includes("warmup");
+    const isCooldown = rawType.includes("cooldown");
+    const isRest = rawType.includes("rest");
+    const stepType: "Warmup" | "Run" | "Rest" | "Cooldown" = isWarmup
+      ? "Warmup"
+      : isCooldown
+      ? "Cooldown"
+      : isRest
+      ? "Rest"
+      : "Run";
+
+    const totalSets = Math.max(1, Math.min(40, seg.repeats || 1));
+    const durSec = typeof seg.duration === "number" ? seg.duration : parseFlexibleSeconds(seg.duration);
+    const distMeters =
+      typeof seg.rep_distance === "number"
+        ? seg.rep_distance
+        : typeof seg.distance === "number"
+        ? seg.distance
+        : parseMetersFromDistance(seg.distance || seg.rep_distance, "km");
+    const isDist = Boolean(distMeters && distMeters > 0);
+    const restSec =
+      typeof seg.rest_duration === "number"
+        ? seg.rest_duration
+        : parseFlexibleSeconds(seg.rest);
+
+    for (let set = 1; set <= totalSets; set++) {
+      const stepTitle = isWarmup
+        ? "Warm Up"
+        : isCooldown
+        ? "Cool Down"
+        : totalSets > 1
+        ? `${seg.notes || workoutTitle || "Run"} (Set ${set}/${totalSets})`
+        : seg.notes || workoutTitle || "Run";
+
+      steps.push({
+        id: `step-${stepIndex++}-${stepType.toLowerCase()}-set-${set}`,
+        title: stepTitle,
+        stepType,
+        setNumber: set,
+        totalSets,
+        targetType: isDist ? "DISTANCE" : durSec > 0 ? "DURATION" : "OPEN",
+        targetDurationSeconds: durSec > 0 ? durSec : undefined,
+        targetDistanceMeters: distMeters,
+        targetPace: seg.pace || seg.target_pace || undefined,
+        notes: seg.notes || "",
+      });
+
+      // Insert recovery rest between repeats if applicable
+      if (restSec > 0 && set < totalSets && !isWarmup && !isCooldown) {
+        steps.push({
+          id: `step-${stepIndex++}-rest-set-${set}`,
+          title: `Recovery Rest (${set}/${totalSets})`,
           stepType: "Rest",
           setNumber: set,
           totalSets,

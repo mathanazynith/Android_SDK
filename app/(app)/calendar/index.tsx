@@ -4,6 +4,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 import { useAuth } from '../../../service/auth';
 import type { CurrentWorkout } from '../../../service/workoutPlan';
+import {
+    PlanBenchmarkStore,
+    type PlanBenchmarkAssignment,
+} from '../../../src/services/planBenchmarkStore';
 import RunningPlanHeader from './components/RunningPlanHeader';
 import Timeline from './components/Timeline';
 import TrainingCalendarCard from './components/TrainingCalendarCard';
@@ -81,17 +85,55 @@ const completeWeek = (week: { week_number: number; workouts: CurrentWorkout[] },
   });
 };
 
-const toWorkoutDetail = (workout: CurrentWorkout): WorkoutDetail => {
+const toWorkoutDetail = (
+  workout: CurrentWorkout,
+  benchmarkAssignments: Record<string, PlanBenchmarkAssignment> = {}
+): WorkoutDetail => {
   const isRest = `${workout.workout_type} ${workout.title}`.toLowerCase().includes('rest');
   const date = workout.workout_date ? new Date(`${workout.workout_date}T00:00:00`) : null;
+  const workoutId = `${workout.week_number}-${workout.display_order}-${workout.workout_date}`;
+  const assignment = !isRest
+    ? (workout.workout_date && benchmarkAssignments[workout.workout_date]) ||
+      benchmarkAssignments[workoutId] ||
+      null
+    : null;
+  const isBenchmark = Boolean(assignment?.isBenchmark);
+
   return {
-    id: `${workout.week_number}-${workout.display_order}-${workout.workout_date}`,
+    id: workoutId,
     day: workout.weekday ? `${workout.weekday.slice(0, 1)}${workout.weekday.slice(1).toLowerCase()}` : '',
     date: date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '',
-    title: workout.title, workoutType: isRest ? 'Recovery' : workout.workout_type, iconName: iconForWorkout(workout), accentColor: isRest ? '#8A8F94' : '#63C72B', isRest,
-    description: workout.notes, instructions: '', warmUp: formatDistance(workout.warmup), steps: workout.segments.map(formatSegment).filter(Boolean), coolDown: formatDistance(workout.cooldown),
-    estimatedDuration: formatDuration(workout.duration), estimatedCalories: '', targetPace: workout.target_pace ? `${workout.target_pace} ${workout.pace_unit}`.trim() : '', heartRateZone: workout.zone, distance: formatDistance(workout.distance), notes: workout.notes,
-    segments: workout.segments.map((segment) => ({ order: segment.segment_order, type: segment.segment_type, repeats: segment.repeats, distance: segment.rep_distance != null ? `${segment.rep_distance / 1000} km` : '', duration: formatDuration(segment.duration), pace: segment.target_pace ? `${segment.target_pace} ${segment.pace_unit}`.trim() : '', rest: segment.rest_duration != null ? formatDuration(segment.rest_duration) : '', notes: segment.notes })),
+    title: workout.title,
+    workoutType: isRest ? 'Recovery' : workout.workout_type,
+    iconName: iconForWorkout(workout),
+    accentColor: isRest ? '#8A8F94' : isBenchmark ? '#F59E0B' : '#63C72B',
+    isRest,
+    description: workout.notes,
+    instructions: '',
+    warmUp: formatDistance(workout.warmup),
+    steps: workout.segments.map(formatSegment).filter(Boolean),
+    coolDown: formatDistance(workout.cooldown),
+    estimatedDuration: formatDuration(workout.duration),
+    estimatedCalories: '',
+    targetPace: workout.target_pace ? `${workout.target_pace} ${workout.pace_unit}`.trim() : '',
+    heartRateZone: workout.zone,
+    distance: formatDistance(workout.distance),
+    notes: workout.notes,
+    segments: workout.segments.map((segment) => ({
+      order: segment.segment_order,
+      type: segment.segment_type,
+      repeats: segment.repeats,
+      distance: segment.rep_distance != null ? `${segment.rep_distance / 1000} km` : '',
+      duration: formatDuration(segment.duration),
+      pace: segment.target_pace ? `${segment.target_pace} ${segment.pace_unit}`.trim() : '',
+      rest: segment.rest_duration != null ? formatDuration(segment.rest_duration) : '',
+      notes: segment.notes,
+    })),
+    rawDate: workout.workout_date,
+    isBenchmark,
+    benchmarkTitle: assignment?.benchmarkTitle,
+    benchmarkType: assignment?.benchmarkType,
+    customWorkoutId: assignment?.customWorkoutId,
   };
 };
 
@@ -100,11 +142,17 @@ export default function CalendarScreen() {
   const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
   const [selectedWeekIndex, setSelectedWeekIndex] = useState(0);
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutDetail | null>(null);
+  const [benchmarkAssignments, setBenchmarkAssignments] = useState<Record<string, PlanBenchmarkAssignment>>({});
   const pagerRef = useRef<FlatList<RunningPlanWeek>>(null);
   const { width: windowWidth } = useWindowDimensions();
   const pageWidth = Math.max(0, windowWidth - 36);
   const userName = user?.username?.trim() || user?.email?.split('@')[0]?.trim() || 'Runner';
-  useEffect(() => { fetchWorkoutPlan(); }, [fetchWorkoutPlan]);
+  useEffect(() => {
+    fetchWorkoutPlan();
+    PlanBenchmarkStore.getAssignments().then(setBenchmarkAssignments);
+    const unsub = PlanBenchmarkStore.subscribe(setBenchmarkAssignments);
+    return () => unsub();
+  }, [fetchWorkoutPlan]);
   useEffect(() => {
     if (!workoutPlan) return;
     const today = new Date().toISOString().slice(0, 10);
@@ -123,9 +171,9 @@ export default function CalendarScreen() {
       const completedWorkouts = completeWeek(week, workoutPlan.start_date);
       const dates = completedWorkouts.map((workout) => workout.workout_date);
       const range = `${new Date(`${dates[0]}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${new Date(`${dates[dates.length - 1]}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
-      return { id: String(week.week_number), label: `Week ${week.week_number} of ${workoutPlan.weeks.length}`, dateRange: range, statusText: '', workouts: completedWorkouts.map(toWorkoutDetail) };
+      return { id: String(week.week_number), label: `Week ${week.week_number} of ${workoutPlan.weeks.length}`, dateRange: range, statusText: '', workouts: completedWorkouts.map((w) => toWorkoutDetail(w, benchmarkAssignments)) };
     }) };
-  }, [workoutPlan]);
+  }, [workoutPlan, benchmarkAssignments]);
   const selectedWeek = plan?.weeks[selectedWeekIndex];
   const changeWeek = (direction: -1 | 1) => {
     const nextIndex = Math.max(0, Math.min((plan?.weeks.length ?? 1) - 1, selectedWeekIndex + direction));
@@ -167,7 +215,23 @@ export default function CalendarScreen() {
       onScrollToIndexFailed={({ index }) => setTimeout(() => pagerRef.current?.scrollToIndex({ index, animated: true }), 50)}
       style={styles.pager}
     />
-  </ScrollView><WorkoutModal visible={selectedWorkout !== null} workout={selectedWorkout} onClose={() => setSelectedWorkout(null)} /></SafeAreaView>;
+  </ScrollView><WorkoutModal
+    visible={selectedWorkout !== null}
+    workout={selectedWorkout}
+    onClose={() => setSelectedWorkout(null)}
+    onUpdateBenchmark={(workoutId, isBenchmark, assignment) => {
+      setSelectedWorkout((prev) => {
+        if (!prev || prev.id !== workoutId) return prev;
+        return {
+          ...prev,
+          isBenchmark,
+          benchmarkTitle: assignment?.benchmarkTitle,
+          benchmarkType: assignment?.benchmarkType,
+          customWorkoutId: assignment?.customWorkoutId,
+        };
+      });
+    }}
+  /></SafeAreaView>;
 }
 
 const styles = StyleSheet.create({
