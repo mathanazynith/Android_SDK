@@ -22,12 +22,13 @@ import { LocationQueue } from '../../../src/services/locationQueue';
 import { LocationService } from '../../../src/services/locationService';
 import {
   clearBackgroundLocationSession,
+  getBackgroundLocationSession,
   persistBackgroundLocationSession,
   setBackgroundLocationListener,
   startBackgroundLocationTracking,
   stopBackgroundLocationTracking,
 } from '../../../src/services/backgroundLocationTask';
-import { beginActiveRunJournal, clearActiveRunJournal, readActiveRunJournal } from '../../../src/services/activeRunJournal';
+import { beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal } from '../../../src/services/activeRunJournal';
 import { PathProcessor } from '../../../src/services/pathProcessor';
 import { RunningApiClient } from '../../../src/services/runningApi';
 import { DistanceSplitEngine } from '../../../src/services/splitEngine';
@@ -41,6 +42,13 @@ import { BackendWorkout, WorkoutEngineSnapshot } from '../../../src/types/workou
 import { createCatmullRomPolyline } from '../../../src/utils/catmullRom';
 import { calculateDistanceMeters } from '../../../src/utils/distance';
 import { formatStepTarget, WorkoutExecutionStep } from '../../../src/utils/workoutPlanBuilder';
+import {
+  publishWorkoutSummaryNotification,
+  startLiveTrackingNotification,
+  stopLiveTrackingNotification,
+  updateLiveTrackingNotification,
+  LIVE_TRACKING_STOP_ACTION,
+} from '../../../src/services/liveTrackingNotification';
 
 const formatTimerDisplay = (totalSec: number) => {
   const m = Math.floor(Math.max(0, totalSec) / 60);
@@ -139,6 +147,7 @@ export default function MapScreen() {
   const params = useLocalSearchParams<{
     workoutTitle?: string;
     workoutPlan?: string;
+    notificationAction?: string;
   }>();
 
   const executionPlan: WorkoutExecutionStep[] = useMemo(() => {
@@ -162,7 +171,9 @@ export default function MapScreen() {
   const stepStartDistanceRef = useRef(0);
   const halfwayAnnouncedRef = useRef(false);
   const executionPlanRef = useRef<WorkoutExecutionStep[]>([]);
-  executionPlanRef.current = executionPlan;
+  useEffect(() => {
+    executionPlanRef.current = executionPlan;
+  }, [executionPlan]);
   const [loading, setLoading] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [permissionGranted, setPermissionGranted] = useState(false);
@@ -178,8 +189,12 @@ export default function MapScreen() {
   });
   const [isPaused, setIsPaused] = useState(false);
   const [pace, setPace] = useState(0); // pace in minutes per km
+  const [stepCount, setStepCount] = useState(0);
   const [isPlannedWorkout, setIsPlannedWorkout] = useState(false);
   const [workoutSnapshot, setWorkoutSnapshot] = useState<WorkoutEngineSnapshot | null>(null);
+  const [completionPromptVisible, setCompletionPromptVisible] = useState(
+    params.notificationAction === LIVE_TRACKING_STOP_ACTION,
+  );
 
   const mapRef = useRef<MapView | null>(null);
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
@@ -223,6 +238,20 @@ export default function MapScreen() {
   const [logs, setLogs] = useState<string[]>([]);
   const addLog = useCallback((value: string) => {
     setLogs((prev) => [...prev, value]);
+  }, []);
+
+  const requestFinish = useCallback(() => {
+    if (!isRunningRef.current || isStoppingRef.current) return;
+    setCompletionPromptVisible(true);
+  }, []);
+
+  const continueAfterCompletion = useCallback(() => {
+    setCompletionPromptVisible(false);
+    if (workoutEngineRef.current) {
+      workoutEngineRef.current.continue();
+      setWorkoutSnapshot(workoutEngineRef.current.getSnapshot());
+      void workoutVoiceRef.current?.workoutCompleted();
+    }
   }, []);
 
   const [location, setLocation] = useState<LocationState | null>(null);
@@ -790,13 +819,48 @@ export default function MapScreen() {
     locationSubscription.current = await LocationService.watchLocation(handleLocationUpdate);
     // This supplements the untouched watcher only after the workout starts.
     setBackgroundLocationListener(handleLocationUpdate);
-    await startBackgroundLocationTracking();
+    // Android only permits a location foreground service to be created while
+    // this app is visible. If the user backgrounds during startup, the active
+    // AppState listener below retries when they return instead of treating the
+    // working foreground watcher as a failure.
+    if (AppState.currentState === 'active') {
+      try {
+        await startBackgroundLocationTracking();
+      } catch (error) {
+        console.warn('[BackgroundLocationTask] Foreground service start deferred', error);
+      }
+    }
     addLog('?? Live GPS tracking started');
   }, [addLog, handleLocationUpdate]);
 
   useEffect(() => {
+    if (!isRunning) return;
+    const startedAt = startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null;
+    void persistBackgroundLocationSession({
+      active: true,
+      paused: isPaused,
+      runId: runIdRef.current,
+      userId: user?.id ? String(user.id) : null,
+      startedAt,
+      updatedAt: Date.now(),
+      distanceKm: distance / 1000,
+      elapsedSeconds,
+      paceMinutesPerKm: pace,
+      movementConfirmed: movementConfirmedRef.current,
+    });
+    updateLiveTrackingNotification({
+      distanceKm: distance / 1000,
+      elapsedSeconds,
+      paceMinutesPerKm: pace,
+      status: isPaused ? 'paused' : 'running',
+      startedAt,
+    });
+  }, [distance, elapsedSeconds, isPaused, isRunning, pace, user?.id]);
+
+  useEffect(() => {
     const reconcileBackgroundPoints = async () => {
       if (!isRunningRef.current) return;
+      await flushActiveRunJournal();
       const journal = await readActiveRunJournal();
       if (!journal?.active || journal.runId !== runIdRef.current) return;
       [...journal.points]
@@ -804,10 +868,115 @@ export default function MapScreen() {
         .forEach(handleLocationUpdate);
     };
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void reconcileBackgroundPoints();
+      if (state !== 'active') return;
+      void reconcileBackgroundPoints();
+      if (isRunningRef.current) {
+        void startBackgroundLocationTracking().catch((error) => {
+          console.warn('[BackgroundLocationTask] Foreground service retry failed', error);
+        });
+      }
     });
     return () => subscription.remove();
   }, [handleLocationUpdate]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const restoreActiveRun = async () => {
+      await flushActiveRunJournal();
+      const session = await getBackgroundLocationSession();
+      const journal = await readActiveRunJournal();
+      if (cancelled || !session?.active || !session.runId || !journal?.active || journal.runId !== session.runId) return;
+      if (isRunningRef.current || isStartingRef.current) return;
+
+      const processor = new PathProcessor(session.runId);
+      pathProcessorRef.current = processor;
+      runIdRef.current = session.runId;
+      apiClientRef.current = new RunningApiClient();
+      startTimeRef.current = session.startedAt ? new Date(session.startedAt).getTime() : Date.now();
+      isPausedRef.current = Boolean(session.paused);
+      setIsPaused(Boolean(session.paused));
+
+      const restoredPoints = [...journal.points]
+        .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
+      restoredPoints.forEach((point) => {
+        const timestamp = typeof point.timestamp === 'number'
+          ? point.timestamp
+          : typeof point.timestamp === 'string'
+            ? parseInt(point.timestamp, 10)
+            : Date.now();
+        processedLocationKeysRef.current.add(`${timestamp}|${point.latitude}|${point.longitude}`);
+        processor.ingestRaw(point);
+      });
+      previousLocationRef.current = restoredPoints.at(-1) ?? null;
+      const displayPoints = processor.getDisplayPoints();
+      movementConfirmedRef.current = session.movementConfirmed ?? displayPoints.length > 0;
+      movementStateRef.current = movementConfirmedRef.current ? 'MOVING' : 'STATIONARY';
+      if (displayPoints.length > 0) {
+        routeSegmentsRef.current = [{
+          id: Date.now(),
+          isLight: Boolean(session.paused),
+          coordinates: displayPoints.map((point) => ({ latitude: point.latitude, longitude: point.longitude })),
+        }];
+        setRouteSegments(routeSegmentsRef.current);
+        const lastPoint = displayPoints.at(-1);
+        if (lastPoint) {
+          lastRetainedCoordinateRef.current = { latitude: lastPoint.latitude, longitude: lastPoint.longitude };
+          setLocation({
+            coords: {
+              latitude: lastPoint.latitude,
+              longitude: lastPoint.longitude,
+              accuracy: lastPoint.accuracy,
+              altitude: lastPoint.altitude,
+              altitudeAccuracy: null,
+              heading: lastPoint.heading,
+              speed: lastPoint.speed,
+            },
+            timestamp: lastPoint.timestamp,
+          });
+        }
+      }
+
+      const restoredDistance = (session.distanceKm ?? calculateRouteDistance(displayPoints)) * (session.distanceKm === undefined ? 1 / 1000 : 1);
+      distanceRef.current = restoredDistance * 1000;
+      setDistance(distanceRef.current);
+      const restoredElapsed = session.elapsedSeconds ?? Math.max(0, (Date.now() - startTimeRef.current) / 1000);
+      setElapsedSeconds(restoredElapsed);
+      setPace(session.paceMinutesPerKm ?? (distanceRef.current > 0 ? restoredElapsed / 60 / (distanceRef.current / 1000) : 0));
+
+      const activityDetection = new ActivityDetectionService();
+      activityDetectionRef.current = activityDetection;
+      void activityDetection.start(startTimeRef.current).catch((error) => {
+        console.warn('[MapScreen] Restored activity monitoring unavailable', error);
+      });
+      const stepDetection = new StepDetectionService();
+      stepDetectionRef.current = stepDetection;
+      void stepDetection.start((steps) => {
+        lastStepTimestampRef.current = Date.now();
+        stepCountRef.current = steps;
+        setStepCount(steps);
+      }).catch((error) => {
+        console.warn('[MapScreen] Restored pedometer unavailable', error);
+      });
+      queueRef.current = new LocationQueue();
+      isRunningRef.current = true;
+      setIsRunning(true);
+      try {
+        await startLiveGPS();
+        await startLiveTrackingNotification({
+          distanceKm: distanceRef.current / 1000,
+          elapsedSeconds: restoredElapsed,
+          paceMinutesPerKm: session.paceMinutesPerKm ?? 0,
+          status: session.paused ? 'paused' : 'running',
+          startedAt: session.startedAt,
+        });
+      } catch (error) {
+        console.warn('[MapScreen] Active run restored without background service', error);
+      }
+      addLog('Active run restored after process restart');
+    };
+    void restoreActiveRun();
+    return () => { cancelled = true; };
+  }, [addLog, handleLocationUpdate, startLiveGPS]);
 
   const startRun = async () => {
     if (isStartingRef.current || isRunningRef.current) {
@@ -816,6 +985,7 @@ export default function MapScreen() {
     }
 
     isStartingRef.current = true;
+    let backgroundServiceStartedForAttempt = false;
     try {
       if (!user?.id) {
         Alert.alert('Account unavailable', 'Please sign in again before starting a run.');
@@ -825,6 +995,16 @@ export default function MapScreen() {
       if (!permissionGranted) {
         await requestLocation();
         return;
+      }
+
+      // Start Android's location foreground service synchronously from the
+      // user-visible Start action, before the API/current-location awaits.
+      // Android 12+ rejects creating it later from the background.
+      try {
+        await startBackgroundLocationTracking();
+        backgroundServiceStartedForAttempt = true;
+      } catch (error) {
+        console.warn('[BackgroundLocationTask] Unable to start foreground service from Start action', error);
       }
 
       let selectedWorkout: BackendWorkout | null = null;
@@ -884,6 +1064,9 @@ export default function MapScreen() {
       const startResponse = await apiClient.startRun(userId, startedAt);
 
       if (!startResponse.success || !startResponse.run_id) {
+        if (backgroundServiceStartedForAttempt) {
+          await stopBackgroundLocationTracking().catch(() => undefined);
+        }
         Alert.alert('Error', 'Failed to start run');
         return;
       }
@@ -977,27 +1160,7 @@ export default function MapScreen() {
               if (workoutCompletionPromptShownRef.current) return;
               workoutCompletionPromptShownRef.current = true;
               console.log('[Workout] All planned segments complete; showing Continue/Stop popup');
-              Alert.alert(
-                'Workout complete',
-                'Do you want to continue with extra activity or stop and save the workout?',
-                [
-                  {
-                    text: 'Stop and save',
-                    style: 'destructive',
-                    onPress: () => {
-                      console.log('[Workout] User selected Stop and save');
-                      void stopRun();
-                    },
-                  },
-                  {
-                    text: 'Continue',
-                    onPress: () => {
-                      console.log('[Workout] User selected Continue; extra activity is gray');
-                      void voice.workoutCompleted();
-                    },
-                  },
-                ],
-              );
+              setCompletionPromptVisible(true);
             });
             setWorkoutSnapshot(engine.getSnapshot());
           },
@@ -1008,27 +1171,7 @@ export default function MapScreen() {
             }
             workoutCompletionPromptShownRef.current = true;
             console.log('[Workout] All backend workout segments completed');
-            Alert.alert(
-              'Workout complete',
-              'Do you want to continue with extra activity or stop and save the workout?',
-              [
-                {
-                  text: 'Stop and save',
-                  style: 'destructive',
-                  onPress: () => {
-                    console.log('[Workout] User selected Stop and save');
-                    void stopRun();
-                  },
-                },
-                {
-                  text: 'Continue',
-                  onPress: () => {
-                    console.log('[Workout] User selected Continue; extra activity is gray');
-                    void voice.workoutCompleted();
-                  },
-                },
-              ],
-            );
+            setCompletionPromptVisible(true);
             setWorkoutSnapshot(engine.getSnapshot());
           },
         });
@@ -1081,7 +1224,20 @@ export default function MapScreen() {
       // recognition (or the location watcher setup) before showing the active
       // recording UI: either native request can be slow on Android.
       void startLiveGPS()
-        .then(() => console.log('RUN STARTED:', runId))
+        .then(async () => {
+          try {
+            await startLiveTrackingNotification({
+              distanceKm: 0,
+              elapsedSeconds: 0,
+              paceMinutesPerKm: 0,
+              status: 'running',
+              startedAt,
+            });
+          } catch (notificationError) {
+            console.warn('[LiveTrackingNotification] Unable to start live notification', notificationError);
+          }
+          console.log('RUN STARTED:', runId);
+        })
         .catch((error) => {
           console.error('[LocationManager] GPS watcher failed to start', error);
           addLog('GPS watcher failed to start');
@@ -1093,11 +1249,17 @@ export default function MapScreen() {
       void stepDetection.start((steps) => {
         lastStepTimestampRef.current = Date.now();
         stepCountRef.current = steps;
+        setStepCount(steps);
       }).catch((error) => {
         console.warn('[LocationManager] Pedometer startup failed; movement gate will require activity recognition and GPS evidence', error);
       });
     } catch (error) {
       console.error('Start run error:', error);
+      if (backgroundServiceStartedForAttempt) {
+        await stopBackgroundLocationTracking().catch((stopError) => {
+          console.warn('[BackgroundLocationTask] Unable to clean up foreground service after failed start', stopError);
+        });
+      }
       activityDetectionRef.current?.stop();
       activityDetectionRef.current = null;
       stepDetectionRef.current?.stop();
@@ -1136,6 +1298,7 @@ export default function MapScreen() {
         userId: user?.id ? String(user.id) : null,
         startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
         updatedAt: pauseStartTimeRef.current,
+        movementConfirmed: movementConfirmedRef.current,
       });
 
       console.log('[RecordView] Run paused - GPS continues as light trace');
@@ -1172,6 +1335,7 @@ export default function MapScreen() {
         userId: user?.id ? String(user.id) : null,
         startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
         updatedAt: startTimeRef.current,
+        movementConfirmed: movementConfirmedRef.current,
       });
 
       // The watcher was never stopped; only active-distance accounting resumes.
@@ -1193,6 +1357,14 @@ export default function MapScreen() {
     }
 
     isStoppingRef.current = true;
+    let shouldPublishSummary = false;
+    let summaryMetrics = {
+      distanceKm: (distanceRef.current + extraDistanceRef.current) / 1000,
+      elapsedSeconds,
+      paceMinutesPerKm: pace,
+      status: 'paused' as const,
+      startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+    };
     try {
       const stoppedAt = new Date();
       const detectedActivity = activityDetectionRef.current?.getCurrentActivity();
@@ -1208,7 +1380,23 @@ export default function MapScreen() {
       console.log(`[RecordView] Recording stopped at ${stoppedAt.toISOString()}`);
       console.log('[RecordView] Stop finalization started');
       isRunningRef.current = false;
-      await persistBackgroundLocationSession({ active: false, paused: false, updatedAt: startTimeRef.current });
+      await persistBackgroundLocationSession({
+        active: true,
+        paused: isPausedRef.current,
+        runId: runIdRef.current,
+        userId: user?.id ? String(user.id) : null,
+        startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+        updatedAt: Date.now(),
+        distanceKm: (distanceRef.current + extraDistanceRef.current) / 1000,
+        elapsedSeconds,
+        paceMinutesPerKm: pace,
+        movementConfirmed: movementConfirmedRef.current,
+      });
+      try {
+        await stopBackgroundLocationTracking();
+      } catch (stopError) {
+        console.warn('[BackgroundLocationTask] Unable to stop service at finish start', stopError);
+      }
 
       if (locationSubscription.current) {
         locationSubscription.current.remove();
@@ -1618,6 +1806,14 @@ export default function MapScreen() {
           console.log(`[RecordView] Run stop result: ${stopSucceeded ? 'success' : 'failed'}`);
 
           if (activitySubmitted && stopSucceeded) {
+            summaryMetrics = {
+              distanceKm: totalDistance / 1000,
+              elapsedSeconds,
+              paceMinutesPerKm: paceSecondsPerKm / 60,
+              status: 'paused',
+              startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+            };
+            shouldPublishSummary = true;
             console.log('Activity submitted successfully');
             console.log('Response:', JSON.stringify({
               success: true,
@@ -1682,8 +1878,19 @@ export default function MapScreen() {
         response: backendData,
         message: error?.message,
       });
-      setIsRunning(false);
-      isRunningRef.current = false;
+      setIsRunning(true);
+      isRunningRef.current = true;
+      await persistBackgroundLocationSession({
+        active: true,
+        paused: isPausedRef.current,
+        runId: runIdRef.current,
+        userId: user?.id ? String(user.id) : null,
+        startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+        updatedAt: Date.now(),
+        distanceKm: (distanceRef.current + extraDistanceRef.current) / 1000,
+        elapsedSeconds,
+        paceMinutesPerKm: pace,
+      });
       Alert.alert(
         'Could not save activity',
         backendMessage || 'The activity could not be uploaded. Your route is still available for retry.',
@@ -1694,6 +1901,11 @@ export default function MapScreen() {
         await stopBackgroundLocationTracking();
       } catch (stopError) {
         console.warn('[BackgroundLocationTask] Unable to stop Android foreground service', stopError);
+      }
+      if (shouldPublishSummary) {
+        await publishWorkoutSummaryNotification(summaryMetrics);
+      } else {
+        await stopLiveTrackingNotification();
       }
       console.log('[RecordView] Stop & Save finalization finished');
       isStoppingRef.current = false;
@@ -1734,12 +1946,12 @@ export default function MapScreen() {
         return true;
       }
       console.log('[RecordView] Hardware Back pressed; saving active run');
-      stopRunRef.current();
+      requestFinish();
       return true;
     });
 
     return () => subscription.remove();
-  }, []);
+  }, [requestFinish]);
 
   if (loading) {
     return (
@@ -2051,6 +2263,29 @@ export default function MapScreen() {
           )}
 
           {/* Action Buttons Row */}
+          {completionPromptVisible && isRunning && (
+            <View style={styles.completionPanel}>
+              <Text style={styles.completionTitle}>Workout complete</Text>
+              <Text style={styles.completionMessage}>Save this activity or keep tracking extra distance.</Text>
+              <View style={styles.completionActions}>
+                <Pressable
+                  style={styles.continueActionButton}
+                  onPress={continueAfterCompletion}
+                >
+                  <Text style={styles.continueActionText}>CONTINUE</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.saveExitActionButton}
+                  onPress={() => {
+                    setCompletionPromptVisible(false);
+                    void stopRun();
+                  }}
+                >
+                  <Text style={styles.saveExitActionText}>STOP & SAVE</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
           <View style={styles.dashboardActionsRow}>
             {/* Skip Step Button */}
             {isRunning && currentStepIndex < executionPlan.length - 1 && (
@@ -2097,19 +2332,43 @@ export default function MapScreen() {
                 onPress={() => void stopRun()}
               >
                 <Feather name="square" size={16} color="#FFFFFF" />
-                <Text style={styles.stopActionText}>FINISH</Text>
+                <Text style={styles.stopActionText}>STOP & SAVE</Text>
               </Pressable>
             )}
           </View>
         </View>
       ) : (
         /* Fallback for open running without a custom workout */
-        <View style={styles.controlBar}>
-          <View style={styles.controlBarContent}>
+        <>
+          {completionPromptVisible && isRunning && (
+            <View style={styles.completionPanel}>
+              <Text style={styles.completionTitle}>Run complete</Text>
+              <Text style={styles.completionMessage}>Save this activity or continue tracking.</Text>
+              <View style={styles.completionActions}>
+                <Pressable
+                  style={styles.continueActionButton}
+                  onPress={continueAfterCompletion}
+                >
+                  <Text style={styles.continueActionText}>CONTINUE</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.saveExitActionButton}
+                  onPress={() => {
+                    setCompletionPromptVisible(false);
+                    void stopRun();
+                  }}
+                >
+                  <Text style={styles.saveExitActionText}>STOP & SAVE</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+          <View style={styles.controlBar}>
+            <View style={styles.controlBarContent}>
             <View style={styles.controlStatus}>
               <Text style={styles.controlStatusTitle}>Run</Text>
               <Text style={styles.controlStatusValue}>{isRunning ? (isPaused ? 'Paused' : 'Live') : 'Ready'}</Text>
-              <Text style={styles.controlStatusTitle}>Steps {isRunning ? stepCountRef.current : 0}</Text>
+              <Text style={styles.controlStatusTitle}>Steps {isRunning ? stepCount : 0}</Text>
               {isRunning && distance > 0 && (
                 <Text style={styles.paceStatus}>
                   {(distance / 1000).toFixed(2)}km · {Math.floor(pace)}:{String(Math.round((pace % 1) * 60)).padStart(2, '0')}/km
@@ -2160,16 +2419,15 @@ export default function MapScreen() {
                   style={styles.stopButton}
                   hitSlop={16}
                   android_disableSound
-                  onPress={() => {
-                    void stopRun();
-                  }}
+                  onPress={() => void stopRun()}
                 >
                   <Text style={styles.stopButtonText}>STOP & SAVE</Text>
                 </Pressable>
               </View>
             )}
+            </View>
           </View>
-        </View>
+        </>
       )}
       </View>
   );
@@ -2387,6 +2645,36 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
   },
+  completionPanel: {
+    backgroundColor: '#1C1D24',
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 4,
+    alignSelf: 'center',
+    width: '94%',
+    alignItems: 'center',
+  },
+  completionTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '900', textAlign: 'center' },
+  completionMessage: { color: '#A1A1AA', fontSize: 11, marginTop: 3, textAlign: 'center' },
+  completionActions: { flexDirection: 'row', gap: 8, marginTop: 10, width: '100%' },
+  continueActionButton: {
+    flex: 1,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#2A2D37',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  continueActionText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900' },
+  saveExitActionButton: {
+    flex: 1,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FF453A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveExitActionText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900' },
   dashboardActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',

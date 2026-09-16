@@ -1,4 +1,4 @@
-import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
@@ -395,7 +395,7 @@ export default function StatsScreen() {
           {/* 1. Runs */}
           <View style={styles.metricCard}>
             <View style={[styles.metricIconCircle, { backgroundColor: 'rgba(48, 209, 88, 0.15)' }]}>
-              <MaterialCommunityIcons name="run" size={20} color="#30D158" />
+              <Feather name="activity" size={20} color="#30D158" />
             </View>
             <Text style={styles.metricCardValue}>{yearStats.runs}</Text>
             <Text style={styles.metricCardLabel}>Runs</Text>

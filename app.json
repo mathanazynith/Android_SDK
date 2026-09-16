@@ -16,6 +16,9 @@
         "backgroundColor": "#FAFAFA",
         "foregroundImage": "./assets/ZyRunLOGO.jpg"
       },
+      "permissions": [
+        "POST_NOTIFICATIONS"
+      ],
       "predictiveBackGestureEnabled": false,
       "package": "com.zyapp"
     },
@@ -26,6 +29,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-notifications",
       [
         "expo-location",
         {
