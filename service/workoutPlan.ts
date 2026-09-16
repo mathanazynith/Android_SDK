@@ -13,6 +13,8 @@ export interface CurrentWorkoutSegment {
 }
 
 export interface CurrentWorkout {
+  id?: number;
+  is_benchmark?: boolean;
   week_number: number;
   display_order: number;
   workout_date: string;

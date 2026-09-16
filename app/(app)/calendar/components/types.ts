@@ -40,6 +40,7 @@ export interface WorkoutDetail {
   benchmarkTitle?: string;
   benchmarkType?: '1k' | '5k' | 'cooper' | 'custom' | 'plan';
   customWorkoutId?: number;
+  workoutDbId?: number;
 }
 
 export interface RunningPlanWeek {

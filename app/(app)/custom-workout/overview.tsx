@@ -3,17 +3,17 @@ import DateTimePicker, { type DateTimePickerEvent } from "@react-native-communit
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
@@ -22,13 +22,13 @@ import { Colors } from "../../../constants/theme";
 import { customWorkoutAPI } from "../../../service/customWorkout";
 import { BenchmarkStore } from "../../../src/services/benchmarkStore";
 import {
-    normalizeUnit,
-    parsePaceToSeconds,
+  normalizeUnit,
+  parsePaceToSeconds,
 } from "../../../src/utils/workoutCalculations";
 import { buildWorkoutExecutionPlan } from "../../../src/utils/workoutPlanBuilder";
 import {
-    useCustomWorkout,
-    type WorkoutStep,
+  useCustomWorkout,
+  type WorkoutStep,
 } from "./workout-context";
 
 const seconds = (value: string) => {
@@ -479,23 +479,31 @@ export default function CustomWorkoutOverview() {
 
   useEffect(() => {
     if (workout.id) {
-      BenchmarkStore.isBenchmark(workout.id).then(setIsBenchmark);
+      setIsBenchmark(workout.isBenchmark ?? false);
+      BenchmarkStore.isBenchmark(workout.id).then((local) => {
+        if (workout.isBenchmark === undefined) {
+          setIsBenchmark(local);
+        }
+      });
     } else {
-      setIsBenchmark(false);
+      setIsBenchmark(workout.isBenchmark ?? false);
     }
-  }, [workout.id]);
+  }, [workout.id, workout.isBenchmark]);
 
   const handleToggleBenchmark = async () => {
-    if (!workout.id) {
-      Alert.alert(
-        "Save Workout First",
-        "Please save this custom workout before setting it as a benchmark test."
-      );
-      return;
-    }
-    const nextState = await BenchmarkStore.toggleBenchmark(workout.id);
+    const nextState = !isBenchmark;
     setIsBenchmark(nextState);
     setShowActionMenu(false);
+
+    if (workout.id) {
+      try {
+        await customWorkoutAPI.setBenchmark(workout.id, nextState);
+      } catch (err) {
+        console.warn("Could not save is_benchmark on server:", err);
+      }
+      await BenchmarkStore.setBenchmark(workout.id, nextState);
+    }
+
     Alert.alert(
       nextState ? "Marked as Benchmark" : "Benchmark Removed",
       nextState

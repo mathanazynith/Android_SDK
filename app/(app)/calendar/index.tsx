@@ -97,10 +97,11 @@ const toWorkoutDetail = (
       benchmarkAssignments[workoutId] ||
       null
     : null;
-  const isBenchmark = Boolean(assignment?.isBenchmark);
+  const isBenchmark = Boolean(workout.is_benchmark || assignment?.isBenchmark);
 
   return {
     id: workoutId,
+    workoutDbId: workout.id,
     day: workout.weekday ? `${workout.weekday.slice(0, 1)}${workout.weekday.slice(1).toLowerCase()}` : '',
     date: date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '',
     title: workout.title,

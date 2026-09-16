@@ -1,24 +1,25 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  ReactNode,
-  useRef,
-  useMemo,
-  useCallback,
+import {
+    createContext,
+    ReactNode,
+    useCallback,
+    useContext,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
 } from "react";
-import { useAuth } from "../service/auth";
-import { assessmentService } from "../service/questionnaire/questionnaireService";
 import { getBackendErrorMessage } from "../service/api";
-import { CurrentWorkoutPlan, workoutPlanService } from "../service/workoutPlan";
-import { storage } from "../service/storage";
-import { validateAnswer, ValidationError } from "../service/validation/AssessmentValidator";
+import { useAuth } from "../service/auth";
 import type {
-  Question,
-  Navigation,
-  AnswerPayload,
+    AnswerPayload,
+    Navigation,
+    Question,
 } from "../service/questionnaire/questionnaireService";
+import { assessmentService } from "../service/questionnaire/questionnaireService";
+import { storage } from "../service/storage";
+import { validateAnswer } from "../service/validation/AssessmentValidator";
+import { CurrentWorkoutPlan, workoutPlanService } from "../service/workoutPlan";
+import { PlanBenchmarkStore } from "../src/services/planBenchmarkStore";
 
 interface AnswerData {
   value: any;
@@ -284,6 +285,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     setIsWorkoutPlanLoading(false);
     navigationHistory.current = [];
     assessmentService.clearCache();
+    PlanBenchmarkStore.clearAll().catch(() => {});
   };
 
   const loadQuestions = async () => {
@@ -333,6 +335,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       } catch (err: any) {
         if (err?.response?.status === 404) {
           setWorkoutPlan(null);
+          PlanBenchmarkStore.clearAll().catch(() => {});
           return null;
         }
         if (!workoutPlan) setWorkoutPlan(null);
@@ -364,6 +367,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setAllAnswers({});
       navigationHistory.current = [];
       await storage.removeItem(storage.KEYS.TRAINING_PLAN);
+      await PlanBenchmarkStore.clearAll().catch(() => {});
     } catch (err: any) {
       const message = getBackendErrorMessage(err, "Unable to end your training plan.");
       setWorkoutPlanError(message);

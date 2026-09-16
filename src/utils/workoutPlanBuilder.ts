@@ -226,6 +226,23 @@ export function buildPlanFromUserWorkout(workout: UserWorkoutResponse): WorkoutE
     }
   }
 
+  if (steps.length === 0) {
+    const distMeters = workout.distance ? workout.distance * 1000 : undefined;
+    const durSec = workout.duration ? workout.duration * 60 : undefined;
+    steps.push({
+      id: `step-1-run-${workout.id || 1}`,
+      title: workout.title || "Running",
+      stepType: "Run",
+      setNumber: 1,
+      totalSets: 1,
+      targetType: distMeters ? "DISTANCE" : durSec ? "DURATION" : "OPEN",
+      targetDurationSeconds: durSec,
+      targetDistanceMeters: distMeters,
+      targetPace: workout.target_pace || undefined,
+      notes: workout.notes || "",
+    });
+  }
+
   return steps;
 }
 

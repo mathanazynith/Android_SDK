@@ -116,6 +116,19 @@ export const PlanBenchmarkStore = {
   },
 
   /**
+   * Clear all plan benchmark assignments (e.g. when a plan is ended or reset).
+   */
+  async clearAll(): Promise<void> {
+    cachedAssignments = {};
+    try {
+      await storage.removeItem(STORAGE_KEY);
+    } catch (err) {
+      console.warn('[PlanBenchmarkStore] Error clearing assignments:', err);
+    }
+    notifyListeners({});
+  },
+
+  /**
    * Subscribe to changes in benchmark assignments across screens.
    */
   subscribe(listener: (assignments: Record<string, PlanBenchmarkAssignment>) => void): () => void {

@@ -23,6 +23,7 @@ export interface CustomWorkoutWritePayload {
   title: string;
   workout_date?: string | null;
   notes?: string;
+  is_benchmark?: boolean;
   segments: CustomWorkoutSegmentWritePayload[];
 }
 
@@ -50,6 +51,7 @@ export interface UserWorkoutResponse {
   plan: number | null;
   template_workout: number | null;
   is_custom: boolean;
+  is_benchmark?: boolean;
   week_number: number | null;
   display_order: number;
   workout_date: string | null;
@@ -74,6 +76,8 @@ export const customWorkoutAPI = {
   get: (id: number) => api.get<UserWorkoutResponse>(`/workouts/${id}/`),
   create: (data: CustomWorkoutWritePayload) => api.post<UserWorkoutResponse>("/workouts/", data),
   update: (id: number, data: CustomWorkoutWritePayload) => api.put<UserWorkoutResponse>(`/workouts/${id}/`, data),
+  patch: (id: number, data: Partial<CustomWorkoutWritePayload>) => api.patch<UserWorkoutResponse>(`/workouts/${id}/`, data),
+  setBenchmark: (id: number, is_benchmark: boolean) => api.patch<UserWorkoutResponse>(`/workouts/${id}/`, { is_benchmark }),
   delete: (id: number) => api.delete(`/workouts/${id}/`),
   duplicate: (id: number) => api.post<UserWorkoutResponse>(`/workouts/${id}/duplicate/`),
   schedule: (id: number, workout_date: string) => api.post<UserWorkoutResponse>(`/workouts/${id}/schedule/`, { workout_date }),

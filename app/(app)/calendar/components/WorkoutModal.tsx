@@ -161,6 +161,11 @@ export default function WorkoutModal({
       notes: activeWorkout.notes,
     };
     await PlanBenchmarkStore.setAssignment(workoutKey, assignment);
+    if (activeWorkout.workoutDbId) {
+      customWorkoutAPI.setBenchmark(activeWorkout.workoutDbId, true).catch((err) => {
+        console.warn('[WorkoutModal] Failed to persist is_benchmark to backend:', err);
+      });
+    }
     const updated: WorkoutDetail = {
       ...activeWorkout,
       isBenchmark: true,
@@ -175,6 +180,11 @@ export default function WorkoutModal({
 
   const handleRemoveBenchmark = async () => {
     await PlanBenchmarkStore.removeAssignment(workoutKey);
+    if (activeWorkout.workoutDbId) {
+      customWorkoutAPI.setBenchmark(activeWorkout.workoutDbId, false).catch((err) => {
+        console.warn('[WorkoutModal] Failed to persist is_benchmark removal to backend:', err);
+      });
+    }
     const updated: WorkoutDetail = {
       ...activeWorkout,
       isBenchmark: false,

@@ -38,6 +38,7 @@ export type WorkoutState = {
   workoutDate: string | null; // "YYYY-MM-DD"
   notes: string;
   isCustom: boolean;
+  isBenchmark: boolean;
   warmUp: WorkoutStep | null;
   runs: WorkoutStep[];
   cooldown: WorkoutStep | null;
@@ -57,6 +58,7 @@ const createDefaultWorkout = (): WorkoutState => ({
   workoutDate: getTodayDateString(),
   notes: "",
   isCustom: true,
+  isBenchmark: false,
   warmUp: null,
   runs: [
     {
@@ -119,6 +121,7 @@ interface CustomWorkoutContextType {
   removeRun: (index: number) => void;
   removeCooldown: () => void;
   reset: () => void;
+  setIsBenchmark: (isBenchmark: boolean) => void;
   saveWorkout: () => Promise<UserWorkoutResponse>;
   loadWorkout: (id: number) => Promise<void>;
   deleteWorkout: (id: number) => Promise<void>;
@@ -135,6 +138,10 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
   const reset = useCallback(() => {
     setWorkout(createDefaultWorkout());
     setError(null);
+  }, []);
+
+  const setIsBenchmark = useCallback((isBenchmark: boolean) => {
+    setWorkout((prev) => ({ ...prev, isBenchmark }));
   }, []);
 
   const setTitle = useCallback((title: string) => {
@@ -469,6 +476,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         title: workout.title?.trim() || "Custom Workout",
         workout_date: workout.workoutDate || null,
         notes: workout.notes || "",
+        is_benchmark: workout.isBenchmark ?? false,
         segments,
       };
 
@@ -585,6 +593,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         workoutDate: data.workout_date,
         notes: data.notes || "",
         isCustom: data.is_custom ?? true,
+        isBenchmark: Boolean(data.is_benchmark),
         warmUp: loadedWarmUp,
         runs: loadedRuns,
         cooldown: loadedCooldown,
@@ -641,6 +650,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         removeRun,
         removeCooldown,
         reset,
+        setIsBenchmark,
         saveWorkout,
         loadWorkout,
         deleteWorkout,

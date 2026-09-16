@@ -2,24 +2,24 @@ import { Feather } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    BackHandler,
-    FlatList,
-    RefreshControl,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  BackHandler,
+  FlatList,
+  RefreshControl,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
 import { Colors } from "../../../constants/theme";
 import {
-    customWorkoutAPI,
-    type UserWorkoutResponse,
-    type UserWorkoutSegmentResponse,
+  customWorkoutAPI,
+  type UserWorkoutResponse,
+  type UserWorkoutSegmentResponse,
 } from "../../../service/customWorkout";
 import { BenchmarkStore } from "../../../src/services/benchmarkStore";
 import { buildWorkoutExecutionPlan } from "../../../src/utils/workoutPlanBuilder";
@@ -123,7 +123,28 @@ export default function CustomWorkoutCards() {
   );
 
   const handleToggleBenchmark = async (id: number, title?: string) => {
-    const nextState = await BenchmarkStore.toggleBenchmark(id);
+    const currentWorkout = workouts.find((w) => w.id === id);
+    const currentlyBenchmark = Boolean(currentWorkout?.is_benchmark ?? benchmarkIds.includes(id));
+    const nextState = !currentlyBenchmark;
+
+    // Optimistically update state
+    setWorkouts((prev) =>
+      prev.map((w) => (w.id === id ? { ...w, is_benchmark: nextState } : w))
+    );
+    setBenchmarkIds((prev) =>
+      nextState ? [...prev, id] : prev.filter((item) => item !== id)
+    );
+
+    // Call backend API to persist is_benchmark in workouts table
+    try {
+      await customWorkoutAPI.setBenchmark(id, nextState);
+    } catch (err) {
+      console.warn("Failed to persist is_benchmark to backend:", err);
+    }
+
+    // Sync with local store
+    await BenchmarkStore.setBenchmark(id, nextState);
+
     Alert.alert(
       nextState ? "Marked as Benchmark" : "Benchmark Removed",
       nextState
@@ -200,7 +221,7 @@ export default function CustomWorkoutCards() {
     const isEditing = actionLoading?.id === item.id && actionLoading?.action === "edit";
     const isStarting = actionLoading?.id === item.id && actionLoading?.action === "start";
     const isAnyLoading = Boolean(actionLoading);
-    const isBenchmark = benchmarkIds.includes(item.id);
+    const isBenchmark = Boolean(item.is_benchmark ?? benchmarkIds.includes(item.id));
     const segmentCount = (item.segments || []).length;
 
     return (

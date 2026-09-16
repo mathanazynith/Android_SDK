@@ -107,10 +107,11 @@ const toWorkoutDetail = (
       benchmarkAssignments[workoutId] ||
       undefined;
 
-  const isBenchmark = Boolean(assignment?.isBenchmark);
+  const isBenchmark = Boolean(workout.is_benchmark || assignment?.isBenchmark);
 
   return {
     id: workoutId,
+    workoutDbId: workout.id,
     rawDate: workout.workout_date,
     day: workout.weekday ? workout.weekday.slice(0, 3) : '',
     date: date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '',
@@ -120,8 +121,8 @@ const toWorkoutDetail = (
     accentColor: isRest ? '#8A8F94' : isBenchmark ? '#F59E0B' : '#63C72B',
     isRest,
     isBenchmark,
-    benchmarkTitle: assignment?.benchmarkTitle,
-    benchmarkType: assignment?.benchmarkType,
+    benchmarkTitle: assignment?.benchmarkTitle || (workout.is_benchmark ? title : undefined),
+    benchmarkType: assignment?.benchmarkType || (workout.is_benchmark ? 'plan' : undefined),
     description,
     instructions: '',
     warmUp: formatDistance(workout.warmup),
