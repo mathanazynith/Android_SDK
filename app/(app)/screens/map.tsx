@@ -2,22 +2,22 @@ import * as Location from 'expo-location';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    BackHandler,
-    Platform,
-    Pressable,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Alert,
+  BackHandler,
+  Platform,
+  Pressable, 
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
-import MapView, { Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { workoutPlanService } from '../../../service/workoutPlan';
 import { ActivityDetectionService } from '../../../src/services/activityDetectionService';
 import { activityDistanceOverrides } from '../../../src/services/activityDistanceOverrides';
 import { LocationQueue } from '../../../src/services/locationQueue';
-import { LocationService } from '../../../src/services/locationService';
-import { PathProcessor } from '../../../src/services/pathProcessor';
+import { LocationService } from '../../../src/services/locationService'; 
+import { PathProcessor } from '../../../src/services/pathProcessor'; 
 import { RunningApiClient } from '../../../src/services/runningApi';
 import { DistanceSplitEngine } from '../../../src/services/splitEngine';
 import { StepDetectionService } from '../../../src/services/stepDetectionService';
@@ -39,7 +39,14 @@ interface Coordinate {
 interface RouteSegment {
   id: number;
   isLight: boolean;
+  traceType: 'active' | 'pause' | 'extra';
   coordinates: Coordinate[];
+}
+
+interface PauseMarker {
+  id: number;
+  type: 'pause' | 'resume';
+  coordinate: Coordinate;
 }
 
 interface LocationState {
@@ -56,6 +63,7 @@ interface LocationState {
 }
 
 type MovementState = 'STATIONARY' | 'STARTING' | 'MOVING' | 'STOPPING';
+type WorkoutStatus = 'ACTIVE' | 'PAUSED' | 'STOPPED';
 
 const MOVEMENT_CONFIRMATION_SAMPLES = 3;
 const STATIONARY_CONFIRMATION_SAMPLES = 3;
@@ -84,6 +92,7 @@ export default function MapScreen() {
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [isMapReady, setIsMapReady] = useState(false);
   const [routeSegments, setRouteSegments] = useState<RouteSegment[]>([]);
+  const [pauseMarkers, setPauseMarkers] = useState<PauseMarker[]>([]);
   const [distance, setDistance] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [accuracy, setAccuracy] = useState<number | null>(null);
@@ -93,6 +102,7 @@ export default function MapScreen() {
     reductionPercent: 0,
   });
   const [isPaused, setIsPaused] = useState(false);
+  const [workoutStatus, setWorkoutStatus] = useState<WorkoutStatus>('STOPPED');
   const [pace, setPace] = useState(0); // pace in minutes per km
   const [isPlannedWorkout, setIsPlannedWorkout] = useState(false);
   const [workoutSnapshot, setWorkoutSnapshot] = useState<WorkoutEngineSnapshot | null>(null);
@@ -118,8 +128,20 @@ export default function MapScreen() {
   const isStoppingRef = useRef(false);
   const isStartingRef = useRef(false);
   const isPausedRef = useRef(false);
+  const workoutStatusRef = useRef<WorkoutStatus>('STOPPED');
   const pausedTimeRef = useRef<number | null>(null); // Tracks cumulative paused duration
   const pauseStartTimeRef = useRef<number | null>(null); // When pause started
+  const pauseEventsRef = useRef<Array<{
+    paused_at: string;
+    resumed_at: string;
+    duration_s: number;
+    pause_location: { latitude: number; longitude: number };
+    resume_location: { latitude: number; longitude: number };
+  }>>([]);
+  const currentPauseEventRef = useRef<null | {
+    paused_at: string;
+    pause_location: { latitude: number; longitude: number };
+  }>(null);
   const isPausingRef = useRef(false);
   const stepCountRef = useRef(0);
   const lastStepTimestampRef = useRef<number | null>(null);
@@ -136,11 +158,58 @@ export default function MapScreen() {
 
 
   const [logs, setLogs] = useState<string[]>([]);
+  const [location, setLocation] = useState<LocationState | null>(null);
+
   const addLog = useCallback((value: string) => {
     setLogs((prev) => [...prev, value]);
   }, []);
 
-  const [location, setLocation] = useState<LocationState | null>(null);
+  const setWorkoutStatusState = useCallback((nextStatus: WorkoutStatus) => {
+    workoutStatusRef.current = nextStatus;
+    setWorkoutStatus(nextStatus);
+  }, []);
+
+  const getCurrentPauseLocation = useCallback((): { latitude: number; longitude: number } | null => {
+    if (location?.coords) {
+      return {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      };
+    }
+
+    if (previousLocationRef.current) {
+      return {
+        latitude: previousLocationRef.current.latitude,
+        longitude: previousLocationRef.current.longitude,
+      };
+    }
+
+    return null;
+  }, [location]);
+
+  const finalizePauseEvent = useCallback((resumeLocationOverride?: { latitude: number; longitude: number } | null, resumeTimestamp?: number) => {
+    if (!pauseStartTimeRef.current) return;
+
+    const pausedAtMs = pauseStartTimeRef.current;
+    const resumedAtMs = resumeTimestamp ?? Date.now();
+    const pauseLocation = currentPauseEventRef.current?.pause_location ?? getCurrentPauseLocation() ?? { latitude: 0, longitude: 0 };
+    const resumeLocation = resumeLocationOverride ?? getCurrentPauseLocation() ?? pauseLocation;
+    const pauseDurationMs = Math.max(0, resumedAtMs - pausedAtMs);
+    const pauseEvent = {
+      paused_at: new Date(pausedAtMs).toISOString(),
+      resumed_at: new Date(resumedAtMs).toISOString(),
+      duration_s: Number((pauseDurationMs / 1000).toFixed(3)),
+      pause_location: pauseLocation,
+      resume_location: resumeLocation,
+    };
+
+    pauseEventsRef.current.push(pauseEvent);
+    pausedTimeRef.current = (pausedTimeRef.current ?? 0) + pauseDurationMs;
+    pauseStartTimeRef.current = null;
+    currentPauseEventRef.current = null;
+    console.log('[PAUSE] event closed', JSON.stringify(pauseEvent, null, 2));
+    console.log('[WORKOUT] TOTAL PAUSED TIME=', `${((pausedTimeRef.current ?? 0) / 1000).toFixed(3)}s`);
+  }, [getCurrentPauseLocation]);
 
   const region = useMemo(
     () => location ? {
@@ -248,12 +317,24 @@ export default function MapScreen() {
     });
   }, []);
 
-  const appendRoutePoint = useCallback((point: Coordinate, isLight: boolean) => {
+  const appendRoutePoint = useCallback((point: Coordinate, traceType: RouteSegment['traceType']) => {
     const current = routeSegmentsRef.current;
     const previous = current.at(-1);
-    const next = previous && previous.isLight === isLight
+    const isLight = traceType !== 'active';
+    const next = previous && previous.traceType === traceType
       ? [...current.slice(0, -1), { ...previous, coordinates: [...previous.coordinates, point] }]
-      : [...current, { id: Date.now() + current.length, isLight, coordinates: [point] }];
+      : [...current, {
+        id: Date.now() + current.length,
+        isLight,
+        traceType,
+        coordinates: [
+          ...(previous && ((previous.traceType === 'pause' && traceType === 'active')
+            || (previous.traceType === 'active' && traceType === 'pause'))
+            ? [previous.coordinates.at(-1)!]
+            : []),
+          point,
+        ],
+      }];
 
     routeSegmentsRef.current = next;
     setRouteSegments(next);
@@ -520,6 +601,11 @@ export default function MapScreen() {
       const workoutEngine = workoutEngineRef.current;
       const lightTrace = workoutEngine?.shouldUseLightPolyline() ?? isPausedRef.current;
       const countsWorkoutDistance = workoutEngine?.isDistanceCounting() ?? !isPausedRef.current;
+      const traceType: RouteSegment['traceType'] = isPausedRef.current
+        ? 'pause'
+        : lightTrace
+          ? 'extra'
+          : 'active';
 
       // A pause/rest boundary must never be bridged by the next accepted
       // point after tracking resumes; the movement gate still controls which
@@ -537,7 +623,7 @@ export default function MapScreen() {
         if (displayPointWasAdded && latestDisplayPoint) {
           appendRoutePoint(
             { latitude: latestDisplayPoint.latitude, longitude: latestDisplayPoint.longitude },
-            lightTrace,
+            traceType,
           );
 
         }
@@ -655,6 +741,7 @@ export default function MapScreen() {
 
       routeSegmentsRef.current = [];
       setRouteSegments([]);
+      setPauseMarkers([]);
       distanceRef.current = 0;
       extraDistanceRef.current = 0;
       splitEngineRef.current.reset();
@@ -668,6 +755,9 @@ export default function MapScreen() {
       consecutiveStationaryRef.current = 0;
       setPace(0);
       setIsPaused(false);
+      setWorkoutStatusState('ACTIVE');
+      pauseEventsRef.current = [];
+      currentPauseEventRef.current = null;
       setOptimizedStats({ rawPointCount: 0, optimizedPointCount: 0, reductionPercent: 0 });
       setLogs([]);
       previousLocationRef.current = null;
@@ -906,17 +996,30 @@ export default function MapScreen() {
     isPausingRef.current = true;
     try {
       console.log('[RecordView] Pausing run...');
+      console.log('[WORKOUT] ACTIVE -> PAUSED');
 
       // Keep the single GPS watcher active. This movement is displayed in a
       // light colour but is excluded from the active lap's distance.
       workoutEngineRef.current?.pause();
       setWorkoutSnapshot(workoutEngineRef.current?.getSnapshot() ?? null);
 
-      // Mark pause start time
+      const pauseLocation = getCurrentPauseLocation();
       pauseStartTimeRef.current = Date.now();
+      currentPauseEventRef.current = pauseLocation
+        ? { paused_at: new Date(pauseStartTimeRef.current).toISOString(), pause_location: pauseLocation }
+        : null;
+      if (pauseLocation) {
+        setPauseMarkers((markers) => [
+          ...markers,
+          { id: Date.now(), type: 'pause', coordinate: pauseLocation },
+        ]);
+      }
       isPausedRef.current = true;
       setIsPaused(true);
+      setWorkoutStatusState('PAUSED');
 
+      console.log('[PAUSE] paused_at=', new Date(pauseStartTimeRef.current).toISOString());
+      console.log('[PAUSE] pause_location=', pauseLocation ? `${pauseLocation.latitude},${pauseLocation.longitude}` : 'unavailable');
       console.log('[RecordView] Run paused - GPS continues as light trace');
       addLog('⏸ Run paused - tracking stopped');
     } catch (error) {
@@ -935,15 +1038,37 @@ export default function MapScreen() {
 
     try {
       console.log('[RecordView] Resuming run...');
+      console.log('[WORKOUT] PAUSED -> ACTIVE');
 
-      // Add paused duration to total
+      const resumeLocation = getCurrentPauseLocation();
+      const resumedAtMs = Date.now();
+      if (resumeLocation) {
+        setPauseMarkers((markers) => [
+          ...markers,
+          { id: Date.now(), type: 'resume', coordinate: resumeLocation },
+        ]);
+      }
       if (pauseStartTimeRef.current) {
-        const pausedDuration = Date.now() - pauseStartTimeRef.current;
-        pausedTimeRef.current = (pausedTimeRef.current || 0) + pausedDuration;
+        const pauseDurationMs = Math.max(0, resumedAtMs - pauseStartTimeRef.current);
+        const pauseEvent = {
+          paused_at: new Date(pauseStartTimeRef.current).toISOString(),
+          resumed_at: new Date(resumedAtMs).toISOString(),
+          duration_s: Number((pauseDurationMs / 1000).toFixed(3)),
+          pause_location: currentPauseEventRef.current?.pause_location ?? resumeLocation ?? { latitude: 0, longitude: 0 },
+          resume_location: resumeLocation ?? { latitude: 0, longitude: 0 },
+        };
+        pauseEventsRef.current.push(pauseEvent);
+        pausedTimeRef.current = (pausedTimeRef.current ?? 0) + pauseDurationMs;
+        console.log('[RESUME] resumed_at=', pauseEvent.resumed_at);
+        console.log('[RESUME] resume_location=', `${pauseEvent.resume_location.latitude},${pauseEvent.resume_location.longitude}`);
+        console.log('[RESUME] pause_duration=', `${pauseEvent.duration_s}s`);
       }
 
       isPausedRef.current = false;
       setIsPaused(false);
+      setWorkoutStatusState('ACTIVE');
+      pauseStartTimeRef.current = null;
+      currentPauseEventRef.current = null;
 
       // The watcher was never stopped; only active-distance accounting resumes.
       workoutEngineRef.current?.resume();
@@ -966,6 +1091,25 @@ export default function MapScreen() {
     isStoppingRef.current = true;
     try {
       const stoppedAt = new Date();
+      if (isPausedRef.current && pauseStartTimeRef.current) {
+        const pauseLocation = getCurrentPauseLocation() ?? { latitude: 0, longitude: 0 };
+        const stopPauseDurationMs = Math.max(0, stoppedAt.getTime() - pauseStartTimeRef.current);
+        const stopPauseEvent = {
+          paused_at: new Date(pauseStartTimeRef.current).toISOString(),
+          resumed_at: stoppedAt.toISOString(),
+          duration_s: Number((stopPauseDurationMs / 1000).toFixed(3)),
+          pause_location: currentPauseEventRef.current?.pause_location ?? pauseLocation,
+          resume_location: pauseLocation,
+        };
+        pauseEventsRef.current.push(stopPauseEvent);
+        pausedTimeRef.current = (pausedTimeRef.current ?? 0) + stopPauseDurationMs;
+        console.log('[PAUSE] stopped while paused -> pause event finalized', JSON.stringify(stopPauseEvent, null, 2));
+        pauseStartTimeRef.current = null;
+        currentPauseEventRef.current = null;
+        isPausedRef.current = false;
+        setIsPaused(false);
+        setWorkoutStatusState('STOPPED');
+      }
       const detectedActivity = activityDetectionRef.current?.getCurrentActivity();
       const hasDetectedMovement = detectedActivity === 'walking' || detectedActivity === 'running';
       const hasStepEvidence = stepCountRef.current >= 3;
@@ -978,6 +1122,11 @@ export default function MapScreen() {
       const activityType = workoutType === 'walk' ? 'WALK' : 'RUN';
       console.log(`[RecordView] Recording stopped at ${stoppedAt.toISOString()}`);
       console.log('[RecordView] Stop finalization started');
+      console.log('[WORKOUT] FINAL ACTIVE TIME=', `${elapsedSeconds}s`);
+      console.log('[WORKOUT] FINAL ACTIVE DISTANCE=', `${distanceRef.current.toFixed(2)}m`);
+      console.log('[WORKOUT] TOTAL PAUSED TIME=', `${((pausedTimeRef.current ?? 0) / 1000).toFixed(3)}s`);
+      console.log('[WORKOUT] PAUSE COUNT=', `${pauseEventsRef.current.length}`);
+      console.log('[WORKOUT] PAUSE EVENTS=', JSON.stringify(pauseEventsRef.current, null, 2));
       isRunningRef.current = false;
 
       if (locationSubscription.current) {
@@ -1070,7 +1219,7 @@ export default function MapScreen() {
         // with a different set of points before upload.
         const uploadRoutePoints: RunningGpsPoint[] = processor.getDisplayPoints();
         const extraRouteCoordinates = routeSegmentsRef.current
-          .filter((segment) => segment.isLight)
+          .filter((segment) => segment.traceType === 'extra')
           .flatMap((segment) => segment.coordinates);
         console.log(
           `[LocationManager] Stop & Save route source: live accepted points `
@@ -1104,6 +1253,7 @@ export default function MapScreen() {
           const renderedSegment: RouteSegment = {
             id: Date.now(),
             isLight: false,
+            traceType: 'active',
             coordinates: smoothedDisplayCoordinates,
           };
           routeSegmentsRef.current = [renderedSegment];
@@ -1180,7 +1330,7 @@ export default function MapScreen() {
           + `(${workoutEngineRef.current?.getSnapshot().completedLaps.length ?? 0} planned laps; extra points included)`
         );
         const extraRoutePointCount = routeSegmentsRef.current
-          .filter((segment) => segment.isLight)
+          .filter((segment) => segment.traceType === 'extra')
           .reduce((count, segment) => count + segment.coordinates.length, 0);
         console.log(`[Workout] Extra gray route points included: ${extraRoutePointCount}`);
         console.log(
@@ -1326,6 +1476,7 @@ export default function MapScreen() {
             gps_points: extraPoints,
           }
           : null;
+        const pauseEvents = pauseEventsRef.current;
         const iosStyleActivityPayload: ActivitySubmissionPayload = {
           gps_points: uploadRoutePoints.map((point) => pointPayload(point, isExtraDistancePoint(point))),
           start_time: startTimeRef.current
@@ -1347,6 +1498,9 @@ export default function MapScreen() {
           laps,
           segments: segmentPayloads,
           extra: extraPayload,
+          pause_events: pauseEvents,
+          pause_count: pauseEvents.length,
+          paused_time_s: Number(((pausedTimeRef.current ?? 0) / 1000).toFixed(3)),
         };
         const backendPayloadLog = {
           ...iosStyleActivityPayload,
@@ -1428,7 +1582,9 @@ export default function MapScreen() {
       isPausedRef.current = false;
       pausedTimeRef.current = null;
       pauseStartTimeRef.current = null;
+      currentPauseEventRef.current = null;
       setIsPaused(false);
+      setWorkoutStatusState('STOPPED');
 
       Alert.alert(
         stationarySession ? 'No movement detected' : 'Run Completed!',
@@ -1559,11 +1715,20 @@ export default function MapScreen() {
               key={segment.id}
               coordinates={segment.coordinates}
               strokeWidth={3}
-              strokeColor={segment.isLight ? '#9CA3AF' : '#20D000'}
+              strokeColor={segment.traceType === 'extra'
+                ? '#9CA3AF'
+                : segment.traceType === 'pause'
+                  ? 'rgba(32, 208, 0, 0.35)'
+                  : '#20D000'}
               lineCap="round"
               lineJoin="round"
               geodesic={true}
             />
+          ))}
+          {pauseMarkers.map((marker) => (
+            <Marker key={marker.id} coordinate={marker.coordinate} anchor={{ x: 0.5, y: 0.5 }}>
+              <View style={[styles.pauseMarker, marker.type === 'resume' && styles.resumeMarker]} />
+            </Marker>
           ))}
         </MapView>
 
@@ -1731,6 +1896,8 @@ const styles = StyleSheet.create({
   gpsDot: { width: 9, height: 9, borderRadius: 999, marginRight: 8 },
   gpsStatusText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   gpsAccuracyText: { marginLeft: 10, color: '#8BE9A8', fontSize: 11, fontWeight: '700' },
+  pauseMarker: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff', borderWidth: 2, borderColor: '#D1D5DB' },
+  resumeMarker: { backgroundColor: '#fff' },
   recenterButton: { position: 'absolute', right: 18, bottom: 126, width: 40, height: 40, borderRadius: 20, backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center' },
   recenterText: { fontSize: 24 },
   controlBar: {

@@ -67,6 +67,19 @@ export interface ActivityGpsPointPayload {
   is_extra_distance: boolean;
 }
 
+export interface PauseLocationPayload {
+  latitude: number;
+  longitude: number;
+}
+
+export interface PauseEventPayload {
+  paused_at: string;
+  resumed_at: string;
+  duration_s: number;
+  pause_location: PauseLocationPayload;
+  resume_location: PauseLocationPayload;
+}
+
 export interface ActivitySubmissionPayload {
   gps_points: ActivityGpsPointPayload[];
   start_time: string;
@@ -84,6 +97,9 @@ export interface ActivitySubmissionPayload {
   laps?: ActivityLapPayload[];
   segments?: ActivitySegmentPayload[];
   extra?: ActivityExtraPayload | null;
+  pause_events?: PauseEventPayload[];
+  pause_count?: number;
+  paused_time_s?: number;
 }
 
 export interface ActivitySegmentPayload {
