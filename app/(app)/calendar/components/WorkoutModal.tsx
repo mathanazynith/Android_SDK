@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
+    Alert,
     Animated,
     Modal,
     Pressable,
@@ -13,18 +14,12 @@ import {
     View
 } from 'react-native';
 import BenchmarkBadgeIcon from '../../../../components/BenchmarkBadgeIcon';
-import { customWorkoutAPI, type UserWorkoutResponse } from '../../../../service/customWorkout';
-import { BenchmarkStore } from '../../../../src/services/benchmarkStore';
+import { workoutPlanService } from '../../../../service/workoutPlan';
 import {
     PlanBenchmarkAssignment,
     PlanBenchmarkStore,
-    PlanBenchmarkType,
 } from '../../../../src/services/planBenchmarkStore';
-import {
-    buildPlanFromPlanSegments,
-    buildWorkoutExecutionPlan,
-    WorkoutExecutionStep,
-} from '../../../../src/utils/workoutPlanBuilder';
+import { buildPlanFromPlanSegments } from '../../../../src/utils/workoutPlanBuilder';
 import { WorkoutDetail, WorkoutSegment } from './types';
 
 interface WorkoutModalProps {
@@ -34,7 +29,8 @@ interface WorkoutModalProps {
   onUpdateBenchmark?: (
     workoutId: string,
     isBenchmark: boolean,
-    assignment?: PlanBenchmarkAssignment
+    assignment?: PlanBenchmarkAssignment,
+    workoutDbId?: number
   ) => void;
 }
 
@@ -70,10 +66,6 @@ export default function WorkoutModal({
 }: WorkoutModalProps) {
   const [rendered, setRendered] = useState(visible);
   const [activeWorkout, setActiveWorkout] = useState<WorkoutDetail | null>(workout);
-  const [showSelector, setShowSelector] = useState(false);
-  const [customWorkouts, setCustomWorkouts] = useState<UserWorkoutResponse[]>([]);
-  const [benchmarkIds, setBenchmarkIds] = useState<number[]>([]);
-  const [loadingBenchmarks, setLoadingBenchmarks] = useState(false);
   const [opacity] = useState(() => new Animated.Value(0));
   const [translateY] = useState(() => new Animated.Value(30));
 
@@ -90,21 +82,6 @@ export default function WorkoutModal({
           useNativeDriver: true,
         }),
       ]).start();
-
-      // Load custom workouts and benchmark IDs for run days
-      if (!workout.isRest) {
-        setLoadingBenchmarks(true);
-        Promise.all([
-          customWorkoutAPI.list().catch(() => ({ data: [] })),
-          BenchmarkStore.getBenchmarkIds().catch(() => []),
-        ])
-          .then(([res, bIds]) => {
-            const list = Array.isArray(res?.data) ? res.data : [];
-            setCustomWorkouts(list);
-            setBenchmarkIds(bIds);
-          })
-          .finally(() => setLoadingBenchmarks(false));
-      }
       return;
     }
 
@@ -114,7 +91,6 @@ export default function WorkoutModal({
         Animated.timing(translateY, { toValue: 30, duration: 160, useNativeDriver: true }),
       ]).start(() => {
         setRendered(false);
-        setShowSelector(false);
       });
     }
   }, [visible, workout]);
@@ -126,237 +102,94 @@ export default function WorkoutModal({
     }
   }, [workout]);
 
-  const benchmarkCustomWorkouts = useMemo(() => {
-    return customWorkouts.filter((w) => benchmarkIds.includes(w.id));
-  }, [customWorkouts, benchmarkIds]);
-
   if (!rendered || !activeWorkout) return null;
 
-  const workoutKey = activeWorkout.rawDate || activeWorkout.id;
+  const handleToggleBenchmark = async () => {
+    if (!activeWorkout || activeWorkout.isRest) return;
+    const nextState = !activeWorkout.isBenchmark;
+    const workoutKey = activeWorkout.rawDate || activeWorkout.id;
 
-  const handleSelectBenchmark = async (
-    type: PlanBenchmarkType,
-    title: string,
-    customWorkoutId?: number,
-    targetDistanceKm?: number,
-    targetDurationMinutes?: number
-  ) => {
-    const assignment: PlanBenchmarkAssignment = {
-      workoutKey,
-      isBenchmark: true,
-      benchmarkType: type,
-      benchmarkTitle: title,
-      customWorkoutId,
-      targetDistanceKm,
-      targetDurationMinutes,
-      planWorkoutTitle: activeWorkout.title,
-      planWorkoutDate: activeWorkout.date || activeWorkout.rawDate,
-      planWorkoutDay: activeWorkout.day,
-      planWorkoutType: activeWorkout.workoutType,
-      planWorkoutDistance: activeWorkout.distance,
-      planWorkoutDuration: activeWorkout.estimatedDuration,
-      planWorkoutPace: activeWorkout.targetPace,
-      planWorkoutSegments: activeWorkout.segments,
-      planWorkoutSteps: activeWorkout.steps,
-      notes: activeWorkout.notes,
-    };
-    await PlanBenchmarkStore.setAssignment(workoutKey, assignment);
-    if (activeWorkout.workoutDbId) {
-      customWorkoutAPI.setBenchmark(activeWorkout.workoutDbId, true).catch((err) => {
-        console.warn('[WorkoutModal] Failed to persist is_benchmark to backend:', err);
-      });
-    }
+    // Optimistically update activeWorkout
     const updated: WorkoutDetail = {
       ...activeWorkout,
-      isBenchmark: true,
-      benchmarkTitle: title,
-      benchmarkType: type,
-      customWorkoutId,
+      isBenchmark: nextState,
+      benchmarkTitle: nextState ? activeWorkout.title : undefined,
+      benchmarkType: nextState ? 'plan' : undefined,
     };
     setActiveWorkout(updated);
-    setShowSelector(false);
-    onUpdateBenchmark?.(activeWorkout.id, true, assignment);
-  };
 
-  const handleRemoveBenchmark = async () => {
-    await PlanBenchmarkStore.removeAssignment(workoutKey);
-    if (activeWorkout.workoutDbId) {
-      customWorkoutAPI.setBenchmark(activeWorkout.workoutDbId, false).catch((err) => {
-        console.warn('[WorkoutModal] Failed to persist is_benchmark removal to backend:', err);
-      });
+    let assignment: PlanBenchmarkAssignment | undefined = undefined;
+    if (nextState) {
+      assignment = {
+        workoutKey,
+        isBenchmark: true,
+        benchmarkType: 'plan',
+        benchmarkTitle: activeWorkout.title || 'Plan Benchmark',
+        workoutDbId: activeWorkout.workoutDbId,
+        planWorkoutTitle: activeWorkout.title,
+        planWorkoutDate: activeWorkout.date || activeWorkout.rawDate,
+        planWorkoutDay: activeWorkout.day,
+        planWorkoutType: activeWorkout.workoutType,
+        planWorkoutDistance: activeWorkout.distance,
+        planWorkoutDuration: activeWorkout.estimatedDuration,
+        planWorkoutPace: activeWorkout.targetPace,
+        planWorkoutSegments: activeWorkout.segments,
+        planWorkoutSteps: activeWorkout.steps,
+        notes: activeWorkout.notes,
+      };
+      await PlanBenchmarkStore.setAssignment(workoutKey, assignment);
+    } else {
+      await PlanBenchmarkStore.removeAssignment(workoutKey, activeWorkout.workoutDbId);
     }
-    const updated: WorkoutDetail = {
-      ...activeWorkout,
-      isBenchmark: false,
-      benchmarkTitle: undefined,
-      benchmarkType: undefined,
-      customWorkoutId: undefined,
-    };
-    setActiveWorkout(updated);
-    setShowSelector(false);
-    onUpdateBenchmark?.(activeWorkout.id, false);
+
+    // Call backend API to persist is_benchmark in workouts table
+    let dbId = activeWorkout.workoutDbId;
+    try {
+      const saved = await workoutPlanService.updatePlanWorkoutBenchmark(
+        {
+          workoutDbId: activeWorkout.workoutDbId,
+          workoutDate: activeWorkout.rawDate,
+          weekNumber: activeWorkout.weekNumber,
+          displayOrder: activeWorkout.displayOrder,
+          weekday: activeWorkout.day,
+          title: activeWorkout.title,
+          workoutType: activeWorkout.workoutType,
+          distance: activeWorkout.distance ? parseFloat(activeWorkout.distance) * 1000 : null,
+          duration: activeWorkout.estimatedDuration ? parseInt(activeWorkout.estimatedDuration, 10) * 60 : null,
+          notes: activeWorkout.notes,
+          segments: activeWorkout.segments,
+        },
+        nextState
+      );
+      if (saved?.id) {
+        dbId = saved.id;
+        if (assignment) {
+          assignment.workoutDbId = saved.id;
+          await PlanBenchmarkStore.setAssignment(workoutKey, assignment);
+        } else {
+          await PlanBenchmarkStore.removeAssignment(workoutKey, saved.id);
+        }
+      }
+    } catch (err) {
+      console.warn('[WorkoutModal] Failed to persist is_benchmark to backend:', err);
+    }
+
+    if (dbId && dbId !== activeWorkout.workoutDbId) {
+      setActiveWorkout((prev) => (prev ? { ...prev, workoutDbId: dbId } : prev));
+    }
+
+    onUpdateBenchmark?.(activeWorkout.id, nextState, assignment, dbId);
+
+    Alert.alert(
+      nextState ? 'Marked as Benchmark' : 'Benchmark Removed',
+      nextState
+        ? `"${activeWorkout.title || 'Workout'}" is now set as a Benchmark Workout in Statistics.`
+        : `"${activeWorkout.title || 'Workout'}" removed from Benchmark Workouts in Statistics.`
+    );
   };
 
   const handleStartRun = () => {
     onClose();
-    if (activeWorkout.isBenchmark) {
-      // 1. Plan workout tagged as benchmark (e.g. 6 x 400m)
-      if (activeWorkout.benchmarkType === 'plan') {
-        const hasSegments = Array.isArray(activeWorkout.segments) && activeWorkout.segments.length > 0;
-        if (hasSegments) {
-          const planSteps = buildPlanFromPlanSegments(
-            activeWorkout.segments,
-            activeWorkout.title || 'Benchmark Run'
-          );
-          if (planSteps.length > 0) {
-            router.push({
-              pathname: '/(app)/screens/map',
-              params: {
-                workoutTitle: `${activeWorkout.title} (Benchmark)`,
-                workoutPlan: JSON.stringify(planSteps),
-              },
-            });
-            return;
-          }
-        }
-        router.push({
-          pathname: '/(app)/run',
-          params: {
-            workoutId: activeWorkout.id,
-            workoutTitle: `${activeWorkout.title} (Benchmark)`,
-            workoutType: 'Benchmark',
-            workoutDuration: activeWorkout.estimatedDuration,
-            workoutDistance: activeWorkout.distance,
-            workoutPace: activeWorkout.targetPace,
-          },
-        });
-        return;
-      }
-
-      // 2. Custom benchmark workout
-      if (activeWorkout.benchmarkType === 'custom' && activeWorkout.customWorkoutId) {
-        const found = customWorkouts.find((w) => w.id === activeWorkout.customWorkoutId);
-        if (found) {
-          const executionPlan = buildWorkoutExecutionPlan(found);
-          router.push({
-            pathname: '/(app)/screens/map',
-            params: {
-              workoutTitle: activeWorkout.benchmarkTitle || found.title || 'Custom Benchmark',
-              workoutPlan: JSON.stringify(executionPlan),
-            },
-          });
-          return;
-        }
-      }
-
-      // 3. Standard 1 km benchmark
-      // 2. Standard 1 km benchmark
-      if (activeWorkout.benchmarkType === '1k') {
-        const planSteps: WorkoutExecutionStep[] = [
-          {
-            id: 'bench-1k-warmup',
-            title: 'Warm Up (Easy Jog)',
-            stepType: 'Warmup',
-            targetType: 'DURATION',
-            targetDurationSeconds: 300,
-          },
-          {
-            id: 'bench-1k-run',
-            title: '1 km Benchmark (Max Effort)',
-            stepType: 'Run',
-            targetType: 'DISTANCE',
-            targetDistanceMeters: 1000,
-          },
-          {
-            id: 'bench-1k-cooldown',
-            title: 'Cool Down',
-            stepType: 'Cooldown',
-            targetType: 'DURATION',
-            targetDurationSeconds: 300,
-          },
-        ];
-        router.push({
-          pathname: '/(app)/screens/map',
-          params: {
-            workoutTitle: '1 km Benchmark Run',
-            workoutPlan: JSON.stringify(planSteps),
-          },
-        });
-        return;
-      }
-
-      // 4. Standard 5 km benchmark
-      if (activeWorkout.benchmarkType === '5k') {
-        const planSteps: WorkoutExecutionStep[] = [
-          {
-            id: 'bench-5k-warmup',
-            title: 'Warm Up (Easy Jog)',
-            stepType: 'Warmup',
-            targetType: 'DURATION',
-            targetDurationSeconds: 300,
-          },
-          {
-            id: 'bench-5k-run',
-            title: '5 km Benchmark (Paced Effort)',
-            stepType: 'Run',
-            targetType: 'DISTANCE',
-            targetDistanceMeters: 5000,
-          },
-          {
-            id: 'bench-5k-cooldown',
-            title: 'Cool Down',
-            stepType: 'Cooldown',
-            targetType: 'DURATION',
-            targetDurationSeconds: 300,
-          },
-        ];
-        router.push({
-          pathname: '/(app)/screens/map',
-          params: {
-            workoutTitle: '5 km Benchmark Run',
-            workoutPlan: JSON.stringify(planSteps),
-          },
-        });
-        return;
-      }
-
-      // 5. 12-Minute Cooper test benchmark
-      if (activeWorkout.benchmarkType === 'cooper') {
-        const planSteps: WorkoutExecutionStep[] = [
-          {
-            id: 'bench-cooper-warmup',
-            title: 'Warm Up (Easy Jog)',
-            stepType: 'Warmup',
-            targetType: 'DURATION',
-            targetDurationSeconds: 300,
-          },
-          {
-            id: 'bench-cooper-run',
-            title: '12-Minute Cooper Test (Max Distance)',
-            stepType: 'Run',
-            targetType: 'DURATION',
-            targetDurationSeconds: 720,
-          },
-          {
-            id: 'bench-cooper-cooldown',
-            title: 'Cool Down',
-            stepType: 'Cooldown',
-            targetType: 'DURATION',
-            targetDurationSeconds: 300,
-          },
-        ];
-        router.push({
-          pathname: '/(app)/screens/map',
-          params: {
-            workoutTitle: '12-Minute Cooper Test',
-            workoutPlan: JSON.stringify(planSteps),
-          },
-        });
-        return;
-      }
-    }
-
-    // Regular planned run
     const hasSegments = Array.isArray(activeWorkout.segments) && activeWorkout.segments.length > 0;
     if (hasSegments) {
       const planSteps = buildPlanFromPlanSegments(
@@ -367,7 +200,9 @@ export default function WorkoutModal({
         router.push({
           pathname: '/(app)/screens/map',
           params: {
-            workoutTitle: activeWorkout.title,
+            workoutTitle: activeWorkout.isBenchmark
+              ? `${activeWorkout.title} (Benchmark)`
+              : activeWorkout.title,
             workoutPlan: JSON.stringify(planSteps),
           },
         });
@@ -379,8 +214,10 @@ export default function WorkoutModal({
       pathname: '/(app)/run',
       params: {
         workoutId: activeWorkout.id,
-        workoutTitle: activeWorkout.title,
-        workoutType: activeWorkout.workoutType,
+        workoutTitle: activeWorkout.isBenchmark
+          ? `${activeWorkout.title} (Benchmark)`
+          : activeWorkout.title,
+        workoutType: activeWorkout.isBenchmark ? 'Benchmark' : activeWorkout.workoutType,
         workoutDuration: activeWorkout.estimatedDuration,
         workoutDistance: activeWorkout.distance,
         workoutPace: activeWorkout.targetPace,
@@ -407,58 +244,52 @@ export default function WorkoutModal({
       </View>
 
       {/* Benchmark Banner or Set Benchmark Button (Only on active Run days, NOT on Rest days) */}
+      {/* Benchmark Action Button / Status (Only on active Run days, NOT on Rest days) */}
       {!activeWorkout.isRest && (
         <View style={styles.benchmarkSection}>
-          {activeWorkout.isBenchmark ? (
-            <View style={styles.benchmarkActiveBanner}>
-              <View style={styles.benchmarkBannerTop}>
-                <View style={styles.benchmarkTrophyBadge}>
-                  <BenchmarkBadgeIcon size={18} color="#0F172A" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.benchmarkBannerOverline}>BENCHMARK RUN ACTIVE</Text>
-                  <Text style={styles.benchmarkBannerTitle} numberOfLines={1}>
-                    {activeWorkout.benchmarkTitle || 'Benchmark Workout'}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.benchmarkBannerActions}>
-                <TouchableOpacity
-                  style={styles.benchmarkChangeButton}
-                  onPress={() => setShowSelector(true)}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="swap-horizontal" size={14} color="#22C55E" />
-                  <Text style={styles.benchmarkChangeButtonText}>Change Test</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.benchmarkRemoveButton}
-                  onPress={handleRemoveBenchmark}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="close-circle-outline" size={14} color="#EF4444" />
-                  <Text style={styles.benchmarkRemoveButtonText}>Remove</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.setBenchmarkButton}
-              onPress={() => setShowSelector(true)}
-              activeOpacity={0.8}
+          <TouchableOpacity
+            style={[
+              styles.benchmarkToggleButton,
+              activeWorkout.isBenchmark && styles.benchmarkToggleButtonActive,
+            ]}
+            onPress={handleToggleBenchmark}
+            activeOpacity={0.8}
+            accessibilityLabel={activeWorkout.isBenchmark ? 'Remove benchmark' : 'Mark as benchmark'}
+          >
+            <View
+              style={[
+                styles.benchmarkToggleIconWrap,
+                activeWorkout.isBenchmark && styles.benchmarkToggleIconWrapActive,
+              ]}
             >
-              <View style={styles.setBenchmarkIconWrap}>
-                <BenchmarkBadgeIcon size={18} color="#F59E0B" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.setBenchmarkButtonTitle}>Set as Benchmark Run</Text>
-                <Text style={styles.setBenchmarkButtonSub}>
-                  Make "{activeWorkout.title}" or a standard test a benchmark
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#22C55E" />
-            </TouchableOpacity>
-          )}
+              <BenchmarkBadgeIcon
+                size={20}
+                color={activeWorkout.isBenchmark ? '#0F172A' : '#F59E0B'}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text
+                style={[
+                  styles.benchmarkToggleTitle,
+                  activeWorkout.isBenchmark && styles.benchmarkToggleTitleActive,
+                ]}
+              >
+                {activeWorkout.isBenchmark
+                  ? 'Benchmark Workout Active'
+                  : 'Mark as Benchmark Workout'}
+              </Text>
+              <Text style={styles.benchmarkToggleSub}>
+                {activeWorkout.isBenchmark
+                  ? 'Tap to remove this workout from Benchmark list in Statistics'
+                  : `Tap to mark "${activeWorkout.title}" as benchmark in Statistics`}
+              </Text>
+            </View>
+            <Ionicons
+              name={activeWorkout.isBenchmark ? 'checkmark-circle' : 'add-circle-outline'}
+              size={22}
+              color={activeWorkout.isBenchmark ? '#F59E0B' : '#22C55E'}
+            />
+          </TouchableOpacity>
         </View>
       )}
 
@@ -514,11 +345,6 @@ export default function WorkoutModal({
           activeOpacity={0.85}
         >
           <View style={styles.startButtonContent}>
-            <Ionicons
-              name={activeWorkout.isBenchmark ? 'trophy' : 'play'}
-              size={18}
-              color="#0F172A"
-            />
             {activeWorkout.isBenchmark ? (
               <BenchmarkBadgeIcon size={19} color="#0F172A" style={{ marginRight: 6 }} />
             ) : (
@@ -526,7 +352,7 @@ export default function WorkoutModal({
             )}
             <Text style={styles.startButtonText}>
               {activeWorkout.isBenchmark
-                ? `Start Benchmark: ${activeWorkout.benchmarkTitle || 'Run'}`
+                ? `Start Benchmark: ${activeWorkout.title || 'Run'}`
                 : 'Start Run'}
             </Text>
           </View>
@@ -547,144 +373,6 @@ export default function WorkoutModal({
           </View>
         </Animated.View>
       </Animated.View>
-
-      {/* Benchmark Selector Bottom Sheet / Modal */}
-      {showSelector && (
-        <Modal
-          transparent
-          visible={showSelector}
-          animationType="fade"
-          onRequestClose={() => setShowSelector(false)}
-        >
-          <View style={styles.selectorOverlay}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowSelector(false)} />
-            <View style={styles.selectorCard}>
-              <View style={styles.selectorHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.selectorTitle}>Set Benchmark Run</Text>
-                  <Text style={styles.selectorSubtitle}>
-                    Designate this planned run as a benchmark to track in Stats
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => setShowSelector(false)}
-                  style={styles.selectorClose}
-                >
-                  <Ionicons name="close" size={20} color={PURE_WHITE} />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.selectorScroll}
-              >
-                {/* 1. Primary Option: Tag this scheduled plan run */}
-                <Text style={styles.selectorSectionHeading}>RECOMMENDED FOR THIS DAY</Text>
-
-                <TouchableOpacity
-                  style={[styles.selectorItem, styles.selectorItemHighlight]}
-                  onPress={() =>
-                    handleSelectBenchmark(
-                      'plan',
-                      activeWorkout.title || 'Scheduled Run Benchmark'
-                    )
-                  }
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.selectorIconWrap, { backgroundColor: '#F59E0B' }]}>
-                    <BenchmarkBadgeIcon size={18} color="#0F172A" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.selectorItemTitle}>
-                      Make "{activeWorkout.title}" a Benchmark Run
-                    </Text>
-                    <Text style={styles.selectorItemDesc}>
-                      Track this {activeWorkout.workoutType} workout ({activeWorkout.distance || activeWorkout.estimatedDuration || 'session'}) in your Stats Benchmark list
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color="#F59E0B" />
-                </TouchableOpacity>
-
-                {/* Standard Benchmark Options */}
-                <Text style={[styles.selectorSectionHeading, { marginTop: 16 }]}>
-                  STANDARD BENCHMARK TESTS
-                </Text>
-
-                <TouchableOpacity
-                  style={styles.selectorItem}
-                  onPress={() =>
-                    handleSelectBenchmark('1k', '1 km Benchmark Run', undefined, 1.0)
-                  }
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.selectorIconWrap, { backgroundColor: '#F59E0B' }]}>
-                    <Ionicons name="flash" size={18} color="#0F172A" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.selectorItemTitle}>1 km Benchmark Run</Text>
-                    <Text style={styles.selectorItemDesc}>
-                      1.0 km peak speed test & VO2 max estimation
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.selectorItem}
-                  onPress={() =>
-                    handleSelectBenchmark('5k', '5 km Benchmark Run', undefined, 5.0)
-                  }
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.selectorIconWrap, { backgroundColor: '#38BDF8' }]}>
-                    <Ionicons name="speedometer" size={18} color="#0F172A" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.selectorItemTitle}>5 km Benchmark Run</Text>
-                    <Text style={styles.selectorItemDesc}>
-                      5.0 km aerobic threshold & endurance pace benchmark
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.selectorItem}
-                  onPress={() =>
-                    handleSelectBenchmark('cooper', '12-Minute Cooper Test', undefined, undefined, 12)
-                  }
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.selectorIconWrap, { backgroundColor: '#A855F7' }]}>
-                    <Ionicons name="timer" size={18} color="#0F172A" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.selectorItemTitle}>12-Minute Cooper Test</Text>
-                    <Text style={styles.selectorItemDesc}>
-                      Max distance covered in 12 min for aerobic capacity
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
-                </TouchableOpacity>
-
-                {/* Option to remove benchmark if currently assigned */}
-                {activeWorkout.isBenchmark && (
-                  <TouchableOpacity
-                    style={styles.removeBenchmarkItem}
-                    onPress={handleRemoveBenchmark}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="trash-outline" size={18} color="#EF4444" />
-                    <Text style={styles.removeBenchmarkItemText}>
-                      Remove Benchmark (Revert to regular run)
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
-      )}
     </Modal>
   );
 }
@@ -814,104 +502,46 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   // Benchmark UI on Run Days
-  benchmarkSection: { marginTop: 14, marginBottom: 4 },
-  benchmarkActiveBanner: {
-    backgroundColor: 'rgba(245, 158, 11, 0.14)',
-    borderColor: 'rgba(245, 158, 11, 0.45)',
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
+  benchmarkSection: {
+    marginHorizontal: 0,
+    marginBottom: 14,
   },
-  benchmarkBannerTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  benchmarkTrophyBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F59E0B',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  benchmarkBannerOverline: {
-    color: '#F59E0B',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-  benchmarkBannerTitle: {
-    color: PURE_WHITE,
-    fontSize: 15,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  benchmarkBannerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 10,
-    marginTop: 10,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(245, 158, 11, 0.2)',
-  },
-  benchmarkChangeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: 'rgba(34, 197, 94, 0.15)',
-  },
-  benchmarkChangeButtonText: {
-    color: '#22C55E',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  benchmarkRemoveButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-  },
-  benchmarkRemoveButtonText: {
-    color: '#EF4444',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  setBenchmarkButton: {
+  benchmarkToggleButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: 'rgba(34, 197, 94, 0.10)',
-    borderColor: 'rgba(34, 197, 94, 0.35)',
+    backgroundColor: '#16351F',
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
-    borderStyle: 'dashed',
-    borderRadius: 12,
-    padding: 12,
+    borderColor: MUTED_GREEN_BORDER,
   },
-  setBenchmarkIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+  benchmarkToggleButtonActive: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderColor: '#F59E0B',
+  },
+  benchmarkToggleIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(245, 158, 11, 0.18)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  setBenchmarkButtonTitle: {
+  benchmarkToggleIconWrapActive: {
+    backgroundColor: '#F59E0B',
+  },
+  benchmarkToggleTitle: {
     color: PURE_WHITE,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
   },
-  setBenchmarkButtonSub: {
+  benchmarkToggleTitleActive: {
+    color: '#F59E0B',
+  },
+  benchmarkToggleSub: {
     color: METRIC_GREY,
-    fontSize: 11,
+    fontSize: 12,
     marginTop: 2,
   },
   // Metrics & Stats
@@ -941,132 +571,4 @@ const styles = StyleSheet.create({
   startBenchmarkButton: { backgroundColor: '#F59E0B' },
   startButtonContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   startButtonText: { color: '#0F172A', fontSize: 17, fontWeight: '700' },
-  // Benchmark Selector Sheet
-  selectorOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    justifyContent: 'flex-end',
-  },
-  selectorCard: {
-    backgroundColor: '#0F172A',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#334155',
-    maxHeight: '78%',
-    padding: 20,
-    paddingBottom: 32,
-  },
-  selectorHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  selectorTitle: {
-    color: PURE_WHITE,
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  selectorSubtitle: {
-    color: '#94A3B8',
-    fontSize: 12,
-    marginTop: 3,
-  },
-  selectorClose: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#1E293B',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 12,
-  },
-  selectorScroll: {
-    paddingBottom: 24,
-  },
-  selectorSectionHeading: {
-    color: '#64748B',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    marginBottom: 10,
-    marginTop: 6,
-  },
-  selectorItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#1E293B',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  selectorItemHighlight: {
-    borderColor: 'rgba(245, 158, 11, 0.5)',
-    backgroundColor: 'rgba(245, 158, 11, 0.08)',
-  },
-  selectorIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  selectorItemTitle: {
-    color: PURE_WHITE,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  selectorItemDesc: {
-    color: '#94A3B8',
-    fontSize: 12,
-    marginTop: 2,
-  },
-  loadingWorkouts: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    padding: 16,
-    justifyContent: 'center',
-  },
-  loadingWorkoutsText: {
-    color: '#94A3B8',
-    fontSize: 13,
-  },
-  emptyCustomCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: 'rgba(30, 41, 59, 0.6)',
-    borderRadius: 10,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  emptyCustomText: {
-    color: '#94A3B8',
-    fontSize: 12,
-    flex: 1,
-    lineHeight: 17,
-  },
-  removeBenchmarkItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    borderColor: 'rgba(239, 68, 68, 0.3)',
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
-    marginTop: 18,
-  },
-  removeBenchmarkItemText: {
-    color: '#EF4444',
-    fontSize: 14,
-    fontWeight: '700',
-  },
 });

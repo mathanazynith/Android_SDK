@@ -362,6 +362,8 @@ export const assessmentAPI = {
 export const workoutPlanAPI = {
   getCurrent: () => api.get("/workout-plans/current/"),
   endCurrent: () => api.post("/workout-plans/end/"),
+  setBenchmark: (workoutId: number, is_benchmark: boolean) =>
+    api.patch(`/workouts/${workoutId}/`, { is_benchmark }),
 };
 
 export default api;

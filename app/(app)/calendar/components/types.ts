@@ -36,6 +36,8 @@ export interface WorkoutDetail {
   notes: string;
   segments: WorkoutSegment[];
   rawDate?: string;
+  weekNumber?: number;
+  displayOrder?: number;
   isBenchmark?: boolean;
   benchmarkTitle?: string;
   benchmarkType?: '1k' | '5k' | 'cooper' | 'custom' | 'plan';

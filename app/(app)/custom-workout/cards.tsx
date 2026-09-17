@@ -171,8 +171,11 @@ export default function CustomWorkoutCards() {
       else setLoading(true);
 
       const response = await customWorkoutAPI.list();
-      const list = Array.isArray(response.data) ? response.data : [];
-      setWorkouts(list);
+      const list: UserWorkoutResponse[] = Array.isArray(response.data)
+        ? response.data
+        : ((response.data as any)?.results || []);
+      // Filter only custom workouts (is_custom !== false and plan == null)
+      setWorkouts(list.filter((w) => w.is_custom !== false && w.plan == null));
     } catch (err: any) {
       console.error("[CustomWorkouts] Error fetching:", err);
     } finally {

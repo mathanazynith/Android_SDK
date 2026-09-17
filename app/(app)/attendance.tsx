@@ -1,7 +1,7 @@
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -43,14 +43,31 @@ import {
 import {
   buildPlanFromPlanSegments,
   buildWorkoutExecutionPlan,
-  type WorkoutExecutionStep,
+  type WorkoutExecutionStep
 } from '../../src/utils/workoutPlanBuilder';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function StatsScreen() {
-  const { workoutPlan } = useQuestionnaire();
-  const hasActivePlan = Boolean(workoutPlan?.weeks && workoutPlan.weeks.length > 0);
+  const { workoutPlan, fetchWorkoutPlan } = useQuestionnaire();
+  const [customWorkouts, setCustomWorkouts] = useState<UserWorkoutResponse[]>([]);
+  const [benchmarkIds, setBenchmarkIds] = useState<number[]>([]);
+  const [planBenchmarks, setPlanBenchmarks] = useState<PlanBenchmarkAssignment[]>([]);
+
+  const userCustomWorkouts = useMemo(() => {
+    return customWorkouts.filter((w) => w.is_custom !== false && w.plan == null);
+  }, [customWorkouts]);
+
+  const hasCustomWorkouts = userCustomWorkouts.length > 0;
+
+  const hasPlanWorkouts = Boolean(
+    (workoutPlan?.weeks && workoutPlan.weeks.some((wk) => wk.workouts?.length > 0)) ||
+    customWorkouts.some((w) => w.is_custom === false || w.plan != null)
+  );
+
+  const hasActivePlan = Boolean(
+    hasPlanWorkouts || planBenchmarks.length > 0
+  );
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -60,11 +77,12 @@ export default function StatsScreen() {
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [showYearModal, setShowYearModal] = useState(false);
   const [showBenchmarkModal, setShowBenchmarkModal] = useState(false);
-  const [customWorkouts, setCustomWorkouts] = useState<UserWorkoutResponse[]>([]);
-  const [benchmarkIds, setBenchmarkIds] = useState<number[]>([]);
-  const [planBenchmarks, setPlanBenchmarks] = useState<PlanBenchmarkAssignment[]>([]);
   const [startingWorkoutId, setStartingWorkoutId] = useState<number | null>(null);
   const [startingPlanKey, setStartingPlanKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchWorkoutPlan().catch(() => {});
+  }, [fetchWorkoutPlan]);
 
   const loadActivities = useCallback(async () => {
     try {
@@ -83,22 +101,18 @@ export default function StatsScreen() {
         const [customRes, benchIds, planBenchList] = await Promise.all([
           customWorkoutAPI.list(),
           BenchmarkStore.getBenchmarkIds(),
-          hasActivePlan ? PlanBenchmarkStore.getActiveBenchmarkList() : Promise.resolve([]),
+          PlanBenchmarkStore.getActiveBenchmarkList(),
         ]);
         const customList: UserWorkoutResponse[] = Array.isArray(customRes.data)
           ? customRes.data
           : ((customRes.data as any)?.results || []);
         setCustomWorkouts(customList);
-        const serverBenchIds = customList.filter((w: UserWorkoutResponse) => Boolean(w.is_benchmark)).map((w: UserWorkoutResponse) => w.id);
+        const serverBenchIds = customList
+          .filter((w: UserWorkoutResponse) => w.is_custom !== false && w.plan == null && Boolean(w.is_benchmark))
+          .map((w: UserWorkoutResponse) => w.id);
         const mergedBenchIds = Array.from(new Set([...serverBenchIds, ...benchIds]));
         setBenchmarkIds(mergedBenchIds);
-
-        if (!hasActivePlan) {
-          await PlanBenchmarkStore.clearAll();
-          setPlanBenchmarks([]);
-        } else {
-          setPlanBenchmarks(planBenchList);
-        }
+        setPlanBenchmarks(planBenchList);
       } catch (err) {
         console.warn('Error loading custom workouts for stats benchmarks:', err);
         console.warn('Error loading plan benchmarks for stats:', err);
@@ -109,7 +123,7 @@ export default function StatsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [hasActivePlan]);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -117,37 +131,73 @@ export default function StatsScreen() {
       BenchmarkStore.getBenchmarkIds().then((ids) => {
         setBenchmarkIds((prev) => Array.from(new Set([...prev, ...ids])));
       });
-      if (hasActivePlan) {
-        PlanBenchmarkStore.getActiveBenchmarkList().then(setPlanBenchmarks);
-      } else {
-        PlanBenchmarkStore.clearAll().then(() => setPlanBenchmarks([]));
-      }
+      PlanBenchmarkStore.getActiveBenchmarkList().then(setPlanBenchmarks);
       const unsub = BenchmarkStore.subscribe((ids) => {
         setBenchmarkIds((prev) => Array.from(new Set([...prev, ...ids])));
       });
       const unsubPlan = PlanBenchmarkStore.subscribe((assignments) => {
-        if (!hasActivePlan) {
-          setPlanBenchmarks([]);
-        } else {
-          setPlanBenchmarks(Object.values(assignments).filter((a) => a && a.isBenchmark));
-        }
+        setPlanBenchmarks(Object.values(assignments).filter((a) => a && a.isBenchmark));
       });
       return () => {
         unsub();
         unsubPlan();
       };
-    }, [loadActivities, hasActivePlan])
+    }, [loadActivities])
   );
 
   const benchmarkWorkouts = useMemo(() => {
     return customWorkouts.filter(
-      (w) => Boolean(w.is_benchmark || benchmarkIds.includes(w.id))
+      (w) => w.is_custom !== false && w.plan == null && Boolean(w.is_benchmark || benchmarkIds.includes(w.id))
     );
   }, [customWorkouts, benchmarkIds]);
 
   const activePlanBenchmarks = useMemo(() => {
-    return hasActivePlan ? planBenchmarks : [];
-  }, [hasActivePlan, planBenchmarks]);
+    const map = new Map<string, PlanBenchmarkAssignment>();
+
+    // 1. Add plan benchmark assignments from local store
+    for (const pb of planBenchmarks) {
+      if (pb && pb.isBenchmark) {
+        const key = pb.workoutKey || pb.planWorkoutTitle || 'plan';
+        map.set(key, pb);
+      }
+    }
+
+    // 2. Add / merge plan workouts directly from database workouts table (where is_custom === false or plan != null, and is_benchmark === true)
+    const dbPlanBenchmarks = customWorkouts.filter(
+      (w) => (w.is_custom === false || w.plan != null) && Boolean(w.is_benchmark)
+    );
+    for (const w of dbPlanBenchmarks) {
+      const key = String(w.id);
+      const dateKey = w.workout_date || '';
+      const existing = (dateKey && map.get(dateKey)) || map.get(key);
+      if (existing) {
+        existing.workoutDbId = w.id;
+      } else {
+        map.set(key, {
+          workoutKey: key,
+          isBenchmark: true,
+          benchmarkType: 'plan',
+          benchmarkTitle: w.title || 'Plan Benchmark',
+          workoutDbId: w.id,
+          planWorkoutTitle: w.title,
+          planWorkoutDate: w.workout_date || undefined,
+          planWorkoutDay: w.weekday || undefined,
+          planWorkoutType: w.workout_type,
+          planWorkoutDistance: w.display_distance
+            ? `${w.display_distance} ${w.distance_unit || 'km'}`
+            : w.distance
+            ? `${(w.distance / 1000).toFixed(1)} km`
+            : undefined,
+          planWorkoutDuration: w.duration ? `${Math.round(w.duration / 60)} min` : undefined,
+          planWorkoutPace: w.target_pace || w.pace || undefined,
+          planWorkoutSegments: w.segments,
+          notes: w.notes,
+        });
+      }
+    }
+
+    return Array.from(map.values());
+  }, [planBenchmarks, customWorkouts]);
 
   const totalBenchmarksCount = benchmarkWorkouts.length + activePlanBenchmarks.length;
 
@@ -890,8 +940,8 @@ export default function StatsScreen() {
                     </View>
                   )}
 
-                  {/* Training Plan Benchmarks (only when user has an active plan) */}
-                  {hasActivePlan && activePlanBenchmarks.length > 0 && (
+                  {/* Training Plan Benchmarks */}
+                  {activePlanBenchmarks.length > 0 && (
                     <View style={{ marginBottom: 16 }}>
                       <View style={styles.benchmarkSectionHeader}>
                         <BenchmarkBadgeIcon size={14} color="#F59E0B" />
@@ -980,44 +1030,54 @@ export default function StatsScreen() {
             </ScrollView>
 
             {/* Quick action buttons row */}
-            <View style={styles.benchmarkModalActionsRow}>
-              <TouchableOpacity
-                style={[styles.benchmarkActionBtn, { flex: 1, backgroundColor: '#30D158' }]}
-                onPress={() => {
-                  setShowBenchmarkModal(false);
-                  router.push('/(app)/custom-workout/cards');
-                }}
-                activeOpacity={0.85}
-              >
-                <Feather name="list" size={16} color="#000000" style={{ marginRight: 8 }} />
-                <Text style={styles.benchmarkActionBtnText}>Custom Workouts</Text>
-              </TouchableOpacity>
+            {(hasCustomWorkouts || hasPlanWorkouts) && (
+              <View style={styles.benchmarkModalActionsRow}>
+                {hasCustomWorkouts && (
+                  <TouchableOpacity
+                    style={[
+                      styles.benchmarkActionBtn,
+                      {
+                        flex: 1,
+                        backgroundColor: '#30D158',
+                        marginRight: hasPlanWorkouts ? 10 : 0,
+                      },
+                    ]}
+                    onPress={() => {
+                      setShowBenchmarkModal(false);
+                      router.push('/(app)/custom-workout/cards');
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Feather name="list" size={16} color="#000000" style={{ marginRight: 8 }} />
+                    <Text style={styles.benchmarkActionBtnText}>Custom Workouts</Text>
+                  </TouchableOpacity>
+                )}
 
-              {hasActivePlan && (
-                <TouchableOpacity
-                  style={[
-                    styles.benchmarkActionBtn,
-                    {
-                      flex: 1,
-                      marginLeft: 10,
-                      backgroundColor: '#1C1C1E',
-                      borderWidth: 1,
-                      borderColor: 'rgba(255, 255, 255, 0.15)',
-                    },
-                  ]}
-                  onPress={() => {
-                    setShowBenchmarkModal(false);
-                    router.push('/(app)/training-plan');
-                  }}
-                  activeOpacity={0.85}
-                >
-                  <Feather name="calendar" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
-                  <Text style={[styles.benchmarkActionBtnText, { color: '#FFFFFF' }]}>
-                    Training Plan
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
+                {hasPlanWorkouts && (
+                  <TouchableOpacity
+                    style={[
+                      styles.benchmarkActionBtn,
+                      {
+                        flex: 1,
+                        backgroundColor: '#1C1C1E',
+                        borderWidth: 1,
+                        borderColor: 'rgba(255, 255, 255, 0.15)',
+                      },
+                    ]}
+                    onPress={() => {
+                      setShowBenchmarkModal(false);
+                      router.push('/(app)/training-plan');
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Feather name="calendar" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
+                    <Text style={[styles.benchmarkActionBtnText, { color: '#FFFFFF' }]}>
+                      Training Plan
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
           </View>
         </Pressable>
       </Modal>

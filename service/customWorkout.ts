@@ -1,4 +1,4 @@
-import api, { getBackendErrorMessage } from "./api";
+import api from "./api";
 
 export type CustomSegmentType = "Warmup" | "Run" | "Cooldown";
 export type SegmentInputType = "DURATION" | "DISTANCE";
@@ -24,6 +24,10 @@ export interface CustomWorkoutWritePayload {
   workout_date?: string | null;
   notes?: string;
   is_benchmark?: boolean;
+  is_custom?: boolean;
+  workout_type?: string;
+  distance?: number | null;
+  duration?: number | null;
   segments: CustomWorkoutSegmentWritePayload[];
 }
 

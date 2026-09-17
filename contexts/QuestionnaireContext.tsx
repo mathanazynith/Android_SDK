@@ -391,6 +391,13 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     }
   }, [assessmentId, isComplete]);
 
+  // Automatically fetch active workout plan on user login
+  useEffect(() => {
+    if (!authLoading && user) {
+      fetchWorkoutPlan().catch(() => {});
+    }
+  }, [authLoading, user, fetchWorkoutPlan]);
+
   const startAssessment = async () => {
     if (isStartingAssessment.current) {
       return;

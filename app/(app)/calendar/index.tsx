@@ -3,7 +3,7 @@ import { ActivityIndicator, FlatList, ScrollView, StatusBar, StyleSheet, Text, T
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 import { useAuth } from '../../../service/auth';
-import type { CurrentWorkout } from '../../../service/workoutPlan';
+import { workoutPlanService, type CurrentWorkout, type UserWorkoutResponse } from '../../../service/workoutPlan';
 import {
     PlanBenchmarkStore,
     type PlanBenchmarkAssignment,
@@ -87,28 +87,61 @@ const completeWeek = (week: { week_number: number; workouts: CurrentWorkout[] },
 
 const toWorkoutDetail = (
   workout: CurrentWorkout,
-  benchmarkAssignments: Record<string, PlanBenchmarkAssignment> = {}
+  benchmarkAssignments: Record<string, PlanBenchmarkAssignment> = {},
+  dbPlanWorkouts: UserWorkoutResponse[] = []
 ): WorkoutDetail => {
   const isRest = `${workout.workout_type} ${workout.title}`.toLowerCase().includes('rest');
   const date = workout.workout_date ? new Date(`${workout.workout_date}T00:00:00`) : null;
+  const title = workout.title || workout.workout_type || 'Workout';
   const workoutId = `${workout.week_number}-${workout.display_order}-${workout.workout_date}`;
-  const assignment = !isRest
-    ? (workout.workout_date && benchmarkAssignments[workout.workout_date]) ||
+  const weekOrderKey = `${workout.week_number}-${workout.display_order}`;
+  const normTitle = (s?: string | null) => (s || '').trim().toLowerCase();
+  const normDate = (s?: string | null) => (s || '').trim().slice(0, 10);
+
+  // Match against plan workouts in database table where is_custom === false
+  const dbMatch = !isRest
+    ? dbPlanWorkouts.find((w) => {
+        if (w.workout_date && workout.workout_date && normDate(w.workout_date) === normDate(workout.workout_date)) return true;
+        if (w.week_number === workout.week_number && w.display_order === workout.display_order) return true;
+        if (w.week_number === workout.week_number && w.weekday && workout.weekday && w.weekday.toLowerCase() === workout.weekday.toLowerCase()) return true;
+        if (w.week_number === workout.week_number && normTitle(w.title) === normTitle(title)) return true;
+        return false;
+      })
+    : undefined;
+
+  const assignment = isRest
+    ? undefined
+    : (workout.workout_date && benchmarkAssignments[normDate(workout.workout_date)]) ||
+      (workout.workout_date && benchmarkAssignments[workout.workout_date]) ||
       benchmarkAssignments[workoutId] ||
-      null
-    : null;
-  const isBenchmark = Boolean(workout.is_benchmark || assignment?.isBenchmark);
+      benchmarkAssignments[weekOrderKey] ||
+      (dbMatch?.id ? benchmarkAssignments[String(dbMatch.id)] : undefined) ||
+      undefined;
+
+  const isBenchmark = assignment !== undefined
+    ? Boolean(assignment.isBenchmark)
+    : dbMatch !== undefined
+    ? Boolean(dbMatch.is_benchmark)
+    : Boolean(workout.is_benchmark);
+  const workoutDbId = dbMatch?.id || (workout as any).id || (workout as any).workout_id || assignment?.workoutDbId;
 
   return {
     id: workoutId,
-    workoutDbId: workout.id,
+    workoutDbId,
+    rawDate: workout.workout_date,
+    weekNumber: workout.week_number,
+    displayOrder: workout.display_order,
     day: workout.weekday ? `${workout.weekday.slice(0, 1)}${workout.weekday.slice(1).toLowerCase()}` : '',
     date: date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '',
-    title: workout.title,
+    title,
     workoutType: isRest ? 'Recovery' : workout.workout_type,
     iconName: iconForWorkout(workout),
     accentColor: isRest ? '#8A8F94' : isBenchmark ? '#F59E0B' : '#63C72B',
     isRest,
+    isBenchmark,
+    benchmarkTitle: assignment?.benchmarkTitle || (isBenchmark ? title : undefined),
+    benchmarkType: assignment?.benchmarkType || (isBenchmark ? 'plan' : undefined),
+    customWorkoutId: assignment?.customWorkoutId,
     description: workout.notes,
     instructions: '',
     warmUp: formatDistance(workout.warmup),
@@ -130,11 +163,6 @@ const toWorkoutDetail = (
       rest: segment.rest_duration != null ? formatDuration(segment.rest_duration) : '',
       notes: segment.notes,
     })),
-    rawDate: workout.workout_date,
-    isBenchmark,
-    benchmarkTitle: assignment?.benchmarkTitle,
-    benchmarkType: assignment?.benchmarkType,
-    customWorkoutId: assignment?.customWorkoutId,
   };
 };
 
@@ -144,6 +172,7 @@ export default function CalendarScreen() {
   const [selectedWeekIndex, setSelectedWeekIndex] = useState(0);
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutDetail | null>(null);
   const [benchmarkAssignments, setBenchmarkAssignments] = useState<Record<string, PlanBenchmarkAssignment>>({});
+  const [dbPlanWorkouts, setDbPlanWorkouts] = useState<UserWorkoutResponse[]>([]);
   const pagerRef = useRef<FlatList<RunningPlanWeek>>(null);
   const { width: windowWidth } = useWindowDimensions();
   const pageWidth = Math.max(0, windowWidth - 36);
@@ -152,6 +181,48 @@ export default function CalendarScreen() {
     fetchWorkoutPlan();
     PlanBenchmarkStore.getAssignments().then(setBenchmarkAssignments);
     const unsub = PlanBenchmarkStore.subscribe(setBenchmarkAssignments);
+
+    // Sync plan benchmarks directly from database workouts table (where is_custom === false and is_benchmark === true)
+    workoutPlanService
+      .getPlanWorkouts()
+      .then((planWorkouts) => {
+        setDbPlanWorkouts(planWorkouts);
+        const serverBenchMap: Record<string, PlanBenchmarkAssignment> = {};
+
+        planWorkouts.forEach((w) => {
+          if (w.is_benchmark) {
+            const dateKey = w.workout_date ? w.workout_date.slice(0, 10) : '';
+            const orderKey = `${w.week_number}-${w.display_order}-${w.workout_date || ''}`;
+            const weekOrderKey = `${w.week_number}-${w.display_order}`;
+            const assignment: PlanBenchmarkAssignment = {
+              workoutKey: dateKey || orderKey,
+              isBenchmark: true,
+              benchmarkType: 'plan',
+              benchmarkTitle: w.title || 'Plan Benchmark',
+              workoutDbId: w.id,
+              planWorkoutTitle: w.title,
+              planWorkoutDate: w.workout_date || undefined,
+              planWorkoutDay: w.weekday || undefined,
+              planWorkoutType: w.workout_type,
+              planWorkoutSegments: w.segments,
+              notes: w.notes,
+            };
+            if (dateKey) serverBenchMap[dateKey] = assignment;
+            serverBenchMap[orderKey] = assignment;
+            serverBenchMap[weekOrderKey] = assignment;
+            serverBenchMap[String(w.id)] = assignment;
+          }
+        });
+
+        if (Object.keys(serverBenchMap).length > 0) {
+          setBenchmarkAssignments((prev) => ({
+            ...serverBenchMap,
+            ...prev,
+          }));
+        }
+      })
+      .catch(() => {});
+
     return () => unsub();
   }, [fetchWorkoutPlan]);
   useEffect(() => {
@@ -172,9 +243,9 @@ export default function CalendarScreen() {
       const completedWorkouts = completeWeek(week, workoutPlan.start_date);
       const dates = completedWorkouts.map((workout) => workout.workout_date);
       const range = `${new Date(`${dates[0]}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${new Date(`${dates[dates.length - 1]}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
-      return { id: String(week.week_number), label: `Week ${week.week_number} of ${workoutPlan.weeks.length}`, dateRange: range, statusText: '', workouts: completedWorkouts.map((w) => toWorkoutDetail(w, benchmarkAssignments)) };
+      return { id: String(week.week_number), label: `Week ${week.week_number} of ${workoutPlan.weeks.length}`, dateRange: range, statusText: '', workouts: completedWorkouts.map((w) => toWorkoutDetail(w, benchmarkAssignments, dbPlanWorkouts)) };
     }) };
-  }, [workoutPlan, benchmarkAssignments]);
+  }, [workoutPlan, benchmarkAssignments, dbPlanWorkouts]);
   const selectedWeek = plan?.weeks[selectedWeekIndex];
   const changeWeek = (direction: -1 | 1) => {
     const nextIndex = Math.max(0, Math.min((plan?.weeks.length ?? 1) - 1, selectedWeekIndex + direction));
@@ -220,17 +291,62 @@ export default function CalendarScreen() {
     visible={selectedWorkout !== null}
     workout={selectedWorkout}
     onClose={() => setSelectedWorkout(null)}
-    onUpdateBenchmark={(workoutId, isBenchmark, assignment) => {
-      setSelectedWorkout((prev) => {
-        if (!prev || prev.id !== workoutId) return prev;
-        return {
+    onUpdateBenchmark={(workoutId, isBenchmark, assignment, workoutDbId) => {
+      const effectiveDbId = workoutDbId || assignment?.workoutDbId || selectedWorkout?.workoutDbId;
+      const rawDate = selectedWorkout?.rawDate;
+      const weekNumber = selectedWorkout?.weekNumber;
+      const displayOrder = selectedWorkout?.displayOrder;
+      const weekOrderKey = weekNumber != null && displayOrder != null ? `${weekNumber}-${displayOrder}` : null;
+
+      if (isBenchmark && assignment) {
+        setBenchmarkAssignments((prev) => ({
           ...prev,
+          [workoutId]: assignment,
+          ...(assignment.planWorkoutDate ? { [assignment.planWorkoutDate]: assignment } : {}),
+          ...(rawDate ? { [rawDate]: assignment } : {}),
+          ...(rawDate ? { [rawDate.slice(0, 10)]: assignment } : {}),
+          ...(effectiveDbId ? { [String(effectiveDbId)]: assignment } : {}),
+          ...(weekOrderKey ? { [weekOrderKey]: assignment } : {}),
+        }));
+      } else {
+        setBenchmarkAssignments((prev) => {
+          const copy = { ...prev };
+          delete copy[workoutId];
+          if (rawDate) {
+            delete copy[rawDate];
+            delete copy[rawDate.slice(0, 10)];
+          }
+          if (effectiveDbId) delete copy[String(effectiveDbId)];
+          if (weekOrderKey) delete copy[weekOrderKey];
+          Object.keys(copy).forEach((k) => {
+            if (effectiveDbId && copy[k]?.workoutDbId === effectiveDbId) {
+              delete copy[k];
+            }
+          });
+          return copy;
+        });
+      }
+      if (selectedWorkout) {
+        setSelectedWorkout({
+          ...selectedWorkout,
           isBenchmark,
-          benchmarkTitle: assignment?.benchmarkTitle,
-          benchmarkType: assignment?.benchmarkType,
-          customWorkoutId: assignment?.customWorkoutId,
-        };
-      });
+          benchmarkTitle: isBenchmark ? assignment?.benchmarkTitle || selectedWorkout.title : undefined,
+          benchmarkType: isBenchmark ? assignment?.benchmarkType || 'plan' : undefined,
+          workoutDbId: effectiveDbId || selectedWorkout.workoutDbId,
+        });
+      }
+      setDbPlanWorkouts((prev) =>
+        prev.map((w) => {
+          const isTarget =
+            (effectiveDbId && w.id === effectiveDbId) ||
+            (rawDate && w.workout_date && w.workout_date.slice(0, 10) === rawDate.slice(0, 10)) ||
+            (weekNumber != null &&
+              displayOrder != null &&
+              w.week_number === weekNumber &&
+              w.display_order === displayOrder);
+          return isTarget ? { ...w, is_benchmark: isBenchmark } : w;
+        })
+      );
     }}
   /></SafeAreaView>;
 }

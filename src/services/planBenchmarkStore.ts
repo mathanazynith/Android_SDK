@@ -7,6 +7,7 @@ export interface PlanBenchmarkAssignment {
   isBenchmark: boolean;
   benchmarkType: PlanBenchmarkType;
   benchmarkTitle: string;
+  workoutDbId?: number;
   customWorkoutId?: number;
   targetDistanceKm?: number;
   targetDurationMinutes?: number;
@@ -102,17 +103,41 @@ export const PlanBenchmarkStore = {
   /**
    * Remove a benchmark assignment, reverting the workout day back to a standard planned run.
    */
-  async removeAssignment(workoutKey: string): Promise<void> {
-    if (!workoutKey) return;
+  async removeAssignment(workoutKey: string, matchingDbId?: number): Promise<void> {
+    if (!workoutKey && !matchingDbId) return;
     const all = await this.getAssignments();
-    delete all[workoutKey];
-    cachedAssignments = all;
-    try {
-      await storage.setItem(STORAGE_KEY, JSON.stringify(all));
-    } catch (err) {
-      console.warn('[PlanBenchmarkStore] Error removing assignment:', err);
+    if (workoutKey) delete all[workoutKey];
+  },
+
+  /**
+   * Prune any assignments that are marked as non-benchmarks in the backend database.
+   */
+  async pruneNonBenchmarks(nonBenchmarkDbIds: number[], nonBenchmarkDates: string[] = []): Promise<void> {
+    const idSet = new Set(nonBenchmarkDbIds);
+    const dateSet = new Set(nonBenchmarkDates.map((d) => d.slice(0, 10)));
+    const all = await this.getAssignments();
+    let changed = false;
+
+    Object.keys(all).forEach((key) => {
+      const item = all[key];
+      if (!item) return;
+      const matchId = item.workoutDbId && idSet.has(item.workoutDbId);
+      const matchDate = item.planWorkoutDate && dateSet.has(item.planWorkoutDate.slice(0, 10));
+      if (matchId || matchDate) {
+        delete all[key];
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      cachedAssignments = all;
+      try {
+        await storage.setItem(STORAGE_KEY, JSON.stringify(all));
+      } catch (err) {
+        console.warn('[PlanBenchmarkStore] Error pruning non-benchmarks:', err);
+      }
+      notifyListeners(all);
     }
-    notifyListeners(all);
   },
 
   /**

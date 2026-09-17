@@ -15,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useAuth } from '../../../service/auth';
-import type { CurrentWorkout } from '../../../service/workoutPlan';
+import { workoutPlanService, type CurrentWorkout, type UserWorkoutResponse } from '../../../service/workoutPlan';
 import {
     PlanBenchmarkStore,
     type PlanBenchmarkAssignment,
@@ -92,7 +92,8 @@ const formatDistance = (metres: number | null) => metres == null ? '' : `${(metr
 
 const toWorkoutDetail = (
   workout: CurrentWorkout,
-  benchmarkAssignments: Record<string, PlanBenchmarkAssignment> = {}
+  benchmarkAssignments: Record<string, PlanBenchmarkAssignment> = {},
+  dbPlanWorkouts: UserWorkoutResponse[] = []
 ): WorkoutDetail => {
   const isRest = `${workout.workout_type} ${workout.title}`.toLowerCase().includes('rest');
   const date = workout.workout_date ? new Date(`${workout.workout_date}T00:00:00`) : null;
@@ -101,18 +102,43 @@ const toWorkoutDetail = (
   const workoutType = isRest ? 'Recovery' : workout.workout_type;
 
   const workoutId = `${workout.week_number}-${workout.display_order}-${workout.workout_date}`;
+  const weekOrderKey = `${workout.week_number}-${workout.display_order}`;
+  const normTitle = (s?: string | null) => (s || '').trim().toLowerCase();
+  const normDate = (s?: string | null) => (s || '').trim().slice(0, 10);
+
+  // Match against plan workouts in database table where is_custom === false
+  const dbMatch = !isRest
+    ? dbPlanWorkouts.find((w) => {
+        if (w.workout_date && workout.workout_date && normDate(w.workout_date) === normDate(workout.workout_date)) return true;
+        if (w.week_number === workout.week_number && w.display_order === workout.display_order) return true;
+        if (w.week_number === workout.week_number && w.weekday && workout.weekday && w.weekday.toLowerCase() === workout.weekday.toLowerCase()) return true;
+        if (w.week_number === workout.week_number && normTitle(w.title) === normTitle(title)) return true;
+        return false;
+      })
+    : undefined;
+
   const assignment = isRest
     ? undefined
-    : (workout.workout_date && benchmarkAssignments[workout.workout_date]) ||
+    : (workout.workout_date && benchmarkAssignments[normDate(workout.workout_date)]) ||
+      (workout.workout_date && benchmarkAssignments[workout.workout_date]) ||
       benchmarkAssignments[workoutId] ||
+      benchmarkAssignments[weekOrderKey] ||
+      (dbMatch?.id ? benchmarkAssignments[String(dbMatch.id)] : undefined) ||
       undefined;
 
-  const isBenchmark = Boolean(workout.is_benchmark || assignment?.isBenchmark);
+  const isBenchmark = assignment !== undefined
+    ? Boolean(assignment.isBenchmark)
+    : dbMatch !== undefined
+    ? Boolean(dbMatch.is_benchmark)
+    : Boolean(workout.is_benchmark);
+  const workoutDbId = dbMatch?.id || (workout as any).id || (workout as any).workout_id || assignment?.workoutDbId;
 
   return {
     id: workoutId,
-    workoutDbId: workout.id,
+    workoutDbId,
     rawDate: workout.workout_date,
+    weekNumber: workout.week_number,
+    displayOrder: workout.display_order,
     day: workout.weekday ? workout.weekday.slice(0, 3) : '',
     date: date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '',
     title,
@@ -121,8 +147,8 @@ const toWorkoutDetail = (
     accentColor: isRest ? '#8A8F94' : isBenchmark ? '#F59E0B' : '#63C72B',
     isRest,
     isBenchmark,
-    benchmarkTitle: assignment?.benchmarkTitle || (workout.is_benchmark ? title : undefined),
-    benchmarkType: assignment?.benchmarkType || (workout.is_benchmark ? 'plan' : undefined),
+    benchmarkTitle: assignment?.benchmarkTitle || (isBenchmark ? title : undefined),
+    benchmarkType: assignment?.benchmarkType || (isBenchmark ? 'plan' : undefined),
     description,
     instructions: '',
     warmUp: formatDistance(workout.warmup),
@@ -157,6 +183,7 @@ export default function TrainingPlanScreen() {
   });
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutDetail | null>(null);
   const [benchmarkAssignments, setBenchmarkAssignments] = useState<Record<string, PlanBenchmarkAssignment>>({});
+  const [dbPlanWorkouts, setDbPlanWorkouts] = useState<UserWorkoutResponse[]>([]);
 
   useEffect(() => {
     void fetchWorkoutPlan();
@@ -165,6 +192,50 @@ export default function TrainingPlanScreen() {
   useEffect(() => {
     PlanBenchmarkStore.getAssignments().then(setBenchmarkAssignments);
     const unsub = PlanBenchmarkStore.subscribe(setBenchmarkAssignments);
+
+    // Sync plan benchmarks directly from database workouts table (where is_custom === false and is_benchmark === true)
+    workoutPlanService
+      .getPlanWorkouts()
+      .then((planWorkouts) => {
+        setDbPlanWorkouts(planWorkouts);
+        const serverBenchMap: Record<string, PlanBenchmarkAssignment> = {};
+
+        planWorkouts.forEach((w) => {
+          if (w.is_benchmark) {
+            const dateKey = w.workout_date ? w.workout_date.slice(0, 10) : '';
+            const orderKey = `${w.week_number}-${w.display_order}-${w.workout_date || ''}`;
+            const weekOrderKey = `${w.week_number}-${w.display_order}`;
+            const assignment: PlanBenchmarkAssignment = {
+              workoutKey: dateKey || orderKey,
+              isBenchmark: true,
+              benchmarkType: 'plan',
+              benchmarkTitle: w.title || 'Plan Benchmark',
+              workoutDbId: w.id,
+              planWorkoutTitle: w.title,
+              planWorkoutDate: w.workout_date || undefined,
+              planWorkoutDay: w.weekday || undefined,
+              planWorkoutType: w.workout_type,
+              planWorkoutSegments: w.segments,
+              notes: w.notes,
+            };
+            if (dateKey) serverBenchMap[dateKey] = assignment;
+            serverBenchMap[orderKey] = assignment;
+            serverBenchMap[weekOrderKey] = assignment;
+            serverBenchMap[String(w.id)] = assignment;
+          }
+        });
+
+        if (Object.keys(serverBenchMap).length > 0) {
+          setBenchmarkAssignments((prev) => ({
+            ...serverBenchMap,
+            ...prev,
+          }));
+        }
+      })
+      .catch((err) => {
+        console.warn('[TrainingPlan] Error syncing plan workouts from backend:', err);
+      });
+
     return () => unsub();
   }, []);
 
@@ -188,11 +259,11 @@ export default function TrainingPlanScreen() {
           label: `Week ${week.week_number} of ${workoutPlan.weeks.length}`,
           dateRange: range,
           statusText: scheduleNote,
-          workouts: completedWorkouts.map((w) => toWorkoutDetail(w, benchmarkAssignments)),
+          workouts: completedWorkouts.map((w) => toWorkoutDetail(w, benchmarkAssignments, dbPlanWorkouts)),
         };
       }),
     };
-  }, [workoutPlan, benchmarkAssignments]);
+  }, [workoutPlan, benchmarkAssignments, dbPlanWorkouts]);
 
   const safeWeekIndex = plan ? Math.min(selectedWeekIndex, Math.max(0, plan.weeks.length - 1)) : 0;
   const selectedWeek = plan?.weeks[safeWeekIndex] ?? null;
@@ -274,15 +345,62 @@ export default function TrainingPlanScreen() {
         visible={selectedWorkout !== null}
         workout={selectedWorkout}
         onClose={() => setSelectedWorkout(null)}
-        onUpdateBenchmark={(workoutId, isBenchmark, assignment) => {
+        onUpdateBenchmark={(workoutId, isBenchmark, assignment, workoutDbId) => {
+          const effectiveDbId = workoutDbId || assignment?.workoutDbId || selectedWorkout?.workoutDbId;
+          const rawDate = selectedWorkout?.rawDate;
+          const weekNumber = selectedWorkout?.weekNumber;
+          const displayOrder = selectedWorkout?.displayOrder;
+          const weekOrderKey = weekNumber != null && displayOrder != null ? `${weekNumber}-${displayOrder}` : null;
+
+          if (isBenchmark && assignment) {
+            setBenchmarkAssignments((prev) => ({
+              ...prev,
+              [workoutId]: assignment,
+              ...(assignment.planWorkoutDate ? { [assignment.planWorkoutDate]: assignment } : {}),
+              ...(rawDate ? { [rawDate]: assignment } : {}),
+              ...(rawDate ? { [rawDate.slice(0, 10)]: assignment } : {}),
+              ...(effectiveDbId ? { [String(effectiveDbId)]: assignment } : {}),
+              ...(weekOrderKey ? { [weekOrderKey]: assignment } : {}),
+            }));
+          } else {
+            setBenchmarkAssignments((prev) => {
+              const copy = { ...prev };
+              delete copy[workoutId];
+              if (rawDate) {
+                delete copy[rawDate];
+                delete copy[rawDate.slice(0, 10)];
+              }
+              if (effectiveDbId) delete copy[String(effectiveDbId)];
+              if (weekOrderKey) delete copy[weekOrderKey];
+              Object.keys(copy).forEach((k) => {
+                if (effectiveDbId && copy[k]?.workoutDbId === effectiveDbId) {
+                  delete copy[k];
+                }
+              });
+              return copy;
+            });
+          }
           if (selectedWorkout) {
             setSelectedWorkout({
               ...selectedWorkout,
               isBenchmark,
-              benchmarkTitle: assignment?.benchmarkTitle,
-              benchmarkType: assignment?.benchmarkType,
+              benchmarkTitle: isBenchmark ? assignment?.benchmarkTitle || selectedWorkout.title : undefined,
+              benchmarkType: isBenchmark ? assignment?.benchmarkType || 'plan' : undefined,
+              workoutDbId: effectiveDbId || selectedWorkout.workoutDbId,
             });
           }
+          setDbPlanWorkouts((prev) =>
+            prev.map((w) => {
+              const isTarget =
+                (effectiveDbId && w.id === effectiveDbId) ||
+                (rawDate && w.workout_date && w.workout_date.slice(0, 10) === rawDate.slice(0, 10)) ||
+                (weekNumber != null &&
+                  displayOrder != null &&
+                  w.week_number === weekNumber &&
+                  w.display_order === displayOrder);
+              return isTarget ? { ...w, is_benchmark: isBenchmark } : w;
+            })
+          );
         }}
       />
     </SafeAreaView>
