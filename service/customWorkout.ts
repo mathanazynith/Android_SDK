@@ -76,7 +76,7 @@ export interface UserWorkoutResponse {
 }
 
 export const customWorkoutAPI = {
-  list: () => api.get<UserWorkoutResponse[]>("/workouts/"),
+  list: () => api.get<UserWorkoutResponse[]>("/workouts/custom/"),
   get: (id: number) => api.get<UserWorkoutResponse>(`/workouts/${id}/`),
   create: (data: CustomWorkoutWritePayload) => api.post<UserWorkoutResponse>("/workouts/", data),
   update: (id: number, data: CustomWorkoutWritePayload) => api.put<UserWorkoutResponse>(`/workouts/${id}/`, data),
