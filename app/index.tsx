@@ -21,7 +21,7 @@ export default function SplashScreen() {
   return (
     <View style={styles.container}>
       <Image
-        source={require('../assets/Loading_image_app.jpg')}
+        source={require('../assets/Loading_image_app.png')}
         style={styles.loadingImage}
         resizeMode="cover"
         accessibilityLabel="Zy-Run loading"

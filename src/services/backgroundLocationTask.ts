@@ -1,12 +1,12 @@
 
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Location from 'expo-location';
 import * as SecureStore from 'expo-secure-store';
-import * as FileSystem from 'expo-file-system/legacy';
 import * as TaskManager from 'expo-task-manager';
 import { AppState } from 'react-native';
 import { RawGpsPayload } from '../types/running';
-import { appendActiveRunPoints, readActiveRunJournal } from './activeRunJournal';
 import { calculateDistanceMeters } from '../utils/distance';
+import { appendActiveRunPoints, readActiveRunJournal } from './activeRunJournal';
 import { updateLiveTrackingNotification, WORKOUT_FOREGROUND_NOTIFICATION_ID } from './liveTrackingNotification';
 
 export const BACKGROUND_LOCATION_TASK_NAME = 'zyrun-background-location-task';
@@ -19,6 +19,7 @@ let sessionWriteChain: Promise<void> = Promise.resolve();
 export interface BackgroundLocationSessionState {
   active: boolean;
   paused?: boolean;
+  confirmationPromptVisible?: boolean;
   runId?: string | null;
   userId?: string | null;
   startedAt?: string | null;
@@ -130,6 +131,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, async ({ data, error }) =>
     elapsedSeconds: previous.elapsedSeconds,
     paceMinutesPerKm: previous.paceMinutesPerKm,
     movementConfirmed: previous.movementConfirmed,
+    confirmationPromptVisible: previous.confirmationPromptVisible,
   };
 
   await persistBackgroundLocationSession(nextState);
