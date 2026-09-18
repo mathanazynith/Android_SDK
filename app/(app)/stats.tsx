@@ -17,6 +17,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BenchmarkBadgeIcon from '../../components/BenchmarkBadgeIcon';
+import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { customWorkoutAPI, type UserWorkoutResponse } from '../../service/customWorkout';
 import { activityAPI, BackendActivity } from '../../src/services/activityApi';
@@ -40,6 +42,26 @@ import { buildWorkoutExecutionPlan } from '../../src/utils/workoutPlanBuilder';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function StatsScreen() {
+  const { workoutPlan, fetchWorkoutPlan } = useQuestionnaire();
+  const [customWorkouts, setCustomWorkouts] = useState<UserWorkoutResponse[]>([]);
+  const [benchmarkIds, setBenchmarkIds] = useState<number[]>([]);
+  const [planBenchmarks, setPlanBenchmarks] = useState<PlanBenchmarkAssignment[]>([]);
+
+  const userCustomWorkouts = useMemo(() => {
+    return customWorkouts.filter((w) => w.is_custom !== false && w.plan == null);
+  }, [customWorkouts]);
+
+  const hasCustomWorkouts = userCustomWorkouts.length > 0;
+
+  const hasPlanWorkouts = Boolean(
+    (workoutPlan?.weeks && workoutPlan.weeks.some((wk) => wk.workouts?.length > 0)) ||
+    customWorkouts.some((w) => w.is_custom === false || w.plan != null)
+  );
+
+  const hasActivePlan = Boolean(
+    hasPlanWorkouts || planBenchmarks.length > 0
+  );
+
   const { isDark } = useTheme();
   const styles = getThemeStyles(isDark);
   const [loading, setLoading] = useState(true);

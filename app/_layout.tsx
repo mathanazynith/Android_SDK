@@ -1,3 +1,5 @@
+import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useFonts } from 'expo-font';
 import * as Notifications from 'expo-notifications';
 import { Stack, usePathname, useRootNavigationState, useRouter } from 'expo-router';
 import type { ReactNode } from 'react';
