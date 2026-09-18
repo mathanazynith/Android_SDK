@@ -81,7 +81,7 @@ export const createCatmullRomPolyline = (
   const source = points.map((point) => ({ latitude: point.latitude, longitude: point.longitude }));
   const usablePoints = removeStationaryPoints(source);
 
-  if (usablePoints.length < 2) {
+  if (usablePoints.length < 2) {  
     return source;
   }
 

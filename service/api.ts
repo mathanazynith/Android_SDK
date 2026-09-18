@@ -31,6 +31,11 @@ export const API_ENDPOINTS = {
     profile: "/auth/profile/",
     updateProfile: "/auth/profile/",
   },
+  legal: {
+    list: "/legal/",
+    termsAndConditions: "/legal/terms-and-conditions/",
+    privacyPolicy: "/legal/privacy-policy/",
+  },
 };
 
 const REFRESH_TOKEN_PATHS = ["/auth/token/refresh/", "/auth/refresh/"];
@@ -252,6 +257,26 @@ export const authAPI = {
 
   adminLogin: (data: { identifier: string; password: string }) =>
     api.post("/auth/admin-login/", data),
+};
+
+export type LegalPolicyType = "terms-and-conditions" | "privacy-policy";
+
+export interface LegalPolicy {
+  title: string;
+  content: string;
+  version: number;
+  published_at: string | null;
+}
+
+/** Public endpoints: published documents do not require authentication. */
+export const legalAPI = {
+  getPolicies: () => api.get<LegalPolicy[]>(API_ENDPOINTS.legal.list),
+  getPolicy: (policyType: LegalPolicyType) =>
+    api.get<LegalPolicy>(
+      policyType === "privacy-policy"
+        ? API_ENDPOINTS.legal.privacyPolicy
+        : API_ENDPOINTS.legal.termsAndConditions
+    ),
 };
 
 const normalizeErrorResponse = (value: any): string | null => {

@@ -30,6 +30,7 @@ export class WorkoutEngine {
   private distanceAnchor: RunningGpsPoint | null = null;
   private pausedAt: number | null = null;
   private stateBeforePause: WorkoutEngineState = 'running';
+  private continuedAfterCompletion = false;
 
   public constructor(callbacks: WorkoutEngineCallbacks = {}) {
     this.callbacks = callbacks;
@@ -43,6 +44,7 @@ export class WorkoutEngine {
     this.lastPoint = null;
     this.distanceAnchor = null;
     this.state = 'idle';
+    this.continuedAfterCompletion = false;
   }
 
   public start(initialPoint: RunningGpsPoint | null): void {
@@ -111,8 +113,31 @@ export class WorkoutEngine {
   }
 
   public continue(): void {
-    if (this.state !== 'waiting') return;
-    this.startNext(this.lastPoint);
+    if (this.state === 'waiting') {
+      this.startNext(this.lastPoint);
+      return;
+    }
+    if (this.state !== 'completed') return;
+
+    this.continuedAfterCompletion = true;
+    this.currentLap = {
+      segmentOrder: this.queue.length + 1,
+      segmentType: 'Run',
+      repeatNumber: 1,
+      totalRepeats: 1,
+      targetDistanceMeters: null,
+      targetDurationSeconds: null,
+      targetPace: null,
+      paceUnit: null,
+      notes: 'Post-workout continuation',
+      startedAt: this.lastPoint?.timestamp ?? Date.now(),
+      completedAt: null,
+      distanceMeters: 0,
+      elapsedSeconds: 0,
+      completed: false,
+    };
+    this.state = 'running';
+    this.callbacks.onSegmentStarted?.(this.segmentOf(this.currentLap));
   }
 
   public pause(): void {
@@ -136,7 +161,7 @@ export class WorkoutEngine {
     // even when the segment is a rest interval with no distance counted.
     // Only a manual pause or post-workout continuation is treated as a gray
     // trace, because that movement is no longer part of the planned workout.
-    return this.state === 'paused' || this.state === 'completed';
+    return this.state === 'paused' || this.continuedAfterCompletion;
   }
 
   public isDistanceCounting(): boolean {

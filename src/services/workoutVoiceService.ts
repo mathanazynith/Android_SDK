@@ -29,6 +29,15 @@ export class WorkoutVoiceService {
     return this.enqueue(label);
   }
 
+  public splitCompleted(distanceMeters: number): Promise<void> {
+    if (!Number.isFinite(distanceMeters) || distanceMeters <= 0) return Promise.resolve();
+    const roundedDistance = Math.round(distanceMeters);
+    const label = roundedDistance >= 1000
+      ? `${(roundedDistance / 1000).toFixed(1)} kilometres`
+      : `${roundedDistance} meters`;
+    return this.enqueue(label);
+  }
+
   public workoutCompleted(): Promise<void> {
     return this.enqueue('Workout complete. Great job.');
   }

@@ -16,6 +16,9 @@
         "backgroundColor": "#FAFAFA",
         "foregroundImage": "./assets/ZyRunLOGO.png"
       },
+      "permissions": [
+        "POST_NOTIFICATIONS"
+      ],
       "predictiveBackGestureEnabled": false,
       "package": "com.zyapp"
     },
@@ -26,6 +29,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-notifications",
       [
         "expo-location",
         {
@@ -54,6 +58,7 @@
       "@react-native-community/datetimepicker",
       "expo-secure-store",
       "expo-image",
+      "expo-image-picker",
       "expo-status-bar",
       "expo-web-browser"
     ],

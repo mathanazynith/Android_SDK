@@ -19,6 +19,7 @@ import { PrimaryButton } from "../../components/common/PrimaryButton";
 import { Colors, Spacing, Typography, BorderRadius } from "../../constants/theme";
 import { BRAND_GREEN, useTheme } from "../../contexts/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LegalConsent } from "../../components/LegalConsent";
 
 export default function SignupScreen() {
   const { colors } = useTheme();
@@ -400,10 +401,7 @@ export default function SignupScreen() {
           <Text style={styles.errorText}>{errors.password2}</Text>
         )}
 
-        <View style={styles.termsRow}>
-          <View style={styles.checkbox} />
-          <Text style={styles.termsText}>I agree to the Terms and Privacy Policy</Text>
-        </View>
+        <LegalConsent />
 
         <PrimaryButton
           title="Create Account"
@@ -511,8 +509,5 @@ const styles = StyleSheet.create({
   emailDivider: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 14 },
   dividerLine: { flex: 1, height: 1, backgroundColor: '#202124' },
   emailDividerText: { color: Colors.textMuted, fontSize: 13, fontWeight: '600', letterSpacing: .2 },
-  termsRow: { minHeight: 62, borderRadius: 14, backgroundColor: '#202124', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, marginTop: 8 },
-  checkbox: { width: 21, height: 21, borderRadius: 3, borderWidth: 2, borderColor: Colors.textSecondary, marginRight: 15 },
-  termsText: { color: Colors.textSecondary, fontSize: 14, flexShrink: 1 },
   linkAccent: { color: Colors.primary, fontWeight: '700' },
 });

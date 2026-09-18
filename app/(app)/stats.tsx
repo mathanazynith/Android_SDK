@@ -1,4 +1,4 @@
-import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -19,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BenchmarkBadgeIcon from '../../components/BenchmarkBadgeIcon';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
+import { useTheme } from '../../contexts/ThemeContext';
 import { customWorkoutAPI, type UserWorkoutResponse } from '../../service/customWorkout';
 import { activityAPI, BackendActivity } from '../../src/services/activityApi';
 import ActivityStore from '../../src/services/activityStore';
@@ -69,6 +70,8 @@ export default function StatsScreen() {
     hasPlanWorkouts || planBenchmarks.length > 0
   );
 
+  const { isDark } = useTheme();
+  const styles = getThemeStyles(isDark);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [period, setPeriod] = useState<PeriodFilter>('week');
@@ -317,16 +320,18 @@ export default function StatsScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      <StatusBar barStyle="light-content" backgroundColor="#0A0A0C" />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#0A0A0C' : '#F8FAFC'} />
 
       {/* Screen Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Statistics</Text>
           <Text style={styles.headerSubtitle}>
-            {stats.totalWorkouts > 0
-              ? `${stats.totalWorkouts} activities recorded`
-              : 'Track your running performance'}
+            {isDark
+              ? stats.totalWorkouts > 0
+                ? `${stats.totalWorkouts} activities recorded`
+                : 'Track your running performance'
+              : 'Track your running'}
           </Text>
         </View>
 
@@ -545,7 +550,7 @@ export default function StatsScreen() {
           {/* 1. Runs */}
           <View style={styles.metricCard}>
             <View style={[styles.metricIconCircle, { backgroundColor: 'rgba(48, 209, 88, 0.15)' }]}>
-              <MaterialCommunityIcons name="run" size={20} color="#30D158" />
+              <Feather name="activity" size={20} color="#30D158" />
             </View>
             <Text style={styles.metricCardValue}>{yearStats.runs}</Text>
             <Text style={styles.metricCardLabel}>Runs</Text>
@@ -1085,7 +1090,7 @@ export default function StatsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#0A0A0C',
@@ -1133,7 +1138,7 @@ const styles = StyleSheet.create({
     padding: 3,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#242428',
+    borderColor: 'white',
   },
   periodTab: {
     flex: 1,
@@ -1143,10 +1148,10 @@ const styles = StyleSheet.create({
     borderRadius: 9,
   },
   periodTabActive: {
-    backgroundColor: '#2C2C30',
+    backgroundColor: '#30D158',
   },
   periodTabText: {
-    color: '#8E8E93',
+    color: 'white',
     fontSize: 13,
     fontWeight: '600',
   },
@@ -1554,7 +1559,7 @@ const styles = StyleSheet.create({
   },
   yearPillLabel: {
     fontSize: 15,
-    color: '#8E8E93',
+    color: '#FFFFFF',
     fontWeight: '500',
   },
   yearPillValueRow: {
@@ -1563,7 +1568,7 @@ const styles = StyleSheet.create({
   },
   yearPillValue: {
     fontSize: 16,
-    color: '#FFFFFF',
+    color: '#30D158',
     fontWeight: '700',
   },
 
@@ -1870,3 +1875,273 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
 });
+
+const lightStyles = StyleSheet.create({
+  safeArea: {
+    backgroundColor: '#F8FAFC',
+  },
+  header: {
+    borderBottomColor: '#E5E7EB',
+  },
+  headerTitle: {
+    color: '#111111',
+  },
+  headerSubtitle: {
+    color: '#111111',
+  },
+  refreshBtn: {
+    backgroundColor: '#E9EAEC',
+    shadowColor: '#000000',
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  scrollContent: {
+    paddingBottom: 112,
+  },
+  periodTabsContainer: {
+    backgroundColor: '#D7D8DA',
+    borderColor: '#D7D8DA',
+    shadowColor: '#000000',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  periodTabActive: {
+    backgroundColor: '#30D158',
+  },
+  periodTabText: {
+    color: '#55575B',
+  },
+  periodTabTextActive: {
+    color: '#000000',
+  },
+  heroCard: {
+    backgroundColor: '#F1F2F4',
+    borderColor: '#D8DADD',
+    shadowColor: '#000000',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  heroLabel: {
+    color: '#202124',
+  },
+  heroValue: {
+    color: '#050505',
+  },
+  streakBadge: {
+    backgroundColor: 'rgba(48, 209, 88, 0.10)',
+    borderColor: 'rgba(48, 160, 78, 0.20)',
+  },
+  tooltipBox: {
+    backgroundColor: '#E8EAED',
+    borderColor: '#D8DADD',
+  },
+  tooltipTitle: {
+    color: '#111111',
+  },
+  tooltipSub: {
+    color: '#6B7280',
+  },
+  tooltipPace: {
+    color: '#6B7280',
+  },
+  tooltipHint: {
+    color: '#202124',
+  },
+  barTrack: {
+    backgroundColor: '#D9DADD',
+    
+  },
+  barLabel: {
+    color: '#171717',
+  },
+  barLabelCurrent: {
+    color: '#171717',
+  },
+  sectionTitle: {
+    color: '#171717',
+  },
+  sectionSubBadge: {
+    color: '#202124',
+  },
+  metricCard: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E1E3E6',
+    shadowColor: '#000000',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  metricCardValue: {
+    color: '#111111',
+  },
+  metricCardLabel: {
+    color: '#6B7280',
+  },
+  cardContainer: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E1E3E6',
+  },
+  cardTitle: {
+    color: '#111111',
+  },
+  splitSubtext: {
+    color: '#6B7280',
+  },
+  splitBarTrack: {
+    backgroundColor: '#E5E7EB',
+  },
+  legendText: {
+    color: '#6B7280',
+  },
+  bestItemCard: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E1E3E6',
+  },
+  bestIconBadge: {
+    backgroundColor: '#F1F5F9',
+  },
+  bestTitle: {
+    color: '#6B7280',
+  },
+  bestValue: {
+    color: '#111111',
+  },
+  recentCard: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E1E3E6',
+  },
+  recentTitle: {
+    color: '#111111',
+  },
+  recentDate: {
+    color: '#6B7280',
+  },
+  recentDist: {
+    color: '#111111',
+  },
+  recentMeta: {
+    color: '#6B7280',
+  },
+  emptyStateCard: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E1E3E6',
+  },
+  emptyStateTitle: {
+    color: '#111111',
+  },
+  emptyStateSubtext: {
+    color: '#6B7280',
+  },
+  yearPill: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E1E3E6',
+    shadowColor: '#000000',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  yearPillLabel: {
+    color: '#111111',
+  },
+  yearPillValue: {
+    color: '#30D158',
+  },
+  benchmarkCard: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E1E3E6',
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  benchmarkTitle: {
+    color: '#111111',
+  },
+  benchmarkSubtitle: {
+    color: '#6B7280',
+  },
+  summaryListCard: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E1E3E6',
+  },
+  summaryLabel: {
+    color: '#111111',
+  },
+  summaryValue: {
+    color: '#111111',
+  },
+  summaryDivider: {
+    backgroundColor: '#E5E7EB',
+  },
+  weekCompletionCard: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E1E3E6',
+  },
+  weekCompletionTitle: {
+    color: '#111111',
+  },
+  weekCompletionCount: {
+    color: '#334155',
+  },
+  weekCompletionDistance: {
+    color: '#6B7280',
+  },
+  modalOverlay: {
+    backgroundColor: 'rgba(15, 23, 42, 0.32)',
+  },
+  modalSheet: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E1E3E6',
+  },
+  benchmarkSheet: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E1E3E6',
+  },
+  modalHeader: {
+    borderBottomColor: '#E5E7EB',
+  },
+  modalTitle: {
+    color: '#111111',
+  },
+  modalSubtitle: {
+    color: '#6B7280',
+  },
+  modalItemText: {
+    color: '#111111',
+  },
+  benchmarkItem: {
+    borderBottomColor: '#E5E7EB',
+  },
+  benchmarkItemTitle: {
+    color: '#111111',
+  },
+  benchmarkItemDesc: {
+    color: '#6B7280',
+  },
+  benchmarkEmptyIcon: {
+    backgroundColor: '#F1F5F9',
+  },
+  benchmarkEmptyTitle: {
+    color: '#111111',
+  },
+  benchmarkEmptySubtitle: {
+    color: '#6B7280',
+  },
+});
+
+function getThemeStyles(isDark: boolean) {
+  if (isDark) return baseStyles;
+
+  const themedStyles = { ...baseStyles } as Record<string, unknown>;
+  Object.keys(lightStyles).forEach((key) => {
+    themedStyles[key] = [
+      baseStyles[key as keyof typeof baseStyles],
+      lightStyles[key as keyof typeof lightStyles],
+    ];
+  });
+
+  return themedStyles as typeof baseStyles;
+}
