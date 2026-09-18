@@ -3,23 +3,22 @@ import * as Location from 'expo-location';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    AppState,
-    BackHandler,
-    Platform,
-    Pressable,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Alert,
+  AppState,
+  BackHandler,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 import MapView, { Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useAuth } from '../../../service/auth';
 import { workoutPlanService } from '../../../service/workoutPlan';
+import { beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal } from '../../../src/services/activeRunJournal';
 import { ActivityDetectionService } from '../../../src/services/activityDetectionService';
 import { activityDistanceOverrides } from '../../../src/services/activityDistanceOverrides';
-import { LocationQueue } from '../../../src/services/locationQueue';
-import { LocationService } from '../../../src/services/locationService';
 import {
   clearBackgroundLocationSession,
   getBackgroundLocationSession,
@@ -28,7 +27,15 @@ import {
   startBackgroundLocationTracking,
   stopBackgroundLocationTracking,
 } from '../../../src/services/backgroundLocationTask';
-import { beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal } from '../../../src/services/activeRunJournal';
+import {
+  LIVE_TRACKING_STOP_ACTION,
+  publishWorkoutSummaryNotification,
+  startLiveTrackingNotification,
+  stopLiveTrackingNotification,
+  updateLiveTrackingNotification,
+} from '../../../src/services/liveTrackingNotification';
+import { LocationQueue } from '../../../src/services/locationQueue';
+import { LocationService } from '../../../src/services/locationService';
 import { PathProcessor } from '../../../src/services/pathProcessor';
 import { RunningApiClient } from '../../../src/services/runningApi';
 import { DistanceSplitEngine } from '../../../src/services/splitEngine';
@@ -42,13 +49,6 @@ import { BackendWorkout, WorkoutEngineSnapshot } from '../../../src/types/workou
 import { createCatmullRomPolyline } from '../../../src/utils/catmullRom';
 import { calculateDistanceMeters } from '../../../src/utils/distance';
 import { formatStepTarget, WorkoutExecutionStep } from '../../../src/utils/workoutPlanBuilder';
-import {
-  publishWorkoutSummaryNotification,
-  startLiveTrackingNotification,
-  stopLiveTrackingNotification,
-  updateLiveTrackingNotification,
-  LIVE_TRACKING_STOP_ACTION,
-} from '../../../src/services/liveTrackingNotification';
 
 const formatTimerDisplay = (totalSec: number) => {
   const m = Math.floor(Math.max(0, totalSec) / 60);
@@ -160,6 +160,28 @@ export default function MapScreen() {
       return [];
     }
   }, [params.workoutPlan]);
+
+  const serializedWorkout: BackendWorkout | null = useMemo(() => {
+    if (executionPlan.length === 0) return null;
+    return {
+      title: params.workoutTitle || 'Structured Workout',
+      duration: null,
+      distance: null,
+      target_pace: null,
+      pace_unit: null,
+      segments: executionPlan.map((step, index) => ({
+        segment_order: index + 1,
+        segment_type: step.stepType,
+        repeats: 1,
+        rep_distance: step.targetType === 'DISTANCE' ? step.targetDistanceMeters ?? null : null,
+        duration: step.targetType === 'DURATION' ? step.targetDurationSeconds ?? null : null,
+        target_pace: step.targetPace ?? null,
+        pace_unit: step.unit ?? null,
+        rest_duration: null,
+        notes: step.notes ?? null,
+      })),
+    };
+  }, [executionPlan, params.workoutTitle]);
 
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [stepStartSeconds, setStepStartSeconds] = useState(0);
@@ -446,8 +468,14 @@ export default function MapScreen() {
   useEffect(() => {
     if (hasInitializedLocationRef.current) return;
     hasInitializedLocationRef.current = true;
-    void requestLocation();
-  }, [requestLocation]);
+    void getBackgroundLocationSession().then((session) => {
+      if (session?.active && session.runId) {
+        setPermissionGranted(true);
+        return;
+      }
+      void requestLocation();
+    });
+  }, [params.notificationAction, requestLocation]);
 
   useEffect(() => {
     return () => {
@@ -486,15 +514,10 @@ export default function MapScreen() {
 
       voiceCoach?.announceStepTransition?.(finishedStep, nextStep);
     } else {
-      voiceCoach?.announceWorkoutCompleted?.();
-      Alert.alert(
-        'Workout Completed!',
-        'You have successfully completed all planned steps! Great work! Would you like to stop and save your workout?',
-        [
-          { text: 'Keep Running', style: 'cancel' },
-          { text: 'Stop & Save', onPress: () => stopRunRef.current() },
-        ]
-      );
+      if (!workoutCompletionPromptShownRef.current) {
+        workoutCompletionPromptShownRef.current = true;
+        setCompletionPromptVisible(true);
+      }
     }
   }, [elapsedSeconds]);
 
@@ -525,7 +548,7 @@ export default function MapScreen() {
 
         // Custom Workout Step Completion Check
         const plan = executionPlanRef.current;
-        if (plan.length > 0 && !isPausedRef.current) {
+        if (plan.length > 0 && !isPausedRef.current && !workoutEngineRef.current) {
           const currentIdx = currentStepIndexRef.current;
           const step = plan[currentIdx];
           if (step) {
@@ -773,7 +796,7 @@ export default function MapScreen() {
                   `[Workout] Accepted +${movementDistance.toFixed(2)}m; SDK total=${nextDistance.toFixed(2)}m`
                 );
               }
-            } else if (workoutEngine?.getSnapshot().state === 'completed') {
+            } else if (workoutEngine && (workoutEngine.getSnapshot().state === 'waiting' || workoutEngine.getSnapshot().state === 'completed')) {
               extraDistanceRef.current += movementDistance;
               const totalDistance = distanceRef.current + extraDistanceRef.current;
               setDistance(totalDistance);
@@ -847,6 +870,7 @@ export default function MapScreen() {
       elapsedSeconds,
       paceMinutesPerKm: pace,
       movementConfirmed: movementConfirmedRef.current,
+      confirmationPromptVisible: completionPromptVisible,
     });
     updateLiveTrackingNotification({
       distanceKm: distance / 1000,
@@ -855,7 +879,7 @@ export default function MapScreen() {
       status: isPaused ? 'paused' : 'running',
       startedAt,
     });
-  }, [distance, elapsedSeconds, isPaused, isRunning, pace, user?.id]);
+  }, [completionPromptVisible, distance, elapsedSeconds, isPaused, isRunning, pace, user?.id]);
 
   useEffect(() => {
     const reconcileBackgroundPoints = async () => {
@@ -942,6 +966,10 @@ export default function MapScreen() {
       const restoredElapsed = session.elapsedSeconds ?? Math.max(0, (Date.now() - startTimeRef.current) / 1000);
       setElapsedSeconds(restoredElapsed);
       setPace(session.paceMinutesPerKm ?? (distanceRef.current > 0 ? restoredElapsed / 60 / (distanceRef.current / 1000) : 0));
+      setCompletionPromptVisible(
+        Boolean(session.confirmationPromptVisible)
+          || params.notificationAction === LIVE_TRACKING_STOP_ACTION,
+      );
 
       const activityDetection = new ActivityDetectionService();
       activityDetectionRef.current = activityDetection;
@@ -976,7 +1004,7 @@ export default function MapScreen() {
     };
     void restoreActiveRun();
     return () => { cancelled = true; };
-  }, [addLog, handleLocationUpdate, startLiveGPS]);
+  }, [addLog, handleLocationUpdate, params.notificationAction, startLiveGPS]);
 
   const startRun = async () => {
     if (isStartingRef.current || isRunningRef.current) {
@@ -1128,7 +1156,8 @@ export default function MapScreen() {
       // gate will admit the first route point only after motion is confirmed.
       const startRoutePoint = null;
 
-      if (selectedWorkout) {
+      const structuredWorkout = selectedWorkout ?? serializedWorkout;
+      if (structuredWorkout) {
         const voice = new WorkoutVoiceService();
         let engine: WorkoutEngine;
         engine = new WorkoutEngine({
@@ -1138,6 +1167,18 @@ export default function MapScreen() {
               + `${segment.repeatNumber}/${segment.totalRepeats}`
             );
             voice.segmentStarted(segment);
+            const stepIndex = segment.segmentOrder - 1;
+            if (stepIndex >= 0 && stepIndex < executionPlanRef.current.length) {
+              currentStepIndexRef.current = stepIndex;
+              setCurrentStepIndex(stepIndex);
+              const currentElapsed = startTimeRef.current
+                ? Math.max(0, (Date.now() - startTimeRef.current) / 1000)
+                : 0;
+              stepStartSecondsRef.current = currentElapsed;
+              setStepStartSeconds(currentElapsed);
+              stepStartDistanceRef.current = distanceRef.current;
+              setStepStartDistanceMeters(distanceRef.current);
+            }
             setWorkoutSnapshot(engine.getSnapshot());
           },
           onSegmentCompleted: (lap) => {
@@ -1177,12 +1218,12 @@ export default function MapScreen() {
         });
         workoutVoiceRef.current = voice;
         workoutEngineRef.current = engine;
-        engine.loadWorkout(selectedWorkout);
+        engine.loadWorkout(structuredWorkout);
         console.log(
-          `[Workout] Backend workout loaded: "${selectedWorkout.title}" `
+          `[Workout] Structured workout loaded: "${structuredWorkout.title}" `
           + `${engine.getSnapshot().totalLaps} planned segments`
         );
-        voice.workoutStarted(selectedWorkout);
+        voice.workoutStarted(structuredWorkout);
         engine.start(startRoutePoint);
         previousWorkoutPointRef.current = startRoutePoint;
         setWorkoutSnapshot(engine.getSnapshot());
@@ -1380,6 +1421,8 @@ export default function MapScreen() {
       console.log(`[RecordView] Recording stopped at ${stoppedAt.toISOString()}`);
       console.log('[RecordView] Stop finalization started');
       isRunningRef.current = false;
+      setIsRunning(false);
+      setCompletionPromptVisible(false);
       await persistBackgroundLocationSession({
         active: true,
         paused: isPausedRef.current,
@@ -1953,15 +1996,18 @@ export default function MapScreen() {
     return () => subscription.remove();
   }, [requestFinish]);
 
-  if (loading) {
-    return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#20D000" />
-        <Text style={styles.loadingText}>Getting precise GPS location...</Text>
-        <Text style={styles.loadingSubText}>Please wait while we find your location</Text>
-      </View>
-    );
-  }
+  const plannedRouteCoordinates = useMemo(
+    () => routeSegments
+      .filter((segment) => !segment.isLight)
+      .flatMap((segment) => segment.coordinates),
+    [routeSegments]
+  );
+  const overtimeRouteCoordinates = useMemo(
+    () => routeSegments
+      .filter((segment) => segment.isLight)
+      .flatMap((segment) => segment.coordinates),
+    [routeSegments]
+  );
 
   const activeStep = executionPlan[currentStepIndex];
   const nextStep = executionPlan[currentStepIndex + 1];
@@ -2033,18 +2079,61 @@ export default function MapScreen() {
             Fabric can crash when a Polyline is conditionally inserted while
             native GPS updates are being processed (addViewAt index/count).
           */}
-          {routeSegments.map((segment) => (
-            <Polyline
-              key={segment.id}
-              coordinates={segment.coordinates}
-              strokeWidth={3}
-              strokeColor={segment.isLight ? '#9CA3AF' : '#20D000'}
-              lineCap="round"
-              lineJoin="round"
-              geodesic={true}
-            />
-          ))}
+          <Polyline
+            key="planned-route"
+            coordinates={plannedRouteCoordinates}
+            strokeWidth={3}
+            strokeColor="#22C55E"
+            lineCap="round"
+            lineJoin="round"
+            geodesic={true}
+          />
+          <Polyline
+            key="overtime-route"
+            coordinates={overtimeRouteCoordinates}
+            strokeWidth={3}
+            strokeColor="#94A3B8"
+            lineCap="round"
+            lineJoin="round"
+            geodesic={true}
+          />
         </MapView>
+
+        {/*
+          Keep the MapView mounted while permissions and the first GPS fix are
+          resolving. Replacing it with a loading screen changes the native
+          child tree while Android Fabric is mounting map overlays.
+        */}
+        {loading && (
+          <View style={styles.mapLoadingOverlay} pointerEvents="auto">
+            <ActivityIndicator size="large" color="#20D000" />
+            <Text style={styles.loadingText}>Getting precise GPS location...</Text>
+            <Text style={styles.loadingSubText}>Please wait while we find your location</Text>
+          </View>
+        )}
+
+        {completionPromptVisible && isRunning && (
+          <View style={styles.completionOverlay}>
+            <View style={styles.completionPanel}>
+              <Text style={styles.completionTitle}>Workout complete</Text>
+              <Text style={styles.completionMessage}>Save this activity or keep tracking extra distance.</Text>
+              <View style={styles.completionActions}>
+                <Pressable style={styles.continueActionButton} onPress={continueAfterCompletion}>
+                  <Text style={styles.continueActionText}>CONTINUE</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.saveExitActionButton}
+                  onPress={() => {
+                    setCompletionPromptVisible(false);
+                    void stopRun();
+                  }}
+                >
+                  <Text style={styles.saveExitActionText}>STOP & SAVE</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        )}
 
         <View style={styles.zoomControls}>
           <Pressable style={styles.zoomButton} onPress={zoomIn}>
@@ -2262,30 +2351,6 @@ export default function MapScreen() {
             </View>
           )}
 
-          {/* Action Buttons Row */}
-          {completionPromptVisible && isRunning && (
-            <View style={styles.completionPanel}>
-              <Text style={styles.completionTitle}>Workout complete</Text>
-              <Text style={styles.completionMessage}>Save this activity or keep tracking extra distance.</Text>
-              <View style={styles.completionActions}>
-                <Pressable
-                  style={styles.continueActionButton}
-                  onPress={continueAfterCompletion}
-                >
-                  <Text style={styles.continueActionText}>CONTINUE</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.saveExitActionButton}
-                  onPress={() => {
-                    setCompletionPromptVisible(false);
-                    void stopRun();
-                  }}
-                >
-                  <Text style={styles.saveExitActionText}>STOP & SAVE</Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
           <View style={styles.dashboardActionsRow}>
             {/* Skip Step Button */}
             {isRunning && currentStepIndex < executionPlan.length - 1 && (
@@ -2340,29 +2405,6 @@ export default function MapScreen() {
       ) : (
         /* Fallback for open running without a custom workout */
         <>
-          {completionPromptVisible && isRunning && (
-            <View style={styles.completionPanel}>
-              <Text style={styles.completionTitle}>Run complete</Text>
-              <Text style={styles.completionMessage}>Save this activity or continue tracking.</Text>
-              <View style={styles.completionActions}>
-                <Pressable
-                  style={styles.continueActionButton}
-                  onPress={continueAfterCompletion}
-                >
-                  <Text style={styles.continueActionText}>CONTINUE</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.saveExitActionButton}
-                  onPress={() => {
-                    setCompletionPromptVisible(false);
-                    void stopRun();
-                  }}
-                >
-                  <Text style={styles.saveExitActionText}>STOP & SAVE</Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
           <View style={styles.controlBar}>
             <View style={styles.controlBarContent}>
             <View style={styles.controlStatus}>
@@ -2439,6 +2481,14 @@ const styles = StyleSheet.create({
   mapContainerSplit: { flex: 0.44, position: 'relative' },
   map: { flex: 1 },
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  mapLoadingOverlay: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0B0E0F',
+    padding: 20,
+    zIndex: 30,
+  },
   loadingText: { color: '#fff', fontSize: 16, marginTop: 16 },
   loadingSubText: { color: '#bbb', fontSize: 12, marginTop: 6 },
   zoomControls: { position: 'absolute', right: 18, bottom: 18, flexDirection: 'column' },
@@ -2649,10 +2699,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#1C1D24',
     borderRadius: 14,
     padding: 12,
-    marginTop: 4,
-    alignSelf: 'center',
-    width: '94%',
+    width: '90%',
     alignItems: 'center',
+  },
+  completionOverlay: {
+    ...StyleSheet.absoluteFill,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.18)',
+    zIndex: 20,
   },
   completionTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '900', textAlign: 'center' },
   completionMessage: { color: '#A1A1AA', fontSize: 11, marginTop: 3, textAlign: 'center' },
