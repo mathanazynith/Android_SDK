@@ -3,17 +3,17 @@ import DateTimePicker, { type DateTimePickerEvent } from "@react-native-communit
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
@@ -22,13 +22,13 @@ import { Colors } from "../../../constants/theme";
 import { customWorkoutAPI } from "../../../service/customWorkout";
 import { BenchmarkStore } from "../../../src/services/benchmarkStore";
 import {
-  normalizeUnit,
-  parsePaceToSeconds,
+    normalizeUnit,
+    parsePaceToSeconds,
 } from "../../../src/utils/workoutCalculations";
 import { buildWorkoutExecutionPlan } from "../../../src/utils/workoutPlanBuilder";
 import {
-  useCustomWorkout,
-  type WorkoutStep,
+    useCustomWorkout,
+    type WorkoutStep,
 } from "./workout-context";
 
 const seconds = (value: string) => {
@@ -469,7 +469,7 @@ export default function CustomWorkoutOverview() {
   );
   const [repeatRun, setRepeatRun] = useState<number | null>(null);
   const [showTitleModal, setShowTitleModal] = useState(false);
-  const [tempTitle, setTempTitle] = useState(workout.title || "Custom Workout");
+  const [tempTitle, setTempTitle] = useState(workout.title || "");
   const [tempNotes, setTempNotes] = useState(workout.notes || "");
 
   // 3-dot Action Menu and DatePicker states
@@ -774,7 +774,7 @@ export default function CustomWorkoutOverview() {
         >
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             <Text style={styles.headerTitle} numberOfLines={1}>
-              {workout.title || "Run Workout"}
+              {workout.title || "Custom Workout"}
             </Text>
             {isBenchmark ? (
               <View style={styles.benchmarkHeaderBadge}>
@@ -990,8 +990,7 @@ export default function CustomWorkoutOverview() {
             title="Running"
             color="#0A84FF"
             onPress={() => {
-              addEmptyRun();
-              setSelectedRun(0);
+              router.push("/custom-workout/running-declaration");
             }}
           />
         ) : null}
@@ -1024,10 +1023,7 @@ export default function CustomWorkoutOverview() {
             <TouchableOpacity
               style={styles.actionAdd}
               onPress={() => {
-                const firstGroupIdx = workout.runs.findIndex((r) => Boolean(r.groupId));
-                const newIndex = firstGroupIdx !== -1 ? firstGroupIdx : 0;
-                addEmptyRun();
-                setSelectedRun(newIndex);
+                router.push("/custom-workout/running-declaration");
               }}
               activeOpacity={0.85}
             >
