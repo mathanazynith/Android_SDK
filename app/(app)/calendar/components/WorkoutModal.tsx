@@ -1,8 +1,8 @@
+import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { WorkoutDetail, WorkoutSegment } from './types';
 
 interface WorkoutModalProps { visible: boolean; workout: WorkoutDetail | null; onClose: () => void; }
@@ -67,8 +67,15 @@ export default function WorkoutModal({ visible, workout, onClose }: WorkoutModal
     {!activeWorkout.isRest && <TouchableOpacity
       style={styles.startButton}
       onPress={() => {
-        // Planned sessions are the entry point to the live map tracker.
         onClose();
+        if (activeWorkout.backendId) {
+          router.push({
+            pathname: '/custom-workout/suggested-routes',
+            params: { workoutId: String(activeWorkout.backendId) },
+          });
+          return;
+        }
+
         router.push({
           pathname: '/(app)/run',
           params: { workoutId: activeWorkout.id, workoutTitle: activeWorkout.title, workoutType: activeWorkout.workoutType, workoutDuration: activeWorkout.estimatedDuration, workoutDistance: activeWorkout.distance, workoutPace: activeWorkout.targetPace },

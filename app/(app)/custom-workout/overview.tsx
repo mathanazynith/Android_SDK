@@ -977,7 +977,7 @@ export default function CustomWorkoutOverview() {
             );
           })
         ) : isEditing ? (
-          <EmptyStepCard
+          <EmptyStepCard 
             title="Running"
             color="#0A84FF"
             onPress={() => {
@@ -988,7 +988,7 @@ export default function CustomWorkoutOverview() {
         ) : null}
 
         {/* 3. Cool Down */}
-        {workout.cooldown ? (
+        {workout.cooldown ? ( 
           <StepCard
             step={workout.cooldown}
             color="#30D158"
@@ -1040,6 +1040,17 @@ export default function CustomWorkoutOverview() {
           </View>
         ) : (
           <View style={styles.viewModeActions}>
+            {workout.id ? (
+              <TouchableOpacity
+                style={styles.suggestedRoutesButton}
+                onPress={() => router.push({ pathname: "/custom-workout/suggested-routes", params: { workoutId: String(workout.id) } })}
+                activeOpacity={0.85}
+              >
+                <Feather name="map" size={22} color="#39B800" />
+                <Text style={styles.suggestedRoutesButtonText}>Suggested Routes</Text>
+                <Feather name="chevron-right" size={24} color="#39B800" />
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
               style={styles.startWorkoutButton}
               onPress={() => {
@@ -2034,6 +2045,24 @@ const styles = StyleSheet.create({
   viewModeActions: {
     marginTop: 18,
     marginBottom: 10,
+  },
+  suggestedRoutesButton: {
+    minHeight: 64,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#39B800",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 18,
+    marginBottom: 18,
+    gap: 14,
+  },
+  suggestedRoutesButtonText: {
+    flex: 1,
+    color: "#39B800",
+    fontSize: 18,
+    fontWeight: "800",
+    textTransform: "capitalize",
   },
   startWorkoutButton: {
     minHeight: 52,

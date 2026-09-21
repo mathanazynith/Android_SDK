@@ -1,26 +1,26 @@
+import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  PanResponder,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    PanResponder,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams } from 'expo-router';
-import { useAuth } from '../../../service/auth';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
+import { useTheme } from '../../../contexts/ThemeContext';
+import { useAuth } from '../../../service/auth';
 import type { CurrentWorkout } from '../../../service/workoutPlan';
 import RunningPlanHeader from '../calendar/components/RunningPlanHeader';
 import Timeline from '../calendar/components/Timeline';
 import TrainingCalendarCard from '../calendar/components/TrainingCalendarCard';
 import WorkoutModal from '../calendar/components/WorkoutModal';
-import type { WorkoutDetail, RunningPlanData } from '../calendar/components/types';
-import { useTheme } from '../../../contexts/ThemeContext';
+import type { RunningPlanData, WorkoutDetail } from '../calendar/components/types';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -95,6 +95,7 @@ const toWorkoutDetail = (workout: CurrentWorkout): WorkoutDetail => {
 
   return {
     id: `${workout.week_number}-${workout.display_order}-${workout.workout_date}`,
+    backendId: workout.id,
     day: workout.weekday ? workout.weekday.slice(0, 3) : '',
     date: date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '',
     title,

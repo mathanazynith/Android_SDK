@@ -1,4 +1,4 @@
-import api, { getBackendErrorMessage } from "./api";
+import api from "./api";
 
 export type CustomSegmentType = "Warmup" | "Run" | "Cooldown";
 export type SegmentInputType = "DURATION" | "DISTANCE";
@@ -69,6 +69,29 @@ export interface UserWorkoutResponse {
   segments: UserWorkoutSegmentResponse[];
 }
 
+export interface SuggestedRoute {
+  id: number;
+  name?: string | null;
+  description?: string | null;
+  distance: number;
+  estimated_duration?: number | null;
+  elevation_gain: number;
+  elevation_loss: number;
+  min_elevation?: number | null;
+  max_elevation?: number | null;
+  encoded_polyline?: string | null;
+}
+
+export type SuggestedRoutesResponse =
+  | SuggestedRoute[]
+  | {
+      results?: SuggestedRoute[];
+      data?: SuggestedRoute[];
+      routes?: SuggestedRoute[];
+      suggested_routes?: SuggestedRoute[];
+      suggestions?: SuggestedRoute[];
+    };
+
 export const customWorkoutAPI = {
   list: () => api.get<UserWorkoutResponse[]>("/workouts/"),
   get: (id: number) => api.get<UserWorkoutResponse>(`/workouts/${id}/`),
@@ -78,6 +101,10 @@ export const customWorkoutAPI = {
   duplicate: (id: number) => api.post<UserWorkoutResponse>(`/workouts/${id}/duplicate/`),
   schedule: (id: number, workout_date: string) => api.post<UserWorkoutResponse>(`/workouts/${id}/schedule/`, { workout_date }),
   unschedule: (id: number) => api.post<UserWorkoutResponse>(`/workouts/${id}/unschedule/`),
+  suggestedRoutes: (id: number) => api.get<SuggestedRoutesResponse>(`/workouts/${id}/suggested-routes/`),
+  assignRoute: (id: number, routeId: number) =>
+    api.post<UserWorkoutResponse>(`/workouts/${id}/assign-route/`, { route_id: routeId }),
+  removeRoute: (id: number) => api.delete(`/workouts/${id}/remove-route/`),
 };
 
 // Utilities for conversion between frontend state and backend serializer format

@@ -86,6 +86,7 @@ const toWorkoutDetail = (workout: CurrentWorkout): WorkoutDetail => {
   const date = workout.workout_date ? new Date(`${workout.workout_date}T00:00:00`) : null;
   return {
     id: `${workout.week_number}-${workout.display_order}-${workout.workout_date}`,
+    backendId: workout.id,
     day: workout.weekday ? `${workout.weekday.slice(0, 1)}${workout.weekday.slice(1).toLowerCase()}` : '',
     date: date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '',
     title: workout.title, workoutType: isRest ? 'Recovery' : workout.workout_type, iconName: iconForWorkout(workout), accentColor: isRest ? '#8A8F94' : '#63C72B', isRest,

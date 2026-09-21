@@ -13,6 +13,7 @@ export interface CurrentWorkoutSegment {
 }
 
 export interface CurrentWorkout {
+  id?: number;
   week_number: number;
   display_order: number;
   workout_date: string;

@@ -1,5 +1,5 @@
-import type { ComponentProps } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import type { ComponentProps } from 'react';
 
 export type WorkoutIconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -16,6 +16,7 @@ export interface WorkoutSegment {
 
 export interface WorkoutDetail {
   id: string;
+  backendId?: number;
   day: string;
   date: string;
   title: string;
