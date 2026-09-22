@@ -19,6 +19,7 @@ import { workoutPlanService } from '../../../service/workoutPlan';
 import { beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal } from '../../../src/services/activeRunJournal';
 import { ActivityDetectionService } from '../../../src/services/activityDetectionService';
 import { activityDistanceOverrides } from '../../../src/services/activityDistanceOverrides';
+import { activityTimingOverrides } from '../../../src/services/activityTimingOverrides';
 import {
   clearBackgroundLocationSession,
   getBackgroundLocationSession,
@@ -1489,6 +1490,13 @@ export default function MapScreen() {
       // submitted when Android activity recognition explicitly reports it.
       const workoutType = detectedActivity === 'running' ? 'run' : 'walk';
       const activityType = workoutType === 'walk' ? 'WALK' : 'RUN';
+      const elapsedTimeSeconds = startTimeRef.current
+        ? Math.max(0, (stoppedAt.getTime() - startTimeRef.current) / 1000)
+        : Math.max(0, elapsedSeconds);
+      const pausedTimeSeconds = Number(((pausedTimeRef.current ?? 0) / 1000).toFixed(3));
+      const movingTimeSeconds = Number(Math.max(0, elapsedTimeSeconds - pausedTimeSeconds).toFixed(3));
+      const movingTimePayloadSeconds = Math.round(movingTimeSeconds);
+      const elapsedTimePayloadSeconds = Math.round(elapsedTimeSeconds);
       console.log(`[RecordView] Recording stopped at ${stoppedAt.toISOString()}`);
       console.log('[RecordView] Stop finalization started');
       isRunningRef.current = false;
@@ -1864,6 +1872,10 @@ export default function MapScreen() {
             ? new Date(startTimeRef.current).toISOString()
             : new Date().toISOString(),
           end_time: stoppedAt.toISOString(),
+          moving_time: movingTimePayloadSeconds,
+          elapsed_time: elapsedTimePayloadSeconds,
+          moving_time_s: movingTimePayloadSeconds,
+          elapsed_time_s: elapsedTimePayloadSeconds,
           activity_type: activityType,
           // Send the authoritative SDK values in the actual request, not only
           // in console logs. The server can use this total instead of deriving
@@ -1903,6 +1915,14 @@ export default function MapScreen() {
           if (activitySubmitted && activitySubmission.activityId !== null) {
             try {
               await activityDistanceOverrides.save(activitySubmission.activityId, totalDistance);
+              await activityTimingOverrides.save(activitySubmission.activityId, {
+                moving_time: movingTimePayloadSeconds,
+                elapsed_time: elapsedTimePayloadSeconds,
+                moving_time_s: movingTimePayloadSeconds,
+                elapsed_time_s: elapsedTimePayloadSeconds,
+                paused_time_s: Math.round(pausedTimeSeconds),
+                pause_count: pauseEventsRef.current.length,
+              });
             } catch (overrideError) {
               console.log('[ActivityDistance] Local distance override could not be saved; upload succeeded', overrideError);
             }

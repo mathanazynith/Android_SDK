@@ -4,6 +4,7 @@ import { storage } from '../../service/storage';
 import { ActivityExtraSplits, ActivitySegmentSplits, ActivitySplit, SPLIT_DISTANCE_METERS } from '../types/activity';
 import { calculateDistanceMeters } from '../utils/distance';
 import { activityDistanceOverrides } from './activityDistanceOverrides';
+import { activityTimingOverrides } from './activityTimingOverrides';
 
 export interface BackendGpsPoint {
   latitude: number;
@@ -333,13 +334,16 @@ const normalizeActivity = (activity: BackendActivity): BackendActivity => {
 
 const applySdkDistance = async (activity: BackendActivity): Promise<BackendActivity> => {
   const sdkDistance = await activityDistanceOverrides.get(activity.id);
-  if (sdkDistance === null) return activity;
+  const timing = await activityTimingOverrides.get(activity.id);
+  if (sdkDistance === null && !timing) return activity;
 
-  console.log(
-    `[ActivityDistance] Using SDK total ${sdkDistance.toFixed(2)}m for activity ${activity.id} `
-    + `instead of backend GPS total ${activity.distance.toFixed(2)}m`
-  );
-  return { ...activity, distance: sdkDistance };
+  if (sdkDistance !== null) {
+    console.log(
+      `[ActivityDistance] Using SDK total ${sdkDistance.toFixed(2)}m for activity ${activity.id} `
+      + `instead of backend GPS total ${activity.distance.toFixed(2)}m`
+    );
+  }
+  return { ...activity, ...(sdkDistance !== null ? { distance: sdkDistance } : {}), ...(timing ?? {}) };
 };
 
 const getPaginationSource = (payload: unknown): Record<string, unknown> => {

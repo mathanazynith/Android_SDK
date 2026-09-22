@@ -71,6 +71,10 @@ export interface ActivitySubmissionPayload {
   gps_points: ActivityGpsPointPayload[];
   start_time: string;
   end_time: string;
+  moving_time: number;
+  elapsed_time: number;
+  moving_time_s: number;
+  elapsed_time_s: number;
   activity_type: 'RUN' | 'WALK';
   /** Canonical SDK-measured total. The backend must not re-count GPS jitter. */
   distance: number;
