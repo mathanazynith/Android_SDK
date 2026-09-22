@@ -52,7 +52,9 @@ export interface WorkoutLap extends ActiveWorkoutSegment {
 
 export interface WorkoutEngineSnapshot {
   state: WorkoutEngineState;
+  currentSegmentIndex: number;
   currentSegment: ActiveWorkoutSegment | null;
+  nextSegment: ActiveWorkoutSegment | null;
   currentLap: WorkoutLap | null;
   completedLaps: WorkoutLap[];
   totalLaps: number;

@@ -84,6 +84,17 @@ export interface ActivitySubmissionPayload {
   laps?: ActivityLapPayload[];
   segments?: ActivitySegmentPayload[];
   extra?: ActivityExtraPayload | null;
+  pause_events?: ActivityPauseEventPayload[];
+  pause_count?: number;
+  paused_time_s?: number;
+}
+
+export interface ActivityPauseEventPayload {
+  paused_at: string;
+  resumed_at: string | null;
+  duration_s: number | null;
+  pause_location: RunningCoordinate | null;
+  resume_location: RunningCoordinate | null;
 }
 
 export interface ActivitySegmentPayload {

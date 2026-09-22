@@ -2,24 +2,25 @@ import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    RefreshControl,
-    //SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  //SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 //import ActivityRouteMap from '../../../components/ActivityRouteMap';
-import { getBackendErrorMessage } from '../../../service/api';
-import { activityAPI, BackendActivity } from '../../../src/services/activityApi';
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { getBackendErrorMessage } from '../../../service/api';
+import { activityAPI, BackendActivity } from '../../../src/services/activityApi';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
 
@@ -138,7 +139,9 @@ export default function ActivityScreen() {
       setError(null);
       setActivities(await activityAPI.list());
     } catch (requestError) {
-      setError(getBackendErrorMessage(requestError, 'Unable to load workout history.'));
+      const message = getBackendErrorMessage(requestError, 'Unable to load workout history.');
+      setError(message);
+      Alert.alert('Workout history unavailable', message);
     } finally {
       setLoading(false);
       setRefreshing(false);

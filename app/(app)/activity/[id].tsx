@@ -2,16 +2,16 @@ import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Platform,
-    // SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  Platform,
+  // SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -70,7 +70,9 @@ export default function ActivityDetailScreen() {
 
   const loadActivity = useCallback(async () => {
     if (!id) {
-      setError('No workout was selected.');
+      const noSelectionMessage = 'No workout was selected.';
+      setError(noSelectionMessage);
+      Alert.alert('Workout details unavailable', noSelectionMessage);
       setLoading(false);
       return;
     }
@@ -80,7 +82,9 @@ export default function ActivityDetailScreen() {
       setError(null);
       setActivity(await activityAPI.get(id));
     } catch (requestError) {
-      setError(getBackendErrorMessage(requestError, 'Unable to load workout details.'));
+      const message = getBackendErrorMessage(requestError, 'Unable to load workout details.');
+      setError(message);
+      Alert.alert('Workout details unavailable', message);
     } finally {
       setLoading(false);
     }

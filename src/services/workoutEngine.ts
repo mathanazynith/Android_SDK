@@ -171,7 +171,9 @@ export class WorkoutEngine {
   public getSnapshot(): WorkoutEngineSnapshot {
     return {
       state: this.state,
+      currentSegmentIndex: this.index,
       currentSegment: this.currentLap ? this.segmentOf(this.currentLap) : null,
+      nextSegment: this.queue[this.index + 1] ? { ...this.queue[this.index + 1] } : null,
       currentLap: this.currentLap ? { ...this.currentLap } : null,
       completedLaps: this.completedLaps.map((lap) => ({ ...lap })),
       totalLaps: this.queue.length,

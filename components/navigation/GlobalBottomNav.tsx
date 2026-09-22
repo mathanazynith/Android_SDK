@@ -1,9 +1,9 @@
 import { Feather } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router, usePathname } from 'expo-router';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
@@ -146,7 +146,7 @@ export default function GlobalBottomNav() {
     <BlurView
       intensity={isLegacyAndroidBlur ? 0 : isDark ? 85 : 80}
       tint={isDark ? 'dark' : 'light'}
-      experimentalBlurMethod="dimezisBlurView"
+      blurMethod="dimezisBlurView"
       style={[
         styles.container,
         {

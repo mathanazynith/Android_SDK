@@ -326,8 +326,19 @@ const normalizeErrorResponse = (value: any): string | null => {
   return null;
 };
 
+const isHtmlResponse = (value: unknown): value is string => (
+  typeof value === "string" && /<\s*(!doctype|html|head|body|title|h1)\b/i.test(value)
+);
+
 export const getBackendErrorMessage = (error: any, fallbackMessage = "An unexpected error occurred."): string => {
   const responseData = error?.response?.data;
+
+  if (isHtmlResponse(responseData)) {
+    return error?.response?.status >= 500
+      ? "The server could not load this right now. Please try again shortly."
+      : "Unable to load the latest data right now. Please try again.";
+  }
+
   const parsedMessage = normalizeErrorResponse(responseData);
   if (parsedMessage) {
     return parsedMessage;
