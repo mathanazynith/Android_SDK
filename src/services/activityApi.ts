@@ -1,5 +1,6 @@
 import polyline from '@mapbox/polyline';
 import api from '../../service/api';
+import { storage } from '../../service/storage';
 import { ActivityExtraSplits, ActivitySegmentSplits, ActivitySplit, SPLIT_DISTANCE_METERS } from '../types/activity';
 import { calculateDistanceMeters } from '../utils/distance';
 import { activityDistanceOverrides } from './activityDistanceOverrides';
@@ -255,6 +256,13 @@ export interface BackendActivity {
 const ACTIVITY_HISTORY_PATH = (
   process.env.EXPO_PUBLIC_ACTIVITY_HISTORY_PATH || '/rundata/activities/'
 ).trim();
+const ACTIVITY_HISTORY_CACHE_KEY = 'activity_history_first_page_v2';
+
+export interface ActivityHistoryPage {
+  activities: BackendActivity[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
 
 const getActivityDetailPath = (activityId: BackendActivity['id']) => {
   const basePath = ACTIVITY_HISTORY_PATH.replace(/\/+$/, '');
@@ -333,19 +341,110 @@ const applySdkDistance = async (activity: BackendActivity): Promise<BackendActiv
   return { ...activity, distance: sdkDistance };
 };
 
+const getPaginationSource = (payload: unknown): Record<string, unknown> => {
+  const source = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+  const nestedData = source.data && typeof source.data === 'object'
+    ? source.data as Record<string, unknown>
+    : null;
+  return nestedData && (
+    'has_more' in nestedData || 'next_cursor' in nestedData || 'nextCursor' in nestedData
+  ) ? nestedData : source;
+};
+
+const toCursor = (value: unknown): string | null => {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const cursor = String(value).trim();
+  return cursor.length > 0 ? cursor : null;
+};
+
+const normalizeHistoryPage = async (payload: unknown, limit: number): Promise<ActivityHistoryPage> => {
+  const source = getPaginationSource(payload);
+  const rawActivities = extractActivities(payload);
+  const normalized = await Promise.all(rawActivities.slice(0, limit).map(normalizeActivity).map(applySdkDistance));
+  const activities = normalized.filter((activity) => {
+    const activityType = String(activity.activity_type).toUpperCase();
+    return (
+      (activityType === 'RUN' || activityType === 'WALK') &&
+      activity.processing_status === 'COMPLETED' &&
+      Number(activity.distance) > 0
+    );
+  });
+  const explicitNextCursor = toCursor(source.next_cursor ?? source.nextCursor ?? source.last_id);
+  const hasMoreValue = source.has_more ?? source.hasMore;
+  const count = Number(source.count ?? source.total ?? source.total_count);
+  const responseLimit = Number(source.limit ?? limit);
+  const page = Number(source.page ?? 1);
+  const hasMore = typeof hasMoreValue === 'boolean'
+    ? hasMoreValue
+    : explicitNextCursor !== null
+      ? true
+      : typeof source.next === 'string'
+        ? source.next.length > 0
+        : Number.isFinite(count)
+          ? page * responseLimit < count
+          : rawActivities.length >= responseLimit;
+  const nextCursor = explicitNextCursor
+    ?? (hasMore ? toCursor(activities.at(-1)?.id) : null);
+  return {
+    activities,
+    nextCursor,
+    hasMore: hasMore && nextCursor !== null,
+  };
+};
+
+const toCachedActivity = (activity: BackendActivity): BackendActivity => ({
+  id: activity.id,
+  activity_type: activity.activity_type,
+  start_time: activity.start_time,
+  end_time: activity.end_time,
+  moving_time: activity.moving_time,
+  elapsed_time: activity.elapsed_time,
+  distance: activity.distance,
+  avg_speed: activity.avg_speed,
+  max_speed: activity.max_speed,
+  avg_pace: activity.avg_pace,
+  calories: activity.calories,
+  elevation_gain: activity.elevation_gain,
+  elevation_loss: activity.elevation_loss,
+  gps_points_count: activity.gps_points_count,
+  route_generated: activity.route_generated,
+  processing_status: activity.processing_status,
+  is_processed: activity.is_processed,
+});
+
 export const activityAPI = {
-  async list(): Promise<BackendActivity[]> {
-    const response = await api.get(ACTIVITY_HISTORY_PATH);
-    const normalized = extractActivities(response.data).map(normalizeActivity);
-    const activities = await Promise.all(normalized.map(applySdkDistance));
-    return activities.filter((activity) => {
-      const activityType = String(activity.activity_type).toUpperCase();
-      return (
-        (activityType === 'RUN' || activityType === 'WALK') &&
-        activity.processing_status === 'COMPLETED' &&
-        Number(activity.distance) > 0
-      );
+  async listPage(cursor: string | null = null, limit = 10): Promise<ActivityHistoryPage> {
+    const response = await api.get(ACTIVITY_HISTORY_PATH, {
+      params: {
+        limit,
+        ...(cursor ? { cursor, last_id: cursor } : {}),
+        // Route geometry is fetched only for an individual activity, never in the list payload.
+        fields: 'id,activity_type,distance,moving_time,elapsed_time,start_time,end_time,avg_pace,processing_status,is_processed,thumbnail_url',
+      },
     });
+    const result = await normalizeHistoryPage(response.data, limit);
+    if (cursor === null) {
+      await storage.setItem(ACTIVITY_HISTORY_CACHE_KEY, JSON.stringify({
+        ...result,
+        activities: result.activities.map(toCachedActivity),
+      }));
+    }
+    return result;
+  },
+
+  async getCachedFirstPage(): Promise<ActivityHistoryPage | null> {
+    try {
+      const cached = await storage.getItem(ACTIVITY_HISTORY_CACHE_KEY);
+      if (!cached) return null;
+      const parsed = JSON.parse(cached) as ActivityHistoryPage;
+      return Array.isArray(parsed.activities) ? parsed : null;
+    } catch {
+      return null;
+    }
+  },
+
+  async list(): Promise<BackendActivity[]> {
+    return (await this.listPage(null)).activities;
   },
 
   async get(activityId: BackendActivity['id']): Promise<BackendActivity> {

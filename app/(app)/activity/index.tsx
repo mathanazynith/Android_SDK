@@ -1,12 +1,11 @@
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   RefreshControl,
-  //SafeAreaView,
-  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -39,18 +38,7 @@ const formatPace = (secondsPerKm: number) => {
 const formatActivityType = (activityType: string) =>
   activityType.toLowerCase() === 'walk' ? 'Walk' : 'Run';
 
-const getSectionLabel = (startTime: string) => {
-  const date = new Date(startTime);
-  const now = new Date();
-  const weekStart = new Date(now);
-  weekStart.setHours(0, 0, 0, 0);
-  weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-
-  if (date >= weekStart) return 'This Week';
-  return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-};
-
-function ActivityCard({ activity, onPress }: {
+const ActivityCard = memo(function ActivityCard({ activity, onPress }: {
   activity: BackendActivity;
   onPress: () => void;
 }) {
@@ -121,6 +109,24 @@ function ActivityCard({ activity, onPress }: {
       </View>
     </TouchableOpacity>
   );
+});
+
+function HistorySkeleton() {
+  return (
+    <View style={styles.skeletonList}>
+      {[1, 2, 3].map((item) => (
+        <View key={item} style={styles.skeletonCard}>
+          <View style={styles.skeletonMain}>
+            <View style={styles.skeletonShort} />
+            <View style={styles.skeletonTiny} />
+            <View style={styles.skeletonDistance} />
+            <View style={styles.skeletonMetrics} />
+          </View>
+          <View style={styles.skeletonMap} />
+        </View>
+      ))}
+    </View>
+  );
 }
 
 export default function ActivityScreen() {
@@ -130,41 +136,82 @@ export default function ActivityScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const cursorRef = useRef<string | null>(null);
+  const loadingMoreRef = useRef(false);
+  const loadingFirstPageRef = useRef(false);
+  const requestIdRef = useRef(0);
 
-  const loadActivities = useCallback(async (isRefresh = false) => {
+  const loadFirstPage = useCallback(async (isRefresh = false) => {
+    const requestId = ++requestIdRef.current;
+    cursorRef.current = null;
+    loadingFirstPageRef.current = true;
+    setHasMore(true);
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
 
     try {
       setError(null);
-      setActivities(await activityAPI.list());
+      const cached = await activityAPI.getCachedFirstPage();
+      if (cached && requestId === requestIdRef.current) {
+        setActivities(cached.activities);
+        setHasMore(cached.hasMore);
+        cursorRef.current = cached.nextCursor;
+        setLoading(false);
+      }
+      const result = await activityAPI.listPage(null, 10);
+      if (requestId !== requestIdRef.current) return;
+      setActivities(result.activities);
+      setHasMore(result.hasMore);
+      cursorRef.current = result.nextCursor;
     } catch (requestError) {
+      if (requestId !== requestIdRef.current) return;
       const message = getBackendErrorMessage(requestError, 'Unable to load workout history.');
       setError(message);
       Alert.alert('Workout history unavailable', message);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (requestId === requestIdRef.current) {
+        loadingFirstPageRef.current = false;
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, []);
 
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore || loadingMoreRef.current || loadingFirstPageRef.current || loading || refreshing) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    const cursor = cursorRef.current;
+    try {
+      const result = await activityAPI.listPage(cursor, 10);
+      setActivities((current) => [
+        ...current,
+        ...result.activities.filter((item) => !current.some((existing) => existing.id === item.id)),
+      ]);
+      cursorRef.current = result.nextCursor;
+      // A repeated cursor would otherwise keep requesting the same page indefinitely.
+      setHasMore(result.hasMore && result.nextCursor !== cursor);
+    } catch (requestError) {
+      Alert.alert('Unable to load more history', getBackendErrorMessage(requestError, 'Please try again.'));
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [hasMore, loading, loadingMore, refreshing]);
+
   useFocusEffect(
     useCallback(() => {
-      void loadActivities();
-    }, [loadActivities]),
+      void loadFirstPage();
+    }, [loadFirstPage]),
   );
 
-  const groupedActivities = useMemo(() => {
+  const visibleActivities = useMemo(() => {
     const query = search.trim().toLowerCase();
-    const filtered = query
+    return query
       ? activities.filter((activity) => formatActivityType(activity.activity_type).toLowerCase().includes(query))
       : activities;
-
-    return filtered.reduce<Record<string, BackendActivity[]>>((groups, activity) => {
-      const section = getSectionLabel(activity.start_time);
-      (groups[section] ??= []).push(activity);
-      return groups;
-    }, {});
   }, [activities, search]);
 
   return (
@@ -179,7 +226,9 @@ export default function ActivityScreen() {
         <Feather name="search" size={22} color={colors.textSecondary} />
         <TextInput
           value={search}
-          onChangeText={setSearch}
+          onChangeText={(value) => {
+            setSearch(value);
+          }}
           placeholder="Search workouts..."
           placeholderTextColor={colors.textSecondary}
           style={[styles.searchInput, { color: colors.text }]}
@@ -188,39 +237,41 @@ export default function ActivityScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.centerState}>
-          <ActivityIndicator size="large" color="#35C72B" />
-          <Text style={styles.stateText}>Loading workout history...</Text>
-        </View>
+        <HistorySkeleton />
       ) : error ? (
         <View style={styles.centerState}>
           <Feather name="alert-circle" size={32} color="#FFB020" />
           <Text style={styles.stateText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={() => void loadActivities()}>
+          <TouchableOpacity style={styles.retryButton} onPress={() => void loadFirstPage()}>
             <Text style={styles.retryText}>Try again</Text>
           </TouchableOpacity>
         </View>
       ) : (
-        <ScrollView
+        <FlatList
+          data={visibleActivities}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={({ item }) => (
+            <ActivityCard
+              activity={item}
+              onPress={() => router.push(`/(app)/activity/${item.id}` as any)}
+            />
+          )}
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          getItemLayout={(_, index) => ({ length: 234, offset: 234 * index, index })}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={loadingMore
+            ? <ActivityIndicator color="#35C72B" style={styles.footerLoader} />
+            : hasMore
+              ? null
+              : <Text style={styles.endMessage}>You&apos;ve reached the end of your activity history!</Text>}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadActivities(true)} tintColor="#35C72B" />}
-        >
-          {Object.entries(groupedActivities).map(([section, sectionActivities]) => (
-            <View key={section} style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>{section}</Text>
-              {sectionActivities.map((activity) => (
-                <ActivityCard
-                  key={String(activity.id)}
-                  activity={activity}
-                  onPress={() => router.push(`/(app)/activity/${activity.id}` as any)}
-                />
-              ))}
-            </View>
-          ))}
-          {activities.length === 0 && <Text style={styles.empty}>No completed workouts yet.</Text>}
-          {activities.length > 0 && Object.keys(groupedActivities).length === 0 && <Text style={styles.empty}>No workouts match your search.</Text>}
-        </ScrollView>
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadFirstPage(true)} tintColor="#35C72B" />}
+          ListEmptyComponent={<Text style={styles.empty}>{activities.length === 0 ? 'No completed workouts yet.' : 'No workouts match your search.'}</Text>}
+        />
       )}
     </SafeAreaView>
   );
@@ -236,7 +287,7 @@ const styles = StyleSheet.create({
   scrollContent: { paddingBottom: 118 },
   section: { marginBottom: 24 },
   sectionTitle: { color: '#F7F7F7', fontSize: 24, fontWeight: '700', marginBottom: 13 },
-  card: { backgroundColor: '#242627', borderRadius: 26, padding: 21, marginBottom: 14, borderWidth: 1, borderColor: '#393C3E' },
+  card: { height: 220, backgroundColor: '#242627', borderRadius: 26, padding: 21, marginBottom: 14, borderWidth: 1, borderColor: '#393C3E' },
   cardContent: { flexDirection: 'row', alignItems: 'stretch' },
   cardDetails: { flex: 1, minWidth: 0, paddingRight: 14 },
   activityType: { color: '#F7F7F7', fontSize: 21, fontWeight: '700' },
@@ -251,5 +302,15 @@ const styles = StyleSheet.create({
   stateText: { color: '#C4C8C5', fontSize: 16, textAlign: 'center', marginTop: 13 },
   retryButton: { backgroundColor: '#35C72B', borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, marginTop: 18 },
   retryText: { color: '#0B0E0F', fontSize: 16, fontWeight: '700' },
+  footerLoader: { paddingVertical: 18 },
+  endMessage: { color: '#A9ADAF', textAlign: 'center', fontSize: 13, paddingVertical: 18 },
+  skeletonList: { paddingTop: 4 },
+  skeletonCard: { height: 220, flexDirection: 'row', backgroundColor: '#171A1A', borderRadius: 26, padding: 21, marginBottom: 14, borderWidth: 1, borderColor: '#243C2B' },
+  skeletonMain: { flex: 1, paddingRight: 14 },
+  skeletonShort: { width: '55%', height: 18, borderRadius: 6, backgroundColor: '#294A32' },
+  skeletonTiny: { width: '35%', height: 11, borderRadius: 5, backgroundColor: '#26352A', marginTop: 9 },
+  skeletonDistance: { width: '48%', height: 28, borderRadius: 7, backgroundColor: '#245C32', marginTop: 22 },
+  skeletonMetrics: { width: '78%', height: 38, borderRadius: 8, backgroundColor: '#202A22', marginTop: 20 },
+  skeletonMap: { width: 124, borderRadius: 12, backgroundColor: '#202A22' },
   empty: { color: '#A9ADAF', textAlign: 'center', fontSize: 16, marginTop: 40 },
 });

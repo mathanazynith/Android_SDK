@@ -2073,24 +2073,9 @@ export default function MapScreen() {
   const nextStep = executionPlan[currentStepIndex + 1];
   const activeStepColor = getStepColor(activeStep?.stepType);
   const workoutSegment = workoutSnapshot?.currentSegment;
-  const workoutLap = workoutSnapshot?.currentLap;
-  const controlStatusTitle = isPlannedWorkout ? 'Workout' : 'Run';
   const controlStatusValue = isPlannedWorkout && workoutSegment
     ? `${workoutSegment.segmentType} ${workoutSegment.repeatNumber}/${workoutSegment.totalRepeats}`
     : isRunning ? (isPaused ? 'Paused' : 'Live') : 'Ready';
-  const workoutProgress = isPlannedWorkout && workoutLap
-    ? workoutLap.targetDistanceMeters !== null
-      ? `${workoutLap.distanceMeters.toFixed(1)} / ${workoutLap.targetDistanceMeters}m`
-      : workoutLap.targetDurationSeconds !== null
-        ? `${Math.floor(workoutLap.elapsedSeconds)} / ${workoutLap.targetDurationSeconds}s`
-        : null
-    : null;
-  const workoutProgressWithPace = workoutProgress && workoutLap && workoutLap.distanceMeters > 0
-    ? `${workoutProgress} · ${((workoutLap.elapsedSeconds / 60) / (workoutLap.distanceMeters / 1000)).toFixed(2)} min/km`
-    : workoutProgress;
-  const plainRunPace = !workoutProgressWithPace && isRunning && distance > 0
-    ? `${(distance / 1000).toFixed(2)}km · ${Math.floor(pace)}:${String(Math.round((pace % 1) * 60)).padStart(2, '0')}/km`
-    : null;
 
   const currentStepElapsedSeconds = Math.max(0, elapsedSeconds - stepStartSeconds);
   const currentStepDistanceMeters = Math.max(0, distance - stepStartDistanceMeters);
@@ -2493,63 +2478,77 @@ export default function MapScreen() {
           <View style={styles.controlBar}>
             <View style={styles.controlBarContent}>
             <View style={styles.controlStatus}>
-              <Text style={styles.controlStatusTitle}>{controlStatusTitle}</Text>
-              <Text style={styles.controlStatusValue} numberOfLines={1}>
-                {controlStatusValue}
-              </Text>
-              {workoutProgressWithPace && <Text style={styles.paceStatus}>{workoutProgressWithPace}</Text>}
-              {plainRunPace && <Text style={styles.paceStatus}>{plainRunPace}</Text>}
+              <View style={styles.liveMetricRow}>
+                <View style={styles.liveMetricItem}>
+                  <Text style={styles.liveMetricLabel} numberOfLines={1}>DISTANCE:</Text>
+                  <Text style={styles.liveMetricValue} numberOfLines={1} adjustsFontSizeToFit>{(distance / 1000).toFixed(2)} <Text style={styles.liveMetricUnit}>km</Text></Text>
+                </View>
+                <View style={styles.liveMetricItem}>
+                  <Text style={styles.liveMetricLabel} numberOfLines={1}>AVG PACE:</Text>
+                  <Text style={styles.liveMetricValue} numberOfLines={1} adjustsFontSizeToFit>{formatPaceDisplay(pace)} <Text style={styles.liveMetricUnit}>/km</Text></Text>
+                </View>
+              </View>
+              <View style={styles.liveMetricDivider} />
+              <View style={styles.liveMetricRow}>
+                <View style={styles.liveMetricItem}>
+                  <Text style={styles.liveMetricLabel} numberOfLines={1}>TIME:</Text>
+                  <Text style={styles.liveMetricValue} numberOfLines={1}>{formatTimerDisplay(elapsedSeconds)}</Text>
+                </View>
+                <Text style={styles.liveMetricStatus}>{isRunning ? (isPaused ? 'PAUSED' : 'LIVE') : controlStatusValue.toUpperCase()}</Text>
+              </View>
             </View>
 
-            <View style={styles.actionButtonSlot}>
-              {!isRunning ? (
-                <Pressable
-                  style={styles.startButton}
-                  hitSlop={16}
-                  android_disableSound
-                  onPress={() => {
-                    void startRun();
-                  }}
-                >
-                  <Text style={styles.startButtonText}>START RUN</Text>
-                </Pressable>
-              ) : isPaused ? (
-                <Pressable
-                  style={styles.resumeButton}
-                  hitSlop={16}
-                  android_disableSound
-                  onPress={() => {
-                    void resumeRun();
-                  }}
-                >
-                  <Text style={styles.resumeButtonText}>RESUME</Text>
-                </Pressable>
-              ) : (
-                <Pressable
-                  style={styles.pauseButton}
-                  hitSlop={16}
-                  android_disableSound
-                  onPress={() => {
-                    void pauseRun();
-                  }}
-                >
-                  <Text style={styles.pauseButtonText}>PAUSE</Text>
-                </Pressable>
+            <View style={styles.controlActionsRow}>
+              <View style={styles.actionButtonSlot}>
+                {!isRunning ? (
+                  <Pressable
+                    style={styles.startButton}
+                    hitSlop={16}
+                    android_disableSound
+                    onPress={() => {
+                      void startRun();
+                    }}
+                  >
+                    <Text style={styles.startButtonText}>START RUN</Text>
+                  </Pressable>
+                ) : isPaused ? (
+                  <Pressable
+                    style={styles.resumeButton}
+                    hitSlop={16}
+                    android_disableSound
+                    onPress={() => {
+                      void resumeRun();
+                    }}
+                  >
+                    <Text style={styles.resumeButtonText}>RESUME</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    style={styles.pauseButton}
+                    hitSlop={16}
+                    android_disableSound
+                    onPress={() => {
+                      void pauseRun();
+                    }}
+                  >
+                    <Text style={styles.pauseButtonText}>PAUSE</Text>
+                  </Pressable>
+                )}
+              </View>
+
+              {isRunning && (
+                <View style={styles.stopButtonSlot}>
+                  <Pressable
+                    style={styles.stopButton}
+                    hitSlop={16}
+                    android_disableSound
+                    onPress={() => void stopRun()}
+                  >
+                    <Text style={styles.stopButtonText}>STOP & SAVE</Text>
+                  </Pressable>
+                </View>
               )}
             </View>
-
-            {isRunning && (
-              <View style={styles.stopButtonSlot}>
-                <Pressable
-                  style={styles.stopButton}
-                  hitSlop={16}
-                  android_disableSound
-                  onPress={() => void stopRun()}
-                >
-                  <Text style={styles.stopButtonText}>STOP & SAVE</Text>
-                </Pressable>
-              </View>
-            )}
             </View>
           </View>
         </>
@@ -2878,17 +2877,24 @@ const styles = StyleSheet.create({
   // Classic Control Bar Styles
   controlBar: {
     position: 'relative',
-    height: 96,
+    height: 200,
     paddingHorizontal: 16,
-    paddingBottom: 12,
-    paddingTop: 10,
-    backgroundColor: '#000000',
+    paddingBottom: 24,
+    paddingTop: 8,
+    backgroundColor: 'transparent',
   },
-  controlBarContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(20,20,20,0.96)', borderRadius: 24, paddingVertical: 12, paddingHorizontal: 20, gap: 10 },
-  actionButtonSlot: { width: 120, height: 48, position: 'relative' },
-  stopButtonSlot: { width: 120, height: 48, position: 'relative' },
-  controlStatus: { flexDirection: 'column', flex: 1 },
-  controlStatusTitle: { color: '#9BA3AF', fontSize: 11, fontWeight: '700' },
+  controlBarContent: { flex: 1, flexDirection: 'column', alignItems: 'stretch', justifyContent: 'space-between', backgroundColor: 'rgba(7,20,12,0.96)', borderRadius: 24, paddingVertical: 10, paddingHorizontal: 10, gap: 10 },
+  controlActionsRow: { flexDirection: 'row', width: '100%', gap: 8 },
+  actionButtonSlot: { flex: 1, height: 54, position: 'relative' },
+  stopButtonSlot: { flex: 1, height: 54, position: 'relative' },
+  controlStatus: { flex: 0, minWidth: 0, minHeight: 74, justifyContent: 'center', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 14, backgroundColor: 'rgba(14,39,23,0.92)', borderWidth: 1, borderColor: 'rgba(53,199,43,0.35)' },
+  liveMetricRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 5 },
+  liveMetricItem: { flex: 1, minWidth: 0 },
+  liveMetricLabel: { color: '#8DBA99', fontSize: 8, fontWeight: '800', letterSpacing: 0.1 },
+  liveMetricValue: { color: '#F4F7F4', fontSize: 16, fontWeight: '900', fontVariant: ['tabular-nums'], marginTop: 1 },
+  liveMetricUnit: { color: '#B7C5BA', fontSize: 11, fontWeight: '700' },
+  liveMetricDivider: { height: 1, marginVertical: 5, backgroundColor: '#35C72B', shadowColor: '#35C72B', shadowOpacity: 0.9, shadowRadius: 5, shadowOffset: { width: 0, height: 0 } },
+  liveMetricStatus: { color: '#35C72B', fontSize: 8, fontWeight: '900', letterSpacing: 0.5, paddingTop: 10 },
   controlStatusValue: { color: '#fff', fontSize: 17, fontWeight: '800' },
   paceStatus: { color: '#FFB800', fontSize: 11, fontWeight: '700', marginTop: 3 },
   startButton: { position: 'absolute', inset: 0, backgroundColor: '#20D000', borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
