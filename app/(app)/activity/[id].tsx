@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    Platform,
     // SafeAreaView,
     ScrollView,
     StatusBar,
@@ -239,8 +238,22 @@ export default function ActivityDetailScreen() {
 
           <Text style={styles.sectionTitle}>Performance</Text>
           <View style={styles.metricsCard}>
-            <DetailMetric label="Moving time" value={formatDuration(activity.moving_time)} />
-            <DetailMetric label="Elapsed time" value={formatDuration(activity.elapsed_time)} />
+            <DetailMetric
+              label="Moving time"
+              value={formatDuration(Number(
+                activity.moving_time_s
+                  ?? activity.moving_time
+                  ?? Math.max(0, Number(activity.elapsed_time_s ?? activity.elapsed_time) - Number(activity.paused_time_s ?? 0)),
+              ))}
+            />
+            <DetailMetric
+              label="Elapsed time"
+              value={formatDuration(Number(activity.elapsed_time_s ?? activity.elapsed_time))}
+            />
+            <DetailMetric
+              label="Paused time"
+              value={formatDuration(Number(activity.paused_time_s ?? 0))}
+            />
             <DetailMetric label="Average pace" value={formatPace(activity.avg_pace)} />
             <DetailMetric label="Average speed" value={formatSpeed(activity.avg_speed)} />
             <DetailMetric label="Max speed" value={formatSpeed(activity.max_speed)} />

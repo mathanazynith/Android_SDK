@@ -3,6 +3,7 @@ import api from '../../service/api';
 import { ActivityExtraSplits, ActivitySegmentSplits, ActivitySplit, SPLIT_DISTANCE_METERS } from '../types/activity';
 import { calculateDistanceMeters } from '../utils/distance';
 import { activityDistanceOverrides } from './activityDistanceOverrides';
+import { activityTimingOverrides } from './activityTimingOverrides';
 
 export interface BackendGpsPoint {
   latitude: number;
@@ -212,11 +213,15 @@ export interface CropActivityResult {
 
 export interface BackendActivity {
   id: string | number;
+  activity_id?: string | number;
   activity_type: 'RUN' | 'WALK' | string;
   start_time: string;
   end_time: string;
   moving_time: number;
   elapsed_time: number;
+  moving_time_s?: number | null;
+  elapsed_time_s?: number | null;
+  paused_time_s?: number | null;
   distance: number;
   planned_distance?: number | null;
   planned_distance_km?: number | null;
@@ -305,8 +310,13 @@ const getBackendGpsPoints = (activity: BackendActivity): BackendGpsPoint[] | und
 const normalizeActivity = (activity: BackendActivity): BackendActivity => {
   const gpsPoints = getBackendGpsPoints(activity);
   const splitData = normalizeActivitySplits(activity);
+  const normalizedId = activity.id ?? activity.activity_id;
+  if (normalizedId === undefined || normalizedId === null) {
+    console.warn('[ActivityTiming] Activity response has no id/activity_id; local timing cannot be matched');
+  }
   return {
     ...activity,
+    id: normalizedId,
     gps_points: activity.gps_points ?? gpsPoints,
     encoded_polyline: activity.encoded_polyline
       ?? activity.route?.encoded_polyline
@@ -333,11 +343,29 @@ const applySdkDistance = async (activity: BackendActivity): Promise<BackendActiv
   return { ...activity, distance: sdkDistance };
 };
 
+const applyFrontendTiming = async (activity: BackendActivity): Promise<BackendActivity> => {
+  const timing = await activityTimingOverrides.get(activity.id);
+  if (!timing) {
+    console.warn(
+      `[ActivityTiming] No frontend timing override for activity ${activity.id}; `
+      + 'using backend timing fields'
+    );
+    return activity;
+  }
+
+  console.warn(`[ActivityTiming] Using frontend timing for activity ${activity.id}`, JSON.stringify(timing));
+  return { ...activity, ...timing };
+};
+
+const applyLocalActivityOverrides = async (activity: BackendActivity): Promise<BackendActivity> => (
+  applyFrontendTiming(await applySdkDistance(activity))
+);
+
 export const activityAPI = {
   async list(): Promise<BackendActivity[]> {
     const response = await api.get(ACTIVITY_HISTORY_PATH);
     const normalized = extractActivities(response.data).map(normalizeActivity);
-    const activities = await Promise.all(normalized.map(applySdkDistance));
+    const activities = await Promise.all(normalized.map(applyLocalActivityOverrides));
     return activities.filter((activity) => {
       const activityType = String(activity.activity_type).toUpperCase();
       return (
@@ -351,7 +379,7 @@ export const activityAPI = {
   async get(activityId: BackendActivity['id']): Promise<BackendActivity> {
     const response = await api.get(getActivityDetailPath(activityId));
     const payload = response.data?.data ?? response.data;
-    return applySdkDistance(normalizeActivity(payload as BackendActivity));
+    return applyLocalActivityOverrides(normalizeActivity(payload as BackendActivity));
   },
 
   async delete(activityId: BackendActivity['id']): Promise<string> {

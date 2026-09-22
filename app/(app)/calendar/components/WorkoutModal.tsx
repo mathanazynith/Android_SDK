@@ -64,26 +64,37 @@ export default function WorkoutModal({ visible, workout, onClose }: WorkoutModal
     <Text style={[styles.sectionLabel, styles.statsTitle]}>Stats</Text>
     <View style={styles.statsRow}><Stat label="Est Calories" value={activeWorkout.estimatedCalories} /><Stat label="Duration" value={activeWorkout.estimatedDuration} /><Stat label="HR Zone" value={activeWorkout.heartRateZone} /></View>
     <View style={styles.statsRow}><Stat label="Target Pace" value={activeWorkout.targetPace} /><Stat label="Distance" value={activeWorkout.distance} /><Stat label="Notes" value={activeWorkout.notes} /></View>
-    {!activeWorkout.isRest && <TouchableOpacity
-      style={styles.startButton}
-      onPress={() => {
-        onClose();
-        if (activeWorkout.backendId) {
+    {!activeWorkout.isRest && <>
+      {activeWorkout.backendId ? <TouchableOpacity
+        style={styles.suggestedRoutesButton}
+        onPress={() => {
+          onClose();
           router.push({
             pathname: '/custom-workout/suggested-routes',
             params: { workoutId: String(activeWorkout.backendId) },
           });
-          return;
-        }
-
-        router.push({
-          pathname: '/(app)/run',
-          params: { workoutId: activeWorkout.id, workoutTitle: activeWorkout.title, workoutType: activeWorkout.workoutType, workoutDuration: activeWorkout.estimatedDuration, workoutDistance: activeWorkout.distance, workoutPace: activeWorkout.targetPace },
-        });
-      }}
-    >
-      <View style={styles.startButtonContent}><Ionicons name="play" size={16} color="#0F172A" /><Text style={styles.startButtonText}>Start Run</Text></View>
-    </TouchableOpacity>}
+        }}
+        activeOpacity={0.85}
+      >
+        <View style={styles.suggestedRoutesContent}>
+          <Ionicons name="map-outline" size={19} color="#39B800" />
+          <Text style={styles.suggestedRoutesText}>Suggested Routes</Text>
+          <Ionicons name="chevron-forward" size={20} color="#39B800" />
+        </View>
+      </TouchableOpacity> : null}
+      <TouchableOpacity
+        style={styles.startButton}
+        onPress={() => {
+          onClose();
+          router.push({
+            pathname: '/(app)/run',
+            params: { workoutId: activeWorkout.id, workoutTitle: activeWorkout.title, workoutType: activeWorkout.workoutType, workoutDuration: activeWorkout.estimatedDuration, workoutDistance: activeWorkout.distance, workoutPace: activeWorkout.targetPace },
+          });
+        }}
+      >
+        <View style={styles.startButtonContent}><Ionicons name="play" size={16} color="#0F172A" /><Text style={styles.startButtonText}>Start Run</Text></View>
+      </TouchableOpacity>
+    </>}
   </ScrollView>;
 
   return <Modal transparent visible={rendered} animationType="none" onRequestClose={onClose}><Animated.View style={[styles.overlay, { opacity }]}><BlurView intensity={90} tint="light" style={StyleSheet.absoluteFill} /><Pressable style={StyleSheet.absoluteFill} onPress={onClose} /><Animated.View style={[styles.cardWrapper, { transform: [{ translateY }] }]}><View style={styles.modalCard}><View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.intenseTint]} />{content}</View></Animated.View></Animated.View></Modal>;
@@ -138,7 +149,10 @@ const styles = StyleSheet.create({
   stat: { flex: 1 },
   statLabel: { color: METRIC_GREY, fontSize: 13, fontWeight: '600', marginBottom: 4 },
   statValue: { color: PURE_WHITE, fontSize: 14, lineHeight: 19 },
-  startButton: { marginTop: 24, backgroundColor: '#22C55E', borderRadius: 16, paddingVertical: 16, alignItems: 'center', justifyContent: 'center' },
+  suggestedRoutesButton: { marginTop: 24, marginBottom: 12, minHeight: 54, borderRadius: 14, borderWidth: 1, borderColor: '#39B800', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+  suggestedRoutesContent: { flexDirection: 'row', alignItems: 'center', width: '100%', gap: 10 },
+  suggestedRoutesText: { flex: 1, color: '#39B800', fontSize: 16, fontWeight: '700' },
+  startButton: { backgroundColor: '#22C55E', borderRadius: 16, paddingVertical: 16, alignItems: 'center', justifyContent: 'center' },
   startButtonContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   startButtonText: { color: '#0F172A', fontSize: 17, fontWeight: '700' },
 });

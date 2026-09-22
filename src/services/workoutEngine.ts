@@ -29,6 +29,8 @@ export class WorkoutEngine {
   private lastPoint: RunningGpsPoint | null = null;
   private distanceAnchor: RunningGpsPoint | null = null;
   private pausedAt: number | null = null;
+  private currentLapPausedMs = 0;
+  private currentLapElapsedSeconds = 0;
   private stateBeforePause: WorkoutEngineState = 'running';
   private continuedAfterCompletion = false;
 
@@ -43,6 +45,8 @@ export class WorkoutEngine {
     this.completedLaps = [];
     this.lastPoint = null;
     this.distanceAnchor = null;
+    this.currentLapPausedMs = 0;
+    this.currentLapElapsedSeconds = 0;
     this.state = 'idle';
     this.continuedAfterCompletion = false;
   }
@@ -107,6 +111,8 @@ export class WorkoutEngine {
   public tick(now = Date.now()): void {
     if (this.state !== 'running' || !this.currentLap) return;
     this.refreshDuration(now);
+    // Planned duration is active moving time. A pause must not complete the
+    // segment; the user must accumulate the full target while moving.
     if (this.currentLap.targetDurationSeconds !== null && this.currentLap.elapsedSeconds >= this.currentLap.targetDurationSeconds) {
       this.completeCurrent(now);
     }
@@ -136,6 +142,8 @@ export class WorkoutEngine {
       elapsedSeconds: 0,
       completed: false,
     };
+    this.currentLapPausedMs = 0;
+    this.currentLapElapsedSeconds = 0;
     this.state = 'running';
     this.callbacks.onSegmentStarted?.(this.segmentOf(this.currentLap));
   }
@@ -145,15 +153,19 @@ export class WorkoutEngine {
     this.stateBeforePause = this.state;
     this.pausedAt = Date.now();
     this.state = 'paused';
+    console.warn(`[SEGMENT PAUSE] timestamp=${new Date(this.pausedAt).toISOString()} state_before=${this.stateBeforePause}`);
   }
 
   public resume(): void {
     if (this.state !== 'paused') return;
-    if (this.currentLap && this.pausedAt !== null) {
-      this.currentLap.startedAt += Math.max(0, Date.now() - this.pausedAt);
+    const resumedAt = Date.now();
+    const pauseDurationMs = this.pausedAt === null ? 0 : Math.max(0, resumedAt - this.pausedAt);
+    if (this.pausedAt !== null) {
+      this.currentLapPausedMs += pauseDurationMs;
     }
     this.pausedAt = null;
     this.state = this.stateBeforePause;
+    console.warn(`[SEGMENT RESUME] timestamp=${new Date(resumedAt).toISOString()} pause_duration=${(pauseDurationMs / 1000).toFixed(3)}s state=${this.state}`);
   }
 
   public shouldUseLightPolyline(): boolean {
@@ -192,7 +204,14 @@ export class WorkoutEngine {
       ...segment, startedAt: now, completedAt: null,
       distanceMeters: 0, elapsedSeconds: 0, completed: false,
     };
+    this.currentLapPausedMs = 0;
+    this.currentLapElapsedSeconds = 0;
     this.state = 'running';
+    console.warn(
+      `[SEGMENT ENGINE START] id=${segment.segmentOrder}-${segment.repeatNumber} `
+      + `name=${segment.segmentType} planned_duration=${segment.targetDurationSeconds ?? 'open'}s `
+      + `timestamp=${new Date(now).toISOString()}`
+    );
     this.callbacks.onSegmentStarted?.(segment);
   }
 
@@ -206,6 +225,11 @@ export class WorkoutEngine {
     this.currentLap = null;
     const isFinalLap = this.index === this.queue.length - 1;
     this.state = isFinalLap ? 'completed' : 'waiting';
+    console.warn(
+      `[SEGMENT ENGINE COMPLETE] id=${completed.segmentOrder}-${completed.repeatNumber} `
+      + `name=${completed.segmentType} elapsed=${completed.elapsedSeconds.toFixed(3)}s `
+      + `distance=${completed.distanceMeters.toFixed(2)}m state=${this.state}`
+    );
     this.callbacks.onSegmentCompleted?.(completed);
     if (isFinalLap) {
       this.callbacks.onWorkoutCompleted?.();
@@ -214,7 +238,11 @@ export class WorkoutEngine {
 
   private refreshDuration(timestamp: number): void {
     if (!this.currentLap) return;
-    this.currentLap.elapsedSeconds = Math.max(0, (timestamp - this.currentLap.startedAt) / 1000);
+    this.currentLapElapsedSeconds = Math.max(0, (timestamp - this.currentLap.startedAt) / 1000);
+    this.currentLap.elapsedSeconds = Math.max(
+      0,
+      (timestamp - this.currentLap.startedAt - this.currentLapPausedMs) / 1000,
+    );
   }
 
   private segmentOf(lap: WorkoutLap): ActiveWorkoutSegment {

@@ -2043,6 +2043,7 @@ const styles = StyleSheet.create({
   actionDisabled: { opacity: 0.5 },
   actionRepeatText: { color: Colors.text, fontSize: 14, fontWeight: "700" },
   viewModeActions: {
+    flexDirection: "column",
     marginTop: 18,
     marginBottom: 10,
   },

@@ -73,6 +73,7 @@ export interface PauseLocationPayload {
 }
 
 export interface PauseEventPayload {
+  sequence: number;
   paused_at: string;
   resumed_at: string;
   duration_s: number;
@@ -86,6 +87,8 @@ export interface ActivitySubmissionPayload {
   end_time: string;
   moving_time: number;
   elapsed_time: number;
+  moving_time_s: number;
+  elapsed_time_s: number;
   activity_type: 'RUN' | 'WALK';
   /** Canonical SDK-measured total. The backend must not re-count GPS jitter. */
   distance: number;
