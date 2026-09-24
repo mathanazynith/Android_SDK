@@ -73,7 +73,45 @@ export interface UserWorkoutResponse {
   notes: string;
   priority: number;
   segments: UserWorkoutSegmentResponse[];
+  assigned_route?: SuggestedRoute | null;
+  assignedRoute?: SuggestedRoute | null;
+  route?: SuggestedRoute | null;
 }
+
+export interface SuggestedRoute {
+  id: number;
+  name?: string | null;
+  description?: string | null;
+  distance: number;
+  estimated_duration?: number | null;
+  elevation_gain: number;
+  elevation_loss: number;
+  min_elevation?: number | null;
+  max_elevation?: number | null;
+  encoded_polyline?: string | null;
+}
+
+const assignedRouteCache = new Map<number, SuggestedRoute>();
+
+export const cacheAssignedRoute = (workoutId: number, route: SuggestedRoute) => {
+  assignedRouteCache.set(workoutId, route);
+};
+
+export const getCachedAssignedRoute = (workoutId: number) => assignedRouteCache.get(workoutId) || null;
+
+export const clearCachedAssignedRoute = (workoutId: number) => {
+  assignedRouteCache.delete(workoutId);
+};
+
+export type SuggestedRoutesResponse =
+  | SuggestedRoute[]
+  | {
+      results?: SuggestedRoute[];
+      data?: SuggestedRoute[];
+      routes?: SuggestedRoute[];
+      suggested_routes?: SuggestedRoute[];
+      suggestions?: SuggestedRoute[];
+    };
 
 export const customWorkoutAPI = {
   list: () => api.get<UserWorkoutResponse[]>("/workouts/custom/"),
@@ -86,6 +124,10 @@ export const customWorkoutAPI = {
   duplicate: (id: number) => api.post<UserWorkoutResponse>(`/workouts/${id}/duplicate/`),
   schedule: (id: number, workout_date: string) => api.post<UserWorkoutResponse>(`/workouts/${id}/schedule/`, { workout_date }),
   unschedule: (id: number) => api.post<UserWorkoutResponse>(`/workouts/${id}/unschedule/`),
+  suggestedRoutes: (id: number) => api.get<SuggestedRoutesResponse>(`/workouts/${id}/suggested-routes/`),
+  assignRoute: (id: number, routeId: number) =>
+    api.post<UserWorkoutResponse>(`/workouts/${id}/assign-route/`, { route_id: routeId }),
+  removeRoute: (id: number) => api.delete(`/workouts/${id}/remove-route/`),
 };
 
 // Utilities for conversion between frontend state and backend serializer format

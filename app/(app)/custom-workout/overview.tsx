@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
-import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
@@ -19,7 +19,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { Colors } from "../../../constants/theme";
-import { customWorkoutAPI } from "../../../service/customWorkout";
+import { clearCachedAssignedRoute, customWorkoutAPI, getCachedAssignedRoute, type SuggestedRoute } from "../../../service/customWorkout";
 import { BenchmarkStore } from "../../../src/services/benchmarkStore";
 import {
     normalizeUnit,
@@ -114,6 +114,9 @@ const isEmptyStep = (step: WorkoutStep) =>
   !hasText(step.distance) &&
   !hasText(step.pace) &&
   (!hasText(step.duration) || seconds(step.duration) === 0);
+
+const routeDistanceText = (route: SuggestedRoute) =>
+  `${(Number(route.distance || 0) / 1000).toFixed(2)} km`;
 
 function StepCard({
   step,
@@ -476,6 +479,56 @@ export default function CustomWorkoutOverview() {
   const [showActionMenu, setShowActionMenu] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [isBenchmark, setIsBenchmark] = useState(false);
+  const [assignedRoute, setAssignedRoute] = useState<SuggestedRoute | null>(null);
+  const [isRemovingRoute, setIsRemovingRoute] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+
+      if (!workout.id || isEditing) {
+        setAssignedRoute(null);
+        return undefined;
+      }
+      const workoutId = workout.id;
+
+      void customWorkoutAPI.get(workoutId).then(({ data }) => {
+        if (!cancelled) {
+          setAssignedRoute(data.assigned_route || data.assignedRoute || data.route || getCachedAssignedRoute(workoutId));
+        }
+      }).catch(() => {
+        if (!cancelled) setAssignedRoute(null);
+      });
+
+      return () => {
+        cancelled = true;
+      };
+    }, [isEditing, workout.id]),
+  );
+
+  const handleRemoveRoute = () => {
+    if (!workout.id || isRemovingRoute) return;
+    const workoutId = workout.id;
+    Alert.alert("Remove route?", "This route will no longer be assigned to this workout.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: async () => {
+          setIsRemovingRoute(true);
+          try {
+            await customWorkoutAPI.removeRoute(workoutId);
+            clearCachedAssignedRoute(workoutId);
+            setAssignedRoute(null);
+          } catch (error) {
+            Alert.alert("Could not remove route", error instanceof Error ? error.message : "Please try again.");
+          } finally {
+            setIsRemovingRoute(false);
+          }
+        },
+      },
+    ]);
+  };
 
   useEffect(() => {
     if (workout.id) {
@@ -1045,6 +1098,41 @@ export default function CustomWorkoutOverview() {
           </View>
         ) : (
           <View style={styles.viewModeActions}>
+            {workout.id ? (
+              assignedRoute ? (
+                <View style={styles.assignedRouteCard}>
+                  <View style={styles.assignedRouteInfo}>
+                    <Feather name="check-circle" size={22} color="#39B800" />
+                    <View>
+                      <Text style={styles.assignedRouteLabel}>Route assigned</Text>
+                      <Text style={styles.assignedRouteDistance}>{routeDistanceText(assignedRoute)}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.assignedRouteActions}>
+                    <TouchableOpacity
+                      onPress={() => router.push({ pathname: "/custom-workout/route-detail", params: { route: JSON.stringify(assignedRoute) } })}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.viewRouteText}>View route</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleRemoveRoute} disabled={isRemovingRoute} activeOpacity={0.85}>
+                      {isRemovingRoute ? <ActivityIndicator size="small" color="#FF453A" /> : <Text style={styles.removeRouteText}>Unassign</Text>}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null
+            ) : null}
+            {workout.id ? (
+              <TouchableOpacity
+                style={styles.suggestedRoutesButton}
+                onPress={() => router.push({ pathname: "/custom-workout/suggested-routes", params: { workoutId: String(workout.id) } })}
+                activeOpacity={0.85}
+              >
+                <Feather name="map" size={22} color="#39B800" />
+                <Text style={styles.suggestedRoutesButtonText}>Suggested Routes</Text>
+                <Feather name="chevron-right" size={24} color="#39B800" />
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
               style={styles.startWorkoutButton}
               onPress={() => {
@@ -1054,6 +1142,7 @@ export default function CustomWorkoutOverview() {
                   params: {
                     workoutTitle: workout.title || "Custom Workout",
                     workoutPlan: JSON.stringify(plan),
+                    ...(assignedRoute ? { assignedRoute: JSON.stringify(assignedRoute) } : {}),
                   },
                 });
               }}
@@ -2039,6 +2128,47 @@ const styles = StyleSheet.create({
     flexDirection: "column",
     marginTop: 18,
     marginBottom: 10,
+  },
+  assignedRouteCard: {
+    minHeight: 74,
+    borderRadius: 18,
+    backgroundColor: "#202326",
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    marginBottom: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  assignedRouteInfo: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  assignedRouteLabel: { color: Colors.text, fontSize: 15, fontWeight: "700" },
+  assignedRouteDistance: { color: "#B9BABC", fontSize: 15, marginTop: 3 },
+  assignedRouteActions: { alignItems: "flex-end", gap: 8 },
+  viewRouteText: { color: "#39B800", fontSize: 15, fontWeight: "800" },
+  removeRouteText: { color: "#FF453A", fontSize: 15, fontWeight: "800" },
+  suggestedRoutesButton: {
+    minHeight: 64,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#39B800",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 18,
+    marginBottom: 18,
+    gap: 14,
+  },
+  suggestedRoutesButtonText: {
+    flex: 1,
+    color: "#39B800",
+    fontSize: 18,
+    fontWeight: "800",
+    textTransform: "capitalize",
   },
   startWorkoutButton: {
     minHeight: 52,
