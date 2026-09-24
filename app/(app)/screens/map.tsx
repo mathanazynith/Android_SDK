@@ -215,6 +215,7 @@ export default function MapScreen() {
   const [isRunning, setIsRunning] = useState(false);
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [isMapReady, setIsMapReady] = useState(false);
+  const [floatingOverlayHeight, setFloatingOverlayHeight] = useState(216);
   const [routeSegments, setRouteSegments] = useState<RouteSegment[]>([]);
   const [distance, setDistance] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -2205,11 +2206,21 @@ export default function MapScreen() {
           </View>
         )}
 
-        <View style={styles.zoomControls}>
-          <Pressable style={styles.zoomButton} onPress={zoomIn}>
+        <View
+          style={[styles.mapControlsWrapper, { bottom: floatingOverlayHeight + 40 }]}
+          pointerEvents="box-none"
+        >
+          <Pressable style={styles.mapControlButton} onPress={() => {
+            if (location) {
+              moveMapToLocation(location.coords.latitude, location.coords.longitude);
+            }
+          }}>
+            <Feather name="crosshair" size={20} color="#FFFFFF" />
+          </Pressable>
+          <Pressable style={styles.mapControlButton} onPress={zoomIn}>
             <Text style={styles.zoomButtonText}>+</Text>
           </Pressable>
-          <Pressable style={styles.zoomButton} onPress={zoomOut}>
+          <Pressable style={styles.mapControlButton} onPress={zoomOut}>
             <Text style={styles.zoomButtonText}>-</Text>
           </Pressable>
         </View>
@@ -2224,20 +2235,12 @@ export default function MapScreen() {
           </View>
         </View>
 
-        <Pressable
-          style={styles.recenterButton}
-          onPress={() => {
-            if (location) {
-              moveMapToLocation(location.coords.latitude, location.coords.longitude);
-            }
-          }}
-        >
-          <Feather name="crosshair" size={20} color="#FFFFFF" />
-        </Pressable>
-      </View>
-
-      {/* Lower Portion: Custom Workout Execution Dashboard */}
-      {executionPlan.length > 0 ? (
+      <View
+        style={styles.floatingOverlayWrapper}
+        onLayout={(event) => setFloatingOverlayHeight(event.nativeEvent.layout.height)}
+      >
+        {/* Lower Portion: Custom Workout Execution Dashboard */}
+        {executionPlan.length > 0 ? (
         <View style={styles.dashboardContainer}>
           {/* Header */}
           <View style={styles.dashboardHeader}>
@@ -2552,16 +2555,18 @@ export default function MapScreen() {
             </View>
           </View>
         </>
-      )}
+        )}
       </View>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000000' },
+  container: { flex: 1 },
   mapContainer: { flex: 1, position: 'relative' },
-  mapContainerSplit: { flex: 0.44, position: 'relative' },
-  map: { flex: 1 },
+  mapContainerSplit: { flex: 1, position: 'relative' },
+  map: { flex: 1, width: '100%', height: '100%' },
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   mapLoadingOverlay: {
     ...StyleSheet.absoluteFill,
@@ -2573,20 +2578,49 @@ const styles = StyleSheet.create({
   },
   loadingText: { color: '#fff', fontSize: 16, marginTop: 16 },
   loadingSubText: { color: '#bbb', fontSize: 12, marginTop: 6 },
-  zoomControls: { position: 'absolute', right: 18, bottom: 18, flexDirection: 'column' },
-  zoomButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center', marginBottom: 6 },
+  mapControlsWrapper: {
+    position: 'absolute',
+    right: 16,
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 10,
+    zIndex: 20,
+  },
+  mapControlButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(24, 24, 27, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
   zoomButtonText: { color: '#fff', fontSize: 24, fontWeight: '700', lineHeight: 26 },
   gpsStatusContainer: { position: 'absolute', top: 20, right: 18, flexDirection: 'row' },
   gpsStatus: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6 },
   gpsDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
   gpsStatusText: { color: '#fff', fontSize: 11, fontWeight: '700' },
   gpsAccuracyText: { marginLeft: 8, color: '#8BE9A8', fontSize: 10, fontWeight: '700' },
-  recenterButton: { position: 'absolute', right: 18, bottom: 108, width: 36, height: 36, borderRadius: 18, backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center' },
+  floatingOverlayWrapper: {
+    position: 'absolute',
+    bottom: 24,
+    left: 16,
+    right: 16,
+    backgroundColor: 'transparent',
+    flexDirection: 'column',
+    gap: 12,
+    zIndex: 10,
+  },
   
   // Custom Workout Runner Dashboard Styles
   dashboardContainer: {
-    flex: 0.56,
-    backgroundColor: '#121318',
+    backgroundColor: 'transparent',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 16,
@@ -2878,16 +2912,16 @@ const styles = StyleSheet.create({
   controlBar: {
     position: 'relative',
     height: 200,
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-    paddingTop: 8,
+    paddingHorizontal: 0,
+    paddingBottom: 0,
+    paddingTop: 0,
     backgroundColor: 'transparent',
   },
-  controlBarContent: { flex: 1, flexDirection: 'column', alignItems: 'stretch', justifyContent: 'space-between', backgroundColor: 'rgba(7,20,12,0.96)', borderRadius: 24, paddingVertical: 10, paddingHorizontal: 10, gap: 10 },
+  controlBarContent: { flex: 1, flexDirection: 'column', alignItems: 'stretch', justifyContent: 'space-between', backgroundColor: 'transparent', gap: 12 },
   controlActionsRow: { flexDirection: 'row', width: '100%', gap: 8 },
   actionButtonSlot: { flex: 1, height: 54, position: 'relative' },
   stopButtonSlot: { flex: 1, height: 54, position: 'relative' },
-  controlStatus: { flex: 0, minWidth: 0, minHeight: 74, justifyContent: 'center', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 14, backgroundColor: 'rgba(14,39,23,0.92)', borderWidth: 1, borderColor: 'rgba(53,199,43,0.35)' },
+  controlStatus: { flex: 0, minWidth: 0, minHeight: 74, justifyContent: 'center', padding: 14, borderRadius: 16, backgroundColor: 'rgba(0, 0, 0, 0.65)', borderWidth: 1, borderColor: 'rgba(0, 255, 0, 0.3)' },
   liveMetricRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 5 },
   liveMetricItem: { flex: 1, minWidth: 0 },
   liveMetricLabel: { color: '#8DBA99', fontSize: 8, fontWeight: '800', letterSpacing: 0.1 },
