@@ -2,19 +2,19 @@ import { Feather } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import ActivityRouteMap from "../../../components/ActivityRouteMap";
 import { getBackendErrorMessage } from "../../../service/api";
-import { customWorkoutAPI, type SuggestedRoute } from "../../../service/customWorkout";
+import { cacheAssignedRoute, customWorkoutAPI, type SuggestedRoute } from "../../../service/customWorkout";
 
 const getRoutes = (
   value: SuggestedRoute[] | {
@@ -36,6 +36,7 @@ export default function SuggestedRoutesScreen() {
   const [routes, setRoutes] = useState<SuggestedRoute[]>([]);
   const [loading, setLoading] = useState(true);
   const [assigningId, setAssigningId] = useState<number | null>(null);
+  const [assignedId, setAssignedId] = useState<number | null>(null);
 
   const loadRoutes = useCallback(async () => {
     if (!workoutId) return;
@@ -60,8 +61,15 @@ export default function SuggestedRoutesScreen() {
     if (!workoutId) return;
     setAssigningId(route.id);
     try {
-      await customWorkoutAPI.assignRoute(Number(workoutId), route.id);
-      Alert.alert("Route applied", "This route is now assigned to your workout.", [
+      const response = await customWorkoutAPI.assignRoute(Number(workoutId), route.id);
+      cacheAssignedRoute(Number(workoutId), route);
+      setAssignedId(route.id);
+      console.log("[CustomWorkout] Route assigned", {
+        workoutId: Number(workoutId),
+        routeId: route.id,
+        response: response.data,
+      });
+      Alert.alert("Route assigned", "This route will be used when you start this workout.", [
         { text: "OK", onPress: () => router.back() },
       ]);
     } catch (error) {
@@ -99,6 +107,7 @@ export default function SuggestedRoutesScreen() {
             assigning={assigningId === route.id}
             disabled={assigningId !== null}
             onView={() => router.push({ pathname: "/custom-workout/route-detail", params: { route: JSON.stringify(route) } })}
+            assigned={assignedId === route.id}
             onUse={() => void assignRoute(route)}
           />
         ))}
@@ -107,7 +116,7 @@ export default function SuggestedRoutesScreen() {
   );
 }
 
-function RouteCard({ route, isBestMatch, assigning, disabled, onView, onUse }: { route: SuggestedRoute; isBestMatch: boolean; assigning: boolean; disabled: boolean; onView: () => void; onUse: () => void }) {
+function RouteCard({ route, isBestMatch, assigning, assigned, disabled, onView, onUse }: { route: SuggestedRoute; isBestMatch: boolean; assigning: boolean; assigned: boolean; disabled: boolean; onView: () => void; onUse: () => void }) {
   return (
     <View style={styles.routeCard}>
       <View style={styles.routeHeading}>
@@ -128,7 +137,7 @@ function RouteCard({ route, isBestMatch, assigning, disabled, onView, onUse }: {
         </TouchableOpacity>
         <TouchableOpacity style={styles.useButton} onPress={onUse} disabled={disabled} activeOpacity={0.85}>
           {assigning ? <ActivityIndicator size="small" color="#000000" /> : <Feather name="check-circle" size={19} color="#000000" />}
-          <Text style={styles.useButtonText}>Use This Route</Text>
+          <Text style={styles.useButtonText}>{assigned ? "Assigned" : "Assign Route"}</Text>
         </TouchableOpacity>
       </View>
     </View>

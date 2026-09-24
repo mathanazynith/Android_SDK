@@ -67,6 +67,9 @@ export interface UserWorkoutResponse {
   notes: string;
   priority: number;
   segments: UserWorkoutSegmentResponse[];
+  assigned_route?: SuggestedRoute | null;
+  assignedRoute?: SuggestedRoute | null;
+  route?: SuggestedRoute | null;
 }
 
 export interface SuggestedRoute {
@@ -81,6 +84,18 @@ export interface SuggestedRoute {
   max_elevation?: number | null;
   encoded_polyline?: string | null;
 }
+
+const assignedRouteCache = new Map<number, SuggestedRoute>();
+
+export const cacheAssignedRoute = (workoutId: number, route: SuggestedRoute) => {
+  assignedRouteCache.set(workoutId, route);
+};
+
+export const getCachedAssignedRoute = (workoutId: number) => assignedRouteCache.get(workoutId) || null;
+
+export const clearCachedAssignedRoute = (workoutId: number) => {
+  assignedRouteCache.delete(workoutId);
+};
 
 export type SuggestedRoutesResponse =
   | SuggestedRoute[]

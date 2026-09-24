@@ -49,6 +49,7 @@ import { ActivityExtraPayload, ActivityGpsPointPayload, ActivityLapPayload, Acti
 import { BackendWorkout, WorkoutEngineSnapshot } from '../../../src/types/workout';
 import { createCatmullRomPolyline } from '../../../src/utils/catmullRom';
 import { calculateDistanceMeters } from '../../../src/utils/distance';
+import { decodePolyline } from '../../../src/utils/polylineDecoder';
 import { formatStepTarget, WorkoutExecutionStep } from '../../../src/utils/workoutPlanBuilder';
 
 const formatTimerDisplay = (totalSec: number) => {
@@ -138,6 +139,8 @@ const STATIONARY_CONFIRMATION_SAMPLES = 3;
 const MAX_MOVEMENT_ACCURACY_METERS = 15;
 const MIN_MOVEMENT_DISTANCE_METERS = 2;
 const MIN_MOVEMENT_SPEED_METERS_PER_SECOND = 0.5;
+const ROUTE_ON_DISTANCE_METERS = 20;
+const ROUTE_WARNING_DISTANCE_METERS = 75;
 
 const calculateRouteDistance = (points: RunningGpsPoint[]): number => {
   let total = 0;
@@ -150,13 +153,64 @@ const calculateRouteDistance = (points: RunningGpsPoint[]): number => {
   return total;
 };
 
+const distanceToRoute = (location: Coordinate, route: Coordinate[]) => {
+  if (route.length === 0) return Number.POSITIVE_INFINITY;
+  if (route.length === 1) return calculateDistanceMeters(location, route[0]);
+
+  const longitudeScale = Math.cos((location.latitude * Math.PI) / 180) * 111320;
+  const latitudeScale = 111320;
+  const toMeters = (point: Coordinate) => ({
+    x: (point.longitude - location.longitude) * longitudeScale,
+    y: (point.latitude - location.latitude) * latitudeScale,
+  });
+  const current = { x: 0, y: 0 };
+  let closest = Number.POSITIVE_INFINITY;
+
+  for (let index = 1; index < route.length; index += 1) {
+    const start = toMeters(route[index - 1]);
+    const end = toMeters(route[index]);
+    const segmentX = end.x - start.x;
+    const segmentY = end.y - start.y;
+    const segmentLengthSquared = segmentX * segmentX + segmentY * segmentY;
+    const progress = segmentLengthSquared === 0
+      ? 0
+      : Math.max(0, Math.min(1, ((current.x - start.x) * segmentX + (current.y - start.y) * segmentY) / segmentLengthSquared));
+    const nearestPoint = {
+      latitude: route[index - 1].latitude + (route[index].latitude - route[index - 1].latitude) * progress,
+      longitude: route[index - 1].longitude + (route[index].longitude - route[index - 1].longitude) * progress,
+    };
+    closest = Math.min(closest, calculateDistanceMeters(location, nearestPoint));
+  }
+
+  return closest;
+};
+ 
 export default function MapScreen() {
   const { user } = useAuth();
   const params = useLocalSearchParams<{
     workoutTitle?: string;
     workoutPlan?: string;
+    assignedRoute?: string;
     notificationAction?: string;
   }>();
+
+  const assignedRoute = useMemo(() => {
+    if (!params.assignedRoute) return null;
+    try {
+      return JSON.parse(params.assignedRoute) as { encoded_polyline?: string | null };
+    } catch {
+      return null;
+    }
+  }, [params.assignedRoute]);
+
+  const assignedRoutePoints = useMemo(() => {
+    if (!assignedRoute?.encoded_polyline) return [];
+    try {
+      return decodePolyline(assignedRoute.encoded_polyline);
+    } catch {
+      return [];
+    }
+  }, [assignedRoute]);
 
   const executionPlan: WorkoutExecutionStep[] = useMemo(() => {
     if (!params.workoutPlan) return [];
@@ -284,6 +338,26 @@ export default function MapScreen() {
 
   const [logs, setLogs] = useState<string[]>([]);
   const [location, setLocation] = useState<LocationState | null>(null);
+
+  const plannedRouteCoordinates = useMemo(() => {
+    return assignedRoutePoints;
+  }, [assignedRoutePoints]);
+
+  const routeStatus = useMemo(() => {
+    if (!location || plannedRouteCoordinates.length === 0) {
+      return { label: 'ROUTE LOCATING', color: '#9CA3AF', distanceMeters: null };
+    }
+
+    const nearestDistance = distanceToRoute(location.coords, plannedRouteCoordinates);
+
+    if (nearestDistance <= ROUTE_ON_DISTANCE_METERS) {
+      return { label: 'ON ROUTE', color: '#0A84FF', distanceMeters: nearestDistance };
+    }
+    if (nearestDistance <= ROUTE_WARNING_DISTANCE_METERS) {
+      return { label: 'ROUTE WARNING', color: '#FFD60A', distanceMeters: nearestDistance };
+    }
+    return { label: 'OFF ROUTE', color: '#FF453A', distanceMeters: nearestDistance };
+  }, [location, plannedRouteCoordinates]);
 
   const addLog = useCallback((value: string) => {
     setLogs((prev) => [...prev, value]);
@@ -445,6 +519,11 @@ export default function MapScreen() {
       350
     );
   }, [isMapReady, moveMapToLocation]);
+
+  useEffect(() => {
+    if (!isMapReady || plannedRouteCoordinates.length < 2) return;
+    fitMapToRoute(plannedRouteCoordinates);
+  }, [fitMapToRoute, isMapReady, plannedRouteCoordinates]);
 
   const zoomIn = useCallback(() => {
     if (!mapRef.current) return;
@@ -2452,6 +2531,18 @@ export default function MapScreen() {
               geodesic={true}
             />
           ))}
+          {plannedRouteCoordinates.length > 1 && (
+            <Polyline
+              key="assigned-route"
+              coordinates={plannedRouteCoordinates}
+              strokeWidth={4}
+              strokeColor={routeStatus.color}
+              lineDashPattern={[10, 7]}
+              lineCap="round"
+              lineJoin="round"
+              geodesic={true}
+            />
+          )}
           {pauseMarkers.map((marker) => (
             <Marker key={marker.id} coordinate={marker.coordinate} anchor={{ x: 0.5, y: 0.5 }}>
               <View style={[styles.pauseMarker, marker.type === 'resume' && styles.resumeMarker]} />
@@ -2506,8 +2597,15 @@ export default function MapScreen() {
 
         <View style={styles.gpsStatusContainer}>
           <View style={styles.gpsStatus}>
-            <View style={[styles.gpsDot, { backgroundColor: isRunning ? '#20D000' : '#FFA500' }]} />
-            <Text style={styles.gpsStatusText}>{isRunning ? 'LIVE TRACKING' : 'GPS READY'}</Text>
+            <View style={[styles.gpsDot, { backgroundColor: plannedRouteCoordinates.length > 0 ? routeStatus.color : isRunning ? '#20D000' : '#FFA500' }]} />
+            <View>
+              <Text style={[styles.gpsStatusText, plannedRouteCoordinates.length > 0 && { color: routeStatus.color }]}>
+                {plannedRouteCoordinates.length > 0 ? routeStatus.label : isRunning ? 'LIVE TRACKING' : 'GPS READY'}
+              </Text>
+              {plannedRouteCoordinates.length > 0 && routeStatus.distanceMeters !== null ? (
+                <Text style={styles.routeDistanceStatusText}>{Math.round(routeStatus.distanceMeters)}m from route</Text>
+              ) : null}
+            </View>
             <Text style={styles.gpsAccuracyText}>
               {accuracy === null ? 'Locating' : accuracy.toFixed(1) + 'm'}
             </Text>
@@ -2859,6 +2957,7 @@ const styles = StyleSheet.create({
   gpsStatus: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6 },
   gpsDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
   gpsStatusText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  routeDistanceStatusText: { color: '#D1D5DB', fontSize: 9, fontWeight: '600', marginTop: 2 },
   gpsAccuracyText: { marginLeft: 8, color: '#8BE9A8', fontSize: 10, fontWeight: '700' },
   recenterButton: { position: 'absolute', right: 18, bottom: 108, width: 36, height: 36, borderRadius: 18, backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center' },
   
