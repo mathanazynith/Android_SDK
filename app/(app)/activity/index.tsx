@@ -1,4 +1,4 @@
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { router, useFocusEffect } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -238,6 +238,16 @@ const ActivityCard = memo(function ActivityCard({ activity, onPress }: {
             extraEncodedPolyline={routeData.extraEncodedPolyline}
             variant="preview"
           />
+
+          <View style={styles.mapOverlayTop}>
+            <View style={styles.mapBadge}>
+              <MaterialCommunityIcons
+                name={activityName === 'Walk' ? 'walk' : 'run-fast'}
+                size={14}
+                color="#F7F7F7"
+              />
+            </View>
+          </View>
         </View>
       </View>
     </TouchableOpacity>
@@ -927,24 +937,27 @@ const styles = StyleSheet.create({
   scrollContent: { paddingBottom: 118 },
   section: { marginBottom: 24 },
   sectionTitle: { color: '#F7F7F7', fontSize: 24, fontWeight: '700', marginBottom: 13 },
-  card: { height: 150, backgroundColor: '#242627', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 12, borderWidth: 1, borderColor: '#393C3E', overflow: 'hidden' },
+  card: { height: 150, backgroundColor: '#242627', borderRadius: 25, paddingVertical: 14, paddingHorizontal: 15, marginBottom: 5, borderWidth: 1, borderColor: '#393C3E', overflow: 'hidden' },
   cardContent: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden' },
-  cardDetails: { flex: 1, minWidth: 0, paddingRight: 8 },
-  activityType: { color: '#F7F7F7', fontSize: 18, lineHeight: 22, fontWeight: '700' },
+  cardDetails: { flex: 1.05, minWidth: 0, paddingRight: 8 },
+  activityType: { color: '#F7F7F7', fontSize: 18, lineHeight: 22, fontWeight: '800' },
   activityDate: { color: '#A9ADAF', fontSize: 12, lineHeight: 15, marginTop: 2 },
-  distance: { color: '#35C72B', fontSize: 23, lineHeight: 28, fontWeight: '700', marginTop: 4 },
-  centerMetricsContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
-  metricRow: { width: 100, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', marginVertical: 3 },
-  metricIcon: { width: 22, alignItems: 'center' },
+  distance: { color: '#35C72B', fontSize: 24, lineHeight: 28, fontWeight: '900', marginTop: 4 },
+  centerMetricsContainer: { flex: 0.95, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  metricRow: { width: 88, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', marginVertical: 3 },
+  metricIcon: { width: 20, alignItems: 'center' },
   metricText: { alignItems: 'flex-start', marginLeft: 4, minWidth: 0 },
-  metricValue: { color: '#F7F7F7', fontSize: 12, lineHeight: 15, fontWeight: '700' },
-  metricLabel: { color: '#A9ADAF', fontSize: 10, lineHeight: 12, marginTop: 1 },
-  mapThumbnailContainer: { width: 105, height: 105, marginLeft: 12, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E5E7EB', borderWidth: 1, borderColor: '#D1D5DB' },
+  metricValue: { color: '#F7F7F7', fontSize: 12, lineHeight: 15, fontWeight: '900' },
+  metricLabel: { color: '#A9ADAF', fontSize: 10, lineHeight: 12, marginTop: 1,width: '100%' },
+  mapThumbnailContainer: { position: 'relative', width: 132, height: 120, marginLeft: 10, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E5E7EB' },
+  mapOverlayTop: { position: 'absolute', top: 8, left: 8, right: 8, flexDirection: 'row', justifyContent: 'flex-start' },
+  mapBadge: { backgroundColor: 'rgba(11, 14, 15, 0.58)', borderRadius: 999, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 8, paddingVertical: 4 },
+  mapBadgeText: { color: '#F7F7F7', fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
   centerState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28 },
   stateText: { color: '#C4C8C5', fontSize: 16, textAlign: 'center', marginTop: 13 },
   retryButton: { backgroundColor: '#35C72B', borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, marginTop: 18 },
   retryText: { color: '#0B0E0F', fontSize: 16, fontWeight: '700' },
-  footerLoaderPill: { alignSelf: 'center', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, marginVertical: 16, borderRadius: 999, backgroundColor: '#1A261D', borderWidth: 1, borderColor: '#2B5B3A', shadowColor: '#35C72B', shadowOpacity: 0.18, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  footerLoaderPill: { alignSelf: 'center', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, marginVertical: 16, borderRadius: 999, backgroundColor: '#1A261D', borderWidth: 1, borderColor: '#2B5B3A' },
   footerCountText: { color: '#D9F9DB', fontSize: 12, fontWeight: '700', letterSpacing: 0.2 },
   endMessage: { color: '#A9ADAF', textAlign: 'center', fontSize: 13, paddingVertical: 18 },
   skeletonList: { paddingTop: 4 },
