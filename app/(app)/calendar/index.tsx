@@ -281,6 +281,11 @@ export default function CalendarScreen() {
       horizontal
       pagingEnabled
       showsHorizontalScrollIndicator={false}
+      initialNumToRender={1}
+      maxToRenderPerBatch={1}
+      windowSize={3}
+      removeClippedSubviews
+      updateCellsBatchingPeriod={50}
       initialScrollIndex={selectedWeekIndex}
       onMomentumScrollEnd={handlePagerSettled}
       getItemLayout={(_, index) => ({ length: pageWidth, offset: pageWidth * index, index })}

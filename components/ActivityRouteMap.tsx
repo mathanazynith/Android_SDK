@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { createCatmullRomPolyline } from '../src/utils/catmullRom';
@@ -13,7 +13,7 @@ interface ActivityRouteMapProps {
   cropEndIndex?: number;
 }
 
-export default function ActivityRouteMap({
+function ActivityRouteMap({
   encodedPolyline,
   plannedEncodedPolyline,
   extraEncodedPolyline,
@@ -131,6 +131,8 @@ export default function ActivityRouteMap({
     </View>
   );
 }
+
+export default memo(ActivityRouteMap);
 
 const styles = StyleSheet.create({
   mapContainer: { height: 255, overflow: 'hidden', borderRadius: 22, borderWidth: 1, borderColor: '#35C72B' },

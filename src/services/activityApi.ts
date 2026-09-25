@@ -262,6 +262,7 @@ export interface ActivityHistoryPage {
   activities: BackendActivity[];
   hasMore: boolean;
   nextCursor: string | null;
+  totalCount: number | null;
 }
 
 const getActivityDetailPath = (activityId: BackendActivity['id']) => {
@@ -367,6 +368,8 @@ export const normalizeHistoryPage = async (
   const rawActivities = extractActivities(payload);
   const explicitNextCursor = toCursor(source.next_cursor ?? source.nextCursor ?? source.last_id);
   const hasMoreValue = source.has_more ?? source.hasMore;
+  const rawTotalCount = Number(source.total_count ?? source.total ?? source.count ?? rawActivities.length);
+  const totalCount = Number.isFinite(rawTotalCount) && rawTotalCount >= 0 ? rawTotalCount : rawActivities.length;
   const isUnpaginatedResponse = rawActivities.length > limit && explicitNextCursor === null;
   const cursorIndex = cursorSent && isUnpaginatedResponse
     ? rawActivities.findIndex((activity) => String(activity.id) === cursorSent)
@@ -416,6 +419,7 @@ export const normalizeHistoryPage = async (
     activities,
     nextCursor,
     hasMore,
+    totalCount,
   };
 };
 

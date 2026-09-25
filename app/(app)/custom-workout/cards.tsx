@@ -397,6 +397,11 @@ export default function CustomWorkoutCards() {
           data={workouts}
           keyExtractor={(item) => String(item.id)}
           renderItem={renderWorkoutCard}
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          removeClippedSubviews
+          updateCellsBatchingPeriod={50}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
