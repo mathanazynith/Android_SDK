@@ -347,7 +347,8 @@ const getPaginationSource = (payload: unknown): Record<string, unknown> => {
     ? source.data as Record<string, unknown>
     : null;
   return nestedData && (
-    'has_more' in nestedData || 'next_cursor' in nestedData || 'nextCursor' in nestedData
+    'has_more' in nestedData || 'hasMore' in nestedData || 'next_cursor' in nestedData
+    || 'nextCursor' in nestedData || 'last_id' in nestedData
   ) ? nestedData : source;
 };
 
@@ -357,10 +358,22 @@ const toCursor = (value: unknown): string | null => {
   return cursor.length > 0 ? cursor : null;
 };
 
-const normalizeHistoryPage = async (payload: unknown, limit: number): Promise<ActivityHistoryPage> => {
+export const normalizeHistoryPage = async (
+  payload: unknown,
+  limit: number,
+  cursorSent: string | null = null,
+): Promise<ActivityHistoryPage> => {
   const source = getPaginationSource(payload);
   const rawActivities = extractActivities(payload);
-  const normalized = await Promise.all(rawActivities.slice(0, limit).map(normalizeActivity).map(applySdkDistance));
+  const explicitNextCursor = toCursor(source.next_cursor ?? source.nextCursor ?? source.last_id);
+  const hasMoreValue = source.has_more ?? source.hasMore;
+  const isUnpaginatedResponse = rawActivities.length > limit && explicitNextCursor === null;
+  const cursorIndex = cursorSent && isUnpaginatedResponse
+    ? rawActivities.findIndex((activity) => String(activity.id) === cursorSent)
+    : -1;
+  const pageStart = cursorIndex >= 0 ? cursorIndex + 1 : 0;
+  const rawSlice = rawActivities.slice(pageStart, pageStart + limit);
+  const normalized = await Promise.all(rawSlice.map(normalizeActivity).map(applySdkDistance));
   const activities = normalized.filter((activity) => {
     const activityType = String(activity.activity_type).toUpperCase();
     return (
@@ -369,26 +382,40 @@ const normalizeHistoryPage = async (payload: unknown, limit: number): Promise<Ac
       Number(activity.distance) > 0
     );
   });
-  const explicitNextCursor = toCursor(source.next_cursor ?? source.nextCursor ?? source.last_id);
-  const hasMoreValue = source.has_more ?? source.hasMore;
-  const count = Number(source.count ?? source.total ?? source.total_count);
-  const responseLimit = Number(source.limit ?? limit);
-  const page = Number(source.page ?? 1);
+  const parsedResponseLimit = Number(source.limit ?? limit);
+  const responseLimit = Number.isFinite(parsedResponseLimit) && parsedResponseLimit > 0
+    ? parsedResponseLimit
+    : limit;
+  const fallbackCursor = toCursor(rawSlice.at(-1)?.id);
+  const rawPageHasMore = isUnpaginatedResponse
+    ? pageStart + rawSlice.length < rawActivities.length && fallbackCursor !== null
+    : rawActivities.length >= responseLimit && fallbackCursor !== null;
   const hasMore = typeof hasMoreValue === 'boolean'
-    ? hasMoreValue
-    : explicitNextCursor !== null
-      ? true
-      : typeof source.next === 'string'
-        ? source.next.length > 0
-        : Number.isFinite(count)
-          ? page * responseLimit < count
-          : rawActivities.length >= responseLimit;
-  const nextCursor = explicitNextCursor
-    ?? (hasMore ? toCursor(activities.at(-1)?.id) : null);
+    ? hasMoreValue || rawPageHasMore
+    : rawPageHasMore;
+  const nextCursor = explicitNextCursor ?? fallbackCursor;
+
+  if (__DEV__) {
+    if (hasMoreValue === false && rawPageHasMore) {
+      console.warn('[ActivityHistory] Backend reported no more data for a full raw page; continuing with the raw cursor.', {
+        cursorSent,
+        fallbackCursor,
+      });
+    }
+    console.log('[ActivityHistory] page fetch', {
+      cursorSent,
+      rawCount: rawActivities.length,
+      pageRawCount: rawSlice.length,
+      filteredCount: activities.length,
+      nextCursor,
+      hasMore,
+    });
+  }
+
   return {
     activities,
     nextCursor,
-    hasMore: hasMore && nextCursor !== null,
+    hasMore,
   };
 };
 
@@ -422,7 +449,24 @@ export const activityAPI = {
         fields: 'id,activity_type,distance,moving_time,elapsed_time,start_time,end_time,avg_pace,processing_status,is_processed,thumbnail_url',
       },
     });
-    const result = await normalizeHistoryPage(response.data, limit);
+    if (__DEV__ && cursor === null) {
+      const rawSource = getPaginationSource(response.data);
+      const rawActivities = extractActivities(response.data);
+      console.log('[ActivityHistory] first page raw response', {
+        has_more: rawSource.has_more,
+        hasMore: rawSource.hasMore,
+        next_cursor: rawSource.next_cursor,
+        nextCursor: rawSource.nextCursor,
+        last_id: rawSource.last_id,
+        count: rawSource.count,
+        total: rawSource.total,
+        total_count: rawSource.total_count,
+        rawCount: rawActivities.length,
+        processingStatuses: rawActivities.map((activity) => activity.processing_status),
+        rawJson: JSON.stringify(response.data),
+      });
+    }
+    const result = await normalizeHistoryPage(response.data, limit, cursor);
     if (cursor === null) {
       await storage.setItem(ACTIVITY_HISTORY_CACHE_KEY, JSON.stringify({
         ...result,

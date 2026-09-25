@@ -1,25 +1,25 @@
-import { useState, useEffect } from "react";
+import { Ionicons } from '@expo/vector-icons';
+import { router } from "expo-router";
+import { useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
   Alert,
-  ScrollView,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { router } from "expo-router";
-import { Ionicons } from '@expo/vector-icons';
-import { authAPI } from "../../service/api";
-import { useAuth } from "../../service/auth";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppInput } from "../../components/common/AppInput";
 import { PrimaryButton } from "../../components/common/PrimaryButton";
-import { Colors, Spacing, Typography, BorderRadius } from "../../constants/theme";
-import { BRAND_GREEN, useTheme } from "../../contexts/ThemeContext";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LegalConsent } from "../../components/LegalConsent";
+import { BorderRadius, Colors, Spacing, Typography } from "../../constants/theme";
+import { BRAND_GREEN, useTheme } from "../../contexts/ThemeContext";
+import { authAPI } from "../../service/api";
+import { useAuth } from "../../service/auth";
 
 export default function SignupScreen() {
   const { colors } = useTheme();
@@ -42,6 +42,9 @@ export default function SignupScreen() {
   const [password2, setPassword2] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
+  const [isAvailable, setIsAvailable] = useState<boolean | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
   const [errors, setErrors] = useState({
     email: "", username: "", first_name: "", last_name: "",
     phone_number: "", password: "", password2: "",
@@ -54,6 +57,42 @@ export default function SignupScreen() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    const typedUsername = username.trim();
+
+    if (typedUsername.length < 3) {
+      return;
+    }
+
+    let isCurrentRequest = true;
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        const response = await authAPI.usernameAvailable(typedUsername);
+        if (!isCurrentRequest) return;
+
+        const available = response.data.data.available;
+        setIsAvailable(available);
+        setErrorMessage(
+          response.data.message ||
+            (available ? "Username is available" : "Username already exists")
+        );
+      } catch (error) {
+        if (!isCurrentRequest) return;
+        console.error("Error checking username:", error);
+        setIsAvailable(null);
+        setErrorMessage("Unable to check username availability.");
+      } finally {
+        if (isCurrentRequest) setIsChecking(false);
+      }
+    }, 450);
+
+    return () => {
+      isCurrentRequest = false;
+      clearTimeout(timeoutId);
+    };
+  }, [username]);
 
   const handleSignup = async () => {
     // First Name
@@ -71,6 +110,11 @@ export default function SignupScreen() {
     // Username
     if (!username.trim()) {
       Alert.alert("Validation Error", "Username is required.");
+      return;
+    }
+
+    if (isChecking || isAvailable === false) {
+      Alert.alert("Validation Error", "Please choose an available username.");
       return;
     }
 
@@ -239,6 +283,9 @@ export default function SignupScreen() {
         break;
       case "username":
         setUsername(value);
+        setIsChecking(value.trim().length >= 3);
+        setIsAvailable(null);
+        setErrorMessage("");
         break;
       case "email":
         setEmail(value);
@@ -338,6 +385,16 @@ export default function SignupScreen() {
         {!!errors.username && (
           <Text style={styles.errorText}>{errors.username}</Text>
         )}
+        {username.trim().length >= 3 && (isChecking || errorMessage) && (
+          <Text
+            style={[
+              styles.usernameStatus,
+              { color: isAvailable === true ? "#22C55E" : "#EF4444" },
+            ]}
+          >
+            {isChecking ? "Checking availability..." : errorMessage}
+          </Text>
+        )}
 
         <AppInput
           placeholder="Email *"
@@ -407,6 +464,7 @@ export default function SignupScreen() {
           title="Create Account"
           onPress={handleSignup}
           loading={loading}
+          disabled={isChecking || isAvailable === false}
           style={styles.signupButton}
           authStyle
         />
@@ -467,6 +525,12 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     color: Colors.error,
     marginTop: Spacing.xs,
+    marginBottom: Spacing.sm,
+  },
+  usernameStatus: {
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 4,
     marginBottom: Spacing.sm,
   },
   disabledInputContainer: {

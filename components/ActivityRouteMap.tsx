@@ -133,8 +133,8 @@ export default function ActivityRouteMap({
 }
 
 const styles = StyleSheet.create({
-  mapContainer: { height: 255, overflow: 'hidden', borderRadius: 22, borderWidth: 1, borderColor: '#393C3E' },
-  previewMapContainer: { height: 178, borderRadius: 18 },
+  mapContainer: { height: 255, overflow: 'hidden', borderRadius: 22, borderWidth: 1, borderColor: '#35C72B' },
+  previewMapContainer: { height: 110, borderRadius: 20, borderWidth: 1, borderColor: '#000000' },
   map: { flex: 1 },
   emptyRoute: { minHeight: 120, borderRadius: 22, borderWidth: 1, borderColor: '#393C3E', backgroundColor: '#242627', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
   emptyRouteText: { color: '#A9ADAF', fontSize: 15, textAlign: 'center' },

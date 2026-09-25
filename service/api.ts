@@ -22,6 +22,7 @@ export const API_ENDPOINTS = {
   auth: {
     login: "/auth/login/",
     signup: "/auth/signup/",
+    usernameAvailable: "/auth/username-available/",
     forgotPassword: "/auth/password-reset/",
     resetPassword: "/auth/password-reset/confirm/",
     verifyOTP: "/auth/verify-otp/",
@@ -205,6 +206,9 @@ export const authAPI = {
     password2: string;
     phone_number?: string;
   }) => api.post("/auth/signup/", data),
+
+  usernameAvailable: (username: string) =>
+    api.get(API_ENDPOINTS.auth.usernameAvailable, { params: { username } }),
 
   login: (data: { identifier: string; password: string }) =>
     api.post("/auth/login/", data),

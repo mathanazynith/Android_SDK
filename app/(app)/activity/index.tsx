@@ -83,22 +83,30 @@ const ActivityCard = memo(function ActivityCard({ activity, onPress }: {
             })}
           </Text>
           <Text style={styles.distance}>{formatDistance(activity.distance)}</Text>
+        </View>
 
-          <View style={styles.metrics}>
-            <View style={styles.metric}>
-              <Feather name="clock" size={18} color="#35C72B" />
+        <View style={styles.centerMetricsContainer}>
+          <View style={styles.metricRow}>
+            <View style={styles.metricIcon}>
+              <Feather name="clock" size={17} color="#35C72B" />
+            </View>
+            <View style={styles.metricText}>
               <Text style={[styles.metricValue, { color: colors.text }]}>{formatDuration(duration)}</Text>
               <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>Time</Text>
             </View>
-            <View style={styles.metric}>
-              <Feather name="compass" size={18} color="#35C72B" />
+          </View>
+          <View style={styles.metricRow}>
+            <View style={styles.metricIcon}>
+              <Feather name="compass" size={17} color="#35C72B" />
+            </View>
+            <View style={styles.metricText}>
               <Text style={[styles.metricValue, { color: colors.text }]}>{formatPace(activity.avg_pace)}</Text>
               <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>Pace</Text>
             </View>
           </View>
         </View>
 
-        <View pointerEvents="none" style={styles.routePreview}>
+        <View pointerEvents="none" style={styles.mapThumbnailContainer}>
           <ActivityRouteMap
             encodedPolyline={routeData.encodedPolyline}
             plannedEncodedPolyline={routeData.plannedEncodedPolyline}
@@ -127,6 +135,32 @@ function HistorySkeleton() {
       ))}
     </View>
   );
+}
+
+const MAX_EMPTY_HISTORY_PAGES = 5;
+
+async function fetchHistoryPageSkippingEmptyPages(cursor: string | null) {
+  let nextCursor = cursor;
+  let emptyPages = 0;
+
+  while (true) {
+    const result = await activityAPI.listPage(nextCursor, 10);
+    if (result.activities.length > 0) return result;
+
+    emptyPages += 1;
+    const cursorAdvanced = result.nextCursor !== null && result.nextCursor !== nextCursor;
+    if (!result.hasMore || !cursorAdvanced) return result;
+
+    if (emptyPages >= MAX_EMPTY_HISTORY_PAGES) {
+      console.warn(
+        '[ActivityHistory] Stopped auto-continuing after 5 empty filtered pages.',
+        { cursor: result.nextCursor },
+      );
+      return { ...result, hasMore: true };
+    }
+
+    nextCursor = result.nextCursor;
+  }
 }
 
 export default function ActivityScreen() {
@@ -160,7 +194,7 @@ export default function ActivityScreen() {
         cursorRef.current = cached.nextCursor;
         setLoading(false);
       }
-      const result = await activityAPI.listPage(null, 10);
+      const result = await fetchHistoryPageSkippingEmptyPages(null);
       if (requestId !== requestIdRef.current) return;
       setActivities(result.activities);
       setHasMore(result.hasMore);
@@ -180,12 +214,21 @@ export default function ActivityScreen() {
   }, []);
 
   const loadMore = useCallback(async () => {
+    if (__DEV__) {
+      console.log('[ActivityHistory] onEndReached', {
+        cursor: cursorRef.current,
+        hasMore,
+        loadingMore,
+        loading,
+        refreshing,
+      });
+    }
     if (loadingMore || !hasMore || loadingMoreRef.current || loadingFirstPageRef.current || loading || refreshing) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
     const cursor = cursorRef.current;
     try {
-      const result = await activityAPI.listPage(cursor, 10);
+      const result = await fetchHistoryPageSkippingEmptyPages(cursor);
       setActivities((current) => [
         ...current,
         ...result.activities.filter((item) => !current.some((existing) => existing.id === item.id)),
@@ -259,7 +302,7 @@ export default function ActivityScreen() {
           initialNumToRender={10}
           maxToRenderPerBatch={10}
           windowSize={5}
-          getItemLayout={(_, index) => ({ length: 234, offset: 234 * index, index })}
+          getItemLayout={(_, index) => ({ length: 162, offset: 162 * index, index })}
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
           ListFooterComponent={loadingMore
@@ -287,17 +330,19 @@ const styles = StyleSheet.create({
   scrollContent: { paddingBottom: 118 },
   section: { marginBottom: 24 },
   sectionTitle: { color: '#F7F7F7', fontSize: 24, fontWeight: '700', marginBottom: 13 },
-  card: { height: 220, backgroundColor: '#242627', borderRadius: 26, padding: 21, marginBottom: 14, borderWidth: 1, borderColor: '#393C3E' },
-  cardContent: { flexDirection: 'row', alignItems: 'stretch' },
-  cardDetails: { flex: 1, minWidth: 0, paddingRight: 14 },
-  activityType: { color: '#F7F7F7', fontSize: 21, fontWeight: '700' },
-  activityDate: { color: '#A9ADAF', fontSize: 14, marginTop: 4 },
-  distance: { color: '#35C72B', fontSize: 31, lineHeight: 38, fontWeight: '700', marginTop: 16 },
-  metrics: { flexDirection: 'row', marginTop: 18, gap: 10 },
-  metric: { flex: 1 },
-  metricValue: { color: '#F7F7F7', fontSize: 15, fontWeight: '700', marginTop: 7 },
-  metricLabel: { color: '#A9ADAF', fontSize: 13, marginTop: 4 },
-  routePreview: { width: 124, alignSelf: 'stretch' },
+  card: { height: 150, backgroundColor: '#242627', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 12, borderWidth: 1, borderColor: '#393C3E', overflow: 'hidden' },
+  cardContent: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden' },
+  cardDetails: { flex: 1, minWidth: 0, paddingRight: 8 },
+  activityType: { color: '#F7F7F7', fontSize: 18, lineHeight: 22, fontWeight: '700' },
+  activityDate: { color: '#A9ADAF', fontSize: 12, lineHeight: 15, marginTop: 2 },
+  distance: { color: '#35C72B', fontSize: 23, lineHeight: 28, fontWeight: '700', marginTop: 4 },
+  centerMetricsContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  metricRow: { width: 100, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', marginVertical: 3 },
+  metricIcon: { width: 22, alignItems: 'center' },
+  metricText: { alignItems: 'flex-start', marginLeft: 4, minWidth: 0 },
+  metricValue: { color: '#F7F7F7', fontSize: 12, lineHeight: 15, fontWeight: '700' },
+  metricLabel: { color: '#A9ADAF', fontSize: 10, lineHeight: 12, marginTop: 1 },
+  mapThumbnailContainer: { width: 105, height: 105, marginLeft: 12, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E5E7EB', borderWidth: 1, borderColor: '#D1D5DB' },
   centerState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28 },
   stateText: { color: '#C4C8C5', fontSize: 16, textAlign: 'center', marginTop: 13 },
   retryButton: { backgroundColor: '#35C72B', borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, marginTop: 18 },
@@ -305,12 +350,12 @@ const styles = StyleSheet.create({
   footerLoader: { paddingVertical: 18 },
   endMessage: { color: '#A9ADAF', textAlign: 'center', fontSize: 13, paddingVertical: 18 },
   skeletonList: { paddingTop: 4 },
-  skeletonCard: { height: 220, flexDirection: 'row', backgroundColor: '#171A1A', borderRadius: 26, padding: 21, marginBottom: 14, borderWidth: 1, borderColor: '#243C2B' },
-  skeletonMain: { flex: 1, paddingRight: 14 },
-  skeletonShort: { width: '55%', height: 18, borderRadius: 6, backgroundColor: '#294A32' },
-  skeletonTiny: { width: '35%', height: 11, borderRadius: 5, backgroundColor: '#26352A', marginTop: 9 },
-  skeletonDistance: { width: '48%', height: 28, borderRadius: 7, backgroundColor: '#245C32', marginTop: 22 },
-  skeletonMetrics: { width: '78%', height: 38, borderRadius: 8, backgroundColor: '#202A22', marginTop: 20 },
-  skeletonMap: { width: 124, borderRadius: 12, backgroundColor: '#202A22' },
+  skeletonCard: { height: 150, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden', backgroundColor: '#171A1A', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 12, borderWidth: 1, borderColor: '#243C2B' },
+  skeletonMain: { width: '70%', paddingRight: 6 },
+  skeletonShort: { width: '55%', height: 12, borderRadius: 5, backgroundColor: '#294A32' },
+  skeletonTiny: { width: '35%', height: 8, borderRadius: 4, backgroundColor: '#26352A', marginTop: 4 },
+  skeletonDistance: { width: '48%', height: 18, borderRadius: 6, backgroundColor: '#245C32', marginTop: 7 },
+  skeletonMetrics: { width: '78%', height: 24, borderRadius: 7, backgroundColor: '#202A22', marginTop: 7 },
+  skeletonMap: { width: 105, height: 105, borderRadius: 18, overflow: 'hidden', backgroundColor: '#202A22' },
   empty: { color: '#A9ADAF', textAlign: 'center', fontSize: 16, marginTop: 40 },
 });
