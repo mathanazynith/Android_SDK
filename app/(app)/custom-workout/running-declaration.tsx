@@ -2,30 +2,32 @@ import { Feather } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useMemo, useState } from "react";
 import {
-  Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { Colors } from "../../../constants/theme";
 import { secondsToTimeString } from "../../../service/customWorkout";
 import {
-  calculateTwoFields,
-  getPaceUnitLabel,
-  getUnitFullLabel,
-  getUnitLabel,
-  normalizeUnit,
-  type DistanceUnitType,
+    calculateTwoFields,
+    getMaxDistanceForUnit,
+    getPaceUnitLabel,
+    getUnitFullLabel,
+    getUnitLabel,
+    normalizeUnit,
+    sanitizeDistanceInput,
+    type DistanceUnitType,
 } from "../../../src/utils/workoutCalculations";
 import { useCustomWorkout } from "./workout-context";
 
@@ -73,6 +75,7 @@ export default function RunningDeclaration() {
   // Select unit directly
   const selectUnit = (selected: DistanceUnitType) => {
     setUnit(selected);
+    setDistance((prev) => sanitizeDistanceInput(prev, selected));
     setUnitModal(false);
   };
 
@@ -127,6 +130,14 @@ export default function RunningDeclaration() {
 
     const finalDistance = distance || calculated.calculatedDistance;
     const finalPace = pace || calculated.calculatedPace;
+
+    const maxDistance = getMaxDistanceForUnit(unit);
+    if (toNumber(finalDistance) > maxDistance) {
+      return Alert.alert(
+        "Distance limit exceeded",
+        `Running distance cannot exceed ${maxDistance} ${getUnitLabel(unit)}.`
+      );
+    }
 
     const step = {
       title: title.trim(),
@@ -206,7 +217,7 @@ export default function RunningDeclaration() {
             <View style={styles.row}>
               <TextInput
                 value={distance || calculated.calculatedDistance}
-                onChangeText={setDistance}
+                onChangeText={(text) => setDistance(sanitizeDistanceInput(text, unit))}
                 placeholder={unit === "m" ? "400" : "0.00"}
                 placeholderTextColor={Colors.textMuted}
                 keyboardType="decimal-pad"
@@ -224,6 +235,9 @@ export default function RunningDeclaration() {
                 />
               </TouchableOpacity>
             </View>
+            <Text style={styles.inputHelper}>
+              Maximum distance: {getMaxDistanceForUnit(unit)} {getUnitLabel(unit)}
+            </Text>
 
             {/* Pace Input */}
             <Text style={[styles.label, { marginTop: 16 }]}>
@@ -356,6 +370,7 @@ const styles = StyleSheet.create({
   notesInput: { minHeight: 75, textAlignVertical: "top", paddingTop: 10 },
   row: { flexDirection: "row", gap: 10 },
   flex: { flex: 1 },
+  inputHelper: { color: Colors.textMuted, fontSize: 12, marginTop: 6 },
   unitButton: {
     minWidth: 86,
     height: 50,

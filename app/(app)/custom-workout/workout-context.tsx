@@ -12,7 +12,11 @@ import {
     timeStringToSeconds,
     UserWorkoutResponse,
 } from "../../../service/customWorkout";
-import { getUnitFullLabel, normalizeUnit } from "../../../src/utils/workoutCalculations";
+import {
+    getMaxDistanceForUnit,
+    getUnitFullLabel,
+    normalizeUnit,
+} from "../../../src/utils/workoutCalculations";
 
 export type WorkoutStep = {
   id?: number;
@@ -343,6 +347,29 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
 
       if (!workout.runs || workout.runs.length === 0) {
         throw new Error("Workout must contain at least one Run segment.");
+      }
+
+      if (workout.warmUp?.distance) {
+        const maxDist = getMaxDistanceForUnit(workout.warmUp.unit);
+        if (parseFloat(workout.warmUp.distance) > maxDist) {
+          throw new Error(`Warm Up distance cannot exceed ${maxDist} ${workout.warmUp.unit || "km"}.`);
+        }
+      }
+
+      for (const run of workout.runs) {
+        if (run.distance) {
+          const maxDist = getMaxDistanceForUnit(run.unit);
+          if (parseFloat(run.distance) > maxDist) {
+            throw new Error(`Running step "${run.title}" distance cannot exceed ${maxDist} ${run.unit || "km"}.`);
+          }
+        }
+      }
+
+      if (workout.cooldown?.distance) {
+        const maxDist = getMaxDistanceForUnit(workout.cooldown.unit);
+        if (parseFloat(workout.cooldown.distance) > maxDist) {
+          throw new Error(`Cool Down distance cannot exceed ${maxDist} ${workout.cooldown.unit || "km"}.`);
+        }
       }
 
       const segments: CustomWorkoutSegmentWritePayload[] = [];

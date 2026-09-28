@@ -2,29 +2,31 @@ import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
-  Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Colors } from '../../../constants/theme';
 import { ScrollTimePicker } from '../../../components/ScrollTimePicker';
-import { useCustomWorkout } from './workout-context';
-import CustomWorkoutOverview from './overview';
-import CustomWorkoutCards from './cards';
+import { Colors } from '../../../constants/theme';
 import {
-  normalizeUnit,
-  formatSecondsToPace,
+    formatSecondsToPace,
+    getMaxDistanceForUnit,
+    normalizeUnit,
+    sanitizeDistanceInput,
 } from '../../../src/utils/workoutCalculations';
+import CustomWorkoutCards from './cards';
+import CustomWorkoutOverview from './overview';
+import { useCustomWorkout } from './workout-context';
 
 type DurationMode = 'duration' | 'distance';
 type PickerName = 'durationType' | 'distanceUnit' | null;
@@ -77,6 +79,7 @@ function CustomWorkoutWarmUp() {
     }
     if (picker === 'distanceUnit') {
       setDistanceUnit(value);
+      setDistance((prev) => sanitizeDistanceInput(prev, value));
     }
     setPicker(null);
   };
@@ -92,6 +95,14 @@ function CustomWorkoutWarmUp() {
     }
     if (durationMode === 'distance' && !hasDistance) {
       Alert.alert('Distance required', 'Enter the Warm Up distance before continuing.');
+      return;
+    }
+    const maxDistance = getMaxDistanceForUnit(distanceUnit);
+    if (durationMode === 'distance' && toNumber(distance) > maxDistance) {
+      Alert.alert(
+        'Distance limit exceeded',
+        `Warm Up distance cannot exceed ${maxDistance} ${distanceUnit.includes('Miles') ? 'mi' : 'km'}.`
+      );
       return;
     }
 
@@ -172,7 +183,7 @@ function CustomWorkoutWarmUp() {
                 <View style={styles.distanceRow}>
                   <TextInput
                     value={distance}
-                    onChangeText={setDistance}
+                    onChangeText={(text) => setDistance(sanitizeDistanceInput(text, distanceUnit))}
                     placeholder="0.00"
                     placeholderTextColor={Colors.textMuted}
                     keyboardType="decimal-pad"
@@ -183,6 +194,9 @@ function CustomWorkoutWarmUp() {
                     <Feather name="chevron-down" size={18} color={Colors.textSecondary} />
                   </TouchableOpacity>
                 </View>
+                <Text style={styles.inputHelper}>
+                  Maximum distance: 100 {distanceUnit.includes('Miles') ? 'mi' : 'km'}
+                </Text>
               </View>
             )}
           </View>
@@ -333,6 +347,7 @@ const styles = StyleSheet.create({
   notesInput: { minHeight: 70, textAlignVertical: 'top', paddingTop: 12 },
   distanceRow: { flexDirection: 'row', gap: 10 },
   distanceInput: { flex: 1 },
+  inputHelper: { color: Colors.textMuted, fontSize: 12, marginTop: 6 },
   unitButton: {
     minWidth: 95,
     minHeight: 50,
