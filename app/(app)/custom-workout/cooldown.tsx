@@ -1,28 +1,30 @@
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ScrollTimePicker } from '../../../components/ScrollTimePicker';
 import { Colors } from '../../../constants/theme';
-import { useCustomWorkout } from './workout-context';
 import {
-  normalizeUnit,
-  formatSecondsToPace,
+    formatSecondsToPace,
+    getMaxDistanceForUnit,
+    normalizeUnit,
+    sanitizeDistanceInput,
 } from '../../../src/utils/workoutCalculations';
+import { useCustomWorkout } from './workout-context';
 
 type Mode = 'time' | 'distance';
 const units = ['Kilometers (km)', 'Miles (mi)'];
@@ -62,6 +64,7 @@ export default function Cooldown() {
     }
     if (picker === 'unit') {
       setUnit(value);
+      setDistance((prev) => sanitizeDistanceInput(prev, value));
     }
     setPicker(null);
   };
@@ -84,6 +87,14 @@ export default function Cooldown() {
     }
     if (mode === 'distance' && !hasDistance) {
       Alert.alert('Distance required', 'Enter the Cool Down distance before finishing.');
+      return;
+    }
+    const maxDistance = getMaxDistanceForUnit(unit);
+    if (mode === 'distance' && numeric(distance) > maxDistance) {
+      Alert.alert(
+        'Distance limit exceeded',
+        `Cool Down distance cannot exceed ${maxDistance} ${unit.includes('Miles') ? 'mi' : 'km'}.`
+      );
       return;
     }
 
@@ -161,7 +172,7 @@ export default function Cooldown() {
                 <View style={styles.row}>
                   <TextInput
                     value={distance}
-                    onChangeText={setDistance}
+                    onChangeText={(text) => setDistance(sanitizeDistanceInput(text, unit))}
                     placeholder="0.00"
                     placeholderTextColor={Colors.textMuted}
                     keyboardType="decimal-pad"
@@ -172,6 +183,9 @@ export default function Cooldown() {
                     <Feather name="chevron-down" size={18} color={Colors.textSecondary} />
                   </TouchableOpacity>
                 </View>
+                <Text style={styles.inputHelper}>
+                  Maximum distance: 100 {unit.includes('Miles') ? 'mi' : 'km'}
+                </Text>
               </View>
             )}
           </View>
@@ -308,6 +322,7 @@ const styles = StyleSheet.create({
   notesInput: { minHeight: 65, textAlignVertical: 'top', paddingTop: 10 },
   row: { flexDirection: 'row', gap: 10 },
   flex: { flex: 1 },
+  inputHelper: { color: Colors.textMuted, fontSize: 12, marginTop: 6 },
   unitButton: {
     minWidth: 95,
     minHeight: 50,

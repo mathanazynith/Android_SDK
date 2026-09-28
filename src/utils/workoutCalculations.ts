@@ -1,5 +1,32 @@
 export type DistanceUnitType = "km" | "m" | "mi";
 
+export const MAX_DISTANCE_KM = 100;
+export const MAX_DISTANCE_MI = 100;
+export const MAX_DISTANCE_M = 100_000;
+
+export const getMaxDistanceForUnit = (unitStr?: string | null): number => {
+  const u = normalizeUnit(unitStr);
+  if (u === "m") return MAX_DISTANCE_M;
+  if (u === "mi") return MAX_DISTANCE_MI;
+  return MAX_DISTANCE_KM;
+};
+
+export const sanitizeDistanceInput = (
+  text: string,
+  unitStr?: string | null
+): string => {
+  if (!text) return "";
+  const clean = text.replace(",", ".");
+  if (clean === "." || clean === "0." || clean === "0") return text;
+  const num = parseFloat(clean);
+  if (isNaN(num)) return text;
+  const max = getMaxDistanceForUnit(unitStr);
+  if (num > max) {
+    return String(max);
+  }
+  return text;
+};
+
 export const normalizeUnit = (unitStr?: string | null): DistanceUnitType => {
   if (!unitStr) return "km";
   const lower = unitStr.toLowerCase().trim();
@@ -100,16 +127,19 @@ export const calculateTwoFields = ({
   if (!hasDistance && hasDuration && hasPace && durationSec && paceSec) {
     if (unit === "m") {
       const dist = (durationSec / paceSec) * 1000;
+      const capped = Math.min(dist, MAX_DISTANCE_M);
       return {
         calculatedDuration: null,
-        calculatedDistance: String(Math.round(dist)),
+        calculatedDistance: String(Math.round(capped)),
         calculatedPace: "",
       };
     } else {
       const dist = durationSec / paceSec;
+      const max = unit === "mi" ? MAX_DISTANCE_MI : MAX_DISTANCE_KM;
+      const capped = Math.min(dist, max);
       return {
         calculatedDuration: null,
-        calculatedDistance: dist.toFixed(2),
+        calculatedDistance: capped.toFixed(2),
         calculatedPace: "",
       };
     }
