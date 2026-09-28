@@ -7,6 +7,10 @@ module.exports = () => {
 
   return {
     ...expo,
+    android: {
+      ...expo.android,
+      googleServicesFile: "./google-services.json",
+    },
     extra: {
       ...expo.extra,
       apiUrl,

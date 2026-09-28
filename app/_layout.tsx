@@ -9,6 +9,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QuestionnaireProvider } from '../contexts/QuestionnaireContext';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
 import { AuthProvider } from '../service/auth';
+import { getFcmToken } from '../service/fcmService';
 import '../src/services/backgroundLocationTask';
 import { LIVE_TRACKING_ROUTE, LIVE_TRACKING_STOP_ACTION } from '../src/services/liveTrackingNotification';
 
@@ -18,6 +19,10 @@ function RootSurface({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const navigationState = useRootNavigationState();
   const handledNotificationIds = useRef(new Set<string>());
+
+  useEffect(() => {
+    void getFcmToken();
+  }, []);
 
   useEffect(() => {
     if (!navigationState?.key) return;
