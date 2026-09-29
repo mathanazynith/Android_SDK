@@ -6,12 +6,21 @@ import type { ReactNode } from 'react';
 import { useEffect, useRef } from 'react';
 import { StatusBar } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { NotificationProvider } from '../contexts/NotificationContext';
 import { QuestionnaireProvider } from '../contexts/QuestionnaireContext';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
 import { AuthProvider } from '../service/auth';
-import { getFcmToken } from '../service/fcmService';
 import '../src/services/backgroundLocationTask';
 import { LIVE_TRACKING_ROUTE, LIVE_TRACKING_STOP_ACTION } from '../src/services/liveTrackingNotification';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 function RootSurface({ children }: { children: ReactNode }) {
   const { isDark } = useTheme();
@@ -19,10 +28,6 @@ function RootSurface({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const navigationState = useRootNavigationState();
   const handledNotificationIds = useRef(new Set<string>());
-
-  useEffect(() => {
-    void getFcmToken();
-  }, []);
 
   useEffect(() => {
     if (!navigationState?.key) return;
@@ -73,14 +78,16 @@ export default function RootLayout() {
       <ThemeProvider>
         <RootSurface>
           <AuthProvider>
-            <QuestionnaireProvider>
-              <Stack screenOptions={{ headerShown: false }}>
-                <Stack.Screen name="index" />
-                <Stack.Screen name="oauthredirect" />
-                <Stack.Screen name="(auth)" />
-                <Stack.Screen name="(app)" />
-              </Stack>
-            </QuestionnaireProvider>
+            <NotificationProvider>
+              <QuestionnaireProvider>
+                <Stack screenOptions={{ headerShown: false }}>
+                  <Stack.Screen name="index" />
+                  <Stack.Screen name="oauthredirect" />
+                  <Stack.Screen name="(auth)" />
+                  <Stack.Screen name="(app)" />
+                </Stack>
+              </QuestionnaireProvider>
+            </NotificationProvider>
           </AuthProvider>
         </RootSurface>
       </ThemeProvider>

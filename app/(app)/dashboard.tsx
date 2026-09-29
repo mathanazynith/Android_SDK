@@ -1,15 +1,17 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useAuth } from '../../service/auth';
-import SettingsMenu from '../../components/SettingsMenu';
-import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
-import DashboardNoPlan from './DashboardNoPlan';
-import DashboardActivePlan from './DashboardActivePlan';
-import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
-import { useResponsive } from '../../utils/responsive';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import NotificationBell from '../../components/NotificationBell';
+import SettingsMenu from '../../components/SettingsMenu';
+import { useNotifications } from '../../contexts/NotificationContext';
+import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
+import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../service/auth';
+import { useResponsive } from '../../utils/responsive';
+import DashboardActivePlan from './DashboardActivePlan';
+import DashboardNoPlan from './DashboardNoPlan';
 // import { LocationService } from '../../src/services/locationService';
 // import { getWeatherByLocation, type WeatherData } from '../../service/weather';
 
@@ -18,6 +20,7 @@ export default function DashboardScreen() {
   const { spacing, fontSize } = useResponsive();
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
+  const { unreadCount } = useNotifications();
   const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
   const [settingsVisible, setSettingsVisible] = useState(false);
   // const [weather, setWeather] = useState<WeatherData | null>(null);
@@ -127,7 +130,13 @@ export default function DashboardScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.topBar, { borderBottomColor: colors.border, minHeight: spacing(82) + insets.top, paddingHorizontal: spacing(28), paddingTop: insets.top + spacing(8) }]}>
         <Text style={[styles.pageTitle, { color: colors.text, fontSize: fontSize(28, 24, 30) }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>Dashboard</Text>
-        <TouchableOpacity style={[styles.headerButton, { width: spacing(46), height: spacing(46), borderRadius: spacing(23), backgroundColor: colors.surfaceRaised, borderColor: colors.border }]} onPress={() => setSettingsVisible(true)}><Feather name="settings" size={spacing(23)} color={colors.textSecondary} /></TouchableOpacity>
+        <View style={styles.headerActions}>
+          <NotificationBell
+            onPress={() => router.push('/(app)/screens/notifications')}
+            badgeCount={unreadCount ?? 0}
+          />
+          <TouchableOpacity style={[styles.headerButton, { width: spacing(46), height: spacing(46), borderRadius: spacing(23), backgroundColor: colors.surfaceRaised, borderColor: colors.border }]} onPress={() => setSettingsVisible(true)}><Feather name="settings" size={spacing(23)} color={colors.textSecondary} /></TouchableOpacity>
+        </View>
       </View>
       <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: spacing(20), paddingBottom: spacing(118) }]} showsVerticalScrollIndicator={false}>
         <View style={[styles.greeting, { minHeight: spacing(82), paddingHorizontal: spacing(18), paddingVertical: spacing(14), marginBottom: spacing(14), backgroundColor: colors.surface }]}>
@@ -168,6 +177,7 @@ const styles = StyleSheet.create({
   topBar: { minHeight: 82, paddingHorizontal: 28, paddingTop: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#282B2D' },
   pageTitle: { color: '#F7F7F7', fontSize: 28, fontWeight: '700', fontStyle: 'italic' },
   headerButton: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: '#25282A', borderWidth: 1, borderColor: '#55595B' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   content: { paddingHorizontal: 20, paddingBottom: 118 },
   greeting: { minHeight: 82, paddingHorizontal: 18, paddingVertical: 14, marginBottom: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#050607', borderRadius: 22 },
   greetingText: { color: '#F7F7F7', fontSize: 24, fontWeight: '700', flex: 1, marginRight: 10 },

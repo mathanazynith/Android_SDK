@@ -1,39 +1,268 @@
-// app/(app)/notifications.tsx
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { GradientHeader } from '../../../components/GradientHeader';
-import { AppCard } from '../../../components/AppCard';
-import { Colors, Spacing, Typography } from '../../../constants/theme';
-
+import { Feather } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNotifications } from '../../../contexts/NotificationContext';
+import { BRAND_GREEN, useTheme } from '../../../contexts/ThemeContext';
+import { getNotificationDestination, type AppNotification } from '../../../service/notificationService';
+  
+  type IconName = keyof typeof Feather.glyphMap;
+  
+  const eventPresentation = (type: string): { icon: IconName; color: string } => {
+    switch (type) {
+      case 'PLAN_ENDING':
+        return { icon: 'clock', color: '#E6B75A' };
+      case 'WORKOUT_TODAY':
+      case 'WORKOUT_TOMORROW':
+        return { icon: 'calendar', color: BRAND_GREEN };
+      case 'BENCHMARK_WORKOUT_TODAY':
+      case 'BENCHMARK_WORKOUT_TOMORROW':
+        return { icon: 'activity', color: '#E6B75A' };
+      case 'NEW_DEVICE_LOGIN':
+        return { icon: 'smartphone', color: '#8FA6B5' };
+      case 'RUN_SAVED_OTHER_DEVICE':
+        return { icon: 'activity', color: BRAND_GREEN };
+      case 'PASSWORD_CHANGED':
+        return { icon: 'lock', color: '#8FA6B5' };
+      case 'PLAN_UPDATED_BY_ADMIN':
+        return { icon: 'refresh-cw', color: BRAND_GREEN };
+      default:
+        return { icon: 'bell', color: '#A7ADB0' };
+    }
+  };
+  
+  const dateGroupFor = (value: string, now: Date): string => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Earlier';
+  
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const day = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const daysAgo = Math.round((today.getTime() - day.getTime()) / 86_400_000);
+    if (daysAgo === 0) return 'Today';
+    if (daysAgo === 1) return 'Yesterday';
+    return 'Earlier';
+  };
+  
+  const formatTime = (value: string): string => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+      ? ''
+      : date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  };
+  
 export default function NotificationsScreen() {
-  const notifications = [
-    { id: '1', title: 'Leave Approved', message: 'Your annual leave request for July 20-22 has been approved.', time: '10 min ago' },
-    { id: '2', title: 'Payroll Ready', message: 'Your salary slip for June is now available.', time: '1 hour ago' },
-    { id: '3', title: 'New Task Assigned', message: 'You have been assigned to review Q2 performance.', time: '3 hours ago' },
-    { id: '4', title: 'Meeting Reminder', message: 'Team meeting at 2:00 PM today.', time: 'Yesterday' },
-  ];
-
-  return (
-    <View style={styles.container}>
-      <GradientHeader title="Notifications" />
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {notifications.map((item) => (
-          <AppCard key={item.id} variant="elevated" style={styles.card}>
-            <Text style={styles.notifTitle}>{item.title}</Text>
-            <Text style={styles.notifMessage}>{item.message}</Text>
-            <Text style={styles.notifTime}>{item.time}</Text>
-          </AppCard>
-        ))}
-      </ScrollView>
-    </View>
-  );
-}
-
+    const { colors } = useTheme();
+    const {
+      notifications,
+      unreadCount,
+      isLoading,
+      isLoadingMore,
+      error,
+      hasMore,
+      refresh,
+      loadMore,
+      markRead,
+      markAllRead,
+    } = useNotifications();
+    const [actionError, setActionError] = useState<string | null>(null);
+    const unreadInList = notifications.some((item) => !item.is_read);
+    const sections = useMemo(() => {
+      const now = new Date();
+      const groups = new Map<string, AppNotification[]>();
+      for (const notification of notifications) {
+        const label = dateGroupFor(notification.created_at, now);
+        const group = groups.get(label) ?? [];
+        group.push(notification);
+        groups.set(label, group);
+      }
+      return ['Today', 'Yesterday', 'Earlier']
+        .map((label) => ({ title: label, items: groups.get(label) ?? [] }))
+        .filter((section) => section.items.length > 0);
+    }, [notifications]);
+  
+    const openNotification = async (notification: AppNotification) => {
+      setActionError(null);
+      try {
+        await markRead(notification);
+      } catch (requestError) {
+        setActionError('This notification could not be marked as read.');
+        console.warn('[Notifications] Mark read failed', requestError);
+      }
+  
+      const destination = getNotificationDestination(notification.type, notification.data);
+      if (destination) router.push(destination as never);
+    };
+  
+    const handleMarkAllRead = async () => {
+      setActionError(null);
+      try {
+        await markAllRead();
+      } catch (requestError) {
+        setActionError('Notifications could not be marked as read. Please try again.');
+        console.warn('[Notifications] Mark all read failed', requestError);
+      }
+    };
+  
+    return (
+      <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]} edges={['top']}>
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            onPress={() => router.back()}
+            style={styles.backButton}
+          >
+            <Feather name="arrow-left" size={21} color={colors.text} />
+          </Pressable>
+          <View style={styles.headingBlock}>
+            <Text style={[styles.heading, { color: colors.text }]}>Notifications</Text>
+            {unreadCount !== null && unreadCount > 0 ? (
+              <Text style={[styles.unreadSummary, { color: colors.textSecondary }]}>{unreadCount} unread</Text>
+            ) : null}
+          </View>
+          {(unreadCount ?? 0) > 0 || unreadInList ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void handleMarkAllRead()}
+              style={styles.markAllButton}
+            >
+              <Text style={styles.markAllText}>Mark all read</Text>
+            </Pressable>
+          ) : <View style={styles.headerSpacer} />}
+        </View>
+  
+        {actionError ? <Text accessibilityRole="alert" style={styles.actionError}>{actionError}</Text> : null}
+  
+        {isLoading && notifications.length === 0 ? (
+          <View style={styles.stateContainer}>
+            <ActivityIndicator color={BRAND_GREEN} />
+            <Text style={[styles.stateText, { color: colors.textSecondary }]}>Loading notifications...</Text>
+          </View>
+        ) : error && notifications.length === 0 ? (
+          <View style={styles.stateContainer}>
+            <Feather name="wifi-off" size={27} color={colors.textSecondary} />
+            <Text style={[styles.stateText, { color: colors.text }]}>{error}</Text>
+            <Pressable accessibilityRole="button" onPress={() => void refresh()} style={styles.retryButton}>
+              <Text style={styles.retryText}>Try again</Text>
+            </Pressable>
+          </View>
+        ) : notifications.length === 0 ? (
+          <View style={styles.stateContainer}>
+            <View style={styles.emptyIcon}>
+              <Feather name="bell" size={24} color={BRAND_GREEN} />
+            </View>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>You&apos;re all caught up</Text>
+            <Text style={[styles.stateText, { color: colors.textSecondary }]}>New notifications will appear here.</Text>
+          </View>
+        ) : (
+          <ScrollView
+            contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl
+                refreshing={isLoading}
+                onRefresh={() => void refresh()}
+                tintColor={BRAND_GREEN}
+                colors={[BRAND_GREEN]}
+              />
+            }
+          >
+            {sections.map((section) => (
+              <View key={section.title}>
+                <Text style={[styles.sectionHeading, { color: colors.textSecondary }]}>{section.title}</Text>
+                {section.items.map((notification) => {
+                  const presentation = eventPresentation(notification.type);
+                  return (
+                    <Pressable
+                      key={String(notification.id)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${notification.title}. ${notification.is_read ? 'Read' : 'Unread'}`}
+                      onPress={() => void openNotification(notification)}
+                      style={({ pressed }) => [
+                        styles.notificationRow,
+                        { borderBottomColor: colors.border, opacity: pressed ? 0.72 : 1 },
+                      ]}
+                    >
+                      <View style={[styles.eventIcon, { backgroundColor: `${presentation.color}18` }]}>
+                        <Feather name={presentation.icon} size={18} color={presentation.color} />
+                      </View>
+                      <View style={styles.notificationContent}>
+                        <View style={styles.titleLine}>
+                          {!notification.is_read ? <View style={styles.unreadDot} /> : null}
+                          <Text style={[styles.notificationTitle, { color: colors.text }]} numberOfLines={2}>
+                            {notification.title}
+                          </Text>
+                          <Text style={[styles.timestamp, { color: colors.textSecondary }]}>
+                            {formatTime(notification.created_at)}
+                          </Text>
+                        </View>
+                        <Text style={[styles.message, { color: colors.textSecondary }]}>{notification.message}</Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
+            {hasMore ? (
+              <Pressable
+                accessibilityRole="button"
+                disabled={isLoadingMore}
+                onPress={() => void loadMore()}
+                style={styles.loadMoreButton}
+              >
+                {isLoadingMore
+                  ? <ActivityIndicator size="small" color={BRAND_GREEN} />
+                  : <Text style={styles.markAllText}>Load older notifications</Text>}
+              </Pressable>
+            ) : null}
+          </ScrollView>
+        )}
+      </SafeAreaView>
+    );
+  }
+  
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  scrollContent: { padding: Spacing.md, paddingBottom: Spacing.xxl },
-  card: { marginBottom: Spacing.md },
-  notifTitle: { ...Typography.body, color: Colors.text, fontWeight: '600' },
-  notifMessage: { ...Typography.bodySmall, color: Colors.textSecondary, marginVertical: Spacing.xs },
-  notifTime: { ...Typography.caption, color: Colors.textMuted, alignSelf: 'flex-end' },
+    screen: { flex: 1 },
+    header: {
+      minHeight: 68,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 17,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      gap: 12,
+    },
+    backButton: { width: 38, height: 42, justifyContent: 'center' },
+    headingBlock: { flex: 1 },
+    heading: { fontSize: 22, fontWeight: '700' },
+    unreadSummary: { fontSize: 12, marginTop: 2 },
+    markAllButton: { paddingVertical: 10, paddingLeft: 8 },
+    markAllText: { color: BRAND_GREEN, fontSize: 13, fontWeight: '700' },
+    headerSpacer: { width: 70 },
+    actionError: { color: '#F08D82', fontSize: 13, paddingHorizontal: 18, paddingTop: 12 },
+    listContent: { paddingHorizontal: 18, paddingBottom: 36 },
+    sectionHeading: { marginTop: 22, marginBottom: 7, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
+    notificationRow: { minHeight: 82, flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth, gap: 12 },
+    eventIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+    notificationContent: { flex: 1, minWidth: 0 },
+    titleLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 7 },
+    unreadDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: BRAND_GREEN, marginTop: 6 },
+    notificationTitle: { flex: 1, fontSize: 14, lineHeight: 19, fontWeight: '700' },
+    timestamp: { fontSize: 11, marginTop: 2 },
+    message: { fontSize: 13, lineHeight: 19, marginTop: 5 },
+    loadMoreButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center' },
+    stateContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 35, gap: 12 },
+    stateText: { fontSize: 14, lineHeight: 21, textAlign: 'center' },
+    emptyIcon: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: '#63C72B18' },
+    emptyTitle: { fontSize: 17, fontWeight: '700', marginTop: 3 },
+    retryButton: { marginTop: 4, paddingVertical: 10, paddingHorizontal: 16 },
+    retryText: { color: BRAND_GREEN, fontSize: 14, fontWeight: '700' },
+    inlineError: { color: '#F08D82', fontSize: 13, paddingTop: 12 },
 });

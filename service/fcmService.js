@@ -1,10 +1,17 @@
-import { getMessaging, getToken } from '@react-native-firebase/messaging';
+import { getMessaging, getToken, onTokenRefresh } from '@react-native-firebase/messaging';
+import * as Notifications from 'expo-notifications';
 import { PermissionsAndroid, Platform } from 'react-native';
 
 export async function requestFcmPermission() {
   if (Platform.OS !== 'android') {
     return false;
   }
+
+  await Notifications.setNotificationChannelAsync('zyrun-business-notifications', {
+    name: 'ZYRun notifications',
+    description: 'Updates from Zy-Run',
+    importance: Notifications.AndroidImportance.DEFAULT,
+  });
 
   if (Platform.Version >= 33) {
     const result = await PermissionsAndroid.request(
@@ -27,12 +34,20 @@ export async function getFcmToken() {
     }
 
     const token = await getToken(getMessaging());
-
-    console.log('[FCM] FCM TOKEN:', token);
-
+    if (__DEV__) {
+      console.info('[FCM] Device token:', token);
+    }
     return token;
   } catch (error) {
     console.error('[FCM] Failed to get FCM token:', error);
     return null;
   }
+}
+
+export function subscribeToFcmTokenRefresh(listener) {
+  if (Platform.OS !== 'android') {
+    return () => {};
+  }
+
+  return onTokenRefresh(getMessaging(), listener);
 }

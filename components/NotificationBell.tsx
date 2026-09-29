@@ -1,17 +1,18 @@
 // components/NotificationBell.tsx
-import React from 'react';
-import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Colors, Spacing, Typography } from '../constants/theme';
+import { BRAND_GREEN } from '../contexts/ThemeContext';
 
 interface NotificationBellProps {
   onPress: () => void;
   badgeCount?: number;
 }
 
-export default function NotificationBell({ onPress, badgeCount = 3 }: NotificationBellProps) {
+export default function NotificationBell({ onPress, badgeCount = 0 }: NotificationBellProps) {
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress}>
-      <Text style={styles.bellIcon}>🔔</Text>
+    <TouchableOpacity accessibilityRole="button" accessibilityLabel="Notifications" style={styles.container} onPress={onPress}>
+      <Feather name="bell" size={22} color={BRAND_GREEN} />
       {badgeCount > 0 && (
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{badgeCount > 9 ? '9+' : badgeCount}</Text>
@@ -23,7 +24,6 @@ export default function NotificationBell({ onPress, badgeCount = 3 }: Notificati
 
 const styles = StyleSheet.create({
   container: { padding: Spacing.xs, position: 'relative' },
-  bellIcon: { fontSize: 24, color: Colors.text },
   badge: {
     position: 'absolute',
     top: -2,
