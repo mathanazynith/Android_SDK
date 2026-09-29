@@ -1,621 +1,184 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  Alert,
-} from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '../../service/auth';
-import { GradientHeader } from '../../components/GradientHeader';
-import { AppCard } from '../../components/AppCard';
-import { StatCard } from '../../components/StatCard';
-import { PrimaryButton } from '../../components/common/PrimaryButton';
-import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
-import NotificationBell from '../../components/NotificationBell';
 import SettingsMenu from '../../components/SettingsMenu';
-import { storage } from '../../service/storage';
-import { Feather } from '@expo/vector-icons';
-
-interface WorkoutDay {
-  day: string;
-  workout: string;
-  distance: string;
-  intensity: 'Easy' | 'Hard' | 'Medium';
-  icon: string;
-  color: string;
-}
+import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
+import DashboardNoPlan from './DashboardNoPlan';
+import DashboardActivePlan from './DashboardActivePlan';
+import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
+import { useResponsive } from '../../utils/responsive';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+// import { LocationService } from '../../src/services/locationService';
+// import { getWeatherByLocation, type WeatherData } from '../../service/weather';
 
 export default function DashboardScreen() {
+  const { colors } = useTheme();
+  const { spacing, fontSize } = useResponsive();
+  const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
+  const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
   const [settingsVisible, setSettingsVisible] = useState(false);
-  const [savedPlan, setSavedPlan] = useState<any>(null);
-  const [hasSavedPlan, setHasSavedPlan] = useState(false);
+  // const [weather, setWeather] = useState<WeatherData | null>(null);
+  // const [loadingWeather, setLoadingWeather] = useState(true);
+  // const [weatherError, setWeatherError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadSavedPlan();
-  }, []);
+    void fetchWorkoutPlan();
+  }, [fetchWorkoutPlan]);
 
-  const loadSavedPlan = async () => {
-    try {
-      const planData = await storage.getItem(storage.KEYS.TRAINING_PLAN);
-      if (planData) {
-        const parsed = JSON.parse(planData);
-        setSavedPlan(parsed);
-        setHasSavedPlan(true);
-      } else {
-        setHasSavedPlan(false);
-        setSavedPlan(null);
-      }
-    } catch (error) {
-      console.error("Error loading saved plan:", error);
-      setHasSavedPlan(false);
-    }
-  };
+  // useEffect(() => {
+  //   let isActive = true;
 
-  const fullName = `${user?.first_name || ''} ${user?.last_name || ''}`.trim();
+  //   const fetchWeatherData = async () => {
+  //     try {
+  //       setLoadingWeather(true);
+  //       setWeatherError(null);
 
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good Morning';
-    if (hour < 17) return 'Good Afternoon';
-    return 'Good Evening';
-  };
+  //       const hasPermission = await LocationService.requestForegroundPermissions();
+  //       if (!hasPermission) {
+  //         throw new Error('Location permission is required for weather');
+  //       }
 
-  // Check if user profile is complete
-  const isProfileComplete = () => {
-    const profile = user?.profile;
-    return !!(
-      user?.first_name &&
-      user?.last_name &&
-      user?.username &&
-      profile?.gender &&
-      profile?.date_of_birth &&
-      profile?.height_cm &&
-      profile?.weight_kg
-    );
-  };
+  //       const location = await LocationService.getCurrentLocation();
+  //       const weatherData = await getWeatherByLocation(location.latitude, location.longitude);
 
-  // Get today's workout from saved plan
-  const getTodayWorkout = () => {
-    if (!savedPlan || !savedPlan.weeklyWorkouts) return null;
-    
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const today = days[new Date().getDay()];
-    
-    const todayWorkout = savedPlan.weeklyWorkouts.find((w: WorkoutDay) => w.day === today);
-    return todayWorkout;
-  };
+  //       if (isActive) setWeather(weatherData);
+  //     } catch (error) {
+  //       console.error('Failed to fetch weather:', error);
+  //       if (isActive) setWeatherError('Weather unavailable');
+  //     } finally {
+  //       if (isActive) setLoadingWeather(false);
+  //     }
+  //   };
 
-  const todayWorkout = getTodayWorkout();
-  const isRestDay = todayWorkout?.workout === 'Rest' || todayWorkout?.workout === 'Rest Day';
+  //   void fetchWeatherData();
+  //   return () => {
+  //     isActive = false;
+  //   };
+  // }, []);
 
-  // Handle "Get My Plan" button press
-  const handleGetPlan = () => {
-    if (hasSavedPlan) {
-      router.push('/questionnaire');
+  const profile = user?.profile;
+  const canStartAssessment = Boolean(
+    user?.username && profile?.gender &&
+    profile?.date_of_birth && profile?.height_cm && profile?.weight_kg,
+  );
+  const userName = user?.username?.trim() || user?.email?.split('@')[0]?.trim() || 'Runner';
+  // const parsedTemperature = weather?.temperature == null ? null : Number(weather.temperature);
+  // const weatherTemperature = parsedTemperature != null && Number.isFinite(parsedTemperature)
+  //   ? `${Math.round(parsedTemperature)}°C`
+  //   : '--';
+  // const humidityValue = weather?.humidity ?? weather?.relativeHumidity;
+  // const parsedHumidity = humidityValue == null ? null : Number(humidityValue);
+  // const weatherHumidity = parsedHumidity != null && Number.isFinite(parsedHumidity)
+  //   ? `${Math.round(parsedHumidity)}%%`
+  //   : '--';
+  // const weatherCondition = weather?.condition?.toLowerCase() ?? '';
+  // const weatherIcon = weatherCondition.includes('rain') || weatherCondition.includes('drizzle')
+  //   ? 'cloud-rain'
+  //   : weatherCondition.includes('storm') || weatherCondition.includes('thunder')
+  //     ? 'cloud-lightning'
+  //     : weatherCondition.includes('cloud') || weatherCondition.includes('overcast')
+  //       ? 'cloud'
+  //       : 'sun';
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const workouts = workoutPlan?.weeks.flatMap((week) => week.workouts) ?? [];
+  const todayWorkout = workouts.find((workout) => workout.workout_date === todayKey) ?? null;
+  const nextWorkout = workouts
+    .filter((workout) => workout.workout_date > todayKey)
+    .sort((a, b) => a.workout_date.localeCompare(b.workout_date))[0] ?? null;
+
+  const startAssessment = () => {
+    if (!canStartAssessment) {
+      Alert.alert('Complete Your Profile', 'Please complete your profile before starting the assessment.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Go to Profile', onPress: () => router.push('/(app)/profile/edit') },
+      ]);
       return;
     }
-
-    if (!isProfileComplete()) {
-      Alert.alert(
-        'Complete Your Profile',
-        'Please complete your profile before generating a training plan. This includes adding your gender, date of birth, height, and weight.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Go to Profile',
-            onPress: () => router.push('/(app)/profile/edit')
-          }
-        ]
-      );
-      return;
-    }
-
     router.push('/(app)/questionnaire');
   };
 
-  const quickActions = [
-    { label: 'Start Run', icon: '▶️', route: '/(app)/run' },
-    { label: 'Get My Plan', icon: '📋', route: null },
-    { label: 'History', icon: '📊', route: '/(app)/history' },
-    { label: 'Achievements', icon: '🏆', route: '/(app)/achievements' },
-  ];
-
   const handleSettingsOption = (option: string) => {
     setSettingsVisible(false);
-    switch (option) {
-      case 'Edit Profile':
-        router.push('/(app)/profile/edit');
-        break;
-      case 'Change Password':
-        router.push('/(app)/screens/change-password');
-        break;
-      case 'Notifications':
-        router.push('/(app)/screens/notifications');
-        break;
-      case 'Logout':
-        Alert.alert('Logout', 'Are you sure you want to logout?', [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Logout',
-            style: 'destructive',
-            onPress: async () => {
-              await logout();
-              router.replace('/(auth)/login');
-            },
-          },
-        ]);
-        break;
-      default:
-        break;
+    if (option === 'Edit Profile') router.push('/(app)/profile/edit');
+    if (option === 'Change Password' || option === 'Set Password') router.push('/(app)/screens/change-password');
+    if (option === 'Notifications') router.push('/(app)/screens/notifications');
+    if (option === 'Plan') router.push('/(app)/training-plan');
+    if (option === 'Logout') {
+      Alert.alert('Logout', 'Are you sure you want to logout?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Logout', style: 'destructive', onPress: async () => { await logout(); router.replace('/(auth)/login'); } },
+      ]);
     }
   };
 
-  const planStatus = () => {
-    if (hasSavedPlan) {
-      return { label: 'View My Plan', color: '#34C759' };
-    }
-    if (!isProfileComplete()) {
-      return { label: 'Complete Profile First', color: Colors.border };
-    }
-    return { label: 'Get My Plan', color: Colors.primary };
-  };
+  if (isWorkoutPlanLoading && !workoutPlan) {
+    return <View style={[styles.center, { backgroundColor: colors.background }]}><ActivityIndicator size="large" color={BRAND_GREEN} /><Text style={[styles.centerText, { color: colors.text }]}>Loading your dashboard...</Text></View>;
+  }
 
-  const status = planStatus();
+  if (workoutPlanError && !workoutPlan) {
+    return <View style={[styles.center, { backgroundColor: colors.background }]}><Feather name="alert-circle" size={32} color="#FFB020" /><Text style={[styles.centerText, { color: colors.text }]}>{workoutPlanError}</Text><TouchableOpacity style={[styles.retry, { backgroundColor: BRAND_GREEN }]} onPress={() => void fetchWorkoutPlan(true)}><Text style={[styles.retryText, { color: colors.background }]}>Try again</Text></TouchableOpacity></View>;
+  }
 
   return (
-    <View style={styles.container}>
-      <GradientHeader
-        title="Dashboard"
-        subtitle={`${getGreeting()}, ${fullName || 'User'}`}
-        rightIcon={
-          <View style={styles.headerIcons}>
-            <NotificationBell onPress={() => router.push('/(app)/attendance')} />
-            <TouchableOpacity
-              style={styles.settingsButton}
-              onPress={() => setSettingsVisible(true)}
-            >
-              <Text style={styles.settingsIcon}>⚙️</Text>
-            </TouchableOpacity>
-          </View>
-        }
-      />
-
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {/* Stats Row */}
-        <View style={styles.statsRow}>
-          <StatCard
-            title="Distance Today"
-            value={todayWorkout && !isRestDay ? todayWorkout.distance : '0 km'}
-            icon={<Text>🏃</Text>}
-          />
-          <StatCard
-            title="This Week"
-            value={savedPlan ? `${savedPlan.weeklyWorkouts?.filter((w: WorkoutDay) => w.workout !== 'Rest' && w.workout !== 'Rest Day').length || 0} runs` : 'N/A'}
-            icon={<Text>📅</Text>}
-          />
-        </View>
-        <View style={styles.statsRow}>
-          <StatCard
-            title="Plan Type"
-            value={savedPlan?.isFiveKPlan ? '5K Plan' : savedPlan?.isBeginner ? 'Beginner' : 'Custom'}
-            icon={<Text>📋</Text>}
-          />
-          <StatCard
-            title="Week"
-            value={savedPlan ? `Week ${savedPlan.selectedWeek || 1}` : 'N/A'}
-            icon={<Text>📊</Text>}
-          />
-        </View>
-
-        {/* Today's Workout */}
-        {hasSavedPlan && todayWorkout && (
-          <AppCard variant="elevated" padding={Spacing.md} style={styles.todayWorkoutCard}>
-            <View style={styles.todayWorkoutHeader}>
-              <Text style={styles.sectionTitle}>Today's Workout</Text>
-              <Text style={styles.todayDay}>{todayWorkout.day}</Text>
-            </View>
-            {isRestDay ? (
-              <View style={styles.restDayContainer}>
-                <Text style={styles.restDayEmoji}>🧘</Text>
-                <Text style={styles.restDayText}>Rest Day - Active Recovery</Text>
-                <Text style={styles.restDaySubtext}>Take a well-deserved break!</Text>
-              </View>
-            ) : (
-              <View style={styles.workoutPreview}>
-                <View style={styles.workoutPreviewHeader}>
-                  <Text style={styles.workoutPreviewName}>{todayWorkout.workout}</Text>
-                  <View style={[styles.intensityBadge, { backgroundColor: todayWorkout.color }]}>
-                    <Text style={styles.intensityBadgeText}>{todayWorkout.intensity}</Text>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.topBar, { borderBottomColor: colors.border, minHeight: spacing(82) + insets.top, paddingHorizontal: spacing(28), paddingTop: insets.top + spacing(8) }]}>
+        <Text style={[styles.pageTitle, { color: colors.text, fontSize: fontSize(28, 24, 30) }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>Dashboard</Text>
+        <TouchableOpacity style={[styles.headerButton, { width: spacing(46), height: spacing(46), borderRadius: spacing(23), backgroundColor: colors.surfaceRaised, borderColor: colors.border }]} onPress={() => setSettingsVisible(true)}><Feather name="settings" size={spacing(23)} color={colors.textSecondary} /></TouchableOpacity>
+      </View>
+      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: spacing(20), paddingBottom: spacing(118) }]} showsVerticalScrollIndicator={false}>
+        <View style={[styles.greeting, { minHeight: spacing(82), paddingHorizontal: spacing(18), paddingVertical: spacing(14), marginBottom: spacing(14), backgroundColor: colors.surface }]}>
+          <Text style={[styles.greetingText, { color: colors.text, fontSize: fontSize(24, 20, 26) }]} numberOfLines={2}><Text>Hi </Text><Text style={[styles.name, { color: BRAND_GREEN }]}>{userName}</Text></Text>
+              {/*
+              <TouchableOpacity
+                accessibilityLabel="Open current weather details"
+                style={[styles.weather, { backgroundColor: colors.surface, borderColor: BRAND_GREEN }]}
+                onPress={() => router.push('./screens/weather-details')}
+              >
+                {loadingWeather ? <ActivityIndicator size="small" color={BRAND_GREEN} /> : weather?.iconUrl ? <Image source={{ uri: weather.iconUrl }} style={{ width: spacing(24), height: spacing(24) }} /> : <Feather name={weatherIcon} size={spacing(24)} color={BRAND_GREEN} />}
+                <View>
+                  <Text style={[styles.weatherValue, { color: colors.text }]} numberOfLines={1}>{weather?.city || weather?.locationName || 'Current location'}</Text>
+                  <Text style={[styles.weatherValue, { color: colors.textSecondary }]}>{weatherTemperature}</Text>
+                  <View style={styles.weatherHumidity}>
+                    <Feather name="droplet" size={spacing(11)} color={colors.textSecondary} />
+                    <Text style={[styles.weatherValue, { color: colors.textSecondary }]}>{weatherHumidity}</Text>
                   </View>
+                  {weatherError ? <Text style={[styles.weatherStatus, { color: colors.textTertiary }]}>{weatherError}</Text> : null}
                 </View>
-                <View style={styles.workoutPreviewDetails}>
-                  <Text style={styles.workoutPreviewDistance}>{todayWorkout.distance}</Text>
-                  <Text style={styles.workoutPreviewIcon}>{todayWorkout.icon}</Text>
-                </View>
-              </View>
-            )}
-            <TouchableOpacity
-              style={styles.viewPlanButton}
-              onPress={() => router.push('/(app)/training-plan')}
-            >
-              <Text style={styles.viewPlanButtonText}>View Full Plan</Text>
-              <Feather name="arrow-right" size={16} color="#1A1A1A" />
-            </TouchableOpacity>
-          </AppCard>
-        )}
-
-        {/* No Plan Message */}
-        {!hasSavedPlan && (
-          <AppCard variant="elevated" padding={Spacing.md} style={styles.noPlanCard}>
-            <Text style={styles.noPlanEmoji}>📋</Text>
-            <Text style={styles.noPlanTitle}>No Training Plan Yet</Text>
-            <Text style={styles.noPlanSubtext}>
-              Complete your profile and generate a personalized training plan.
-            </Text>
-            
-            {/* Profile Completion Status */}
-            <View style={styles.profileStatusContainer}>
-              <View style={styles.profileStatusRow}>
-                <Feather 
-                  name={user?.first_name ? 'check-circle' : 'circle'} 
-                  size={16} 
-                  color={user?.first_name ? '#34C759' : Colors.border} 
-                />
-                <Text style={[
-                  styles.profileStatusText,
-                  user?.first_name ? styles.profileStatusComplete : null
-                ]}>
-                  First Name {user?.first_name ? '✅' : '❌'}
-                </Text>
-              </View>
-              <View style={styles.profileStatusRow}>
-                <Feather 
-                  name={user?.last_name ? 'check-circle' : 'circle'} 
-                  size={16} 
-                  color={user?.last_name ? '#34C759' : Colors.border} 
-                />
-                <Text style={[
-                  styles.profileStatusText,
-                  user?.last_name ? styles.profileStatusComplete : null
-                ]}>
-                  Last Name {user?.last_name ? '✅' : '❌'}
-                </Text>
-              </View>
-              <View style={styles.profileStatusRow}>
-                <Feather 
-                  name={user?.profile?.gender ? 'check-circle' : 'circle'} 
-                  size={16} 
-                  color={user?.profile?.gender ? '#34C759' : Colors.border} 
-                />
-                <Text style={[
-                  styles.profileStatusText,
-                  user?.profile?.gender ? styles.profileStatusComplete : null
-                ]}>
-                  Gender {user?.profile?.gender ? '✅' : '❌'}
-                </Text>
-              </View>
-              <View style={styles.profileStatusRow}>
-                <Feather 
-                  name={user?.profile?.date_of_birth ? 'check-circle' : 'circle'} 
-                  size={16} 
-                  color={user?.profile?.date_of_birth ? '#34C759' : Colors.border} 
-                />
-                <Text style={[
-                  styles.profileStatusText,
-                  user?.profile?.date_of_birth ? styles.profileStatusComplete : null
-                ]}>
-                  Date of Birth {user?.profile?.date_of_birth ? '✅' : '❌'}
-                </Text>
-              </View>
-              <View style={styles.profileStatusRow}>
-                <Feather 
-                  name={user?.profile?.height_cm ? 'check-circle' : 'circle'} 
-                  size={16} 
-                  color={user?.profile?.height_cm ? '#34C759' : Colors.border} 
-                />
-                <Text style={[
-                  styles.profileStatusText,
-                  user?.profile?.height_cm ? styles.profileStatusComplete : null
-                ]}>
-                  Height {user?.profile?.height_cm ? '✅' : '❌'}
-                </Text>
-              </View>
-              <View style={styles.profileStatusRow}>
-                <Feather 
-                  name={user?.profile?.weight_kg ? 'check-circle' : 'circle'} 
-                  size={16} 
-                  color={user?.profile?.weight_kg ? '#34C759' : Colors.border} 
-                />
-                <Text style={[
-                  styles.profileStatusText,
-                  user?.profile?.weight_kg ? styles.profileStatusComplete : null
-                ]}>
-                  Weight {user?.profile?.weight_kg ? '✅' : '❌'}
-                </Text>
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={[
-                styles.generatePlanButton,
-                (!isProfileComplete() && !hasSavedPlan) ? styles.generatePlanButtonDisabled : null
-              ]}
-              onPress={handleGetPlan}
-              disabled={!isProfileComplete() && !hasSavedPlan}
-            >
-              <Text style={[
-                styles.generatePlanButtonText,
-                (!isProfileComplete() && !hasSavedPlan) ? styles.generatePlanButtonTextDisabled : null
-              ]}>
-                {status.label}
-              </Text>
-            </TouchableOpacity>
-
-            {!isProfileComplete() && (
-              <TouchableOpacity
-                style={styles.completeProfileButton}
-                onPress={() => router.push('/(app)/profile/edit')}
-              >
-                <Text style={styles.completeProfileButtonText}>
-                  Complete Your Profile →
-                </Text>
               </TouchableOpacity>
-            )}
-          </AppCard>
-        )}
-
-        {/* Quick Actions */}
-        <AppCard variant="elevated" padding={Spacing.md} style={styles.quickActionsCard}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.quickActionsContainer}>
-            {quickActions.map((action, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.circularAction}
-                onPress={() => {
-                  if (action.label === 'Get My Plan') {
-                    handleGetPlan();
-                  } else if (action.route) {
-                    router.push(action.route as any);
-                  } else {
-                    Alert.alert('Coming Soon', 'This feature is being developed.');
-                  }
-                }}
-              >
-                <View style={[
-                  styles.circularIcon,
-                  action.label === 'Get My Plan' ? styles.circularIconHighlight : null
-                ]}>
-                  <Text style={styles.circularIconText}>{action.icon}</Text>
-                </View>
-                <Text style={[
-                  styles.circularLabel,
-                  action.label === 'Get My Plan' ? styles.circularLabelHighlight : null
-                ]}>
-                  {action.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </AppCard>
-
-        <View style={styles.profileLink}>
-          <PrimaryButton
-            title="View Full Profile"
-            onPress={() => router.push('/(app)/profile')}
-            variant="outline"
-          />
+              */}
         </View>
+        {workoutPlan ? <DashboardActivePlan todayWorkout={todayWorkout} nextWorkout={nextWorkout} /> : <DashboardNoPlan canStartAssessment={canStartAssessment} onStartAssessment={startAssessment} />}
       </ScrollView>
-
       <SettingsMenu
         visible={settingsVisible}
         onClose={() => setSettingsVisible(false)}
         onSelect={handleSettingsOption}
+        hasPassword={user?.hasPassword ?? null}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  scrollContent: { padding: Spacing.md, paddingBottom: Spacing.xxl },
-  headerIcons: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  settingsButton: { padding: Spacing.xs },
-  settingsIcon: { fontSize: 22, color: Colors.text },
-  statsRow: { flexDirection: 'row', gap: Spacing.md, marginBottom: Spacing.md },
-  quickActionsCard: { marginBottom: Spacing.md },
-  sectionTitle: { ...Typography.h4, color: Colors.text, marginBottom: Spacing.md },
-  quickActionsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    flexWrap: 'wrap',
-  },
-  circularAction: { alignItems: 'center', gap: Spacing.xs, width: 70 },
-  circularIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: Colors.surfaceLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.primary + '40',
-  },
-  circularIconHighlight: {
-    backgroundColor: Colors.primary + '20',
-    borderColor: Colors.primary,
-    borderWidth: 2,
-  },
-  circularIconText: { fontSize: 24 },
-  circularLabel: { ...Typography.caption, color: Colors.textSecondary, textAlign: 'center' },
-  circularLabelHighlight: {
-    color: Colors.primary,
-    fontWeight: '600',
-  },
-  profileLink: { marginTop: Spacing.md, marginBottom: Spacing.xl },
-
-  // Today's Workout Styles
-  todayWorkoutCard: {
-    marginBottom: Spacing.md,
-    borderLeftWidth: 4,
-    borderLeftColor: '#34C759',
-  },
-  todayWorkoutHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.sm,
-  },
-  todayDay: {
-    ...Typography.body,
-    fontWeight: '700',
-    color: '#34C759',
-  },
-  workoutPreview: {
-    paddingVertical: Spacing.sm,
-  },
-  workoutPreviewHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  workoutPreviewName: {
-    ...Typography.h4,
-    color: Colors.text,
-    fontWeight: '600',
-  },
-  intensityBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  intensityBadgeText: {
-    fontSize: 10,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  workoutPreviewDetails: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    marginTop: 4,
-  },
-  workoutPreviewDistance: {
-    ...Typography.body,
-    color: Colors.textSecondary,
-  },
-  workoutPreviewIcon: {
-    fontSize: 20,
-  },
-  restDayContainer: {
-    alignItems: 'center',
-    paddingVertical: Spacing.sm,
-  },
-  restDayEmoji: {
-    fontSize: 32,
-    marginBottom: 4,
-  },
-  restDayText: {
-    ...Typography.h4,
-    color: Colors.text,
-    fontWeight: '500',
-  },
-  restDaySubtext: {
-    ...Typography.caption,
-    color: Colors.textSecondary,
-  },
-  viewPlanButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
-    marginTop: Spacing.sm,
-    paddingVertical: Spacing.sm,
-    backgroundColor: '#34C75920',
-    borderRadius: BorderRadius.md,
-  },
-  viewPlanButtonText: {
-    ...Typography.body,
-    color: '#1A1A1A',
-    fontWeight: '600',
-  },
-
-  // No Plan Styles
-  noPlanCard: {
-    alignItems: 'center',
-    paddingVertical: Spacing.xl,
-    marginBottom: Spacing.md,
-  },
-  noPlanEmoji: {
-    fontSize: 48,
-    marginBottom: Spacing.sm,
-  },
-  noPlanTitle: {
-    ...Typography.h3,
-    color: Colors.text,
-    fontWeight: '600',
-  },
-  noPlanSubtext: {
-    ...Typography.body,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    marginTop: Spacing.xs,
-    marginBottom: Spacing.md,
-  },
-  profileStatusContainer: {
-    width: '100%',
-    paddingHorizontal: Spacing.md,
-    marginBottom: Spacing.md,
-  },
-  profileStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    paddingVertical: 4,
-  },
-  profileStatusText: {
-    ...Typography.bodySmall,
-    color: Colors.textSecondary,
-  },
-  profileStatusComplete: {
-    color: '#34C759',
-    fontWeight: '600',
-  },
-  generatePlanButton: {
-    backgroundColor: '#34C759',
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.xl,
-    borderRadius: BorderRadius.md,
-    width: '100%',
-    alignItems: 'center',
-  },
-  generatePlanButtonDisabled: {
-    backgroundColor: Colors.border,
-  },
-  generatePlanButtonText: {
-    ...Typography.body,
-    color: '#1A1A1A',
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  generatePlanButtonTextDisabled: {
-    color: Colors.textMuted,
-  },
-  completeProfileButton: {
-    marginTop: Spacing.sm,
-    paddingVertical: Spacing.sm,
-  },
-  completeProfileButtonText: {
-    ...Typography.body,
-    color: Colors.primary,
-    fontWeight: '500',
-  },
+  container: { flex: 1, backgroundColor: '#0B0E0F' },
+  topBar: { minHeight: 82, paddingHorizontal: 28, paddingTop: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#282B2D' },
+  pageTitle: { color: '#F7F7F7', fontSize: 28, fontWeight: '700', fontStyle: 'italic' },
+  headerButton: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: '#25282A', borderWidth: 1, borderColor: '#55595B' },
+  content: { paddingHorizontal: 20, paddingBottom: 118 },
+  greeting: { minHeight: 82, paddingHorizontal: 18, paddingVertical: 14, marginBottom: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#050607', borderRadius: 22 },
+  greetingText: { color: '#F7F7F7', fontSize: 24, fontWeight: '700', flex: 1, marginRight: 10 },
+  name: { color: '#88C99A' },
+  weather: { minHeight: 64, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, borderWidth: 1.5, flexShrink: 0 },
+  weatherLabel: { color: '#DDE2DE', fontSize: 12, fontWeight: '700' },
+  weatherValue: { color: '#DDE2DE', fontSize: 11, lineHeight: 14 },
+  // weatherHumidity: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  // weatherStatus: { fontSize: 9, lineHeight: 12 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#0B0E0F' },
+  centerText: { color: '#F7F7F7', textAlign: 'center', marginTop: 14 },
+  retry: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 12 },
+  retryText: { color: '#FFFFFF', fontWeight: '700' },
 });

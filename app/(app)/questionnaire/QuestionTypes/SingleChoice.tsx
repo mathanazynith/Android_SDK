@@ -64,13 +64,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     padding: 16,
-    backgroundColor: "#f8f8f8",
+    backgroundColor: "#303236",
     borderRadius: 10,
     borderWidth: 2,
     borderColor: "transparent",
   },
   selectedOption: {
-    backgroundColor: "#e8f5e9",
+    backgroundColor: "#253525",
     borderColor: "#34C759",
   },
   radioCircle: {
@@ -78,7 +78,7 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: "#666",
+    borderColor: "#8B8D90",
     marginRight: 12,
     justifyContent: "center",
     alignItems: "center",
@@ -94,11 +94,11 @@ const styles = StyleSheet.create({
   },
   optionText: {
     fontSize: 16,
-    color: "#333",
+    color: "#F4F4F5",
     flex: 1,
   },
   selectedText: {
-    color: "#2E7D32",
+    color: "#34C759",
     fontWeight: "600",
   },
 });

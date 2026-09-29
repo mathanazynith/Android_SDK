@@ -137,24 +137,41 @@ export const timeToSeconds = (time: string): number | null => {
 /**
  * Format time from components to HH:MM:SS string
  */
+export const normalizeTimePartValue = (value: string, maxLength: number = 2): string => {
+  const cleaned = String(value ?? "").replace(/\D/g, "").slice(0, maxLength);
+  return cleaned;
+};
+
 export const formatTimeFromComponents = (hours: string, minutes: string, seconds: string): string => {
-  const h = hours.padStart(2, '0');
-  const m = minutes.padStart(2, '0');
-  const s = seconds.padStart(2, '0');
+  const h = String(hours ?? "").padStart(2, "0");
+  const m = String(minutes ?? "").padStart(2, "0");
+  const s = String(seconds ?? "").padStart(2, "0");
   return `${h}:${m}:${s}`;
 };
 
 /**
- * Calculate pace (MM:SS/km) from time and distance
+ * Calculate pace from time and distance using the selected unit system
  */
-export const calculatePace = (timeSeconds: number, distanceKm: number): string => {
+export const calculatePace = (
+  timeSeconds: number,
+  distanceKm: number,
+  distanceUnit: string | null | undefined = "km"
+): string => {
   if (!timeSeconds || timeSeconds <= 0 || !distanceKm || distanceKm <= 0) {
     return "";
   }
 
-  const paceSeconds = timeSeconds / distanceKm;
+  const normalizedUnit = String(distanceUnit || "km").trim().toLowerCase();
+  const paceUnit = normalizedUnit === "mi" || normalizedUnit === "mile" || normalizedUnit === "miles"
+    ? "min/mile"
+    : "min/km";
+
+  // `distanceKm` is canonical. Convert only for an imperial pace display so
+  // the numerical pace and its unit always describe the same distance.
+  const paceDistance = paceUnit === "min/mile" ? distanceKm / 1.60934 : distanceKm;
+  const paceSeconds = timeSeconds / paceDistance;
   const minutes = Math.floor(paceSeconds / 60);
   const seconds = Math.round(paceSeconds % 60);
-  
-  return `${minutes}:${seconds.toString().padStart(2, "0")} min/km`;
+
+  return `${minutes}:${seconds.toString().padStart(2, "0")} ${paceUnit}`;
 };

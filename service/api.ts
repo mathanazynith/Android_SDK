@@ -1,30 +1,28 @@
 import axios from "axios";
-import { Platform } from "react-native";
-import Constants from "expo-constants";
 import { storage } from "./storage";
 
-const API_BASE_URL = (() => {
-  if (Platform.OS === "android") {
-    if (Constants.isDevice === false) {
-      return "http://10.0.2.2:8000/api/v1";
-    }
-    return "http://192.168.88.20:8000/api/v1";
-  }
+const envApiUrl = (process.env.EXPO_PUBLIC_API_URL || "https://zyrun.zynith-it.com").trim();
+const normalizedApiBase = envApiUrl.endsWith("/api/v1")
+  ? envApiUrl.replace(/\/+$/, "")
+  : `${envApiUrl.replace(/\/+$/, "")}/api/v1`;
 
-  if (Platform.OS === "web") {
-    return "http://localhost:8000/api/v1";
-  }
+export const API_BASE_URL = normalizedApiBase;
+export const API_ROOT_URL = API_BASE_URL.replace(/\/api\/v1$/, "");
 
-  return "http://192.168.88.20:8000/api/v1";
-})();
+export const resolveApiUrl = (value?: string | null) => {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith("/")) return `${API_ROOT_URL}${value}`;
+  return `${API_BASE_URL}/${value}`;
+};
 
 console.log("API_BASE_URL", API_BASE_URL);
-console.log("Platform.OS", Platform.OS, "isDevice", Constants.isDevice);
 
 export const API_ENDPOINTS = {
   auth: {
     login: "/auth/login/",
     signup: "/auth/signup/",
+    usernameAvailable: "/auth/username-available/",
     forgotPassword: "/auth/password-reset/",
     resetPassword: "/auth/password-reset/confirm/",
     verifyOTP: "/auth/verify-otp/",
@@ -33,6 +31,11 @@ export const API_ENDPOINTS = {
   user: {
     profile: "/auth/profile/",
     updateProfile: "/auth/profile/",
+  },
+  legal: {
+    list: "/legal/",
+    termsAndConditions: "/legal/terms-and-conditions/",
+    privacyPolicy: "/legal/privacy-policy/",
   },
 };
 
@@ -204,6 +207,9 @@ export const authAPI = {
     phone_number?: string;
   }) => api.post("/auth/signup/", data),
 
+  usernameAvailable: (username: string) =>
+    api.get(API_ENDPOINTS.auth.usernameAvailable, { params: { username } }),
+
   login: (data: { identifier: string; password: string }) =>
     api.post("/auth/login/", data),
 
@@ -230,11 +236,26 @@ export const authAPI = {
 
   updateProfile: (data: any) => api.patch("/auth/profile/", data),
 
+  uploadProfilePicture: (data: FormData) =>
+    api.patch("/auth/profile/", data, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+
   changePassword: (data: {
     current_password?: string;
     password: string;
     password2: string;
   }) => api.post("/auth/change-password/", data),
+
+  updatePassword: (data: {
+    currentPassword?: string;
+    newPassword: string;
+    confirmPassword: string;
+  }) => api.post("/auth/change-password/", {
+    ...(data.currentPassword ? { current_password: data.currentPassword } : {}),
+    password: data.newPassword,
+    password2: data.confirmPassword,
+  }),
 
   logout: (data: { refresh?: string }) => api.post("/auth/logout/", data),
 
@@ -242,15 +263,147 @@ export const authAPI = {
     api.post("/auth/admin-login/", data),
 };
 
+export type LegalPolicyType = "terms-and-conditions" | "privacy-policy";
+
+export interface LegalPolicy {
+  title: string;
+  content: string;
+  version: number;
+  published_at: string | null;
+}
+
+/** Public endpoints: published documents do not require authentication. */
+export const legalAPI = {
+  getPolicies: () => api.get<LegalPolicy[]>(API_ENDPOINTS.legal.list),
+  getPolicy: (policyType: LegalPolicyType) =>
+    api.get<LegalPolicy>(
+      policyType === "privacy-policy"
+        ? API_ENDPOINTS.legal.privacyPolicy
+        : API_ENDPOINTS.legal.termsAndConditions
+    ),
+};
+
+const normalizeErrorResponse = (value: any): string | null => {
+  if (value == null) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    const messages = value
+      .map(normalizeErrorResponse)
+      .filter((item): item is string => Boolean(item));
+    if (messages.length === 0) {
+      return null;
+    }
+    return messages.join(" ");
+  }
+
+  if (typeof value === "object") {
+    const preferredKeys = ["detail", "message", "non_field_errors", "errors"];
+    for (const key of preferredKeys) {
+      if (Object.prototype.hasOwnProperty.call(value, key)) {
+        const normalized = normalizeErrorResponse(value[key]);
+        if (normalized) {
+          return normalized;
+        }
+      }
+    }
+
+    const keys = Object.keys(value);
+    for (const key of keys) {
+      const normalized = normalizeErrorResponse(value[key]);
+      if (normalized) {
+        return normalized;
+      }
+    }
+  }
+
+  return null;
+};
+
+const isHtmlResponse = (value: unknown): value is string => (
+  typeof value === "string" && /<\s*(!doctype|html|head|body|title|h1)\b/i.test(value)
+);
+
+export const getBackendErrorMessage = (error: any, fallbackMessage = "An unexpected error occurred."): string => {
+  const responseData = error?.response?.data;
+
+  if (isHtmlResponse(responseData)) {
+    return error?.response?.status >= 500
+      ? "The server could not load this right now. Please try again shortly."
+      : "Unable to load the latest data right now. Please try again.";
+  }
+
+  const parsedMessage = normalizeErrorResponse(responseData);
+  if (parsedMessage) {
+    return parsedMessage;
+  }
+
+  if (typeof error?.message === "string" && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return fallbackMessage;
+};
+
 export const assessmentAPI = {
   getQuestions: () => api.get("/assessments/questions/"),
   start: () => api.post("/assessments/start/"),
-  submitAnswers: (assessmentId: number, answers: any[]) =>
-    api.post(`/assessments/${assessmentId}/answers/`, { answers }),
+  // submitAnswers: (assessmentId: number, answers: any[]) =>
+  //   api.post(`/assessments/${assessmentId}/answers/`, { answers }),
+
+  submitAnswers: async (assessmentId: number, answers: any[]) => {
+      const payload = { answers };
+
+      console.log("========== SUBMIT ANSWERS ==========");
+      console.log("Assessment ID:", assessmentId);
+      console.log("Request URL:", `/assessments/${assessmentId}/answers/`);
+      console.log("Payload:");
+      console.log(JSON.stringify(payload, null, 2));
+
+      try {
+        const response = await api.post(
+          `/assessments/${assessmentId}/answers/`,
+          payload
+        );
+
+        console.log("========== RESPONSE ==========");
+        console.log(JSON.stringify(response.data, null, 2));
+
+        return response;
+      } catch (error: any) {
+        console.log("========== API ERROR ==========");
+        console.log("Status:", error?.response?.status);
+        console.log(
+          "Response:",
+          JSON.stringify(error?.response?.data, null, 2)
+        );
+        throw error;
+      }
+    },
+  goBack: (assessmentId: number) =>
+    api.post(`/assessments/${assessmentId}/answers/back/`),
   getResults: (assessmentId: number) =>
     api.get(`/assessments/${assessmentId}/results/`),
-  back: (assessmentId: number) =>
-    api.post(`/assessments/${assessmentId}/answers/back/`),
+};
+
+// The server generates and persists the user's Couch-to-5K calendar after a
+// completed assessment.  This is deliberately separate from the assessment
+// result, which only contains recommendation metadata.
+export const workoutPlanAPI = {
+  getCurrent: () => api.get("/workout-plans/current/"),
+  endCurrent: () => api.post("/workout-plans/end/"),
+  setBenchmark: (workoutId: number, is_benchmark: boolean) =>
+    api.patch(`/workouts/${workoutId}/`, { is_benchmark }),
 };
 
 export default api;

@@ -1,0 +1,184 @@
+import api from "./api";
+
+export type CustomSegmentType = "Warmup" | "Run" | "Cooldown";
+export type SegmentInputType = "DURATION" | "DISTANCE";
+export type DistanceUnit = "km" | "mi" | "m" | "mile";
+
+export interface CustomWorkoutSegmentWritePayload {
+  segment_order: number;
+  segment_type: CustomSegmentType;
+  input_type?: SegmentInputType;
+  duration?: number | null;
+  distance?: number | null;
+  distance_unit?: DistanceUnit | null;
+  pace?: string | null;
+  repeats?: number;
+  rest_duration?: number | null;
+  skip_last_rest?: boolean;
+  notes?: string;
+}
+
+export interface CustomWorkoutWritePayload {
+  id?: number;
+  title: string;
+  workout_date?: string | null;
+  notes?: string;
+  is_benchmark?: boolean;
+  is_custom?: boolean;
+  workout_type?: string;
+  distance?: number | null;
+  duration?: number | null;
+  segments: CustomWorkoutSegmentWritePayload[];
+}
+
+export interface UserWorkoutSegmentResponse {
+  id: number;
+  segment_order: number;
+  segment_type: CustomSegmentType;
+  input_type: SegmentInputType;
+  duration: number | null;
+  rep_distance: number | null;
+  distance: number | null;
+  display_distance: number | null;
+  distance_unit: string;
+  target_pace: string | null;
+  pace_unit: string;
+  pace: string | null;
+  repeats: number;
+  rest_duration: number | null;
+  skip_last_rest: boolean;
+  notes: string;
+}
+
+export interface UserWorkoutResponse {
+  id: number;
+  plan: number | null;
+  template_workout: number | null;
+  is_custom: boolean;
+  is_benchmark?: boolean;
+  week_number: number | null;
+  display_order: number;
+  workout_date: string | null;
+  weekday: string | null;
+  workout_type: string;
+  title: string;
+  duration: number | null;
+  distance: number | null;
+  display_distance: number | null;
+  distance_unit: string;
+  target_pace: string | null;
+  pace: string | null;
+  pace_unit: string;
+  zone: string;
+  notes: string;
+  priority: number;
+  segments: UserWorkoutSegmentResponse[];
+  assigned_route?: SuggestedRoute | null;
+  assignedRoute?: SuggestedRoute | null;
+  route?: SuggestedRoute | null;
+}
+
+export interface SuggestedRoute {
+  id: number;
+  name?: string | null;
+  description?: string | null;
+  distance: number;
+  estimated_duration?: number | null;
+  elevation_gain: number;
+  elevation_loss: number;
+  min_elevation?: number | null;
+  max_elevation?: number | null;
+  encoded_polyline?: string | null;
+}
+
+const assignedRouteCache = new Map<number, SuggestedRoute>();
+
+export const cacheAssignedRoute = (workoutId: number, route: SuggestedRoute) => {
+  assignedRouteCache.set(workoutId, route);
+};
+
+export const getCachedAssignedRoute = (workoutId: number) => assignedRouteCache.get(workoutId) || null;
+
+export const clearCachedAssignedRoute = (workoutId: number) => {
+  assignedRouteCache.delete(workoutId);
+};
+
+export type SuggestedRoutesResponse =
+  | SuggestedRoute[]
+  | {
+      results?: SuggestedRoute[];
+      data?: SuggestedRoute[];
+      routes?: SuggestedRoute[];
+      suggested_routes?: SuggestedRoute[];
+      suggestions?: SuggestedRoute[];
+    };
+
+export const customWorkoutAPI = {
+  list: () => api.get<UserWorkoutResponse[]>("/workouts/custom/"),
+  get: (id: number) => api.get<UserWorkoutResponse>(`/workouts/${id}/`),
+  create: (data: CustomWorkoutWritePayload) => api.post<UserWorkoutResponse>("/workouts/", data),
+  update: (id: number, data: CustomWorkoutWritePayload) => api.put<UserWorkoutResponse>(`/workouts/${id}/`, data),
+  patch: (id: number, data: Partial<CustomWorkoutWritePayload>) => api.patch<UserWorkoutResponse>(`/workouts/${id}/`, data),
+  setBenchmark: (id: number, is_benchmark: boolean) => api.patch<UserWorkoutResponse>(`/workouts/${id}/`, { is_benchmark }),
+  delete: (id: number) => api.delete(`/workouts/${id}/`),
+  duplicate: (id: number) => api.post<UserWorkoutResponse>(`/workouts/${id}/duplicate/`),
+  schedule: (id: number, workout_date: string) => api.post<UserWorkoutResponse>(`/workouts/${id}/schedule/`, { workout_date }),
+  unschedule: (id: number) => api.post<UserWorkoutResponse>(`/workouts/${id}/unschedule/`),
+  suggestedRoutes: (id: number) => api.get<SuggestedRoutesResponse>(`/workouts/${id}/suggested-routes/`),
+  assignRoute: (id: number, routeId: number) =>
+    api.post<UserWorkoutResponse>(`/workouts/${id}/assign-route/`, { route_id: routeId }),
+  removeRoute: (id: number) => api.delete(`/workouts/${id}/remove-route/`),
+};
+
+// Utilities for conversion between frontend state and backend serializer format
+export const timeStringToSeconds = (timeStr?: string | null): number | null => {
+  if (!timeStr) return null;
+  const parts = timeStr.trim().split(":").map(Number);
+  if (parts.length === 3) {
+    const total = (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+    return total > 0 ? total : null;
+  }
+  if (parts.length === 2) {
+    const total = (parts[0] || 0) * 60 + (parts[1] || 0);
+    return total > 0 ? total : null;
+  }
+  const numeric = Number(timeStr);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+};
+
+export const secondsToTimeString = (sec?: number | null): string => {
+  if (!sec || sec <= 0) return "00:00:00";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.round(sec % 60);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+};
+
+export const cleanPaceString = (paceStr?: string | null): string | null => {
+  if (!paceStr) return null;
+  const match = paceStr.match(/(\d+)\s*:\s*(\d+(?:\.\d+)?)/);
+  if (!match) return null;
+  return `${match[1]}:${match[2].padStart(2, "0")}`;
+};
+
+export const canonicalDistanceUnit = (
+  unitStr?: string | null,
+  stepType: CustomSegmentType = "Run"
+): DistanceUnit => {
+  if (!unitStr) return "km";
+  const lower = unitStr.toLowerCase().trim();
+  // Check kilometers first because "kilometer" contains "meter"
+  if (lower === "km" || lower.includes("kilo") || lower.includes("(km)")) {
+    return "km";
+  }
+  // Check miles
+  if (lower === "mi" || lower.includes("mile") || lower.includes("(mi)")) {
+    return "mi";
+  }
+  // Check meters (only for Run segments)
+  if (lower === "m" || lower === "meter" || lower === "meters" || lower.includes("(m)")) {
+    return stepType === "Run" ? "m" : "km";
+  }
+  return "km";
+};
+

@@ -1,824 +1,370 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
-  SafeAreaView,
-} from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
-import { getAnswerValue } from '../../../service/questionnaire/questionnaireService';
-import { Feather, Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../../../service/auth';
+import { workoutPlanService, type CurrentWorkout, type UserWorkoutResponse } from '../../../service/workoutPlan';
+import {
+    PlanBenchmarkStore,
+    type PlanBenchmarkAssignment,
+} from '../../../src/services/planBenchmarkStore';
+import RunningPlanHeader from './components/RunningPlanHeader';
+import Timeline from './components/Timeline';
+import TrainingCalendarCard from './components/TrainingCalendarCard';
+import { RunningPlanData, RunningPlanWeek, WorkoutDetail } from './components/types';
+import WorkoutModal from './components/WorkoutModal';
 
-interface RunningDay {
-  day: string;
-  dayIndex: number;
-  selected: boolean;
-  isLongRun: boolean;
-}
+const iconForWorkout = (workout: CurrentWorkout): WorkoutDetail['iconName'] => {
+  const label = `${workout.workout_type} ${workout.title}`.toLowerCase();
+  if (label.includes('rest')) return 'moon-outline';
+  if (label.includes('interval')) return 'flash-outline';
+  if (label.includes('tempo')) return 'speedometer-outline';
+  if (label.includes('recovery')) return 'heart-outline';
+  return 'walk-outline';
+};
+const formatDuration = (seconds: number | null) => seconds == null ? '' : `${Math.round(seconds / 60)} min`;
+const formatDistance = (metres: number | null) => metres == null ? '' : `${metres / 1000} km`;
+const formatSegment = (segment: CurrentWorkout['segments'][number]) => [
+  segment.segment_type,
+  segment.repeats > 1 ? `${segment.repeats}×` : '',
+  segment.rep_distance != null ? `${segment.rep_distance / 1000} km` : '',
+  segment.duration != null ? formatDuration(segment.duration) : '',
+  segment.target_pace ? `${segment.target_pace} ${segment.pace_unit}`.trim() : '',
+  segment.rest_duration != null ? `rest ${formatDuration(segment.rest_duration)}` : '',
+  segment.notes,
+].filter(Boolean).join(' · ');
 
-const DAYS_OF_WEEK = [
-  { day: 'Sun', index: 0 },
-  { day: 'Mon', index: 1 },
-  { day: 'Tue', index: 2 },
-  { day: 'Wed', index: 3 },
-  { day: 'Thu', index: 4 },
-  { day: 'Fri', index: 5 },
-  { day: 'Sat', index: 6 },
-];
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-// Workout type configurations
-const WORKOUT_TYPES = {
-  easy: { label: 'Easy Run', intensity: 'Easy', color: '#34C759', icon: '😊' },
-  intervals: { label: 'Intervals', intensity: 'Hard', color: '#FF3B30', icon: '⚡' },
-  recovery: { label: 'Recovery', intensity: 'Easy', color: '#8E8E93', icon: '🔄' },
-  tempo: { label: 'Tempo Run', intensity: 'Medium', color: '#FF9500', icon: '🏃' },
-  long: { label: 'Long Run', intensity: 'Medium', color: '#34C759', icon: '⭐' },
+const formatDateKey = (date: Date) => {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const addDays = (dateKey: string, days: number) => {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return formatDateKey(date);
+};
+
+const mondayFor = (dateKey: string) => {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  const mondayOffset = (date.getUTCDay() + 6) % 7;
+  return addDays(dateKey, -mondayOffset);
+};
+
+const createRestWorkout = (weekNumber: number, displayOrder: number, workoutDate: string): CurrentWorkout => ({
+  week_number: weekNumber,
+  display_order: displayOrder,
+  workout_date: workoutDate,
+  weekday: WEEKDAYS[displayOrder - 1],
+  workout_type: 'Rest',
+  title: 'Rest Day',
+  duration: null,
+  distance: null,
+  target_pace: null,
+  pace_unit: '',
+  zone: '',
+  warmup: null,
+  cooldown: null,
+  notes: 'Recovery',
+  priority: 0,
+  segments: [],
+});
+
+const completeWeek = (week: { week_number: number; workouts: CurrentWorkout[] }, planStartDate: string) => {
+  const existingDates = week.workouts.map((workout) => workout.workout_date).filter(Boolean).sort();
+  const weekStart = existingDates.length ? mondayFor(existingDates[0]) : addDays(mondayFor(planStartDate), (week.week_number - 1) * 7);
+  const workoutsByDate = new Map(week.workouts.map((workout) => [workout.workout_date, workout]));
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const workoutDate = addDays(weekStart, index);
+    return workoutsByDate.get(workoutDate) ?? createRestWorkout(week.week_number, index + 1, workoutDate);
+  });
+};
+
+const toWorkoutDetail = (
+  workout: CurrentWorkout,
+  benchmarkAssignments: Record<string, PlanBenchmarkAssignment> = {},
+  dbPlanWorkouts: UserWorkoutResponse[] = []
+): WorkoutDetail => {
+  const isRest = `${workout.workout_type} ${workout.title}`.toLowerCase().includes('rest');
+  const date = workout.workout_date ? new Date(`${workout.workout_date}T00:00:00`) : null;
+  const title = workout.title || workout.workout_type || 'Workout';
+  const workoutId = `${workout.week_number}-${workout.display_order}-${workout.workout_date}`;
+  const weekOrderKey = `${workout.week_number}-${workout.display_order}`;
+  const normTitle = (s?: string | null) => (s || '').trim().toLowerCase();
+  const normDate = (s?: string | null) => (s || '').trim().slice(0, 10);
+
+  // Match against plan workouts in database table where is_custom === false
+  const dbMatch = !isRest
+    ? dbPlanWorkouts.find((w) => {
+        if (w.workout_date && workout.workout_date && normDate(w.workout_date) === normDate(workout.workout_date)) return true;
+        if (w.week_number === workout.week_number && w.display_order === workout.display_order) return true;
+        if (w.week_number === workout.week_number && w.weekday && workout.weekday && w.weekday.toLowerCase() === workout.weekday.toLowerCase()) return true;
+        if (w.week_number === workout.week_number && normTitle(w.title) === normTitle(title)) return true;
+        return false;
+      })
+    : undefined;
+
+  const assignment = isRest
+    ? undefined
+    : (workout.workout_date && benchmarkAssignments[normDate(workout.workout_date)]) ||
+      (workout.workout_date && benchmarkAssignments[workout.workout_date]) ||
+      benchmarkAssignments[workoutId] ||
+      benchmarkAssignments[weekOrderKey] ||
+      (dbMatch?.id ? benchmarkAssignments[String(dbMatch.id)] : undefined) ||
+      undefined;
+
+  const isBenchmark = assignment !== undefined
+    ? Boolean(assignment.isBenchmark)
+    : dbMatch !== undefined
+    ? Boolean(dbMatch.is_benchmark)
+    : Boolean(workout.is_benchmark);
+  const workoutDbId = dbMatch?.id || (workout as any).id || (workout as any).workout_id || assignment?.workoutDbId;
+
+  return {
+    id: workoutId,
+    workoutDbId,
+    rawDate: workout.workout_date,
+    weekNumber: workout.week_number,
+    displayOrder: workout.display_order,
+    day: workout.weekday ? `${workout.weekday.slice(0, 1)}${workout.weekday.slice(1).toLowerCase()}` : '',
+    date: date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '',
+    title,
+    workoutType: isRest ? 'Recovery' : workout.workout_type,
+    iconName: iconForWorkout(workout),
+    accentColor: isRest ? '#8A8F94' : isBenchmark ? '#F59E0B' : '#63C72B',
+    isRest,
+    isBenchmark,
+    benchmarkTitle: assignment?.benchmarkTitle || (isBenchmark ? title : undefined),
+    benchmarkType: assignment?.benchmarkType || (isBenchmark ? 'plan' : undefined),
+    customWorkoutId: assignment?.customWorkoutId,
+    description: workout.notes,
+    instructions: '',
+    warmUp: formatDistance(workout.warmup),
+    steps: workout.segments.map(formatSegment).filter(Boolean),
+    coolDown: formatDistance(workout.cooldown),
+    estimatedDuration: formatDuration(workout.duration),
+    estimatedCalories: '',
+    targetPace: workout.target_pace ? `${workout.target_pace} ${workout.pace_unit}`.trim() : '',
+    heartRateZone: workout.zone,
+    distance: formatDistance(workout.distance),
+    notes: workout.notes,
+    segments: workout.segments.map((segment) => ({
+      order: segment.segment_order,
+      type: segment.segment_type,
+      repeats: segment.repeats,
+      distance: segment.rep_distance != null ? `${segment.rep_distance / 1000} km` : '',
+      duration: formatDuration(segment.duration),
+      pace: segment.target_pace ? `${segment.target_pace} ${segment.pace_unit}`.trim() : '',
+      rest: segment.rest_duration != null ? formatDuration(segment.rest_duration) : '',
+      notes: segment.notes,
+    })),
+  };
 };
 
 export default function CalendarScreen() {
-  const params = useLocalSearchParams();
-  const { answers } = useQuestionnaire();
-  const [loading, setLoading] = useState(false);
-  const [userDays, setUserDays] = useState<number>(0);
-  const [selectedDays, setSelectedDays] = useState<RunningDay[]>(
-    DAYS_OF_WEEK.map(d => ({
-      day: d.day,
-      dayIndex: d.index,
-      selected: false,
-      isLongRun: false,
-    }))
-  );
-  const [isFiveKPlan, setIsFiveKPlan] = useState<boolean>(false);
-  const [isBeginner, setIsBeginner] = useState<boolean>(false);
-  const [isInitialized, setIsInitialized] = useState<boolean>(false);
-  const [isPlanGenerated, setIsPlanGenerated] = useState<boolean>(false);
-  const [selectedCount, setSelectedCount] = useState<number>(0);
-
-  const hasInitialized = useRef(false);
-
+  const { user } = useAuth();
+  const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
+  const [selectedWeekIndex, setSelectedWeekIndex] = useState(0);
+  const [selectedWorkout, setSelectedWorkout] = useState<WorkoutDetail | null>(null);
+  const [benchmarkAssignments, setBenchmarkAssignments] = useState<Record<string, PlanBenchmarkAssignment>>({});
+  const [dbPlanWorkouts, setDbPlanWorkouts] = useState<UserWorkoutResponse[]>([]);
+  const pagerRef = useRef<FlatList<RunningPlanWeek>>(null);
+  const { width: windowWidth } = useWindowDimensions();
+  const pageWidth = Math.max(0, windowWidth - 36);
+  const userName = user?.username?.trim() || user?.email?.split('@')[0]?.trim() || 'Runner';
   useEffect(() => {
-    if (hasInitialized.current) return;
-    hasInitialized.current = true;
+    fetchWorkoutPlan();
+    PlanBenchmarkStore.getAssignments().then(setBenchmarkAssignments);
+    const unsub = PlanBenchmarkStore.subscribe(setBenchmarkAssignments);
 
-    console.log("===== Calendar Initialization =====");
-    console.log("Params:", params);
-    console.log("Answers:", (answers || []).map((a: any) => ({ id: a.questionId, value: a.value })));
+    // Sync plan benchmarks directly from database workouts table (where is_custom === false and is_benchmark === true)
+    workoutPlanService
+      .getPlanWorkouts()
+      .then((planWorkouts) => {
+        setDbPlanWorkouts(planWorkouts);
+        const serverBenchMap: Record<string, PlanBenchmarkAssignment> = {};
 
-    const beginnerParam = params.isBeginner === 'true';
-    setIsBeginner(beginnerParam);
+        planWorkouts.forEach((w) => {
+          if (w.is_benchmark) {
+            const dateKey = w.workout_date ? w.workout_date.slice(0, 10) : '';
+            const orderKey = `${w.week_number}-${w.display_order}-${w.workout_date || ''}`;
+            const weekOrderKey = `${w.week_number}-${w.display_order}`;
+            const assignment: PlanBenchmarkAssignment = {
+              workoutKey: dateKey || orderKey,
+              isBenchmark: true,
+              benchmarkType: 'plan',
+              benchmarkTitle: w.title || 'Plan Benchmark',
+              workoutDbId: w.id,
+              planWorkoutTitle: w.title,
+              planWorkoutDate: w.workout_date || undefined,
+              planWorkoutDay: w.weekday || undefined,
+              planWorkoutType: w.workout_type,
+              planWorkoutSegments: w.segments,
+              notes: w.notes,
+            };
+            if (dateKey) serverBenchMap[dateKey] = assignment;
+            serverBenchMap[orderKey] = assignment;
+            serverBenchMap[weekOrderKey] = assignment;
+            serverBenchMap[String(w.id)] = assignment;
+          }
+        });
 
-    const q1Answer = getAnswerValue(answers || [], 'q1');
-    const selectedPlan = getAnswerValue(answers || [], 'q9');
+        if (Object.keys(serverBenchMap).length > 0) {
+          setBenchmarkAssignments((prev) => ({
+            ...serverBenchMap,
+            ...prev,
+          }));
+        }
+      })
+      .catch(() => {});
 
-    console.log("q1Answer:", q1Answer);
-    console.log("selectedPlan:", selectedPlan);
-
-    // ✅ If beginner or q1 = "no", set 3 days default
-    if (beginnerParam || q1Answer === 'no') {
-      setIsFiveKPlan(true);
-      setUserDays(3);
-      const updated = DAYS_OF_WEEK.map((d) => ({
-        day: d.day,
-        dayIndex: d.index,
-        selected: false,
-        isLongRun: false,
-      }));
-      setSelectedDays(updated);
-      setIsInitialized(true);
-      return;
-    }
-
-    // ✅ Default to 3 days for non-beginners
-    setUserDays(3);
-    setIsFiveKPlan(false);
-
-    const updated = DAYS_OF_WEEK.map((d) => ({
-      day: d.day,
-      dayIndex: d.index,
-      selected: false,
-      isLongRun: false,
-    }));
-    setSelectedDays(updated);
-
-    setIsInitialized(true);
-  }, []);
-
-  // Update selected count whenever selectedDays changes
+    return () => unsub();
+  }, [fetchWorkoutPlan]);
   useEffect(() => {
-    const count = selectedDays.filter(d => d.selected).length;
-    setSelectedCount(count);
-  }, [selectedDays]);
+    if (!workoutPlan) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const currentWeek = workoutPlan.weeks.findIndex((week) => {
+      const dates = completeWeek(week, workoutPlan.start_date).map((workout) => workout.workout_date);
+      return dates[0] <= today && today <= dates[dates.length - 1];
+    });
+    const nextIndex = currentWeek >= 0 ? currentWeek : 0;
+    const updateTimer = setTimeout(() => setSelectedWeekIndex(nextIndex), 0);
+    return () => clearTimeout(updateTimer);
+  }, [workoutPlan]);
 
-  const toggleDay = (index: number) => {
-    const currentSelected = selectedDays.filter(d => d.selected).length;
-    const day = selectedDays[index];
-    
-    if (!day.selected) {
-      if (userDays > 0 && currentSelected >= userDays) {
-        Alert.alert(
-          'Selection Limit Reached',
-          `You can select up to ${userDays} days. Please choose exactly ${userDays} days.`,
-          [{ text: 'OK' }]
-        );
-        return;
-      }
-    }
-    
-    const updated = [...selectedDays];
-    updated[index].selected = !updated[index].selected;
-    if (!updated[index].selected) {
-      updated[index].isLongRun = false;
-    }
-    setSelectedDays(updated);
+  const plan = useMemo<RunningPlanData | null>(() => {
+    if (!workoutPlan) return null;
+    return { name: workoutPlan.training_plan || workoutPlan.template_name, focus: '', totalWeeks: workoutPlan.weeks.length, weeks: workoutPlan.weeks.map((week) => {
+      const completedWorkouts = completeWeek(week, workoutPlan.start_date);
+      const dates = completedWorkouts.map((workout) => workout.workout_date);
+      const range = `${new Date(`${dates[0]}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${new Date(`${dates[dates.length - 1]}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+      return { id: String(week.week_number), label: `Week ${week.week_number} of ${workoutPlan.weeks.length}`, dateRange: range, statusText: '', workouts: completedWorkouts.map((w) => toWorkoutDetail(w, benchmarkAssignments, dbPlanWorkouts)) };
+    }) };
+  }, [workoutPlan, benchmarkAssignments, dbPlanWorkouts]);
+  const selectedWeek = plan?.weeks[selectedWeekIndex];
+  const changeWeek = (direction: -1 | 1) => {
+    const nextIndex = Math.max(0, Math.min((plan?.weeks.length ?? 1) - 1, selectedWeekIndex + direction));
+    if (nextIndex === selectedWeekIndex) return;
+    setSelectedWeekIndex(nextIndex);
+    pagerRef.current?.scrollToIndex({ index: nextIndex, animated: true });
   };
-
-  const setLongRun = (index: number) => {
-    if (!selectedDays[index].selected) {
-      Alert.alert('Error', 'Please select this day first before setting it as Long Run.');
-      return;
-    }
-
-    const existingLongRun = selectedDays.findIndex(d => d.isLongRun);
-    const updated = [...selectedDays];
-    
-    if (existingLongRun >= 0) {
-      updated[existingLongRun].isLongRun = false;
-    }
-    
-    updated[index].isLongRun = true;
-    setSelectedDays(updated);
-  };
-
-  const getWorkoutForDay = (dayIndex: number) => {
-    const day = selectedDays[dayIndex];
-    if (!day.selected) return null;
-    
-    const workoutTypes = ['easy', 'intervals', 'recovery', 'tempo', 'easy', 'recovery', 'long'];
-    const type = workoutTypes[dayIndex % workoutTypes.length] as keyof typeof WORKOUT_TYPES;
-    return WORKOUT_TYPES[type];
-  };
-
-  const generateRunningPlan = () => {
-    const count = selectedDays.filter(d => d.selected).length;
-   
-    if (count === 0) {
-      Alert.alert('Error', 'Please select at least one day to run');
-      return;
-    }
-
-    if (count !== userDays) {
-      Alert.alert(
-        'Select the appropriate days for a weekly run',
-        `You specified ${userDays} days per week. Please select exactly ${userDays} days.`,
-        [{ text: 'OK' }]
-      );
-      return;
-    }
-
-    const hasLongRun = selectedDays.some(d => d.isLongRun);
-    if (!hasLongRun) {
-      Alert.alert('Error', 'Please select a day for your long run');
-      return;
-    }
-
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      setIsPlanGenerated(true);
-      
-      router.push({
-        pathname: './training-plan',
-        params: {
-          selectedDays: JSON.stringify(selectedDays),
-          userDays: userDays.toString(),
-          isFiveKPlan: isFiveKPlan.toString(),
-          isBeginner: isBeginner.toString(),
-        },
-      });
-    }, 500);
-  };
-
-  const setDaysPerWeek = (days: number) => {
-    setUserDays(days);
-    const updated = selectedDays.map(d => ({
-      ...d,
-      selected: false,
-      isLongRun: false,
-    }));
-    setSelectedDays(updated);
-  };
-
-  const renderDayCountSelector = () => {
-    const options = [1, 2, 3, 4, 5, 6, 7];
-    
-    return (
-      <View style={styles.dayCountContainer}>
-        <Text style={styles.dayCountLabel}>How many days per week do you want to run?</Text>
-        <View style={styles.dayCountOptions}>
-          {options.map((num) => (
-            <TouchableOpacity
-              key={num}
-              style={[
-                styles.dayCountOption,
-                userDays === num && styles.dayCountOptionSelected,
-              ]}
-              onPress={() => setDaysPerWeek(num)}
-            >
-              <Text style={[
-                styles.dayCountOptionText,
-                userDays === num && styles.dayCountOptionTextSelected,
-              ]}>
-                {num}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+  const renderWeekPage = ({ item }: { item: RunningPlanWeek }) => (
+    <View style={[styles.weekPage, { width: pageWidth }]}>
+      <View style={styles.timelineWrapper}>
+        <Timeline workouts={item.workouts} onSelectWorkout={setSelectedWorkout} />
       </View>
-    );
-  };
-
-  const renderDayCard = (day: RunningDay, index: number) => {
-    const workout = getWorkoutForDay(index);
-    const isSelected = day.selected;
-    const isLongRunDay = day.isLongRun;
-
-    return (
-      <TouchableOpacity
-        key={day.day}
-        style={[
-          styles.dayCard,
-          isSelected && styles.dayCardSelected,
-          isLongRunDay && styles.dayCardLongRun,
-        ]}
-        onPress={() => toggleDay(index)}
-        activeOpacity={0.7}
-        disabled={!userDays}
-      >
-        <View style={styles.dayCardContent}>
-          <View style={styles.dayLeft}>
-            <Text style={[styles.dayName, isSelected && styles.dayNameSelected]}>
-              {day.day}
-            </Text>
-            {isSelected && workout && (
-              <View style={[styles.workoutBadge, { backgroundColor: workout.color }]}>
-                <Text style={styles.workoutBadgeText}>
-                  {workout.icon} {workout.label}
-                </Text>
-              </View>
-            )}
-            {isLongRunDay && (
-              <View style={styles.longRunBadge}>
-                <Text style={styles.longRunBadgeText}>⭐ Long Run</Text>
-              </View>
-            )}
-          </View>
-
-          <View style={styles.dayRight}>
-            {isSelected && (
-              <View style={styles.intensityContainer}>
-                <Text style={[styles.intensityText, { color: workout?.color }]}>
-                  {workout?.intensity || 'Easy'}
-                </Text>
-              </View>
-            )}
-            <View style={[styles.checkbox, isSelected && styles.checkboxChecked]}>
-              {isSelected && <Feather name="check" size={14} color="#1A1A1A" />}
-            </View>
-          </View>
-        </View>
-
-        {isSelected && (
-          <TouchableOpacity
-            style={[styles.longRunToggle, isLongRunDay && styles.longRunToggleActive]}
-            onPress={() => setLongRun(index)}
-          >
-            <Text style={[styles.longRunToggleText, isLongRunDay && styles.longRunToggleTextActive]}>
-              {isLongRunDay ? '⭐ Long Run' : 'Set as Long Run'}
-            </Text>
-          </TouchableOpacity>
-        )}
-      </TouchableOpacity>
-    );
-  };
-
-  if (!isInitialized) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#34C759" />
-          <Text style={styles.loadingText}>Loading your plan...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (isPlanGenerated) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.centerContainer}>
-          <View style={styles.successCard}>
-            <Feather name="check-circle" size={60} color="#34C759" />
-            <Text style={styles.successTitle}>✓ Plan Generated!</Text>
-            <Text style={styles.successSubtext}>
-              Your training plan has been generated successfully.
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={styles.viewPlanButton}
-            onPress={() => router.replace('./training-plan')}
-          >
-            <Feather name="eye" size={18} color="#1A1A1A" />
-            <Text style={styles.viewPlanButtonText}>View Your Plan</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  const hasLongRun = selectedDays.some(d => d.isLongRun);
-  const count = selectedDays.filter(d => d.selected).length;
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <View style={styles.headerTop}>
-            <View>
-              <Text style={styles.greetingText}>🏃 Your Running Plan</Text>
-              <Text style={styles.headerTitle}>Select Your Running Days</Text>
-            </View>
-            <TouchableOpacity style={styles.aiBadge}>
-              <Ionicons name="sparkles" size={16} color="#1A1A1A" />
-              <Text style={styles.aiBadgeText}>AI Coach</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.headerStats}>
-            <View style={styles.headerStat}>
-              <Text style={styles.headerStatValue}>{userDays > 0 ? userDays : '?'}</Text>
-              <Text style={styles.headerStatLabel}>Days/Week</Text>
-            </View>
-            <View style={styles.headerDivider} />
-            <View style={styles.headerStat}>
-              <Text style={styles.headerStatValue}>{count}</Text>
-              <Text style={styles.headerStatLabel}>Selected</Text>
-            </View>
-            <View style={styles.headerDivider} />
-            <View style={styles.headerStat}>
-              <Text style={[styles.headerStatValue, { color: isFiveKPlan ? '#FF9500' : '#34C759' }]}>
-                {isFiveKPlan ? '5K Plan' : 'Custom'}
-              </Text>
-              <Text style={styles.headerStatLabel}>Plan Type</Text>
-            </View>
-          </View>
-
-          {isBeginner && (
-            <View style={styles.beginnerBanner}>
-              <Text style={styles.beginnerBannerText}>
-                🎯 Welcome! You're starting with a beginner 5K plan. Build up gradually!
-              </Text>
-            </View>
-          )}
-
-          {userDays > 0 && (
-            <View style={styles.hintBanner}>
-              <Text style={styles.hintBannerText}>
-                {count === 0 ? `Select ${userDays} day${userDays > 1 ? 's' : ''} to run` :
-                 count < userDays ? `Select ${userDays - count} more day${userDays - count > 1 ? 's' : ''}` :
-                 !hasLongRun ? 'Select one day as your Long Run' :
-                 '✅ All set! Generate your plan.'}
-              </Text>
-            </View>
-          )}
-        </View>
-
-        {renderDayCountSelector()}
-
-        <View style={styles.daysGrid}>
-          {userDays > 0 ? (
-            selectedDays.map((day, index) => renderDayCard(day, index))
-          ) : (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyStateText}>
-                👆 Select how many days per week you want to run above
-              </Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.footer}>
-          <View style={styles.footerInfo}>
-            <Text style={styles.footerDays}>
-              {count} of {userDays} days selected
-            </Text>
-            {hasLongRun && (
-              <Text style={styles.footerLongRun}>⭐ Long Run set</Text>
-            )}
-          </View>
-
-          {userDays > 0 && count !== userDays && (
-            <View style={styles.selectionStatus}>
-              <Text style={styles.selectionStatusText}>
-                Please select {userDays} day{userDays > 1 ? 's' : ''}
-              </Text>
-            </View>
-          )}
-
-          {userDays > 0 && count === userDays && !hasLongRun && (
-            <View style={styles.selectionStatus}>
-              <Text style={styles.selectionStatusText}>
-                Please select one day as your Long Run
-              </Text>
-            </View>
-          )}
-
-          <TouchableOpacity
-            style={[
-              styles.generateButton,
-              (count !== userDays || !hasLongRun) && styles.buttonDisabled,
-            ]}
-            onPress={generateRunningPlan}
-            disabled={count !== userDays || loading || !hasLongRun}
-          >
-            {loading ? (
-              <ActivityIndicator color="#1A1A1A" />
-            ) : (
-              <Text style={styles.generateButtonText}>Generate Plan</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+    </View>
   );
+  const handlePagerSettled = (event: any) => {
+    if (!pageWidth || !plan?.weeks.length) return;
+    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / pageWidth);
+    const boundedIndex = Math.max(0, Math.min(plan.weeks.length - 1, nextIndex));
+    if (boundedIndex !== selectedWeekIndex) setSelectedWeekIndex(boundedIndex);
+  };
+
+  if (isWorkoutPlanLoading && !plan) return <SafeAreaView style={styles.container}><StatusBar barStyle="light-content" /><View style={styles.center}><ActivityIndicator size="large" color="#28a745" /><Text style={styles.message}>Loading your training plan...</Text></View></SafeAreaView>;
+  if (!plan) return <SafeAreaView style={styles.container}><StatusBar barStyle="light-content" /><View style={styles.center}><Text style={styles.error}>{workoutPlanError || 'No training plan is available.'}</Text><TouchableOpacity onPress={() => fetchWorkoutPlan(true)} style={styles.retry}><Text style={styles.retryText}>Retry</Text></TouchableOpacity></View></SafeAreaView>;
+
+  return <SafeAreaView style={styles.container}><StatusBar barStyle="light-content" /><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <RunningPlanHeader planName={plan.name} focusLabel={plan.focus} userName={userName} />
+    <TrainingCalendarCard weekLabel={selectedWeek?.label ?? ''} rangeLabel={selectedWeek?.dateRange ?? ''} statusText={selectedWeek?.statusText ?? ''} totalWeeks={plan.totalWeeks} currentWeekIndex={selectedWeekIndex + 1} onPrevious={() => changeWeek(-1)} onNext={() => changeWeek(1)} previousDisabled={selectedWeekIndex <= 0} nextDisabled={selectedWeekIndex >= plan.weeks.length - 1} />
+    <FlatList
+      ref={pagerRef}
+      data={plan.weeks}
+      keyExtractor={(week) => week.id}
+      renderItem={renderWeekPage}
+      horizontal
+      pagingEnabled
+      showsHorizontalScrollIndicator={false}
+      initialNumToRender={1}
+      maxToRenderPerBatch={1}
+      windowSize={3}
+      removeClippedSubviews
+      updateCellsBatchingPeriod={50}
+      initialScrollIndex={selectedWeekIndex}
+      onMomentumScrollEnd={handlePagerSettled}
+      getItemLayout={(_, index) => ({ length: pageWidth, offset: pageWidth * index, index })}
+      onScrollToIndexFailed={({ index }) => setTimeout(() => pagerRef.current?.scrollToIndex({ index, animated: true }), 50)}
+      style={styles.pager}
+    />
+  </ScrollView><WorkoutModal
+    visible={selectedWorkout !== null}
+    workout={selectedWorkout}
+    onClose={() => setSelectedWorkout(null)}
+    onUpdateBenchmark={(workoutId, isBenchmark, assignment, workoutDbId) => {
+      const effectiveDbId = workoutDbId || assignment?.workoutDbId || selectedWorkout?.workoutDbId;
+      const rawDate = selectedWorkout?.rawDate;
+      const weekNumber = selectedWorkout?.weekNumber;
+      const displayOrder = selectedWorkout?.displayOrder;
+      const weekOrderKey = weekNumber != null && displayOrder != null ? `${weekNumber}-${displayOrder}` : null;
+
+      if (isBenchmark && assignment) {
+        setBenchmarkAssignments((prev) => ({
+          ...prev,
+          [workoutId]: assignment,
+          ...(assignment.planWorkoutDate ? { [assignment.planWorkoutDate]: assignment } : {}),
+          ...(rawDate ? { [rawDate]: assignment } : {}),
+          ...(rawDate ? { [rawDate.slice(0, 10)]: assignment } : {}),
+          ...(effectiveDbId ? { [String(effectiveDbId)]: assignment } : {}),
+          ...(weekOrderKey ? { [weekOrderKey]: assignment } : {}),
+        }));
+      } else {
+        setBenchmarkAssignments((prev) => {
+          const copy = { ...prev };
+          delete copy[workoutId];
+          if (rawDate) {
+            delete copy[rawDate];
+            delete copy[rawDate.slice(0, 10)];
+          }
+          if (effectiveDbId) delete copy[String(effectiveDbId)];
+          if (weekOrderKey) delete copy[weekOrderKey];
+          Object.keys(copy).forEach((k) => {
+            if (effectiveDbId && copy[k]?.workoutDbId === effectiveDbId) {
+              delete copy[k];
+            }
+          });
+          return copy;
+        });
+      }
+      if (selectedWorkout) {
+        setSelectedWorkout({
+          ...selectedWorkout,
+          isBenchmark,
+          benchmarkTitle: isBenchmark ? assignment?.benchmarkTitle || selectedWorkout.title : undefined,
+          benchmarkType: isBenchmark ? assignment?.benchmarkType || 'plan' : undefined,
+          workoutDbId: effectiveDbId || selectedWorkout.workoutDbId,
+        });
+      }
+      setDbPlanWorkouts((prev) =>
+        prev.map((w) => {
+          const isTarget =
+            (effectiveDbId && w.id === effectiveDbId) ||
+            (rawDate && w.workout_date && w.workout_date.slice(0, 10) === rawDate.slice(0, 10)) ||
+            (weekNumber != null &&
+              displayOrder != null &&
+              w.week_number === weekNumber &&
+              w.display_order === displayOrder);
+          return isTarget ? { ...w, is_benchmark: isBenchmark } : w;
+        })
+      );
+    }}
+  /></SafeAreaView>;
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F5F7FA',
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#F5F7FA',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#666',
-  },
-  header: {
-    backgroundColor: '#1A1A1A',
-    paddingTop: 20,
-    paddingBottom: 24,
-    paddingHorizontal: 20,
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
-  },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  greetingText: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.5)',
-    fontWeight: '500',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginTop: 2,
-  },
-  aiBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#34C759',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    gap: 4,
-  },
-  aiBadgeText: {
-    color: '#1A1A1A',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  headerStats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 16,
-    backgroundColor: '#2D2D2D',
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  headerStat: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  headerStatValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  headerStatLabel: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.5)',
-    marginTop: 2,
-  },
-  headerDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  beginnerBanner: {
-    marginTop: 12,
-    backgroundColor: 'rgba(52, 199, 89, 0.15)',
-    borderRadius: 10,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#34C759',
-  },
-  beginnerBannerText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    textAlign: 'center',
-  },
-  hintBanner: {
-    marginTop: 10,
-    backgroundColor: 'rgba(52, 199, 89, 0.08)',
-    borderRadius: 10,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(52, 199, 89, 0.2)',
-  },
-  hintBannerText: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 13,
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-  dayCountContainer: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    marginTop: 16,
-    padding: 16,
-    borderRadius: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  dayCountLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1A1A1A',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  dayCountOptions: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  dayCountOption: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F5F7FA',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  dayCountOptionSelected: {
-    backgroundColor: '#34C75915',
-    borderColor: '#34C759',
-  },
-  dayCountOptionText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#666',
-  },
-  dayCountOptionTextSelected: {
-    color: '#34C759',
-  },
-  daysGrid: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-    gap: 10,
-  },
-  dayCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1.5,
-    borderColor: 'transparent',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  dayCardSelected: {
-    borderColor: '#34C759',
-    backgroundColor: '#F0FFF0',
-  },
-  dayCardLongRun: {
-    borderColor: '#34C759',
-    backgroundColor: '#E8F5E9',
-  },
-  dayCardContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  dayLeft: {
-    flex: 1,
-  },
-  dayName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1A1A1A',
-  },
-  dayNameSelected: {
-    color: '#34C759',
-  },
-  workoutBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 12,
-    marginTop: 4,
-    alignSelf: 'flex-start',
-  },
-  workoutBadgeText: {
-    fontSize: 11,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  longRunBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 12,
-    marginTop: 4,
-    backgroundColor: '#34C759',
-    alignSelf: 'flex-start',
-  },
-  longRunBadgeText: {
-    fontSize: 11,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  dayRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  intensityContainer: {
-    alignItems: 'center',
-  },
-  intensityText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: '#D1D1D6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  checkboxChecked: {
-    backgroundColor: '#34C759',
-    borderColor: '#34C759',
-  },
-  longRunToggle: {
-    marginTop: 10,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#F1F1F6',
-    alignSelf: 'flex-start',
-  },
-  longRunToggleActive: {
-    backgroundColor: '#34C759',
-  },
-  longRunToggleText: {
-    fontSize: 12,
-    color: '#8E8E93',
-    fontWeight: '500',
-  },
-  longRunToggleTextActive: {
-    color: '#FFFFFF',
-  },
-  footer: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    marginVertical: 16,
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  footerInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  footerDays: {
-    fontSize: 14,
-    color: '#1A1A1A',
-    fontWeight: '500',
-  },
-  footerLongRun: {
-    fontSize: 14,
-    color: '#34C759',
-    fontWeight: '500',
-  },
-  selectionStatus: {
-    backgroundColor: '#FFF8E1',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#FFD54F',
-  },
-  selectionStatusText: {
-    fontSize: 13,
-    color: '#856404',
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-  generateButton: {
-    backgroundColor: '#34C759',
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  generateButtonText: {
-    color: '#1A1A1A',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  successCard: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  successTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#34C759',
-    marginTop: 12,
-  },
-  successSubtext: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  viewPlanButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    backgroundColor: '#34C759',
-    borderRadius: 14,
-  },
-  viewPlanButtonText: {
-    color: '#1A1A1A',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  emptyState: {
-    padding: 40,
-    alignItems: 'center',
-  },
-  emptyStateText: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-  },
+  container: { flex: 1, backgroundColor: '#06090B' },
+  content: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 118 },
+  pager: { marginHorizontal: -18 },
+  weekPage: { paddingHorizontal: 18 },
+  timelineWrapper: { flex: 1 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  message: { color: '#fff', marginTop: 12 },
+  error: { color: '#fff', fontSize: 16, marginBottom: 12, textAlign: 'center' },
+  retry: { backgroundColor: '#28a745', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 8 },
+  retryText: { color: '#fff' },
 });

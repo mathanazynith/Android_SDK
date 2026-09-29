@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, TextInput, View, Text } from 'react-native';
 import { validateDistance } from '../../../../utils/validators';
+import { useTheme } from '../../../../contexts/ThemeContext';
 
 interface DistanceInputProps {
   label: string;
@@ -8,10 +9,12 @@ interface DistanceInputProps {
   unitLabel?: string;
   hint?: string;
   error?: string;
+  maxValue?: number;
   onChange: (value: string) => void;
 }
 
-export const DistanceInput: React.FC<DistanceInputProps> = ({ label, value, unitLabel, hint, error, onChange }) => {
+export const DistanceInput: React.FC<DistanceInputProps> = ({ label, value, unitLabel, hint, error, maxValue, onChange }) => {
+  const { colors } = useTheme();
   const [localValue, setLocalValue] = useState(value || '');
 
   React.useEffect(() => {
@@ -19,46 +22,49 @@ export const DistanceInput: React.FC<DistanceInputProps> = ({ label, value, unit
   }, [value]);
 
   const validation = useMemo(() => validateDistance(localValue || ''), [localValue]);
-  const resolvedError = error || (!validation.valid && localValue ? validation.error : undefined);
+  const exceedsMaximum = Number.isFinite(maxValue) && Number(localValue) > Number(maxValue);
+  const resolvedError = error || (exceedsMaximum ? `Maximum allowed distance is ${maxValue} ${unitLabel || ""}.` : !validation.valid && localValue ? validation.error : undefined);
 
   return (
     <View style={styles.card}>
-      <Text style={styles.label}>{label}</Text>
-      {hint ? <Text style={styles.hint}>{hint}</Text> : null}
-      <View style={styles.inputRow}>
+      <Text style={[styles.label, { color: colors.text }]}>{label}</Text>
+      <View style={[styles.inputRow, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
         <TextInput
-          style={[styles.input, resolvedError ? styles.inputError : null]}
+          style={[styles.input, { color: colors.inputText }, resolvedError ? styles.inputError : null]}
           value={localValue}
           onChangeText={(text) => {
             const nextValue = text.replace(/[^0-9.]/g, '');
             const decimalCount = (nextValue.match(/\./g) || []).length;
             const sanitizedValue = decimalCount > 1 ? nextValue.replace(/\.(?=.*\.)/g, '') : nextValue;
             setLocalValue(sanitizedValue);
-            onChange(sanitizedValue);
+            if (!(Number.isFinite(maxValue) && Number(sanitizedValue) > Number(maxValue))) {
+              onChange(sanitizedValue);
+            }
           }}
           placeholder=""
-          placeholderTextColor="#8E8E93"
+          placeholderTextColor={colors.placeholder}
           keyboardType="decimal-pad"
           returnKeyType="done"
         />
-        {unitLabel ? <View style={styles.unitPill}><Text style={styles.unitText}>{unitLabel}</Text></View> : null}
+        {unitLabel ? <View style={styles.unitPill}><Text style={[styles.unitText, { color: colors.text }]}>{unitLabel}</Text></View> : null}
       </View>
       {resolvedError ? <Text style={styles.errorText}>{resolvedError}</Text> : null}
     </View>
   );
 };
 
+export default DistanceInput;
+
 const styles = StyleSheet.create({
   card: { marginTop: 8, marginBottom: 8 },
   label: { color: '#FFFFFF', fontSize: 13, fontWeight: '600', marginBottom: 6 },
   hint: { color: '#8E8E93', fontSize: 12, marginBottom: 10 },
-  inputRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  inputRow: { flexDirection: 'row', alignItems: 'center', gap: 0, backgroundColor: '#303236', borderRadius: 14, borderWidth: 1, borderColor: '#45474B' },
   input: {
     flex: 1,
-    backgroundColor: '#1A1A1A',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'transparent',
+    borderRadius: 14,
+    borderWidth: 0,
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '600',
@@ -67,11 +73,8 @@ const styles = StyleSheet.create({
   },
   inputError: { borderColor: '#FF5A5F' },
   unitPill: {
-    backgroundColor: '#1A1A1A',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    paddingHorizontal: 12,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 16,
     paddingVertical: 13,
   },
   unitText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },

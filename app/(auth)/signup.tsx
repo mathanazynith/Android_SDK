@@ -1,23 +1,31 @@
-import { useState, useEffect } from "react";
+import { Ionicons } from '@expo/vector-icons';
+import { router } from "expo-router";
+import { useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
   Alert,
-  ScrollView,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { router } from "expo-router";
-import { authAPI } from "../../service/api";
-import { useAuth } from "../../service/auth";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppInput } from "../../components/common/AppInput";
 import { PrimaryButton } from "../../components/common/PrimaryButton";
-import { Colors, Spacing, Typography, BorderRadius } from "../../constants/theme";
+import GoogleLoginButton from "../../components/GoogleLoginButton";
+import { LegalConsent } from "../../components/LegalConsent";
+import { BorderRadius, Colors, Spacing, Typography } from "../../constants/theme";
+import { BRAND_GREEN, useTheme } from "../../contexts/ThemeContext";
+import { authAPI } from "../../service/api";
+import { useAuth } from "../../service/auth";
 
 export default function SignupScreen() {
-  const { googleSignupData, setGoogleSignupData } = useAuth();
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { googleLogin, googleSignupData, setGoogleSignupData } = useAuth();
 
   const hasGoogleData = googleSignupData !== null;
 
@@ -35,6 +43,10 @@ export default function SignupScreen() {
   const [password2, setPassword2] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
+  const [isAvailable, setIsAvailable] = useState<boolean | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
   const [errors, setErrors] = useState({
     email: "", username: "", first_name: "", last_name: "",
     phone_number: "", password: "", password2: "",
@@ -47,6 +59,72 @@ export default function SignupScreen() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!googleSignupData) return;
+
+    const syncGoogleSignupData = setTimeout(() => {
+      setFirstName(googleSignupData.first_name || "");
+      setLastName(googleSignupData.last_name || "");
+      setEmail(googleSignupData.email || "");
+    }, 0);
+
+    return () => clearTimeout(syncGoogleSignupData);
+  }, [googleSignupData]);
+
+  const handleGoogleSignup = async () => {
+    try {
+      setGoogleLoading(true);
+      const result = await googleLogin();
+
+      if (!result.requiresSignup) {
+        router.replace("/(app)/dashboard");
+      }
+    } catch (error: any) {
+      Alert.alert(
+        "Google Sign-up Failed",
+        error.message || "Unable to continue with Google. Please try again."
+      );
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const typedUsername = username.trim();
+
+    if (typedUsername.length < 3) {
+      return;
+    }
+
+    let isCurrentRequest = true;
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        const response = await authAPI.usernameAvailable(typedUsername);
+        if (!isCurrentRequest) return;
+
+        const available = response.data.data.available;
+        setIsAvailable(available);
+        setErrorMessage(
+          response.data.message ||
+            (available ? "Username is available" : "Username already exists")
+        );
+      } catch (error) {
+        if (!isCurrentRequest) return;
+        console.error("Error checking username:", error);
+        setIsAvailable(null);
+        setErrorMessage("Unable to check username availability.");
+      } finally {
+        if (isCurrentRequest) setIsChecking(false);
+      }
+    }, 450);
+
+    return () => {
+      isCurrentRequest = false;
+      clearTimeout(timeoutId);
+    };
+  }, [username]);
 
   const handleSignup = async () => {
     // First Name
@@ -64,6 +142,11 @@ export default function SignupScreen() {
     // Username
     if (!username.trim()) {
       Alert.alert("Validation Error", "Username is required.");
+      return;
+    }
+
+    if (isChecking || isAvailable === false) {
+      Alert.alert("Validation Error", "Please choose an available username.");
       return;
     }
 
@@ -232,6 +315,9 @@ export default function SignupScreen() {
         break;
       case "username":
         setUsername(value);
+        setIsChecking(value.trim().length >= 3);
+        setIsAvailable(null);
+        setErrorMessage("");
         break;
       case "email":
         setEmail(value);
@@ -256,18 +342,36 @@ export default function SignupScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
     >
+      <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} backgroundColor={colors.background} />
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 6 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.title}>Create account</Text>
-        <Text style={styles.subtitle}>Join thousands of runners today</Text>
+        <View style={styles.authCard}>
+          <View style={[styles.segmentedControl, { backgroundColor: colors.surfaceRaised }]}>
+            <TouchableOpacity style={styles.segment} onPress={() => router.back()} disabled={loading}>
+              <Text style={styles.segmentText}>Sign in</Text>
+            </TouchableOpacity>
+            <View style={[styles.segment, { backgroundColor: BRAND_GREEN }]}><Text style={styles.activeSegmentText}>Sign up</Text></View>
+          </View>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()} disabled={loading} accessibilityLabel="Go back">
+            <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+          <View style={styles.googleButtonContainer}>
+            <GoogleLoginButton
+              onPress={handleGoogleSignup}
+              loading={googleLoading}
+              disabled={loading || googleLoading}
+              authStyle
+            />
+          </View>
+          <View style={styles.emailDivider}><View style={styles.dividerLine} /><Text style={styles.emailDividerText}>Or With E-Mail</Text><View style={styles.dividerLine} /></View>
 
         {hasGoogleData && (
           <View style={styles.googleInfoContainer}>
@@ -278,8 +382,6 @@ export default function SignupScreen() {
           </View>
         )}
 
-        <Text style={styles.sectionTitle}>Personal Information</Text>
-
         <View style={styles.row}>
           <View style={styles.halfInput}>
             <AppInput
@@ -287,6 +389,8 @@ export default function SignupScreen() {
               value={firstName}
               onChangeText={(text) => handleChange("first_name", text)}
               containerStyle={styles.inputContainer}
+              inputStyle={styles.compactInput}
+              authStyle
             />
             {!!errors.first_name && (
               <Text style={styles.errorText}>{errors.first_name}</Text>
@@ -295,10 +399,12 @@ export default function SignupScreen() {
 
           <View style={styles.halfInput}>
             <AppInput
-              placeholder="Last Name *"
+              placeholder="Last Name"
               value={lastName}
               onChangeText={(text) => handleChange("last_name", text)}
               containerStyle={styles.inputContainer}
+              inputStyle={styles.compactInput}
+              authStyle
             />
             {!!errors.last_name && (
               <Text style={styles.errorText}>{errors.last_name}</Text>
@@ -313,9 +419,21 @@ export default function SignupScreen() {
           autoCapitalize="none"
           autoCorrect={false}
           containerStyle={styles.inputContainer}
+          inputStyle={styles.compactInput}
+          authStyle
         />
         {!!errors.username && (
           <Text style={styles.errorText}>{errors.username}</Text>
+        )}
+        {username.trim().length >= 3 && (isChecking || errorMessage) && (
+          <Text
+            style={[
+              styles.usernameStatus,
+              { color: isAvailable === true ? "#22C55E" : "#EF4444" },
+            ]}
+          >
+            {isChecking ? "Checking availability..." : errorMessage}
+          </Text>
         )}
 
         <AppInput
@@ -326,6 +444,9 @@ export default function SignupScreen() {
           keyboardType="email-address"
           autoCorrect={false}
           containerStyle={styles.inputContainer}
+          inputStyle={styles.compactInput}
+          authStyle
+          icon={<Ionicons name="mail-outline" size={20} color={Colors.textSecondary} />}
           editable={!hasGoogleData}
         />
         {!!errors.email && (
@@ -333,7 +454,7 @@ export default function SignupScreen() {
         )}
 
         <AppInput
-          placeholder="Phone Number *"
+          placeholder="Phone Number"
           value={phoneNumber}
           onChangeText={(text) => {
             const value = text.replace(/[^0-9]/g, "");
@@ -344,12 +465,12 @@ export default function SignupScreen() {
           keyboardType="number-pad"
           maxLength={10}
           containerStyle={styles.inputContainer}
+          inputStyle={styles.compactInput}
+          authStyle
         />
         {!!errors.phone_number && (
           <Text style={styles.errorText}>{errors.phone_number}</Text>
         )}
-
-        <Text style={styles.sectionTitle}>Password</Text>
 
         <AppInput
           placeholder="Password *"
@@ -357,6 +478,8 @@ export default function SignupScreen() {
           onChangeText={(text) => handleChange("password", text)}
           secureTextEntry
           containerStyle={styles.inputContainer}
+          inputStyle={styles.compactInput}
+          authStyle
         />
         {!!errors.password && (
           <Text style={styles.errorText}>{errors.password}</Text>
@@ -368,21 +491,28 @@ export default function SignupScreen() {
           onChangeText={(text) => handleChange("password2", text)}
           secureTextEntry
           containerStyle={styles.inputContainer}
+          inputStyle={styles.compactInput}
+          authStyle
         />
         {!!errors.password2 && (
           <Text style={styles.errorText}>{errors.password2}</Text>
         )}
 
+        <LegalConsent />
+
         <PrimaryButton
           title="Create Account"
           onPress={handleSignup}
           loading={loading}
+          disabled={isChecking || isAvailable === false}
           style={styles.signupButton}
+          authStyle
         />
 
         <TouchableOpacity onPress={() => router.back()} disabled={loading}>
-          <Text style={styles.link}>Already have an account? Login</Text>
+          <Text style={styles.link}>Already a member? <Text style={styles.linkAccent}>Sign in</Text></Text>
         </TouchableOpacity>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -398,8 +528,9 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    padding: Spacing.lg,
-    paddingBottom: Spacing.xxl,
+    paddingHorizontal: 20,
+    paddingTop: 6,
+    paddingBottom: 6,
   },
   title: {
     ...Typography.h1,
@@ -414,20 +545,26 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.lg,
   },
   sectionTitle: {
-    ...Typography.h4,
+    fontSize: 14,
+    fontWeight: "600",
     color: Colors.text,
-    marginTop: Spacing.md,
-    marginBottom: Spacing.sm,
+    marginTop: 10,
+    marginBottom: 5,
   },
   row: {
     flexDirection: "row",
-    gap: Spacing.sm,
+    gap: 10,
   },
   halfInput: {
     flex: 1,
   },
   inputContainer: {
-    marginBottom: Spacing.sm,
+    marginBottom: 4,
+  },
+  compactInput: {
+    minHeight: 46,
+    paddingHorizontal: 12,
+    borderRadius: 12,
   },
   errorText: {
     ...Typography.caption,
@@ -435,18 +572,24 @@ const styles = StyleSheet.create({
     marginTop: Spacing.xs,
     marginBottom: Spacing.sm,
   },
+  usernameStatus: {
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 4,
+    marginBottom: Spacing.sm,
+  },
   disabledInputContainer: {
     opacity: 0.6,
   },
   signupButton: {
-    marginTop: Spacing.md,
+    marginTop: 8,
   },
   link: {
-    ...Typography.bodySmall,
+    fontSize: 13,
     color: Colors.primary,
     textAlign: "center",
-    marginTop: Spacing.lg,
-    marginBottom: 30,
+    marginTop: 10,
+    marginBottom: 4,
   },
   googleInfoContainer: {
     backgroundColor: Colors.surfaceLight,
@@ -465,4 +608,16 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     color: Colors.textSecondary,
   },
+  authCard: { width: '100%', maxWidth: 520, alignSelf: 'center' },
+  segmentedControl: { flexDirection: 'row', backgroundColor: '#202124', padding: 3, borderRadius: 10, marginBottom: 8 },
+  segment: { flex: 1, minHeight: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
+  activeSegment: { backgroundColor: '#63C438' },
+  segmentText: { color: Colors.textSecondary, fontSize: 12, fontWeight: '600' },
+  activeSegmentText: { color: '#101510', fontSize: 12, fontWeight: '700' },
+  backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 20, backgroundColor: '#202124', borderWidth: 1, borderColor: '#333538', marginBottom: 8 },
+  googleButtonContainer: { marginBottom: 8 },
+  emailDivider: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 10 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#202124' },
+  emailDividerText: { color: Colors.textMuted, fontSize: 13, fontWeight: '600', letterSpacing: .2 },
+  linkAccent: { color: Colors.primary, fontWeight: '700' },
 });

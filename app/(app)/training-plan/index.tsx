@@ -1,371 +1,419 @@
-import React, { useState, useEffect } from "react";
+import { useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  SafeAreaView,
-  Alert,
-  ActivityIndicator,
-} from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
-import { trainingStyles as styles } from "./_styles";
-import { Feather, Ionicons } from "@expo/vector-icons";
-import { storage } from "../../../service/storage";
+    ActivityIndicator,
+    Alert,
+    PanResponder,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
+import { useTheme } from '../../../contexts/ThemeContext';
+import { useAuth } from '../../../service/auth';
+import { workoutPlanService, type CurrentWorkout, type UserWorkoutResponse } from '../../../service/workoutPlan';
+import {
+    PlanBenchmarkStore,
+    type PlanBenchmarkAssignment,
+} from '../../../src/services/planBenchmarkStore';
+import RunningPlanHeader from '../calendar/components/RunningPlanHeader';
+import Timeline from '../calendar/components/Timeline';
+import TrainingCalendarCard from '../calendar/components/TrainingCalendarCard';
+import WorkoutModal from '../calendar/components/WorkoutModal';
+import type { RunningPlanData, WorkoutDetail } from '../calendar/components/types';
 
-interface WorkoutDay {
-  day: string;
-  workout: string;
-  distance: string;
-  intensity: 'Easy' | 'Hard' | 'Medium';
-  icon: string;
-  color: string;
-}
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-// 5K Training Plan - Full 4 Week Program
-const FIVE_K_PLAN_WEEKS: { [key: number]: WorkoutDay[] } = {
-  1: [
-    { day: 'Mon', workout: 'Easy Run', distance: '3 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Tue', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Wed', workout: 'Easy Run', distance: '3 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Thu', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Fri', workout: 'Easy Run', distance: '3 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Sat', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Sun', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-  ],
-  2: [
-    { day: 'Mon', workout: 'Easy Run', distance: '4 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Tue', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Wed', workout: 'Easy Run', distance: '4 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Thu', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Fri', workout: 'Easy Run', distance: '4 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Sat', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Sun', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-  ],
-  3: [
-    { day: 'Mon', workout: 'Easy Run', distance: '5 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Tue', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Wed', workout: 'Easy Run', distance: '5 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Thu', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Fri', workout: 'Easy Run', distance: '5 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Sat', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Sun', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-  ],
-  4: [
-    { day: 'Mon', workout: 'Easy Run', distance: '5 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Tue', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Wed', workout: 'Easy Run', distance: '5 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Thu', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Fri', workout: 'Easy Run', distance: '5 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Sat', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-    { day: 'Sun', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-  ],
+const formatDateKey = (date: Date) => {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
-// Custom Plan for users with 3+ days
-const CUSTOM_PLAN_WEEKS: { [key: number]: WorkoutDay[] } = {
-  1: [
-    { day: 'Mon', workout: 'Easy Run', distance: '5 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Tue', workout: 'Intervals', distance: '8 km', intensity: 'Hard', icon: '⚡', color: '#FF3B30' },
-    { day: 'Wed', workout: 'Recovery', distance: '3 km', intensity: 'Easy', icon: '🔄', color: '#8E8E93' },
-    { day: 'Thu', workout: 'Tempo Run', distance: '7 km', intensity: 'Medium', icon: '🏃', color: '#FF9500' },
-    { day: 'Fri', workout: 'Rest Day', distance: 'Active recovery', intensity: 'Easy', icon: '🧘', color: '#34C759' },
-    { day: 'Sat', workout: 'Long Run', distance: '15 km', intensity: 'Medium', icon: '⭐', color: '#34C759' },
-    { day: 'Sun', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-  ],
-  2: [
-    { day: 'Mon', workout: 'Easy Run', distance: '6 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Tue', workout: 'Intervals', distance: '9 km', intensity: 'Hard', icon: '⚡', color: '#FF3B30' },
-    { day: 'Wed', workout: 'Recovery', distance: '4 km', intensity: 'Easy', icon: '🔄', color: '#8E8E93' },
-    { day: 'Thu', workout: 'Tempo Run', distance: '8 km', intensity: 'Medium', icon: '🏃', color: '#FF9500' },
-    { day: 'Fri', workout: 'Rest Day', distance: 'Active recovery', intensity: 'Easy', icon: '🧘', color: '#34C759' },
-    { day: 'Sat', workout: 'Long Run', distance: '16 km', intensity: 'Medium', icon: '⭐', color: '#34C759' },
-    { day: 'Sun', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-  ],
-  3: [
-    { day: 'Mon', workout: 'Easy Run', distance: '7 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Tue', workout: 'Intervals', distance: '10 km', intensity: 'Hard', icon: '⚡', color: '#FF3B30' },
-    { day: 'Wed', workout: 'Recovery', distance: '5 km', intensity: 'Easy', icon: '🔄', color: '#8E8E93' },
-    { day: 'Thu', workout: 'Tempo Run', distance: '9 km', intensity: 'Medium', icon: '🏃', color: '#FF9500' },
-    { day: 'Fri', workout: 'Rest Day', distance: 'Active recovery', intensity: 'Easy', icon: '🧘', color: '#34C759' },
-    { day: 'Sat', workout: 'Long Run', distance: '18 km', intensity: 'Medium', icon: '⭐', color: '#34C759' },
-    { day: 'Sun', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-  ],
-  4: [
-    { day: 'Mon', workout: 'Easy Run', distance: '8 km', intensity: 'Easy', icon: '😊', color: '#34C759' },
-    { day: 'Tue', workout: 'Intervals', distance: '12 km', intensity: 'Hard', icon: '⚡', color: '#FF3B30' },
-    { day: 'Wed', workout: 'Recovery', distance: '5 km', intensity: 'Easy', icon: '🔄', color: '#8E8E93' },
-    { day: 'Thu', workout: 'Tempo Run', distance: '10 km', intensity: 'Medium', icon: '🏃', color: '#FF9500' },
-    { day: 'Fri', workout: 'Rest Day', distance: 'Active recovery', intensity: 'Easy', icon: '🧘', color: '#34C759' },
-    { day: 'Sat', workout: 'Long Run', distance: '20 km', intensity: 'Medium', icon: '⭐', color: '#34C759' },
-    { day: 'Sun', workout: 'Rest', distance: 'Rest', intensity: 'Easy', icon: '🧘', color: '#8E8E93' },
-  ],
+const addDays = (dateKey: string, days: number) => {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return formatDateKey(date);
+};
+
+const mondayFor = (dateKey: string) => {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  const mondayOffset = (date.getUTCDay() + 6) % 7;
+  return addDays(dateKey, -mondayOffset);
+};
+
+const createRestWorkout = (weekNumber: number, displayOrder: number, workoutDate: string): CurrentWorkout => ({
+  week_number: weekNumber,
+  display_order: displayOrder,
+  workout_date: workoutDate,
+  weekday: WEEKDAYS[displayOrder - 1],
+  workout_type: 'Rest',
+  title: 'Rest Day',
+  duration: null,
+  distance: null,
+  target_pace: null,
+  pace_unit: '',
+  zone: '',
+  warmup: null,
+  cooldown: null,
+  notes: 'Active recovery',
+  priority: 0,
+  segments: [],
+});
+
+const completeWeek = (week: { week_number: number; workouts: CurrentWorkout[] }, planStartDate: string) => {
+  const existingDates = week.workouts.map((workout) => workout.workout_date).filter(Boolean).sort();
+  const weekStart = existingDates.length ? mondayFor(existingDates[0]) : addDays(mondayFor(planStartDate), (week.week_number - 1) * 7);
+  const workoutsByDate = new Map(week.workouts.map((workout) => [workout.workout_date, workout]));
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const workoutDate = addDays(weekStart, index);
+    return workoutsByDate.get(workoutDate) ?? createRestWorkout(week.week_number, index + 1, workoutDate);
+  });
+};
+
+const iconForWorkout = (workout: CurrentWorkout): WorkoutDetail['iconName'] => {
+  const label = `${workout.workout_type} ${workout.title}`.toLowerCase();
+  if (label.includes('rest')) return 'moon-outline';
+  if (label.includes('interval')) return 'flash-outline';
+  if (label.includes('tempo')) return 'speedometer-outline';
+  if (label.includes('recovery')) return 'bicycle-outline';
+  if (label.includes('long')) return 'walk-outline';
+  return 'walk-outline';
+};
+
+const formatDuration = (seconds: number | null) => seconds == null ? '' : `${Math.round(seconds / 60)} min`;
+const formatDistance = (metres: number | null) => metres == null ? '' : `${(metres / 1000).toFixed(1)} km`;
+
+const toWorkoutDetail = (
+  workout: CurrentWorkout,
+  benchmarkAssignments: Record<string, PlanBenchmarkAssignment> = {},
+  dbPlanWorkouts: UserWorkoutResponse[] = []
+): WorkoutDetail => {
+  const isRest = `${workout.workout_type} ${workout.title}`.toLowerCase().includes('rest');
+  const date = workout.workout_date ? new Date(`${workout.workout_date}T00:00:00`) : null;
+  const title = workout.title || workout.workout_type || 'Workout';
+  const description = workout.notes || (isRest ? 'Active recovery' : 'Easy aerobic run');
+  const workoutType = isRest ? 'Recovery' : workout.workout_type;
+
+  const workoutId = `${workout.week_number}-${workout.display_order}-${workout.workout_date}`;
+  const weekOrderKey = `${workout.week_number}-${workout.display_order}`;
+  const normTitle = (s?: string | null) => (s || '').trim().toLowerCase();
+  const normDate = (s?: string | null) => (s || '').trim().slice(0, 10);
+
+  // Match against plan workouts in database table where is_custom === false
+  const dbMatch = !isRest
+    ? dbPlanWorkouts.find((w) => {
+        if (w.workout_date && workout.workout_date && normDate(w.workout_date) === normDate(workout.workout_date)) return true;
+        if (w.week_number === workout.week_number && w.display_order === workout.display_order) return true;
+        if (w.week_number === workout.week_number && w.weekday && workout.weekday && w.weekday.toLowerCase() === workout.weekday.toLowerCase()) return true;
+        if (w.week_number === workout.week_number && normTitle(w.title) === normTitle(title)) return true;
+        return false;
+      })
+    : undefined;
+
+  const assignment = isRest
+    ? undefined
+    : (workout.workout_date && benchmarkAssignments[normDate(workout.workout_date)]) ||
+      (workout.workout_date && benchmarkAssignments[workout.workout_date]) ||
+      benchmarkAssignments[workoutId] ||
+      benchmarkAssignments[weekOrderKey] ||
+      (dbMatch?.id ? benchmarkAssignments[String(dbMatch.id)] : undefined) ||
+      undefined;
+
+  const isBenchmark = assignment !== undefined
+    ? Boolean(assignment.isBenchmark)
+    : dbMatch !== undefined
+    ? Boolean(dbMatch.is_benchmark)
+    : Boolean(workout.is_benchmark);
+  const workoutDbId = dbMatch?.id || (workout as any).id || (workout as any).workout_id || assignment?.workoutDbId;
+
+  return {
+    id: workoutId,
+    workoutDbId,
+    rawDate: workout.workout_date,
+    weekNumber: workout.week_number,
+    displayOrder: workout.display_order,
+    day: workout.weekday ? workout.weekday.slice(0, 3) : '',
+    date: date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '',
+    title,
+    workoutType,
+    iconName: iconForWorkout(workout),
+    accentColor: isRest ? '#8A8F94' : isBenchmark ? '#F59E0B' : '#63C72B',
+    isRest,
+    isBenchmark,
+    benchmarkTitle: assignment?.benchmarkTitle || (isBenchmark ? title : undefined),
+    benchmarkType: assignment?.benchmarkType || (isBenchmark ? 'plan' : undefined),
+    description,
+    instructions: '',
+    warmUp: formatDistance(workout.warmup),
+    steps: workout.segments.map((segment: CurrentWorkout['segments'][number]) => [
+      segment.segment_type,
+      segment.repeats > 1 ? `${segment.repeats}×` : '',
+      segment.rep_distance != null ? `${(segment.rep_distance / 1000).toFixed(1)} km` : '',
+      segment.duration != null ? formatDuration(segment.duration) : '',
+      segment.target_pace ? `${segment.target_pace} ${segment.pace_unit}`.trim() : '',
+      segment.rest_duration != null ? `rest ${formatDuration(segment.rest_duration)}` : '',
+      segment.notes,
+    ].filter(Boolean).join(' · ')).filter(Boolean),
+    coolDown: formatDistance(workout.cooldown),
+    estimatedDuration: formatDuration(workout.duration),
+    estimatedCalories: '',
+    targetPace: workout.target_pace ? `${workout.target_pace} ${workout.pace_unit}`.trim() : '',
+    heartRateZone: workout.zone,
+    distance: formatDistance(workout.distance),
+    notes: workout.notes,
+    segments: workout.segments.map((segment) => ({ order: segment.segment_order, type: segment.segment_type, repeats: segment.repeats, distance: segment.rep_distance != null ? `${(segment.rep_distance / 1000).toFixed(1)} km` : '', duration: formatDuration(segment.duration), pace: segment.target_pace ? `${segment.target_pace} ${segment.pace_unit}`.trim() : '', rest: segment.rest_duration != null ? formatDuration(segment.rest_duration) : '', notes: segment.notes })),
+  };
 };
 
 export default function TrainingPlanScreen() {
-  const params = useLocalSearchParams();
-  const [selectedWeek, setSelectedWeek] = useState(1);
-  const [isFiveKPlan, setIsFiveKPlan] = useState(false);
-  const [isBeginner, setIsBeginner] = useState(false);
-  const [weeklyWorkouts, setWeeklyWorkouts] = useState<WorkoutDay[]>([]);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isSaved, setIsSaved] = useState(false);
+  const { colors } = useTheme();
+  const params = useLocalSearchParams<{ selectedWeek?: string }>();
+  const { user } = useAuth();
+  const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
+  const [selectedWeekIndex, setSelectedWeekIndex] = useState(() => {
+    const requestedWeek = Number.parseInt(String(params.selectedWeek ?? ''), 10);
+    return Number.isFinite(requestedWeek) && requestedWeek > 0 ? requestedWeek - 1 : 0;
+  });
+  const [selectedWorkout, setSelectedWorkout] = useState<WorkoutDetail | null>(null);
+  const [benchmarkAssignments, setBenchmarkAssignments] = useState<Record<string, PlanBenchmarkAssignment>>({});
+  const [dbPlanWorkouts, setDbPlanWorkouts] = useState<UserWorkoutResponse[]>([]);
 
   useEffect(() => {
-    const isFiveK = params.isFiveKPlan === 'true';
-    const beginner = params.isBeginner === 'true';
-    
-    setIsFiveKPlan(isFiveK);
-    setIsBeginner(beginner);
-    
-    const plan = isFiveK ? FIVE_K_PLAN_WEEKS : CUSTOM_PLAN_WEEKS;
-    setWeeklyWorkouts(plan[selectedWeek] || plan[1]);
+    void fetchWorkoutPlan();
+  }, [fetchWorkoutPlan]);
 
-    checkIfSaved();
-  }, [params, selectedWeek]);
+  useEffect(() => {
+    PlanBenchmarkStore.getAssignments().then(setBenchmarkAssignments);
+    const unsub = PlanBenchmarkStore.subscribe(setBenchmarkAssignments);
 
-  const checkIfSaved = async () => {
-    try {
-      const savedPlan = await storage.getItem(storage.KEYS.TRAINING_PLAN);
-      if (savedPlan) {
-        const planData = JSON.parse(savedPlan);
-        if (planData.weeklyWorkouts && planData.weeklyWorkouts.length > 0) {
-          setIsSaved(true);
+    // Sync plan benchmarks directly from database workouts table (where is_custom === false and is_benchmark === true)
+    workoutPlanService
+      .getPlanWorkouts()
+      .then((planWorkouts) => {
+        setDbPlanWorkouts(planWorkouts);
+        const serverBenchMap: Record<string, PlanBenchmarkAssignment> = {};
+
+        planWorkouts.forEach((w) => {
+          if (w.is_benchmark) {
+            const dateKey = w.workout_date ? w.workout_date.slice(0, 10) : '';
+            const orderKey = `${w.week_number}-${w.display_order}-${w.workout_date || ''}`;
+            const weekOrderKey = `${w.week_number}-${w.display_order}`;
+            const assignment: PlanBenchmarkAssignment = {
+              workoutKey: dateKey || orderKey,
+              isBenchmark: true,
+              benchmarkType: 'plan',
+              benchmarkTitle: w.title || 'Plan Benchmark',
+              workoutDbId: w.id,
+              planWorkoutTitle: w.title,
+              planWorkoutDate: w.workout_date || undefined,
+              planWorkoutDay: w.weekday || undefined,
+              planWorkoutType: w.workout_type,
+              planWorkoutSegments: w.segments,
+              notes: w.notes,
+            };
+            if (dateKey) serverBenchMap[dateKey] = assignment;
+            serverBenchMap[orderKey] = assignment;
+            serverBenchMap[weekOrderKey] = assignment;
+            serverBenchMap[String(w.id)] = assignment;
+          }
+        });
+
+        if (Object.keys(serverBenchMap).length > 0) {
+          setBenchmarkAssignments((prev) => ({
+            ...serverBenchMap,
+            ...prev,
+          }));
         }
-      }
-    } catch (error) {
-      console.error("Error checking saved plan:", error);
-    }
+      })
+      .catch((err) => {
+        console.warn('[TrainingPlan] Error syncing plan workouts from backend:', err);
+      });
+
+    return () => unsub();
+  }, []);
+
+  const plan = useMemo<RunningPlanData | null>(() => {
+    if (!workoutPlan) return null;
+
+    return {
+      name: workoutPlan.training_plan || workoutPlan.template_name || 'Advanced 5K',
+      focus: 'Intensity Timeline',
+      totalWeeks: workoutPlan.weeks.length,
+      weeks: workoutPlan.weeks.map((week: { week_number: number; workouts: CurrentWorkout[] }) => {
+        const completedWorkouts = completeWeek(week, workoutPlan.start_date);
+        const dateKeys = completedWorkouts.map((workout) => workout.workout_date);
+        const range = `${new Date(`${dateKeys[0]}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${new Date(`${dateKeys[dateKeys.length - 1]}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+        const scheduleNote = completedWorkouts.some((workout) => `${workout.title} ${workout.workout_type}`.toLowerCase().includes('tempo'))
+          ? 'Tempo Run moved to the current week for a stronger block.'
+          : '';
+
+        return {
+          id: String(week.week_number),
+          label: `Week ${week.week_number} of ${workoutPlan.weeks.length}`,
+          dateRange: range,
+          statusText: scheduleNote,
+          workouts: completedWorkouts.map((w) => toWorkoutDetail(w, benchmarkAssignments, dbPlanWorkouts)),
+        };
+      }),
+    };
+  }, [workoutPlan, benchmarkAssignments, dbPlanWorkouts]);
+
+  const safeWeekIndex = plan ? Math.min(selectedWeekIndex, Math.max(0, plan.weeks.length - 1)) : 0;
+  const selectedWeek = plan?.weeks[safeWeekIndex] ?? null;
+  const userName = user?.username?.trim() || user?.email?.split('@')[0]?.trim() || 'Runner';
+
+  const changeWeek = (direction: -1 | 1) => {
+    if (!plan) return;
+    setSelectedWeekIndex((current) => Math.max(0, Math.min(plan.weeks.length - 1, safeWeekIndex + direction)));
   };
 
-  const getIntensityColor = (intensity: string) => {
-    switch (intensity) {
-      case 'Easy': return '#34C759';
-      case 'Hard': return '#FF3B30';
-      case 'Medium': return '#FF9500';
-      default: return '#8E8E93';
-    }
-  };
+  const weekSwipeResponder = PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gestureState) => (
+      Math.abs(gestureState.dx) > 12 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2
+    ),
+    onPanResponderRelease: (_, gestureState) => {
+      if (Math.abs(gestureState.dx) < 48) return;
+      changeWeek(gestureState.dx < 0 ? 1 : -1);
+    },
+  });
 
-  const getWeekLabel = (week: number) => `Week${week}`;
-
-  const handleWeekChange = (week: number) => {
-    setSelectedWeek(week);
-    const plan = isFiveKPlan ? FIVE_K_PLAN_WEEKS : CUSTOM_PLAN_WEEKS;
-    setWeeklyWorkouts(plan[week] || plan[1]);
-  };
-
-  const handleSavePlan = async () => {
-    if (isSaving) return;
-    
-    setIsSaving(true);
-    try {
-      const planData = {
-        weeklyWorkouts,
-        isFiveKPlan,
-        isBeginner,
-        selectedWeek,
-        savedAt: new Date().toISOString(),
-      };
-      
-      await storage.setItem(storage.KEYS.TRAINING_PLAN, JSON.stringify(planData));
-      setIsSaved(true);
-      
-      Alert.alert(
-        "✅ Plan Saved!",
-        "Your training plan has been saved successfully.",
-        [{ text: "OK" }]
-      );
-    } catch (error) {
-      console.error("Error saving plan:", error);
-      Alert.alert("Error", "Failed to save your training plan. Please try again.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // ✅ NEW: Navigate to Dashboard
-  const goToDashboard = () => {
-    router.replace("/(app)/dashboard");
-  };
-
-  const renderDayCard = (day: WorkoutDay, index: number) => {
-    const isRestDay = day.workout === 'Rest' || day.workout === 'Rest Day';
-    
+  if (isWorkoutPlanLoading && !plan) {
     return (
-      <TouchableOpacity
-        key={index}
-        style={[
-          styles.weekDayCard,
-          isRestDay && styles.weekDayCardRest,
-        ]}
-        activeOpacity={0.7}
-      >
-        <View style={styles.weekDayHeader}>
-          <Text style={styles.weekDayName}>{day.day}</Text>
-          {!isRestDay && (
-            <View style={[styles.intensityBadge, { backgroundColor: getIntensityColor(day.intensity) }]}>
-              <Text style={styles.intensityBadgeText}>{day.intensity}</Text>
-            </View>
-          )}
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <StatusBar barStyle="light-content" />
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#63C72B" />
+          <Text style={[styles.message, { color: colors.text }]}>Loading your training plan...</Text>
         </View>
-
-        <View style={styles.weekDayContent}>
-          <Text style={[styles.weekDayWorkout, isRestDay && styles.weekDayWorkoutRest]}>
-            {day.workout}
-          </Text>
-          <Text style={[styles.weekDayDistance, isRestDay && styles.weekDayDistanceRest]}>
-            {day.distance}
-          </Text>
-        </View>
-
-        {!isRestDay && (
-          <View style={[styles.weekDayIconContainer, { backgroundColor: `${day.color}20` }]}>
-            <Text style={styles.weekDayIcon}>{day.icon}</Text>
-          </View>
-        )}
-      </TouchableOpacity>
+      </SafeAreaView>
     );
-  };
+  }
 
-  // Calculate total stats
-  const totalDistance = weeklyWorkouts
-    .filter(w => w.distance !== 'Rest' && w.distance !== 'Active recovery')
-    .reduce((sum, w) => {
-      const dist = parseFloat(w.distance);
-      return sum + (isNaN(dist) ? 0 : dist);
-    }, 0);
-
-  const totalWorkouts = weeklyWorkouts.filter(w => w.workout !== 'Rest' && w.workout !== 'Rest Day').length;
-  const totalTime = totalDistance * 0.1;
+  if (!plan) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <StatusBar barStyle="light-content" />
+        <View style={styles.center}>
+          <Text style={[styles.error, { color: colors.text }]}>{workoutPlanError || 'No training plan is available.'}</Text>
+          <TouchableOpacity onPress={() => void fetchWorkoutPlan(true)} style={[styles.retry, { backgroundColor: '#4ADE80' }]}>
+            <Text style={[styles.retryText, { color: colors.background }]}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerTop}>
-            <View>
-              <Text style={styles.greetingText}>🏃 Weekly Plan</Text>
-              <View style={styles.headerTitleRow}>
-                <Text style={styles.userName}>AI Coach</Text>
-                {isFiveKPlan && (
-                  <View style={styles.planBadge}>
-                    <Text style={styles.planBadgeText}>5K Plan</Text>
-                  </View>
-                )}
-                {isBeginner && (
-                  <View style={[styles.planBadge, styles.beginnerBadge]}>
-                    <Text style={styles.planBadgeText}>Beginner</Text>
-                  </View>
-                )}
-                {isSaved && (
-                  <View style={[styles.planBadge, styles.savedBadge]}>
-                    <Feather name="check" size={12} color="#1A1A1A" />
-                    <Text style={styles.planBadgeText}>Saved</Text>
-                  </View>
-                )}
-              </View>
-            </View>
-            <TouchableOpacity 
-              style={styles.profileIcon}
-              onPress={() => router.push("./calendar")}
-            >
-              <Ionicons name="calendar-outline" size={24} color="#34C759" />
-            </TouchableOpacity>
-          </View>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle="light-content" />
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <RunningPlanHeader planName={plan.name} focusLabel={plan.focus} userName={userName} />
 
-          {(isFiveKPlan || isBeginner) && (
-            <View style={styles.planInfoContainer}>
-              <Text style={styles.planInfoText}>
-                {isBeginner ? '🎯 Beginner 5K Training Plan - 4 Weeks' : '🎯 5K Training Plan - 4 Weeks'}
-              </Text>
-              <Text style={styles.planInfoSubtext}>
-                {isBeginner 
-                  ? 'Build up to running 5K with 3 easy runs per week. Start slow, stay consistent!' 
-                  : 'Build up to running 5K with 3 runs per week'}
-              </Text>
-            </View>
-          )}
+        <View {...weekSwipeResponder.panHandlers}>
+          <TrainingCalendarCard
+            weekLabel={selectedWeek?.label ?? `Week ${selectedWeekIndex + 1}`}
+            rangeLabel={selectedWeek?.dateRange ?? ''}
+            statusText={selectedWeek?.statusText ?? ''}
+            totalWeeks={plan.totalWeeks}
+            currentWeekIndex={safeWeekIndex + 1}
+            onPrevious={() => changeWeek(-1)}
+            onNext={() => changeWeek(1)}
+            previousDisabled={safeWeekIndex <= 0}
+            nextDisabled={safeWeekIndex >= plan.weeks.length - 1}
+          />
 
-          {/* Save Plan Button */}
-          <TouchableOpacity
-            style={[styles.saveButton, isSaved && styles.saveButtonSaved]}
-            onPress={handleSavePlan}
-            disabled={isSaving || isSaved}
-          >
-            {isSaving ? (
-              <ActivityIndicator size="small" color="#1A1A1A" />
-            ) : isSaved ? (
-              <>
-                <Feather name="check-circle" size={18} color="#1A1A1A" />
-                <Text style={styles.saveButtonText}>Plan Saved</Text>
-              </>
-            ) : (
-              <>
-                <Feather name="save" size={18} color="#1A1A1A" />
-                <Text style={styles.saveButtonText}>Save Plan</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {/* ✅ NEW: Go to Dashboard Button */}
-          <TouchableOpacity
-            style={styles.dashboardButton}
-            onPress={goToDashboard}
-          >
-            <Feather name="home" size={18} color="#1A1A1A" />
-            <Text style={styles.dashboardButtonText}>Go to Dashboard</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Week Selector */}
-        <View style={styles.weekSelector}>
-          {[1, 2, 3, 4].map((week) => (
-            <TouchableOpacity
-              key={week}
-              style={[
-                styles.weekTab,
-                selectedWeek === week && styles.weekTabActive,
-              ]}
-              onPress={() => handleWeekChange(week)}
-            >
-              <Text style={[
-                styles.weekTabText,
-                selectedWeek === week && styles.weekTabTextActive,
-              ]}>
-                {getWeekLabel(week)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Weekly Schedule */}
-        <View style={styles.weeklySchedule}>
-          <Text style={styles.sectionTitle}>
-            {isFiveKPlan ? 'This Week\'s 5K Training' : 'This Week\'s Workouts'}
-          </Text>
-          {weeklyWorkouts.map((day, index) => renderDayCard(day, index))}
-        </View>
-
-        {/* Quick Stats */}
-        <View style={styles.quickStatsContainer}>
-          <View style={styles.quickStat}>
-            <Text style={styles.quickStatValue}>{totalDistance.toFixed(1)} km</Text>
-            <Text style={styles.quickStatLabel}>Total Distance</Text>
-          </View>
-          <View style={styles.quickStatDivider} />
-          <View style={styles.quickStat}>
-            <Text style={styles.quickStatValue}>{totalWorkouts}</Text>
-            <Text style={styles.quickStatLabel}>Workouts</Text>
-          </View>
-          <View style={styles.quickStatDivider} />
-          <View style={styles.quickStat}>
-            <Text style={styles.quickStatValue}>{totalTime.toFixed(1)} hrs</Text>
-            <Text style={styles.quickStatLabel}>Total Time</Text>
+          <View style={styles.timelineWrapper}>
+            <Timeline
+              workouts={selectedWeek?.workouts ?? []}
+              onSelectWorkout={setSelectedWorkout}
+              onSwapWorkout={(workout: WorkoutDetail) => {
+                Alert.alert('Swap Session', `Swap ${workout.title} to a different day.`);
+              }}
+            />
           </View>
         </View>
       </ScrollView>
+
+      <WorkoutModal
+        visible={selectedWorkout !== null}
+        workout={selectedWorkout}
+        onClose={() => setSelectedWorkout(null)}
+        onUpdateBenchmark={(workoutId, isBenchmark, assignment, workoutDbId) => {
+          const effectiveDbId = workoutDbId || assignment?.workoutDbId || selectedWorkout?.workoutDbId;
+          const rawDate = selectedWorkout?.rawDate;
+          const weekNumber = selectedWorkout?.weekNumber;
+          const displayOrder = selectedWorkout?.displayOrder;
+          const weekOrderKey = weekNumber != null && displayOrder != null ? `${weekNumber}-${displayOrder}` : null;
+
+          if (isBenchmark && assignment) {
+            setBenchmarkAssignments((prev) => ({
+              ...prev,
+              [workoutId]: assignment,
+              ...(assignment.planWorkoutDate ? { [assignment.planWorkoutDate]: assignment } : {}),
+              ...(rawDate ? { [rawDate]: assignment } : {}),
+              ...(rawDate ? { [rawDate.slice(0, 10)]: assignment } : {}),
+              ...(effectiveDbId ? { [String(effectiveDbId)]: assignment } : {}),
+              ...(weekOrderKey ? { [weekOrderKey]: assignment } : {}),
+            }));
+          } else {
+            setBenchmarkAssignments((prev) => {
+              const copy = { ...prev };
+              delete copy[workoutId];
+              if (rawDate) {
+                delete copy[rawDate];
+                delete copy[rawDate.slice(0, 10)];
+              }
+              if (effectiveDbId) delete copy[String(effectiveDbId)];
+              if (weekOrderKey) delete copy[weekOrderKey];
+              Object.keys(copy).forEach((k) => {
+                if (effectiveDbId && copy[k]?.workoutDbId === effectiveDbId) {
+                  delete copy[k];
+                }
+              });
+              return copy;
+            });
+          }
+          if (selectedWorkout) {
+            setSelectedWorkout({
+              ...selectedWorkout,
+              isBenchmark,
+              benchmarkTitle: isBenchmark ? assignment?.benchmarkTitle || selectedWorkout.title : undefined,
+              benchmarkType: isBenchmark ? assignment?.benchmarkType || 'plan' : undefined,
+              workoutDbId: effectiveDbId || selectedWorkout.workoutDbId,
+            });
+          }
+          setDbPlanWorkouts((prev) =>
+            prev.map((w) => {
+              const isTarget =
+                (effectiveDbId && w.id === effectiveDbId) ||
+                (rawDate && w.workout_date && w.workout_date.slice(0, 10) === rawDate.slice(0, 10)) ||
+                (weekNumber != null &&
+                  displayOrder != null &&
+                  w.week_number === weekNumber &&
+                  w.display_order === displayOrder);
+              return isTarget ? { ...w, is_benchmark: isBenchmark } : w;
+            })
+          );
+        }}
+      />
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#06090B' },
+  content: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 118 },
+  timelineWrapper: { marginTop: 8 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  message: { color: '#fff', marginTop: 12 },
+  error: { color: '#fff', fontSize: 16, marginBottom: 12, textAlign: 'center' },
+  retry: { backgroundColor: '#63C72B', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 8 },
+  retryText: { color: '#091200', fontWeight: '700' },
+});

@@ -1,49 +1,76 @@
 {
   "expo": {
-    "name": "frontend",
-    "slug": "frontend",
+    "name": "Zy-Run",
+    "slug": "zy-run",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "icon": "./assets/ZyRunLOGO.png",
+    "scheme": "com.zyapp",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/ZyRunLOGO.png"
     },
     "android": {
+      "icon": "./assets/ZyRunLOGO.png",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#FAFAFA",
+        "foregroundImage": "./assets/ZyRunLOGO.png"
       },
+      "permissions": [
+        "POST_NOTIFICATIONS"
+      ],
       "predictiveBackGestureEnabled": false,
-      "package": "com.anishmetha.frontend"
+      "package": "com.zyapp"
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png",
+      "favicon": "./assets/ZyRunLOGO.png",
       "bundler": "metro"
     },
     "plugins": [
       "expo-router",
+      "expo-notifications",
+      [
+        "expo-location",
+        {
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
+          "isAndroidMotionActivityEnabled": true,
+          "locationAlwaysAndWhenInUsePermission": "Allow this app to access your location even when the app is in the background to track your run.",
+          "locationWhenInUsePermission": "Allow this app to use your location while you are running.",
+          "motionUsagePermission": "Allow this app to detect whether you are walking or running while recording a workout."
+        }
+      ],
+       [
+    "react-native-maps",
+    {
+      "androidGoogleMapsApiKey": "AIzaSyCbfFEhN28i6_DmvgUdRN6FUH9UVaTJoAk"
+    }
+  ],
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#FAFAFA",
+          "image": "./assets/ZyRunLOGO.png",
+          "imageWidth": 200
         }
       ],
       "@react-native-community/datetimepicker",
       "expo-secure-store",
       "expo-image",
+      "expo-image-picker",
       "expo-status-bar",
       "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "googleAndroidClientId": "1012302664400-ncmdep47qdvvh7eg8vrge88ak0qbcr79.apps.googleusercontent.com",
+      "googleWebClientId": "1012302664400-ncmdep47qdvvh7eg8vrge88ak0qbcr79.apps.googleusercontent.com",
+      "apiUrl": "https://zyrun.zynith-it.com",
+      "googleMapsApiKey": "AIzaSyCbfFEhN28i6_DmvgUdRN6FUH9UVaTJoAk"
     }
   }
 }

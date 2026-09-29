@@ -16,6 +16,12 @@ interface User {
   first_name: string;
   last_name: string;
   phone_number?: string;
+  password_setup_required?: boolean;
+  hasPassword?: boolean;
+  auth_provider?: string;
+  has_password?: boolean;
+  authProvider?: string;
+  provider?: string;
   profile?: {
     date_of_birth?: string;
     gender?: string;
@@ -25,6 +31,7 @@ interface User {
     phone_number?: string;
     distance_unit?: string;
     profile_picture?: string; // ✅ unified field
+    profile_picture_url?: string;
   };
 }
 
@@ -60,7 +67,12 @@ interface AuthContextType {
   resendOtp: (email: string, purpose: string) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (data: ProfileData) => Promise<void>;
-  changePassword: (current_password: string | undefined, password: string, password2: string) => Promise<void>;
+  uploadProfilePicture: (file: { uri: string; name: string; type: string }) => Promise<void>;
+  updatePassword: (payload: {
+    currentPassword?: string;
+    newPassword: string;
+    confirmPassword: string;
+  }) => Promise<void>;
   refreshProfile: () => Promise<void>;
   googleLogin: () => Promise<{ requiresSignup: boolean }>;
   googleSignupData: {
@@ -76,6 +88,21 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
+
+const normalizeUser = (value: User | null): User | null => {
+  if (!value) return null;
+
+  const raw = value as User & Record<string, unknown>;
+  const provider = String(raw.authProvider ?? raw.auth_provider ?? raw.provider ?? '').toLowerCase();
+  const explicitHasPassword = raw.hasPassword ?? raw.has_password;
+  const hasPassword = typeof raw.password_setup_required === 'boolean'
+    ? !raw.password_setup_required
+    : typeof explicitHasPassword === 'boolean'
+      ? explicitHasPassword
+      : undefined;
+
+  return { ...value, hasPassword, authProvider: provider || undefined };
+};
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -95,7 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const token = await storage.getItem(storage.KEYS.ACCESS_TOKEN);
       if (token) {
         const response = await authAPI.getProfile();
-        setUser(response.data.data);
+        setUser(normalizeUser(response.data.data));
       }
     } catch (error) {
       console.log("Auth Init Error:", error);
@@ -134,7 +161,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const response = await authAPI.login({ identifier, password });
     const { accessToken, refreshToken, user: loggedInUser } = resolveAuthPayload(response);
     await storeTokens(accessToken, refreshToken);
-    setUser(loggedInUser);
+    setUser(normalizeUser(loggedInUser));
   };
 
   const signup = async (data: SignupData) => {
@@ -146,7 +173,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const response = await authAPI.verifyOtp({ email, otp_code: otpcode });
     const { accessToken, refreshToken, user: verifiedUser } = resolveAuthPayload(response);
     await storeTokens(accessToken, refreshToken);
-    setUser(verifiedUser);
+    setUser(normalizeUser(verifiedUser));
   };
 
   const resendOtp = async (email: string, purpose: string) => {
@@ -155,24 +182,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshProfile = async () => {
     const response = await authAPI.getProfile();
-    setUser(response.data.data);
+    setUser(normalizeUser(response.data.data));
   };
 
   const updateProfile = async (data: ProfileData) => {
     const response = await authAPI.updateProfile(data);
-    setUser(response.data.data);
+    setUser(normalizeUser(response.data.data));
   };
 
-  const changePassword = async (
-    current_password: string | undefined,
-    password: string,
-    password2: string
-  ) => {
-    await authAPI.changePassword({
-      current_password,
-      password,
-      password2,
-    });
+  const uploadProfilePicture = async (file: { uri: string; name: string; type: string }) => {
+    const formData = new FormData();
+    formData.append("profile_picture", {
+      uri: file.uri,
+      name: file.name,
+      type: file.type,
+    } as any);
+
+    const response = await authAPI.uploadProfilePicture(formData);
+    const updatedUser = response.data?.data || response.data;
+    await storage.setItem(storage.KEYS.USER, JSON.stringify(updatedUser));
+    setUser(normalizeUser(updatedUser));
+  };
+
+  const updatePassword = async (payload: {
+    currentPassword?: string;
+    newPassword: string;
+    confirmPassword: string;
+  }) => {
+    await authAPI.updatePassword(payload);
+    setUser((currentUser) => currentUser ? { ...currentUser, hasPassword: true } : currentUser);
   };
 
   const logout = async () => {
@@ -207,9 +245,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         id_token: result.idToken,
       });
 
-      console.log("Google Login Response:", response.data);
+      const apiResponse = response?.data ?? {};
+      const payload = apiResponse.data ?? apiResponse;
+      const requiresSignup = Boolean(
+        payload?.requires_signup === true ||
+          payload?.requiresSignup === true ||
+          payload?.user_exists === false ||
+          payload?.userExists === false ||
+          apiResponse?.requires_signup === true ||
+          apiResponse?.requiresSignup === true ||
+          apiResponse?.user_exists === false ||
+          apiResponse?.userExists === false
+      );
 
-      if (response.data?.requires_signup) {
+      console.log("Google Login Response:", payload);
+
+      if (requiresSignup) {
         console.log("New user - needs to complete signup");
         setGoogleSignupData({
           email: result.user.email,
@@ -220,23 +271,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { requiresSignup: true };
       }
 
-      if (response.data?.data?.tokens) {
-        const { access, refresh } = response.data.data.tokens;
-        let userData = response.data.data.user;
+      const tokens = payload?.tokens ?? apiResponse?.tokens ?? payload?.token ?? apiResponse?.token;
+      const userData = payload?.user ?? apiResponse?.user ?? payload?.data?.user ?? apiResponse?.data?.user;
 
-        // ✅ Store Google profile picture if missing
-        if (!userData.profile?.profile_picture && result.user.picture) {
-          userData = {
-            ...userData,
+      if (tokens?.access && tokens?.refresh) {
+        let normalizedUser = userData || {};
+
+        if (!normalizedUser.profile?.profile_picture && result.user.picture) {
+          normalizedUser = {
+            ...normalizedUser,
             profile: {
-              ...(userData.profile || {}),
-              profile_picture: result.user.picture, // ✅ 'picture' from Google
+              ...(normalizedUser.profile || {}),
+              profile_picture: result.user.picture,
             },
           };
         }
 
-        await storeTokens(access, refresh);
-        setUser(userData);
+        await storeTokens(tokens.access, tokens.refresh);
+        setUser(normalizeUser({
+          ...normalizedUser,
+          authProvider: normalizedUser.authProvider
+            ?? normalizedUser.auth_provider
+            ?? normalizedUser.provider
+            ?? 'google',
+        }));
+        setIsLoading(false);
+        return { requiresSignup: false };
+      }
+
+      if (payload?.status === "success" && userData) {
+        setUser(normalizeUser({
+          ...userData,
+          authProvider: userData.authProvider
+            ?? userData.auth_provider
+            ?? userData.provider
+            ?? 'google',
+        }));
         setIsLoading(false);
         return { requiresSignup: false };
       }
@@ -260,8 +330,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         resendOtp,
         logout,
         updateProfile,
+        uploadProfilePicture,
         refreshProfile,
-        changePassword,
+        updatePassword,
         googleLogin,
         googleSignupData,
         setGoogleSignupData,

@@ -19,11 +19,11 @@ export const Colors = {
 
 export const Spacing = {
   xs: 4,
-  sm: 8,
-  md: 16,
-  lg: 20,
-  xl: 24,
-  xxl: 32,
+  sm: 7,
+  md: 14,
+  lg: 18,
+  xl: 21,
+  xxl: 28,
 };
 
 export const BorderRadius = {
@@ -36,12 +36,12 @@ export const BorderRadius = {
 };
 
 export const Typography = {
-  h1: { fontSize: 28, fontWeight: '700' as const, lineHeight: 36 },
-  h2: { fontSize: 24, fontWeight: '600' as const, lineHeight: 32 },
-  h3: { fontSize: 20, fontWeight: '600' as const, lineHeight: 28 },
-  h4: { fontSize: 18, fontWeight: '500' as const, lineHeight: 24 },
-  body: { fontSize: 16, fontWeight: '400' as const, lineHeight: 24 },
-  bodySmall: { fontSize: 14, fontWeight: '400' as const, lineHeight: 20 },
-  caption: { fontSize: 12, fontWeight: '400' as const, lineHeight: 16 },
-  button: { fontSize: 16, fontWeight: '600' as const, lineHeight: 24 },
+  h1: { fontSize: 25, fontWeight: '700' as const, lineHeight: 32 },
+  h2: { fontSize: 21, fontWeight: '600' as const, lineHeight: 28 },
+  h3: { fontSize: 18, fontWeight: '600' as const, lineHeight: 25 },
+  h4: { fontSize: 16, fontWeight: '500' as const, lineHeight: 22 },
+  body: { fontSize: 14, fontWeight: '400' as const, lineHeight: 21 },
+  bodySmall: { fontSize: 12, fontWeight: '400' as const, lineHeight: 18 },
+  caption: { fontSize: 11, fontWeight: '400' as const, lineHeight: 15 },
+  button: { fontSize: 14, fontWeight: '600' as const, lineHeight: 21 },
 };

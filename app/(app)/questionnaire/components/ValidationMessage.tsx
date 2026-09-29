@@ -14,6 +14,8 @@ export const ValidationMessage: React.FC<ValidationMessageProps> = ({ message, t
   return <Text style={[styles.text, type === 'error' ? styles.error : type === 'success' ? styles.success : styles.hint]}>{message}</Text>;
 };
 
+export default ValidationMessage;
+
 const styles = StyleSheet.create({
   text: {
     marginTop: 8,

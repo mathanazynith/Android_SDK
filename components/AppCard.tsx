@@ -1,7 +1,9 @@
 // FrontEnd/components/AppCard.tsx
 import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
-import { Colors, BorderRadius, Spacing } from '../constants/theme';
+import { BorderRadius, Spacing } from '../constants/theme';
+import { useTheme } from '../contexts/ThemeContext';
+import { useResponsive } from '../utils/responsive';
 
 interface AppCardProps {
   children: React.ReactNode;
@@ -16,11 +18,13 @@ export const AppCard: React.FC<AppCardProps> = ({
   variant = 'default',
   padding = Spacing.md,
 }) => {
+  const { colors } = useTheme();
+  const { spacing } = useResponsive();
   const getCardStyle = () => {
     switch (variant) {
       case 'elevated':
         return {
-          backgroundColor: Colors.surfaceLight,
+          backgroundColor: colors.surfaceRaised,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: 0.3,
@@ -28,13 +32,13 @@ export const AppCard: React.FC<AppCardProps> = ({
           elevation: 6,
         };
       case 'outlined':
-        return { backgroundColor: 'transparent', borderWidth: 1, borderColor: Colors.border };
+        return { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border };
       default:
-        return { backgroundColor: Colors.surface };
+        return { backgroundColor: colors.surface };
     }
   };
 
-  return <View style={[styles.card, getCardStyle(), { padding }, style]}>{children}</View>;
+  return <View style={[styles.card, getCardStyle(), { padding: spacing(padding) }, style]}>{children}</View>;
 };
 
 const styles = StyleSheet.create({

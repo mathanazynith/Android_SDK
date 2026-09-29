@@ -7,6 +7,8 @@ import {
   Platform,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../../../../contexts/ThemeContext';
 
 interface DatePickerProps {
   value?: string;
@@ -14,13 +16,19 @@ interface DatePickerProps {
 }
 
 const DatePicker: React.FC<DatePickerProps> = ({ value, onChange }) => {
+  const { colors, isDark } = useTheme();
   const [show, setShow] = useState(false);
   const [selectedDate, setSelectedDate] = useState(
     value ? new Date(value) : new Date()
   );
 
   const onDateChange = (event: any, date?: Date) => {
-    setShow(Platform.OS === "ios");
+    if (Platform.OS === "android") {
+      setShow(false);
+    } else {
+      setShow(true);
+    }
+    
     if (date) {
       setSelectedDate(date);
       onChange(date.toISOString().split("T")[0]);
@@ -37,10 +45,11 @@ const DatePicker: React.FC<DatePickerProps> = ({ value, onChange }) => {
 
   return (
     <View>
-      <TouchableOpacity style={styles.dateButton} onPress={() => setShow(true)}>
-        <Text style={value ? styles.dateText : styles.placeholder}>
+      <TouchableOpacity style={[styles.dateButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]} onPress={() => setShow(true)}>
+        <Text style={[value ? styles.dateText : styles.placeholder, { color: value ? colors.text : colors.textSecondary }]}>
           {value ? formatDate(new Date(value)) : "Select a date..."}
         </Text>
+        <Ionicons name="calendar-outline" size={22} color={isDark ? colors.primary : colors.icon} />
       </TouchableOpacity>
 
       {show && (
@@ -58,18 +67,21 @@ const DatePicker: React.FC<DatePickerProps> = ({ value, onChange }) => {
 const styles = StyleSheet.create({
   dateButton: {
     padding: 16,
-    backgroundColor: "#f8f8f8",
-    borderRadius: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#303236",
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#45474B",
   },
   dateText: {
     fontSize: 16,
-    color: "#333",
+    color: "#F4F4F5",
   },
   placeholder: {
     fontSize: 16,
-    color: "#999",
+    color: "#A8A9AD",
   },
 });
 

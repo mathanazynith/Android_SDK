@@ -18,6 +18,7 @@ const TextInput: React.FC<TextInputProps> = ({
       value={value}
       onChangeText={onChange}
       placeholder={placeholder || "Enter your answer..."}
+      placeholderTextColor="#75777B"
       multiline
       numberOfLines={3}
       textAlignVertical="top"
@@ -28,12 +29,13 @@ const TextInput: React.FC<TextInputProps> = ({
 const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 10,
+    borderColor: "#45474B",
+    borderRadius: 14,
     padding: 16,
     fontSize: 16,
     minHeight: 100,
-    backgroundColor: "#f8f8f8",
+    backgroundColor: "#303236",
+    color: "#F4F4F5",
   },
 });
 
