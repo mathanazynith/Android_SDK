@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import {
     Alert,
     Animated,
@@ -14,6 +14,7 @@ import {
     View
 } from 'react-native';
 import BenchmarkBadgeIcon from '../../../../components/BenchmarkBadgeIcon';
+import { cacheAssignedRoute, customWorkoutAPI, getCachedAssignedRoute, type SuggestedRoute } from '../../../../service/customWorkout';
 import { workoutPlanService } from '../../../../service/workoutPlan';
 import {
     PlanBenchmarkAssignment,
@@ -66,6 +67,7 @@ export default function WorkoutModal({
 }: WorkoutModalProps) {
   const [rendered, setRendered] = useState(visible);
   const [activeWorkout, setActiveWorkout] = useState<WorkoutDetail | null>(workout);
+  const [assignedRoute, setAssignedRoute] = useState<SuggestedRoute | null>(null);
   const [opacity] = useState(() => new Animated.Value(0));
   const [translateY] = useState(() => new Animated.Value(30));
 
@@ -101,6 +103,30 @@ export default function WorkoutModal({
       setActiveWorkout(workout);
     }
   }, [workout]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const workoutDbId = activeWorkout?.workoutDbId;
+      let cancelled = false;
+      if (!visible || !workoutDbId) {
+        setAssignedRoute(null);
+        return undefined;
+      }
+
+      void customWorkoutAPI.get(workoutDbId).then(({ data }) => {
+        if (cancelled) return;
+        const route = data.assigned_route || data.assignedRoute || data.route || getCachedAssignedRoute(workoutDbId);
+        setAssignedRoute(route);
+        if (route) cacheAssignedRoute(workoutDbId, route);
+      }).catch(() => {
+        if (!cancelled) setAssignedRoute(getCachedAssignedRoute(workoutDbId));
+      });
+
+      return () => {
+        cancelled = true;
+      };
+    }, [activeWorkout?.workoutDbId, visible]),
+  );
 
   if (!rendered || !activeWorkout) return null;
 
@@ -204,6 +230,7 @@ export default function WorkoutModal({
               ? `${activeWorkout.title} (Benchmark)`
               : activeWorkout.title,
             workoutPlan: JSON.stringify(planSteps),
+            ...(assignedRoute ? { assignedRoute: JSON.stringify(assignedRoute) } : {}),
           },
         });
         return;
@@ -221,6 +248,7 @@ export default function WorkoutModal({
         workoutDuration: activeWorkout.estimatedDuration,
         workoutDistance: activeWorkout.distance,
         workoutPace: activeWorkout.targetPace,
+        ...(assignedRoute ? { assignedRoute: JSON.stringify(assignedRoute) } : {}),
       },
     });
   };
@@ -337,6 +365,40 @@ export default function WorkoutModal({
         <Stat label="Distance" value={activeWorkout.distance} />
         <Stat label="Notes" value={activeWorkout.notes} />
       </View>
+
+      {!activeWorkout.isRest && activeWorkout.workoutDbId ? (
+        <View style={styles.routeActions}>
+          {assignedRoute ? (
+            <TouchableOpacity
+              style={styles.assignedRouteButton}
+              onPress={() => {
+                onClose();
+                router.push({ pathname: '/custom-workout/route-detail', params: { route: JSON.stringify(assignedRoute) } });
+              }}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="checkmark-circle" size={19} color="#39B800" />
+              <Text style={styles.assignedRouteText}>
+                Route assigned · {(Number(assignedRoute.distance || 0) / 1000).toFixed(2)} km
+              </Text>
+              <Ionicons name="chevron-forward" size={20} color="#39B800" />
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            style={styles.suggestedRoutesButton}
+            onPress={() => {
+              const workoutId = activeWorkout.workoutDbId;
+              onClose();
+              router.push({ pathname: '/custom-workout/suggested-routes', params: { workoutId: String(workoutId) } });
+            }}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="map-outline" size={19} color="#39B800" />
+            <Text style={styles.suggestedRoutesText}>Suggested Routes</Text>
+            <Ionicons name="chevron-forward" size={20} color="#39B800" />
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {!activeWorkout.isRest && (
         <TouchableOpacity
@@ -564,6 +626,11 @@ const styles = StyleSheet.create({
   sectionText: { color: PURE_WHITE, fontSize: 16, lineHeight: 22 },
   statsTitle: { borderTopWidth: 1, borderTopColor: MUTED_GREEN_BORDER, paddingTop: 17 },
   statsRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  routeActions: { gap: 10, marginTop: 18 },
+  assignedRouteButton: { minHeight: 52, borderRadius: 14, backgroundColor: '#16351F', borderWidth: 1, borderColor: '#39B800', paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  assignedRouteText: { flex: 1, color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  suggestedRoutesButton: { minHeight: 52, borderRadius: 14, backgroundColor: '#16351F', borderWidth: 1, borderColor: MUTED_GREEN_BORDER, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  suggestedRoutesText: { flex: 1, color: '#39B800', fontSize: 15, fontWeight: '800' },
   stat: { flex: 1 },
   statLabel: { color: METRIC_GREY, fontSize: 13, fontWeight: '600', marginBottom: 4 },
   statValue: { color: PURE_WHITE, fontSize: 14, lineHeight: 19 },

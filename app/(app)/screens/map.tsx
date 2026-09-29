@@ -113,7 +113,6 @@ interface PauseMarker {
   id: number;
   type: 'pause' | 'resume';
   coordinate: Coordinate;
-  timestamp: number;
 }
 
 interface PauseEvent {
@@ -369,8 +368,6 @@ export default function MapScreen() {
       void workoutVoiceRef.current?.workoutCompleted();
     }
   }, []);
-
-  const [location, setLocation] = useState<LocationState | null>(null);
 
   const region = useMemo(
     () => location ? {
@@ -1445,12 +1442,18 @@ export default function MapScreen() {
         resume_location: null,
       });
       if (pauseLocation) {
-        setPauseMarkers((markers) => [...markers, {
-          id: pausedAt,
-          type: 'pause',
-          coordinate: pauseLocation,
-          timestamp: pausedAt,
-        }]);
+        setPauseMarkers((markers) => [
+          ...markers,
+          { id: Date.now(), type: 'pause', coordinate: pauseLocation },
+        ]);
+ 
+      // if (pauseLocation) {
+      //   setPauseMarkers((markers) => [...markers, {
+      //     id: pausedAt,
+      //     type: 'pause',
+      //     coordinate: pauseLocation,
+      //     timestamp: pausedAt,
+      //   }]);
       }
       isPausedRef.current = true;
       setIsPaused(true);
@@ -1499,12 +1502,17 @@ export default function MapScreen() {
         }
       }
       if (resumeLocation) {
-        setPauseMarkers((markers) => [...markers, {
-          id: resumedAt,
-          type: 'resume',
-          coordinate: resumeLocation,
-          timestamp: resumedAt,
-        }]);
+        setPauseMarkers((markers) => [
+          ...markers,
+          { id: Date.now(), type: 'resume', coordinate: resumeLocation },
+        ]);
+      // if (resumeLocation) {
+      //   setPauseMarkers((markers) => [...markers, {
+      //     id: resumedAt,
+      //     type: 'resume',
+      //     coordinate: resumeLocation,
+      //     timestamp: resumedAt,
+      //   }]);
       }
 
       isPausedRef.current = false;
@@ -2245,7 +2253,7 @@ export default function MapScreen() {
             Fabric can crash when a Polyline is conditionally inserted while
             native GPS updates are being processed (addViewAt index/count).
           */}
-          {routeSegments.map((segment) => (
+          {/* {routeSegments.map((segment) => (
             <Polyline
               key={`route-${segment.id}`}
               coordinates={segment.coordinates}
@@ -2280,6 +2288,39 @@ export default function MapScreen() {
               title={marker.type === 'pause' ? 'Paused' : 'Resumed'}
               description={new Date(marker.timestamp).toLocaleTimeString()}
             />
+          ))}
+        </MapView> */}
+        {routeSegments.map((segment) => (
+            <Polyline
+              key={segment.id}
+              coordinates={segment.coordinates}
+              strokeWidth={3}
+              strokeColor={segment.traceType === 'extra'
+                ? '#9CA3AF'
+                : segment.traceType === 'pause'
+                  ? '#EF4444'
+                  : '#20D000'}
+              lineCap="round"
+              lineJoin="round"
+              geodesic={true}
+            />
+          ))}
+          {plannedRouteCoordinates.length > 1 && (
+            <Polyline
+              key="assigned-route"
+              coordinates={plannedRouteCoordinates}
+              strokeWidth={4}
+              strokeColor={routeStatus.color}
+              lineDashPattern={[10, 7]}
+              lineCap="round"
+              lineJoin="round"
+              geodesic={true}
+            />
+          )}
+          {pauseMarkers.map((marker) => (
+            <Marker key={marker.id} coordinate={marker.coordinate} anchor={{ x: 0.5, y: 0.5 }}>
+              <View style={[styles.pauseMarker, marker.type === 'resume' && styles.resumeMarker]} />
+            </Marker>
           ))}
         </MapView>
 
@@ -3060,4 +3101,14 @@ const styles = StyleSheet.create({
   resumeButtonText: { color: '#fff', fontWeight: '900', fontSize: 15 },
   stopButton: { position: 'absolute', inset: 0, backgroundColor: '#F04444', borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
   stopButtonText: { color: '#fff', fontWeight: '900', fontSize: 15 },
+   pauseMarker: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#FFFFFF', borderWidth: 2, borderColor: '#D1D5DB' },
+  resumeMarker: { backgroundColor: '#FFFFFF' },
+  controlBars: {
+    position: 'relative',
+    height: 118,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    paddingTop: 8,
+    backgroundColor: '#000000',
+  },
 });
