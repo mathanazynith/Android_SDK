@@ -64,6 +64,9 @@ const isAuthEndpoint = (url?: string) => {
   ].some((path) => url.endsWith(path) || url.includes(path));
 };
 
+const isNotificationDeviceEndpoint = (url?: string) =>
+  Boolean(url?.includes("/notifications/devices/"));
+
 let isRefreshing = false;
 let refreshSubscribers: Array<(token: string | null) => void> = [];
 
@@ -124,7 +127,7 @@ api.interceptors.request.use(
       console.log("========== API REQUEST ==========");
       console.log("URL:", `${config.baseURL}${config.url}`);
       console.log("METHOD:", config.method?.toUpperCase());
-      console.log("BODY:", config.data);
+      console.log("BODY:", isNotificationDeviceEndpoint(config.url) ? "[REDACTED]" : config.data);
       return config;
     } catch (error) {
       console.log("REQUEST INTERCEPTOR ERROR:", error);
@@ -138,7 +141,7 @@ api.interceptors.response.use(
   (response) => {
     console.log("========== API RESPONSE ==========");
     console.log("STATUS:", response.status);
-    console.log("DATA:", response.data);
+    console.log("DATA:", isNotificationDeviceEndpoint(response.config.url) ? "[REDACTED]" : response.data);
     return response;
   },
   async (error) => {
@@ -149,7 +152,10 @@ api.interceptors.response.use(
     console.log("========== API ERROR ==========");
     console.log("MESSAGE:", error?.message);
     console.log("STATUS:", status);
-    console.log("RESPONSE DATA:", error?.response?.data);
+    console.log(
+      "RESPONSE DATA:",
+      isNotificationDeviceEndpoint(requestUrl) ? "[REDACTED]" : error?.response?.data
+    );
     if (error.code === "ECONNABORTED") {
       console.log("Request timed out");
     }
@@ -404,6 +410,25 @@ export const workoutPlanAPI = {
   endCurrent: () => api.post("/workout-plans/end/"),
   setBenchmark: (workoutId: number, is_benchmark: boolean) =>
     api.patch(`/workouts/${workoutId}/`, { is_benchmark }),
+};
+
+export interface NotificationDeviceRegistration {
+  device_id: string;
+  platform: "ANDROID";
+  fcm_token: string;
+  app_version: string;
+}
+
+export const notificationsAPI = {
+  registerDevice: (payload: NotificationDeviceRegistration) =>
+    api.post<unknown>("/notifications/devices/", payload),
+  deactivateDevice: (deviceId: string) =>
+    api.delete<unknown>(`/notifications/devices/${encodeURIComponent(deviceId)}/`),
+  list: (url = "/notifications/") => api.get<unknown>(url),
+  unreadCount: () => api.get<unknown>("/notifications/unread-count/"),
+  markRead: (notificationId: number | string) =>
+    api.patch<unknown>(`/notifications/${encodeURIComponent(String(notificationId))}/read/`),
+  markAllRead: () => api.post<unknown>("/notifications/read-all/"),
 };
 
 export default api;

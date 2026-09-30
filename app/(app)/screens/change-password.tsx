@@ -1,21 +1,22 @@
 // app/(app)/change-password.tsx
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Alert,
-  TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
 import { router } from 'expo-router';
-import { useAuth } from '../../../service/auth';
+import { useState } from 'react';
+import {
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 import { AppInput } from '../../../components/common/AppInput';
 import { PrimaryButton } from '../../../components/common/PrimaryButton';
 import { Colors, Spacing, Typography } from '../../../constants/theme';
+import { useNotifications } from '../../../contexts/NotificationContext';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { useAuth } from '../../../service/auth';
 
 export default function ChangePasswordScreen() {
   const [currentPassword, setCurrentPassword] = useState('');
@@ -24,6 +25,7 @@ export default function ChangePasswordScreen() {
   const [loading, setLoading] = useState(false);
   const { colors } = useTheme();
   const { user, isLoading: authLoading, updatePassword } = useAuth();
+  const { refresh: refreshNotifications } = useNotifications();
   const passwordStateLoading = authLoading || !user || typeof user.hasPassword !== 'boolean';
   const hasPassword = user?.hasPassword === true;
 
@@ -81,6 +83,7 @@ export default function ChangePasswordScreen() {
         newPassword,
         confirmPassword,
       });
+      await refreshNotifications();
       Alert.alert('Success', hasPassword
         ? 'Password updated successfully.'
         : 'Password set successfully! You can now log in using your email and password.', [

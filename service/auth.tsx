@@ -1,13 +1,17 @@
 import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
+    createContext,
+    useContext,
+    useEffect,
+    useRef,
+    useState,
 } from "react";
+import { AppState } from "react-native";
 import { authAPI } from "./api";
-import { googleAuthService } from "./googleAuth";
-import { storage } from "./storage";
+import { getFcmToken, subscribeToFcmTokenRefresh } from "./fcmService";
 import "./googleAuth"; // Ensure GoogleAuthService is initialized
+import { googleAuthService } from "./googleAuth";
+import { deactivateNotificationDevice, registerNotificationDevice } from "./notificationService";
+import { storage } from "./storage";
 
 interface User {
   id: number;
@@ -107,21 +111,19 @@ const normalizeUser = (value: User | null): User | null => {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const isLoggingOut = useRef(false);
   const [googleSignupData, setGoogleSignupData] = useState<{
     email: string;
     first_name: string;
     last_name: string;
   } | null>(null);
 
-  useEffect(() => {
-    initializeAuth();
-  }, []);
-
   const initializeAuth = async () => {
     try {
       const token = await storage.getItem(storage.KEYS.ACCESS_TOKEN);
       if (token) {
         const response = await authAPI.getProfile();
+        isLoggingOut.current = false;
         setUser(normalizeUser(response.data.data));
       }
     } catch (error) {
@@ -132,6 +134,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    void Promise.resolve().then(initializeAuth);
+  }, []);
+
+  useEffect(() => {
+    const userId = user?.id;
+    if (isLoading || userId == null) return;
+
+    let isActive = true;
+    const registerToken = async (token: string) => {
+      if (!isActive || isLoggingOut.current || !token) return;
+      try {
+        await registerNotificationDevice(userId, token);
+        if (__DEV__) {
+          console.info('[Notifications] FCM token registered with backend', { userId });
+        }
+      } catch (error) {
+        console.warn('[Notifications] Device registration failed', error);
+      }
+    };
+    const registerCurrentToken = () => {
+      void getFcmToken().then((token) => {
+        if (token) void registerToken(token);
+      });
+    };
+
+    registerCurrentToken();
+    const unsubscribe = subscribeToFcmTokenRefresh((token: string) => {
+      void registerToken(token);
+    });
+    const appStateSubscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') registerCurrentToken();
+    });
+
+    return () => {
+      isActive = false;
+      unsubscribe();
+      appStateSubscription.remove();
+    };
+  }, [isLoading, user?.id]);
 
   const validateToken = (value: unknown, name: string): string => {
     if (typeof value !== "string" || !value.trim()) {
@@ -161,6 +204,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const response = await authAPI.login({ identifier, password });
     const { accessToken, refreshToken, user: loggedInUser } = resolveAuthPayload(response);
     await storeTokens(accessToken, refreshToken);
+    isLoggingOut.current = false;
     setUser(normalizeUser(loggedInUser));
   };
 
@@ -173,6 +217,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const response = await authAPI.verifyOtp({ email, otp_code: otpcode });
     const { accessToken, refreshToken, user: verifiedUser } = resolveAuthPayload(response);
     await storeTokens(accessToken, refreshToken);
+    isLoggingOut.current = false;
     setUser(normalizeUser(verifiedUser));
   };
 
@@ -214,6 +259,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
+    isLoggingOut.current = true;
+    if (user) {
+      try {
+        await deactivateNotificationDevice(user.id);
+      } catch (error) {
+        console.warn('[Notifications] Device deactivation failed during logout', error);
+      }
+    }
+
     try {
       const refreshToken = await storage.getItem(storage.KEYS.REFRESH_TOKEN);
       await authAPI.logout({ refresh: refreshToken || "" });
@@ -288,6 +342,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         await storeTokens(tokens.access, tokens.refresh);
+        isLoggingOut.current = false;
         setUser(normalizeUser({
           ...normalizedUser,
           authProvider: normalizedUser.authProvider
