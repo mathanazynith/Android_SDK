@@ -12,6 +12,8 @@ export interface ChartBarPoint {
   paceSecondsPerKm: number;
   workoutCount: number;
   isCurrent: boolean;
+  targetDate?: Date;
+  monthIndex?: number;
 }
 
 export interface PersonalBests {
@@ -161,11 +163,32 @@ export function calculateStreak(activities: UnifiedActivity[]): number {
   return streak;
 }
 
-/** Aggregate activities based on chosen period ('week' | 'month' | 'year' | 'all') and target year */
+export const MONTH_NAMES_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+export const MONTH_NAMES_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+export function getMonthName(monthIndex: number, short = true): string {
+  const clamped = Math.max(0, Math.min(11, Math.floor(monthIndex)));
+  return short ? MONTH_NAMES_SHORT[clamped] : MONTH_NAMES_FULL[clamped];
+}
+
+export function formatWeekRange(startDate: Date): string {
+  const end = new Date(startDate);
+  end.setDate(startDate.getDate() + 6);
+  const startMonth = startDate.toLocaleDateString(undefined, { month: 'short' });
+  const endMonth = end.toLocaleDateString(undefined, { month: 'short' });
+  if (startMonth === endMonth) {
+    return `${startMonth} ${startDate.getDate()}–${end.getDate()}, ${startDate.getFullYear()}`;
+  }
+  return `${startMonth} ${startDate.getDate()} – ${endMonth} ${end.getDate()}, ${end.getFullYear()}`;
+}
+
+/** Aggregate activities based on chosen period ('week' | 'month' | 'year' | 'all') and target year/month/week */
 export function calculatePeriodStats(
   activities: UnifiedActivity[],
   period: PeriodFilter,
-  targetYear: number = new Date().getFullYear()
+  targetYear: number = new Date().getFullYear(),
+  targetMonth?: number,
+  targetWeekDate?: Date
 ): AggregatedStats {
   const now = new Date();
   const personalBests = calculatePersonalBests(activities);
@@ -176,10 +199,16 @@ export function calculatePeriodStats(
 
   if (period === 'week') {
     const isCurrentYear = targetYear === now.getFullYear();
-    const baseDate = isCurrentYear ? now : new Date(targetYear, 11, 28);
-    const weekStart = new Date(baseDate);
-    const day = (baseDate.getDay() + 6) % 7;
-    weekStart.setDate(baseDate.getDate() - day);
+    let weekStart: Date;
+    if (targetWeekDate) {
+      const base = new Date(targetWeekDate);
+      const day = (base.getDay() + 6) % 7; // Monday = 0
+      weekStart = new Date(base.getFullYear(), base.getMonth(), base.getDate() - day);
+    } else {
+      const baseDate = isCurrentYear ? now : new Date(targetYear, targetMonth ?? 11, 28);
+      const day = (baseDate.getDay() + 6) % 7;
+      weekStart = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() - day);
+    }
     weekStart.setHours(0, 0, 0, 0);
 
     const weekEnd = new Date(weekStart);
@@ -191,7 +220,7 @@ export function calculatePeriodStats(
     chartData = dayNames.map((label, idx) => {
       const barDate = new Date(weekStart);
       barDate.setDate(weekStart.getDate() + idx);
-      const isCurrent = isCurrentYear && barDate.toDateString() === now.toDateString();
+      const isCurrent = barDate.toDateString() === now.toDateString();
 
       const dayActs = filtered.filter(
         (a) => a.date.toDateString() === barDate.toDateString()
@@ -202,7 +231,7 @@ export function calculatePeriodStats(
       const paceSecondsPerKm = value > 0 ? durationSeconds / value : 0;
 
       return {
-        key: `day-${idx}`,
+        key: `day-${idx}-${barDate.toISOString().split('T')[0]}`,
         label,
         fullLabel: barDate.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' }),
         value,
@@ -210,13 +239,16 @@ export function calculatePeriodStats(
         paceSecondsPerKm,
         workoutCount: dayActs.length,
         isCurrent,
+        targetDate: barDate,
+        monthIndex: barDate.getMonth(),
       };
     });
   } else if (period === 'month') {
     const isCurrentYear = targetYear === now.getFullYear();
-    const activeMonth = isCurrentYear ? now.getMonth() : 11;
+    const activeMonth = targetMonth !== undefined ? Math.max(0, Math.min(11, targetMonth)) : (isCurrentYear ? now.getMonth() : 11);
     const monthStart = new Date(targetYear, activeMonth, 1);
     const nextMonthStart = new Date(targetYear, activeMonth + 1, 1);
+    const daysInMonth = new Date(targetYear, activeMonth + 1, 0).getDate();
 
     filtered = activities.filter((a) => a.date >= monthStart && a.date < nextMonthStart);
 
@@ -224,10 +256,14 @@ export function calculatePeriodStats(
       { start: 1, end: 7, label: 'W1' },
       { start: 8, end: 14, label: 'W2' },
       { start: 15, end: 21, label: 'W3' },
-      { start: 22, end: 31, label: 'W4+' },
+      { start: 22, end: Math.min(28, daysInMonth), label: 'W4' },
     ];
+    if (daysInMonth > 28) {
+      weeks.push({ start: 29, end: daysInMonth, label: 'W5' });
+    }
 
-    const currentDay = isCurrentYear ? now.getDate() : 31;
+    const currentDay = now.getDate();
+    const isThisMonth = isCurrentYear && now.getMonth() === activeMonth;
 
     chartData = weeks.map((w, idx) => {
       const weekActs = filtered.filter((a) => {
@@ -238,17 +274,20 @@ export function calculatePeriodStats(
       const value = weekActs.reduce((acc, a) => acc + a.distanceKm, 0);
       const durationSeconds = weekActs.reduce((acc, a) => acc + a.durationSeconds, 0);
       const paceSecondsPerKm = value > 0 ? durationSeconds / value : 0;
-      const isCurrent = isCurrentYear && currentDay >= w.start && currentDay <= w.end;
+      const isCurrent = isThisMonth && currentDay >= w.start && currentDay <= w.end;
+      const sampleDate = new Date(targetYear, activeMonth, w.start);
 
       return {
-        key: `week-${idx}`,
+        key: `week-${idx}-${activeMonth}`,
         label: w.label,
-        fullLabel: `Day ${w.start}–${w.end} ${monthStart.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}`,
+        fullLabel: `${monthStart.toLocaleDateString(undefined, { month: 'short' })} ${w.start}–${w.end}, ${targetYear}`,
         value,
         durationSeconds,
         paceSecondsPerKm,
         workoutCount: weekActs.length,
         isCurrent,
+        targetDate: sampleDate,
+        monthIndex: activeMonth,
       };
     });
   } else if (period === 'year') {
@@ -265,9 +304,10 @@ export function calculatePeriodStats(
       const value = monthActs.reduce((acc, a) => acc + a.distanceKm, 0);
       const durationSeconds = monthActs.reduce((acc, a) => acc + a.durationSeconds, 0);
       const paceSecondsPerKm = value > 0 ? durationSeconds / value : 0;
+      const monthStartDate = new Date(targetYear, idx, 1);
 
       return {
-        key: `month-${idx}`,
+        key: `month-${idx}-${targetYear}`,
         label,
         fullLabel: `${label} ${targetYear}`,
         value,
@@ -275,18 +315,20 @@ export function calculatePeriodStats(
         paceSecondsPerKm,
         workoutCount: monthActs.length,
         isCurrent: targetYear === now.getFullYear() && idx === currentMonth,
+        targetDate: monthStartDate,
+        monthIndex: idx,
       };
     });
   } else {
     filtered = activities;
 
-    const monthMap = new Map<string, { label: string; fullLabel: string; acts: UnifiedActivity[] }>();
+    const monthMap = new Map<string, { label: string; fullLabel: string; acts: UnifiedActivity[]; date: Date; monthIndex: number }>();
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = `${d.getFullYear()}-${d.getMonth()}`;
       const label = d.toLocaleDateString(undefined, { month: 'short' });
       const fullLabel = d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-      monthMap.set(key, { label, fullLabel, acts: [] });
+      monthMap.set(key, { label, fullLabel, acts: [], date: d, monthIndex: d.getMonth() });
     }
 
     filtered.forEach((a) => {
@@ -311,6 +353,8 @@ export function calculatePeriodStats(
         paceSecondsPerKm,
         workoutCount: data.acts.length,
         isCurrent: idx === monthMap.size - 1,
+        targetDate: data.date,
+        monthIndex: data.monthIndex,
       };
     });
   }
