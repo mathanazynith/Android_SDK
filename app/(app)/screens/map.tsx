@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -29,6 +29,8 @@ import {
   stopBackgroundLocationTracking,
 } from '../../../src/services/backgroundLocationTask';
 import {
+  LIVE_TRACKING_PAUSE_ACTION,
+  LIVE_TRACKING_RESUME_ACTION,
   LIVE_TRACKING_STOP_ACTION,
   publishWorkoutSummaryNotification,
   startLiveTrackingNotification,
@@ -194,11 +196,14 @@ const distanceToRoute = (location: Coordinate, route: Coordinate[]) => {
 
 export default function MapScreen() {
   const { user } = useAuth();
+  const router = useRouter();
   const params = useLocalSearchParams<{
     workoutTitle?: string;
     workoutPlan?: string;
     assignedRoute?: string;
+    runId?: string;
     notificationAction?: string;
+    actionNonce?: string;
   }>();
 
   const assignedRoute = useMemo(() => {
@@ -325,6 +330,7 @@ export default function MapScreen() {
   const routeSegmentsRef = useRef<RouteSegment[]>([]);
   const pauseEventsRef = useRef<PauseEvent[]>([]);
   const workoutCompletionPromptShownRef = useRef(false);
+  const handledNativeRunActionRef = useRef<string | null>(null);
 
 
   const [logs, setLogs] = useState<string[]>([]);
@@ -973,6 +979,7 @@ export default function MapScreen() {
       confirmationPromptVisible: completionPromptVisible,
     });
     updateLiveTrackingNotification({
+      runId: runIdRef.current,
       distanceKm: distance / 1000,
       elapsedSeconds,
       paceMinutesPerKm: pace,
@@ -1010,6 +1017,7 @@ export default function MapScreen() {
       const session = await getBackgroundLocationSession();
       const journal = await readActiveRunJournal();
       if (cancelled || !session?.active || !session.runId || !journal?.active || journal.runId !== session.runId) return;
+      if (params.runId && params.runId !== session.runId) return;
       if (isRunningRef.current || isStartingRef.current) return;
 
       const processor = new PathProcessor(session.runId);
@@ -1090,6 +1098,7 @@ export default function MapScreen() {
       try {
         await startLiveGPS();
         await startLiveTrackingNotification({
+          runId: session.runId,
           distanceKm: distanceRef.current / 1000,
           elapsedSeconds: restoredElapsed,
           paceMinutesPerKm: session.paceMinutesPerKm ?? 0,
@@ -1103,7 +1112,7 @@ export default function MapScreen() {
     };
     void restoreActiveRun();
     return () => { cancelled = true; };
-  }, [addLog, handleLocationUpdate, params.notificationAction, startLiveGPS]);
+  }, [addLog, handleLocationUpdate, params.notificationAction, params.runId, startLiveGPS]);
 
   const startRun = async () => {
     if (isStartingRef.current || isRunningRef.current) {
@@ -1369,6 +1378,7 @@ export default function MapScreen() {
         .then(async () => {
           try {
             await startLiveTrackingNotification({
+              runId,
               distanceKm: 0,
               elapsedSeconds: 0,
               paceMinutesPerKm: 0,
@@ -1413,7 +1423,7 @@ export default function MapScreen() {
     }
   };
 
-  const pauseRun = async () => {
+  const pauseRun = useCallback(async () => {
     if (isPausingRef.current || !isRunningRef.current || isPausedRef.current) {
       console.log('[RecordView] Pause request ignored: run not active or already paused');
       return;
@@ -1475,9 +1485,9 @@ export default function MapScreen() {
     } finally {
       isPausingRef.current = false;
     }
-  };
+  }, [addLog, elapsedSeconds, location, pace, user]);
 
-  const resumeRun = async () => {
+  const resumeRun = useCallback(async () => {
     if (!isPausedRef.current || !isRunningRef.current) {
       console.log('[RecordView] Resume request ignored: run not paused');
       return;
@@ -1537,7 +1547,7 @@ export default function MapScreen() {
       console.error('Resume run error:', error);
       addLog('❌ Failed to resume run');
     }
-  };
+  }, [addLog, elapsedSeconds, location, pace, user]);
 
   const stopRun = async () => {
     if (isStoppingRef.current) {
@@ -1591,6 +1601,7 @@ export default function MapScreen() {
       isRunningRef.current = false;
       setIsRunning(false);
       setCompletionPromptVisible(false);
+
       await persistBackgroundLocationSession({
         active: true,
         paused: isPausedRef.current,
@@ -1613,6 +1624,7 @@ export default function MapScreen() {
         locationSubscription.current.remove();
         locationSubscription.current = null;
       }
+
       activityDetectionRef.current?.stop();
       activityDetectionRef.current = null;
       stepDetectionRef.current?.stop();
@@ -2086,6 +2098,7 @@ export default function MapScreen() {
       pauseStartTimeRef.current = null;
       setIsPaused(false);
 
+      router.replace('/(app)/dashboard');
       Alert.alert(
         stationarySession ? 'No movement detected' : 'Run Completed!',
         stationarySession
@@ -2129,7 +2142,11 @@ export default function MapScreen() {
         console.warn('[BackgroundLocationTask] Unable to stop Android foreground service', stopError);
       }
       if (shouldPublishSummary) {
-        await publishWorkoutSummaryNotification(summaryMetrics);
+        try {
+          await publishWorkoutSummaryNotification(summaryMetrics);
+        } catch (notificationError) {
+          console.warn('[RecordView] Workout summary notification failed', notificationError);
+        }
       } else {
         await stopLiveTrackingNotification();
       }
@@ -2137,6 +2154,35 @@ export default function MapScreen() {
       isStoppingRef.current = false;
     }
   };
+
+  useEffect(() => {
+    const action = params.notificationAction;
+    const requestedRunId = params.runId;
+    if (!action || !requestedRunId || !isRunning || runIdRef.current !== requestedRunId) return;
+
+    const actionKey = `${requestedRunId}:${action}:${params.actionNonce ?? ''}`;
+    if (handledNativeRunActionRef.current === actionKey) return;
+
+    if (action === LIVE_TRACKING_PAUSE_ACTION) {
+      handledNativeRunActionRef.current = actionKey;
+      if (!isPausedRef.current) void pauseRun();
+    } else if (action === LIVE_TRACKING_RESUME_ACTION) {
+      handledNativeRunActionRef.current = actionKey;
+      if (isPausedRef.current) void resumeRun();
+    } else if (action === LIVE_TRACKING_STOP_ACTION) {
+      handledNativeRunActionRef.current = actionKey;
+      requestFinish();
+    }
+  }, [
+    isPaused,
+    isRunning,
+    pauseRun,
+    params.actionNonce,
+    params.notificationAction,
+    params.runId,
+    resumeRun,
+    requestFinish,
+  ]);
 
   // A physical Android Back press is a reliable escape hatch if an OEM map
   // implementation ever consumes the visible Stop control's touch.

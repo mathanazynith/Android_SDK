@@ -154,6 +154,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, async ({ data, error }) =>
     ? Math.max(0, (Date.now() - new Date(previous.startedAt).getTime()) / 1000)
     : 0);
   updateLiveTrackingNotification({
+    runId: previous.runId,
     distanceKm,
     elapsedSeconds,
     paceMinutesPerKm: previous.paceMinutesPerKm ?? (distanceKm > 0 ? elapsedSeconds / 60 / distanceKm : 0),

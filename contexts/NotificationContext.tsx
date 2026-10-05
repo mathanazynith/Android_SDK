@@ -48,7 +48,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const router = useRouter();
   const navigationState = useRootNavigationState();
   const userId = user?.id;
-  const pendingRemoteMessage = useRef<RemoteMessage | null>(null);
+  const pendingNotificationTap = useRef<{
+    data: Record<string, unknown>;
+    responseId: string;
+  } | null>(null);
   const handledRemoteMessageIds = useRef(new Set<string>());
   const [dataUserId, setDataUserId] = useState<number | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -135,19 +138,18 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     }
   }, []);
 
-  const handleRemoteMessageTap = useCallback((message: RemoteMessage) => {
-    const notificationType = message.data?.type;
+  const handleNotificationTap = useCallback((data: Record<string, unknown>, responseId: string) => {
+    const notificationType = data.type;
     if (typeof notificationType !== 'string') return;
 
-    const destination = getNotificationDestination(notificationType, message.data ?? {});
+    const destination = getNotificationDestination(notificationType, data);
     if (!destination) return;
 
     if (isAuthLoading || userId == null || !navigationState?.key) {
-      pendingRemoteMessage.current = message;
+      pendingNotificationTap.current = { data, responseId };
       return;
     }
 
-    const responseId = message.messageId || `${notificationType}:${JSON.stringify(message.data)}`;
     if (handledRemoteMessageIds.current.has(responseId)) return;
     handledRemoteMessageIds.current.add(responseId);
     if (handledRemoteMessageIds.current.size > 100) {
@@ -156,6 +158,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     }
     router.push(destination as never);
   }, [isAuthLoading, navigationState?.key, router, userId]);
+
+  const handleRemoteMessageTap = useCallback((message: RemoteMessage) => {
+    const data = message.data ?? {};
+    const responseId = message.messageId || `${data.type}:${JSON.stringify(data)}`;
+    handleNotificationTap(data, responseId);
+  }, [handleNotificationTap]);
 
   useEffect(() => {
     if (!isAuthLoading && userId != null) {
@@ -173,11 +181,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     if (isAuthLoading || userId == null || !navigationState?.key) return;
-    const pendingMessage = pendingRemoteMessage.current;
-    if (!pendingMessage) return;
-    pendingRemoteMessage.current = null;
-    handleRemoteMessageTap(pendingMessage);
-  }, [handleRemoteMessageTap, isAuthLoading, navigationState?.key, userId]);
+    const pendingTap = pendingNotificationTap.current;
+    if (!pendingTap) return;
+    pendingNotificationTap.current = null;
+    handleNotificationTap(pendingTap.data, pendingTap.responseId);
+  }, [handleNotificationTap, isAuthLoading, navigationState?.key, userId]);
 
   useEffect(() => {
     if (isAuthLoading || userId == null) return;
@@ -185,8 +193,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     const messaging = getMessaging();
     const unsubscribeForeground = onMessage(messaging, async (message) => {
       void refresh();
-      const title = message.notification?.title ?? message.data?.title;
-      const body = message.notification?.body ?? message.data?.body ?? message.data?.message;
+      const titleValue = message.notification?.title ?? message.data?.title;
+      const bodyValue = message.notification?.body ?? message.data?.body ?? message.data?.message;
+      const title = typeof titleValue === 'string' ? titleValue : undefined;
+      const body = typeof bodyValue === 'string' ? bodyValue : undefined;
       if (__DEV__) {
         console.info('[FCM] Foreground message received', {
           messageId: message.messageId,
@@ -206,22 +216,40 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             name: 'ZYRun notifications',
             description: 'Updates from Zy-Run',
             importance: Notifications.AndroidImportance.DEFAULT,
+            lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
           });
         }
 
         const content = {
           title,
           body,
-          data: message.data,
-          channelId: BUSINESS_NOTIFICATION_CHANNEL_ID,
-        } as Notifications.NotificationContentInput & { channelId: string };
-        const notificationId = await Notifications.scheduleNotificationAsync({ content, trigger: null });
+          data: { ...message.data, _zyrunLocal: true },
+        } satisfies Notifications.NotificationContentInput;
+        const notificationId = await Notifications.scheduleNotificationAsync({
+          content,
+          trigger: { channelId: BUSINESS_NOTIFICATION_CHANNEL_ID },
+        });
         if (__DEV__) {
           console.info('[FCM] Foreground notification presented', { notificationId });
         }
       } catch (notificationError) {
         console.warn('[Notifications] Foreground notification presentation failed', notificationError);
       }
+    });
+
+    const handleLocalNotificationTap = (response: Notifications.NotificationResponse) => {
+      const data = response.notification.request.content.data;
+      if (data?._zyrunLocal !== true) return;
+      const responseId = `${response.notification.request.identifier}:${response.actionIdentifier}`;
+      handleNotificationTap(data, responseId);
+    };
+    const unsubscribeLocalNotificationTap = Notifications.addNotificationResponseReceivedListener(
+      handleLocalNotificationTap,
+    );
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response) handleLocalNotificationTap(response);
+    }).catch((error) => {
+      console.warn('[Notifications] Local notification response lookup failed', error);
     });
 
     const unsubscribeOpened = onNotificationOpenedApp(messaging, handleRemoteMessageTap);
@@ -233,9 +261,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     return () => {
       unsubscribeForeground();
+      unsubscribeLocalNotificationTap.remove();
       unsubscribeOpened();
     };
-  }, [handleRemoteMessageTap, isAuthLoading, refresh, userId]);
+  }, [handleNotificationTap, handleRemoteMessageTap, isAuthLoading, refresh, userId]);
 
   const value = useMemo<NotificationContextValue>(() => ({
     notifications: dataUserId === userId ? notifications : [],

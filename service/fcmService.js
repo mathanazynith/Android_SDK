@@ -11,6 +11,7 @@ export async function requestFcmPermission() {
     name: 'ZYRun notifications',
     description: 'Updates from Zy-Run',
     importance: Notifications.AndroidImportance.DEFAULT,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 
   if (Platform.Version >= 33) {
@@ -35,7 +36,7 @@ export async function getFcmToken() {
 
     const token = await getToken(getMessaging());
     if (__DEV__) {
-      console.info('[FCM] Device token:', token);
+      console.info('[FCM] Device token acquired');
     }
     return token;
   } catch (error) {

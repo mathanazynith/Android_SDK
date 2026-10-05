@@ -200,7 +200,10 @@ export default function NotificationsScreen() {
                           <Text style={[styles.notificationTitle, { color: colors.text }]} numberOfLines={2}>
                             {notification.title}
                           </Text>
-                          <Text style={[styles.timestamp, { color: colors.textSecondary }]}>
+                          <Text
+                            numberOfLines={1}
+                            style={[styles.timestamp, { color: colors.textSecondary }]}
+                          >
                             {formatTime(notification.created_at)}
                           </Text>
                         </View>
@@ -255,7 +258,7 @@ const styles = StyleSheet.create({
     titleLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 7 },
     unreadDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: BRAND_GREEN, marginTop: 6 },
     notificationTitle: { flex: 1, fontSize: 14, lineHeight: 19, fontWeight: '700' },
-    timestamp: { fontSize: 11, marginTop: 2 },
+    timestamp: { width: 64, flexShrink: 0, fontSize: 11, marginTop: 2, textAlign: 'right' },
     message: { fontSize: 13, lineHeight: 19, marginTop: 5 },
     loadMoreButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center' },
     stateContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 35, gap: 12 },

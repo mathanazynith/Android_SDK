@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, usePathname } from 'expo-router';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState, type RefObject } from 'react';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
@@ -10,7 +10,7 @@ import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 
 type Tab = {
   icon: React.ComponentProps<typeof Feather>['name'];
-  label: 'Plan' | 'Activities' | 'Record' | 'Stats' | 'Profile';
+  label: 'Plan' | 'Activities' | 'Home' | 'Stats' | 'Profile';
   route: '/(app)/training-plan' | '/(app)/activity' | '/(app)/dashboard' | '/(app)/stats' | '/(app)/profile';
 };
 
@@ -30,7 +30,7 @@ export const isPrimaryTabPath = (pathname: string) => {
 const tabs: Tab[] = [
   { icon: 'clipboard', label: 'Plan', route: '/(app)/training-plan' },
   { icon: 'activity', label: 'Activities', route: '/(app)/activity' },
-  { icon: 'home', label: 'Record', route: '/(app)/dashboard' },
+  { icon: 'home', label: 'Home', route: '/(app)/dashboard' },
   { icon: 'bar-chart-2', label: 'Stats', route: '/(app)/stats' },
   { icon: 'user', label: 'Profile', route: '/(app)/profile' },
 ];
@@ -97,7 +97,7 @@ const isTabActive = (pathname: string, route: Tab['route']) => {
   return false;
 };
 
-export default function GlobalBottomNav() {
+export default function GlobalBottomNav({ blurTarget }: { blurTarget: RefObject<View | null> }) {
   const pathname = usePathname();
   const { isDark } = useTheme();
   const isLegacyAndroidBlur = Platform.OS === 'android' && Number(Platform.Version) < 31;
@@ -129,7 +129,7 @@ export default function GlobalBottomNav() {
 
   const hasActivePlan = isWorkoutPlanLoaded && Boolean(workoutPlan?.weeks?.length);
   const handleTabPress = useCallback((tab: Tab) => {
-    if (tab.label === 'Record') {
+    if (tab.label === 'Home') {
       router.replace('/(app)/dashboard');
       return;
     }
@@ -147,6 +147,7 @@ export default function GlobalBottomNav() {
       intensity={isLegacyAndroidBlur ? 0 : isDark ? 85 : 80}
       tint={isDark ? 'dark' : 'light'}
       blurMethod="dimezisBlurView"
+      blurTarget={blurTarget}
       style={[
         styles.container,
         {

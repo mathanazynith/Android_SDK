@@ -1,11 +1,13 @@
+import { BlurTargetView } from 'expo-blur';
 import { Stack, usePathname } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Alert, BackHandler, View } from 'react-native';
 import GlobalBottomNav, { isPrimaryTabPath } from '../../components/navigation/GlobalBottomNav';
 
 export default function AppLayout() {
   const pathname = usePathname();
   const showBottomNav = isPrimaryTabPath(pathname);
+  const blurTargetRef = useRef<View | null>(null);
 
   useEffect(() => {
     if (!showBottomNav) return;
@@ -24,58 +26,31 @@ export default function AppLayout() {
 
   return (
     <View style={[styles.container, !showBottomNav && styles.subScreenContainer]}>
-      <Stack screenOptions={{ headerShown: false, animation: 'fade', animationDuration: 1 }}>
-      <Stack.Screen name="dashboard"  />
-      <Stack.Screen name="stats"  />
-      <Stack.Screen name="screens/weather-details" />
-      <Stack.Screen name="home" />
-      <Stack.Screen name="history" />
-      <Stack.Screen name="run" />
-      <Stack.Screen name="profile/edit" />
-      <Stack.Screen 
-        name="questionnaire" 
-        options={{ 
-          headerShown: false,
-        }} 
-      />
-      <Stack.Screen 
-        name="training-plan" 
-        options={{ 
-          headerShown: false,
-        }} 
-      />
-      <Stack.Screen 
-        name="calendar" 
-        options={{ 
-          headerShown: false,
-        }} 
-      />
-      <Stack.Screen
-        name="activity"
-        options={{
-          headerShown: false,
-        }}
-      />
-      <Stack.Screen name="activity/[id]" />
-      <Stack.Screen
-        name="running-tracker"
-        options={{
-          headerShown: false,
-        }}
-      />
-      <Stack.Screen
-        name="custom-workout"
-        options={{
-          headerShown: false,
-        }}
-      />
-      </Stack>
-      {showBottomNav && <GlobalBottomNav />}
+      <BlurTargetView ref={blurTargetRef} style={styles.blurTarget}>
+        <Stack screenOptions={{ headerShown: false, animation: 'fade', animationDuration: 1 }}>
+          <Stack.Screen name="dashboard" />
+          <Stack.Screen name="stats" />
+          <Stack.Screen name="screens/weather-details" />
+          <Stack.Screen name="home" />
+          <Stack.Screen name="history" />
+          <Stack.Screen name="run" />
+          <Stack.Screen name="profile/edit" />
+          <Stack.Screen name="questionnaire" options={{ headerShown: false }} />
+          <Stack.Screen name="training-plan" options={{ headerShown: false }} />
+          <Stack.Screen name="calendar" options={{ headerShown: false }} />
+          <Stack.Screen name="activity" options={{ headerShown: false }} />
+          <Stack.Screen name="activity/[id]" />
+          <Stack.Screen name="running-tracker" options={{ headerShown: false }} />
+          <Stack.Screen name="custom-workout" options={{ headerShown: false }} />
+        </Stack>
+      </BlurTargetView>
+      {showBottomNav && <GlobalBottomNav blurTarget={blurTargetRef} />}
     </View>
   );
 }
 
 const styles = {
   container: { flex: 1 },
+  blurTarget: { flex: 1 },
   subScreenContainer: { paddingBottom: 0 },
 };

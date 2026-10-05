@@ -1,16 +1,20 @@
 import React, {
-    createContext,
-    useContext,
-    useEffect,
-    useRef,
-    useState,
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
 } from "react";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
 import { authAPI } from "./api";
 import { getFcmToken, subscribeToFcmTokenRefresh } from "./fcmService";
 import "./googleAuth"; // Ensure GoogleAuthService is initialized
 import { googleAuthService } from "./googleAuth";
-import { deactivateNotificationDevice, registerNotificationDevice } from "./notificationService";
+import {
+  deactivateNotificationDevice,
+  getNotificationDevicePayload,
+  registerNotificationDevice,
+} from "./notificationService";
 import { storage } from "./storage";
 
 interface User {
@@ -108,6 +112,11 @@ const normalizeUser = (value: User | null): User | null => {
   return { ...value, hasPassword, authProvider: provider || undefined };
 };
 
+const getLoginDeviceMetadata = async () => {
+  if (Platform.OS !== "android") return {};
+  return getNotificationDevicePayload(await getFcmToken());
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -201,7 +210,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const login = async (identifier: string, password: string) => {
-    const response = await authAPI.login({ identifier, password });
+    const deviceMetadata = await getLoginDeviceMetadata();
+    const response = await authAPI.login({ identifier, password, ...deviceMetadata });
     const { accessToken, refreshToken, user: loggedInUser } = resolveAuthPayload(response);
     await storeTokens(accessToken, refreshToken);
     isLoggingOut.current = false;
@@ -295,8 +305,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const result = await googleAuthService.signInWithGoogle();
       console.log("Google Sign-In successful:", result.user.email);
 
+      const deviceMetadata = await getLoginDeviceMetadata();
       const response = await authAPI.googleLogin({
         id_token: result.idToken,
+        ...deviceMetadata,
       });
 
       const apiResponse = response?.data ?? {};
