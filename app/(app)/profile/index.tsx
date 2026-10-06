@@ -131,7 +131,7 @@ export default function ProfileScreen() {
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        scrollEnabled={false}
+        scrollEnabled
       >
         <LinearGradient
           colors={["#39C80B", "#16A600"]}
@@ -171,6 +171,21 @@ export default function ProfileScreen() {
             <Text style={styles.username}>@{user.username || "user"}</Text>
           </View>
         </LinearGradient>
+
+        <TouchableOpacity
+          accessibilityRole="button"
+          onPress={() => router.push('/(app)/profile/subscription')}
+          style={[styles.subscriptionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        >
+          <View style={[styles.subscriptionIcon, { backgroundColor: colors.selected }]}>
+            <Feather name="credit-card" size={20} color={BRAND_GREEN} />
+          </View>
+          <View style={styles.subscriptionCopy}>
+            <Text style={[styles.subscriptionTitle, { color: colors.text }]}>Subscription plans</Text>
+            <Text style={[styles.subscriptionSubtitle, { color: colors.textSecondary }]}>View plans, billing, and invoices</Text>
+          </View>
+          <Feather name="chevron-right" size={20} color={colors.textSecondary} />
+        </TouchableOpacity>
 
         <View style={[styles.detailsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <DetailRow label="Email" value={user.email || "--"} />
@@ -228,6 +243,11 @@ const styles = StyleSheet.create({
   name: { color: "#FFFFFF", fontSize: 18, lineHeight: 23, fontWeight: "700", textAlign: "center" },
   username: { color: "rgba(255,255,255,0.72)", fontSize: 14, fontWeight: "500", marginTop: 0 },
   detailsCard: { marginHorizontal: 16, marginTop: 12, borderRadius: 20, backgroundColor: "#242627", borderWidth: 1.25, borderColor: "#66686A", paddingHorizontal: 15, paddingVertical: 5, shadowColor: "#000000", shadowOpacity: 0.2, shadowOffset: { width: 0, height: 6 }, shadowRadius: 10, elevation: 3 },
+  subscriptionCard: { minHeight: 70, marginHorizontal: 16, marginTop: 12, paddingHorizontal: 14, borderRadius: 17, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 12 },
+  subscriptionIcon: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  subscriptionCopy: { flex: 1, gap: 3 },
+  subscriptionTitle: { fontSize: 14, fontWeight: "700" },
+  subscriptionSubtitle: { fontSize: 11 },
   detailRow: { minHeight: 34, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#515354" },
   detailLabel: { flex: 0.45, color: "#BDBEC0", fontSize: 13, fontWeight: "500" },
   detailValue: { flex: 0.55, color: "#F7F7F7", fontSize: 13, fontWeight: "700", textAlign: "right" },
