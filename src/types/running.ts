@@ -65,6 +65,8 @@ export interface ActivityGpsPointPayload {
   heading: number | null;
   timestamp: string;
   is_extra_distance: boolean;
+  is_paused: boolean;
+  pause_sequence: number | null;
 }
 
 export interface ActivitySubmissionPayload {
@@ -94,11 +96,13 @@ export interface ActivitySubmissionPayload {
 }
 
 export interface ActivityPauseEventPayload {
+  sequence: number;
   paused_at: string;
   resumed_at: string | null;
   duration_s: number | null;
   pause_location: RunningCoordinate | null;
   resume_location: RunningCoordinate | null;
+  paused_points: ActivityGpsPointPayload[];
 }
 
 export interface ActivitySegmentPayload {

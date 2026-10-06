@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    Dimensions,
     Modal,
     Platform,
     ScrollView,
@@ -16,7 +15,8 @@ import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { getBackendErrorMessage } from '../service/api';
 import { activityAPI, BackendActivity } from '../src/services/activityApi';
 import { createCatmullRomPolyline } from '../src/utils/catmullRom';
-import { calculateDistanceMeters } from '../src/utils/distance';
+import { calculateActivityCropMetrics } from '../src/utils/activityCropMetrics';
+import { buildActivityPauseMarkers, buildActivityRouteGroups } from '../src/utils/activityRouteGroups';
 import { decodePolyline } from '../src/utils/polylineDecoder';
 import { addRouteTimestamps } from '../src/utils/routeTimestamps';
 import { CustomSlider } from './CustomSlider';
@@ -26,6 +26,8 @@ interface GPSPoint {
   longitude: number;
   timestamp?: string;
   is_extra_distance?: boolean;
+  is_paused?: boolean;
+  pause_sequence?: number | null;
 }
 
 interface CropActivityModalProps {
@@ -46,30 +48,42 @@ export default function CropActivityModal({
   const [startIndex, setStartIndex] = useState(0);
   const [endIndex, setEndIndex] = useState(0);
   const [croppingDistance, setCroppingDistance] = useState(0);
+  const [croppingElapsedTime, setCroppingElapsedTime] = useState(0);
+  const [croppingMovingTime, setCroppingMovingTime] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const mapRef = useRef<MapView>(null);
 
   // Fetch GPS points when modal opens
-  const calculateCropDistance = (start: number, end: number, points: GPSPoint[]) => {
+  const calculateCropMetrics = useCallback((start: number, end: number, points: GPSPoint[]) => {
     if (!points || points.length === 0 || start > end) {
       setCroppingDistance(0);
+      setCroppingElapsedTime(0);
+      setCroppingMovingTime(0);
       return;
     }
 
-    let totalDistance = 0;
-    for (let i = start; i < end; i += 1) {
-      if (i < points.length - 1) {
-        totalDistance += calculateDistanceMeters(points[i], points[i + 1]);
-      }
-    }
-
-    setCroppingDistance(totalDistance);
-  };
+    const pauses = activity.pauses
+      ?? activity.pause_events
+      ?? activity.route?.pauses
+      ?? activity.route?.pause_events
+      ?? [];
+    const metrics = calculateActivityCropMetrics(points, start, end, pauses);
+    setCroppingDistance(metrics.distanceMeters);
+    setCroppingElapsedTime(metrics.elapsedSeconds);
+    setCroppingMovingTime(metrics.movingSeconds);
+  }, [
+    activity.pauses,
+    activity.pause_events,
+    activity.route?.pauses,
+    activity.route?.pause_events,
+  ]);
 
   const loadGPSPoints = useCallback(async () => {
     setLoading(true);
     try {
-      const backendPoints = activity.gps_points;
+      const backendPoints = activity.route?.points?.length
+        ? activity.route.points
+        : activity.gps_points;
       if (backendPoints && backendPoints.length > 1) {
         const points = addRouteTimestamps(
           backendPoints.map((point) => ({
@@ -77,6 +91,8 @@ export default function CropActivityModal({
             longitude: Number(point.longitude),
             timestamp: point.timestamp,
             is_extra_distance: point.is_extra_distance,
+            is_paused: point.is_paused,
+            pause_sequence: point.pause_sequence,
           })),
           activity.start_time,
           activity.end_time,
@@ -84,7 +100,7 @@ export default function CropActivityModal({
         setGpsPoints(points);
         setStartIndex(0);
         setEndIndex(points.length - 1);
-        calculateCropDistance(0, points.length - 1, points);
+        calculateCropMetrics(0, points.length - 1, points);
         return;
       }
 
@@ -109,7 +125,7 @@ export default function CropActivityModal({
       if (decodedPoints.length > 0) {
         setStartIndex(0);
         setEndIndex(decodedPoints.length - 1);
-        calculateCropDistance(0, decodedPoints.length - 1, decodedPoints);
+        calculateCropMetrics(0, decodedPoints.length - 1, decodedPoints);
       }
     } catch (error) {
       console.error('Error loading GPS points:', error);
@@ -117,7 +133,14 @@ export default function CropActivityModal({
     } finally {
       setLoading(false);
     }
-  }, [activity.encoded_polyline, activity.end_time, activity.gps_points, activity.start_time]);
+  }, [
+    activity.encoded_polyline,
+    activity.end_time,
+    activity.gps_points,
+    activity.route,
+    activity.start_time,
+    calculateCropMetrics,
+  ]);
 
   useEffect(() => {
     if (isVisible && activity.id) {
@@ -130,7 +153,7 @@ export default function CropActivityModal({
     const newStart = Math.floor(value);
     if (newStart <= endIndex) {
       setStartIndex(newStart);
-      calculateCropDistance(newStart, endIndex, gpsPoints);
+      calculateCropMetrics(newStart, endIndex, gpsPoints);
     }
   };
 
@@ -138,7 +161,7 @@ export default function CropActivityModal({
     const newEnd = Math.floor(value);
     if (newEnd >= startIndex) {
       setEndIndex(newEnd);
-      calculateCropDistance(startIndex, newEnd, gpsPoints);
+      calculateCropMetrics(startIndex, newEnd, gpsPoints);
     }
   };
 
@@ -162,16 +185,32 @@ export default function CropActivityModal({
 
     setIsSaving(true);
     try {
-      const preview = await activityAPI.cropPreview(activity.id, startTime, endTime);
+      const cropMetrics = calculateActivityCropMetrics(
+        gpsPoints,
+        startIndex,
+        endIndex,
+        activity.pauses
+          ?? activity.pause_events
+          ?? activity.route?.pauses
+          ?? activity.route?.pause_events
+          ?? [],
+      );
+      const timingFallback = {
+        elapsed_time: cropMetrics.elapsedSeconds,
+        moving_time: cropMetrics.movingSeconds,
+      };
+      const preview = await activityAPI.cropPreview(activity.id, startTime, endTime, timingFallback);
       Alert.alert(
         'Review crop',
-        `Distance ${(Number(preview.distance) / 1000).toFixed(2)} km\nTime ${Math.round(Number(preview.elapsed_time) / 60)} min`,
+        `Distance ${(Number(preview.distance) / 1000).toFixed(2)} km\n`
+          + `Elapsed ${Math.floor(Number(preview.elapsed_time) / 60)}m ${Math.round(Number(preview.elapsed_time) % 60)}s\n`
+          + `Moving ${Math.floor(Number(preview.moving_time) / 60)}m ${Math.round(Number(preview.moving_time) % 60)}s`,
         [
           { text: 'Cancel', style: 'cancel', onPress: () => setIsSaving(false) },
           {
             text: 'Apply',
             onPress: () => {
-              void activityAPI.crop(activity.id, startTime, endTime)
+              void activityAPI.crop(activity.id, startTime, endTime, timingFallback)
                 .then(() => {
                   Alert.alert('Success', 'Crop saved', [{ text: 'OK', onPress: onCropComplete }]);
                 })
@@ -217,34 +256,23 @@ export default function CropActivityModal({
     };
   };
 
-  const getPolylineCoordinates = () => {
-    return gpsPoints.map((point) => ({
-      latitude: point.latitude,
-      longitude: point.longitude,
-    }));
-  };
-
-  const getSelectedPolylineCoordinates = () => {
-    return gpsPoints.slice(startIndex, endIndex + 1).map((point) => ({
-      latitude: point.latitude,
-      longitude: point.longitude,
-    }));
-  };
-
-  const fullRouteCoordinates = createCatmullRomPolyline(getPolylineCoordinates());
-  const selectedRouteCoordinates = createCatmullRomPolyline(getSelectedPolylineCoordinates());
   const selectedPoints = gpsPoints.slice(startIndex, endIndex + 1);
-  const selectedPlannedCoordinates = createCatmullRomPolyline(
-    selectedPoints.filter((point) => !point.is_extra_distance).map((point) => ({
-      latitude: point.latitude,
-      longitude: point.longitude,
-    })),
-  );
-  const selectedExtraCoordinates = createCatmullRomPolyline(
-    selectedPoints.filter((point) => point.is_extra_distance).map((point) => ({
-      latitude: point.latitude,
-      longitude: point.longitude,
-    })),
+  const fullRouteGroups = buildActivityRouteGroups(gpsPoints).map((group) => ({
+    ...group,
+    coordinates: createCatmullRomPolyline(group.coordinates),
+  }));
+  const selectedRouteGroups = buildActivityRouteGroups(selectedPoints).map((group) => ({
+    ...group,
+    coordinates: createCatmullRomPolyline(group.coordinates),
+  }));
+  const selectedPauseMarkers = buildActivityPauseMarkers(
+    activity.pauses
+      ?? activity.pause_events
+      ?? activity.route?.pauses
+      ?? activity.route?.pause_events
+      ?? [],
+    gpsPoints[startIndex]?.timestamp,
+    gpsPoints[endIndex]?.timestamp,
   );
 
   return (
@@ -287,43 +315,40 @@ export default function CropActivityModal({
                 style={styles.map}
                 initialRegion={getMapRegion()}
               >
-                {/* Full route */}
-                <Polyline
-                  coordinates={fullRouteCoordinates}
-                  strokeWidth={3}
-                  strokeColor="rgba(32, 208, 0, 0.3)"
-                  lineCap="round"
-                  lineJoin="round"
-                />
-
-                {/* Selected portion */}
-                {selectedPlannedCoordinates.length < 2 && selectedExtraCoordinates.length < 2 && (
+                {fullRouteGroups.map(({ type, coordinates }, index) => (
                   <Polyline
-                    coordinates={selectedRouteCoordinates}
-                    strokeWidth={3}
-                    strokeColor="#20D000"
+                    key={`full-route-${type}-${index}`}
+                    coordinates={coordinates}
+                    strokeWidth={2}
+                    strokeColor={type === 'pause'
+                      ? 'rgba(239, 68, 68, 0.2)'
+                      : type === 'extra'
+                        ? 'rgba(156, 163, 175, 0.2)'
+                        : 'rgba(32, 208, 0, 0.3)'}
                     lineCap="round"
                     lineJoin="round"
                   />
-                )}
-                {selectedPlannedCoordinates.length > 1 && (
+                ))}
+                {selectedRouteGroups.map(({ type, coordinates }, index) => (
                   <Polyline
-                    coordinates={selectedPlannedCoordinates}
+                    key={`selected-route-${type}-${index}`}
+                    coordinates={coordinates}
                     strokeWidth={3}
-                    strokeColor="#20D000"
+                    strokeColor={type === 'pause' ? '#EF4444' : type === 'extra' ? '#9CA3AF' : '#20D000'}
                     lineCap="round"
                     lineJoin="round"
                   />
-                )}
-                {selectedExtraCoordinates.length > 1 && (
-                  <Polyline
-                    coordinates={selectedExtraCoordinates}
-                    strokeWidth={3}
-                    strokeColor="#9CA3AF"
-                    lineCap="round"
-                    lineJoin="round"
-                  />
-                )}
+                ))}
+                {selectedPauseMarkers.map((marker) => (
+                  <Marker
+                    key={marker.key}
+                    coordinate={marker.coordinate}
+                    title={marker.title}
+                    anchor={{ x: 0.5, y: 0.5 }}
+                  >
+                    <View style={styles.pauseMarker} />
+                  </Marker>
+                ))}
 
                 {/* Start marker */}
                 {gpsPoints[startIndex] && (
@@ -364,6 +389,14 @@ export default function CropActivityModal({
               <View style={styles.statBox}>
                 <Text style={styles.statLabel}>Cropped Distance</Text>
                 <Text style={styles.statValue}>{(croppingDistance / 1000).toFixed(2)} km</Text>
+              </View>
+              <View style={styles.statBox}>
+                <Text style={styles.statLabel}>Elapsed / Moving</Text>
+                <Text style={styles.statValue}>
+                  {Math.floor(croppingElapsedTime / 60)}:{String(croppingElapsedTime % 60).padStart(2, '0')}
+                  {' / '}
+                  {Math.floor(croppingMovingTime / 60)}:{String(croppingMovingTime % 60).padStart(2, '0')}
+                </Text>
               </View>
             </View>
 
@@ -442,8 +475,6 @@ export default function CropActivityModal({
   );
 }
 
-const { width, height } = Dimensions.get('window');
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -516,6 +547,14 @@ const styles = StyleSheet.create({
   map: {
     width: '100%',
     height: '100%',
+  },
+  pauseMarker: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
   },
   statsContainer: {
     flexDirection: 'row',

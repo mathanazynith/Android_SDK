@@ -45,7 +45,7 @@ import voiceCoach from '../../../src/services/voiceCoach';
 import { WorkoutEngine } from '../../../src/services/workoutEngine';
 import { WorkoutVoiceService } from '../../../src/services/workoutVoiceService';
 import { SPLIT_DISTANCE_METERS } from '../../../src/types/activity';
-import { ActivityExtraPayload, ActivityGpsPointPayload, ActivityLapPayload, ActivityRecoveryPayload, ActivitySegmentPayload, ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
+import { ActivityExtraPayload, ActivityGpsPointPayload, ActivityLapPayload, ActivityPauseEventPayload, ActivityRecoveryPayload, ActivitySegmentPayload, ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
 import { BackendWorkout, WorkoutEngineSnapshot } from '../../../src/types/workout';
 import { createCatmullRomPolyline } from '../../../src/utils/catmullRom';
 import { calculateDistanceMeters } from '../../../src/utils/distance';
@@ -318,6 +318,7 @@ export default function MapScreen() {
   const movementStateRef = useRef<MovementState>('STATIONARY');
   const consecutiveMovementRef = useRef(0);
   const consecutiveStationaryRef = useRef(0);
+  const resumeMovementPendingRef = useRef(false);
   const workoutEngineRef = useRef<WorkoutEngine | null>(null);
   const workoutVoiceRef = useRef<WorkoutVoiceService | null>(null);
   const splitEngineRef = useRef(new DistanceSplitEngine());
@@ -360,14 +361,23 @@ export default function MapScreen() {
     setCompletionPromptVisible(true);
   }, []);
 
+  const prepareMovementGateForResume = useCallback(() => {
+    if (!movementConfirmedRef.current) return;
+    movementStateRef.current = 'STARTING';
+    consecutiveMovementRef.current = MOVEMENT_CONFIRMATION_SAMPLES - 1;
+    consecutiveStationaryRef.current = 0;
+    resumeMovementPendingRef.current = true;
+  }, []);
+
   const continueAfterCompletion = useCallback(() => {
     setCompletionPromptVisible(false);
     if (workoutEngineRef.current) {
       workoutEngineRef.current.continue();
       setWorkoutSnapshot(workoutEngineRef.current.getSnapshot());
       void workoutVoiceRef.current?.workoutCompleted();
+      prepareMovementGateForResume();
     }
-  }, []);
+  }, [prepareMovementGateForResume]);
 
   const region = useMemo(
     () => location ? {
@@ -482,12 +492,24 @@ export default function MapScreen() {
   const appendRoutePoint = useCallback((point: Coordinate, traceType: RouteSegment['traceType']) => {
     const current = routeSegmentsRef.current;
     const previous = current.at(-1);
-    const next = previous && previous.traceType === traceType
-      ? [...current.slice(0, -1), { ...previous, coordinates: [...previous.coordinates, point] }]
-      : [...current, { id: Date.now() + current.length, traceType, coordinates: [point] }];
+    if (previous?.traceType === traceType) {
+      routeSegmentsRef.current = [
+        ...current.slice(0, -1),
+        { ...previous, coordinates: [...previous.coordinates, point] },
+      ];
+    } else {
+      const boundary = previous?.coordinates.at(-1);
+      const coordinates = boundary
+        && (boundary.latitude !== point.latitude || boundary.longitude !== point.longitude)
+        ? [boundary, point]
+        : [point];
+      routeSegmentsRef.current = [
+        ...current,
+        { id: Date.now() + current.length, traceType, coordinates },
+      ];
+    }
 
-    routeSegmentsRef.current = next;
-    setRouteSegments(next);
+    setRouteSegments(routeSegmentsRef.current);
   }, []);
 
   const requestLocation = useCallback(async () => {
@@ -770,10 +792,13 @@ export default function MapScreen() {
       const hasMovementMagnitude = previousLocationRef.current !== null
         && (previousPointDistance >= MIN_MOVEMENT_DISTANCE_METERS
           || speed >= MIN_MOVEMENT_SPEED_METERS_PER_SECOND);
-      // Speed or displacement alone is never enough. A route observation must
-      // have Android motion evidence and a plausible GPS movement magnitude.
       const hasMotionEvidence = hasDetectedMovement || hasRecentStepEvidence;
-      const hasMovementObservation = hasGoodAccuracy && hasMotionEvidence && hasMovementMagnitude;
+      const hasExplicitResumeMovement = resumeMovementPendingRef.current
+        && hasGoodAccuracy
+        && hasMovementMagnitude;
+      const hasMovementObservation = hasGoodAccuracy
+        && hasMovementMagnitude
+        && (hasMotionEvidence || hasExplicitResumeMovement);
       const movementStateBefore = movementStateRef.current;
 
       if (hasMovementObservation) {
@@ -791,8 +816,11 @@ export default function MapScreen() {
         } else if (movementStateRef.current === 'STOPPING') {
           movementStateRef.current = 'MOVING';
         }
+        if (movementStateRef.current === 'MOVING') {
+          resumeMovementPendingRef.current = false;
+        }
       } else {
-        consecutiveMovementRef.current = 0;
+        if (!resumeMovementPendingRef.current) consecutiveMovementRef.current = 0;
         consecutiveStationaryRef.current += 1;
         if (movementStateRef.current === 'MOVING') {
           movementStateRef.current = 'STOPPING';
@@ -971,6 +999,7 @@ export default function MapScreen() {
       paceMinutesPerKm: pace,
       movementConfirmed: movementConfirmedRef.current,
       confirmationPromptVisible: completionPromptVisible,
+      pauseEvents: pauseEventsRef.current,
     });
     updateLiveTrackingNotification({
       distanceKm: distance / 1000,
@@ -1019,6 +1048,19 @@ export default function MapScreen() {
       startTimeRef.current = session.startedAt ? new Date(session.startedAt).getTime() : Date.now();
       isPausedRef.current = Boolean(session.paused);
       setIsPaused(Boolean(session.paused));
+      pauseEventsRef.current = session.pauseEvents ?? [];
+      pausedTimeRef.current = pauseEventsRef.current.reduce((total, event) => {
+        const startedAt = Date.parse(event.paused_at);
+        const endedAt = event.resumed_at ? Date.parse(event.resumed_at) : Number.NaN;
+        return Number.isFinite(startedAt) && Number.isFinite(endedAt) && endedAt >= startedAt
+          ? total + endedAt - startedAt
+          : total;
+      }, 0);
+      const openPauseEvent = pauseEventsRef.current.at(-1);
+      const openPauseStart = openPauseEvent && !openPauseEvent.resumed_at
+        ? Date.parse(openPauseEvent.paused_at)
+        : Number.NaN;
+      pauseStartTimeRef.current = Number.isFinite(openPauseStart) ? openPauseStart : null;
 
       const restoredPoints = [...journal.points]
         .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
@@ -1167,6 +1209,7 @@ export default function MapScreen() {
       movementStateRef.current = 'STATIONARY';
       consecutiveMovementRef.current = 0;
       consecutiveStationaryRef.current = 0;
+      resumeMovementPendingRef.current = false;
       setPace(0);
       setIsPaused(false);
       setOptimizedStats({ rawPointCount: 0, optimizedPointCount: 0, reductionPercent: 0 });
@@ -1210,6 +1253,7 @@ export default function MapScreen() {
         userId,
         startedAt,
         updatedAt: new Date(startedAt).getTime(),
+        pauseEvents: pauseEventsRef.current,
       });
 
       // ============================================================
@@ -1430,6 +1474,7 @@ export default function MapScreen() {
 
       // Keep an auditable pause record even while the GPS watcher continues.
       const pausedAt = Date.now();
+      resumeMovementPendingRef.current = false;
       const pauseLocation = location
         ? { latitude: location.coords.latitude, longitude: location.coords.longitude }
         : null;
@@ -1465,6 +1510,7 @@ export default function MapScreen() {
         startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
         updatedAt: pauseStartTimeRef.current,
         movementConfirmed: movementConfirmedRef.current,
+        pauseEvents: pauseEventsRef.current,
       });
 
       console.log('[RecordView] Run paused - GPS continues as light trace');
@@ -1517,6 +1563,7 @@ export default function MapScreen() {
 
       isPausedRef.current = false;
       setIsPaused(false);
+      prepareMovementGateForResume();
       await persistBackgroundLocationSession({
         active: true,
         paused: false,
@@ -1525,6 +1572,7 @@ export default function MapScreen() {
         startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
         updatedAt: startTimeRef.current,
         movementConfirmed: movementConfirmedRef.current,
+        pauseEvents: pauseEventsRef.current,
       });
 
       // The watcher was never stopped; only active-distance accounting resumes.
@@ -1602,6 +1650,7 @@ export default function MapScreen() {
         elapsedSeconds,
         paceMinutesPerKm: pace,
         movementConfirmed: movementConfirmedRef.current,
+        pauseEvents: pauseEventsRef.current,
       });
       try {
         await stopBackgroundLocationTracking();
@@ -1821,16 +1870,51 @@ export default function MapScreen() {
         // It contains only the points that survived the save-time filtering and
         // optimization, never the unfiltered live-display samples.
         const completedLaps = workoutEngineRef.current?.getSnapshot().completedLaps ?? [];
-        const pointPayload = (point: RunningGpsPoint, isExtraDistance: boolean): ActivityGpsPointPayload => ({
-          longitude: point.longitude,
-          latitude: point.latitude,
-          heading: point.heading ?? 0,
-          timestamp: new Date(point.timestamp).toISOString(),
-          speed: point.speed ?? 0,
-          accuracy: point.accuracy ?? 0,
-          altitude: point.altitude ?? 0,
-          is_extra_distance: isExtraDistance,
-        });
+        const pauseIntervals = pauseEventsRef.current
+          .map((event, index) => ({
+            event,
+            sequence: index + 1,
+            startedAt: Date.parse(event.paused_at),
+            endedAt: event.resumed_at ? Date.parse(event.resumed_at) : Number.POSITIVE_INFINITY,
+          }))
+          .filter(({ startedAt, endedAt }) => (
+            Number.isFinite(startedAt)
+            && (Number.isFinite(endedAt) || endedAt === Number.POSITIVE_INFINITY)
+          ));
+        const getPauseSequence = (point: RunningGpsPoint): number | null => {
+          const interval = pauseIntervals.find(({ startedAt, endedAt }) => (
+            point.timestamp >= startedAt && point.timestamp <= endedAt
+          ));
+          return interval?.sequence ?? null;
+        };
+        const isExtraDistancePoint = (point: RunningGpsPoint): boolean => (
+          extraRouteCoordinates.some((coordinate) => (
+            coordinate.latitude === point.latitude
+            && coordinate.longitude === point.longitude
+          ))
+        );
+        const pointPayload = (point: RunningGpsPoint, isExtraDistance: boolean): ActivityGpsPointPayload => {
+          const pauseSequence = getPauseSequence(point);
+          return {
+            longitude: point.longitude,
+            latitude: point.latitude,
+            heading: point.heading ?? 0,
+            timestamp: new Date(point.timestamp).toISOString(),
+            speed: point.speed ?? 0,
+            accuracy: point.accuracy ?? 0,
+            altitude: point.altitude ?? 0,
+            is_extra_distance: isExtraDistance,
+            is_paused: pauseSequence !== null,
+            pause_sequence: pauseSequence,
+          };
+        };
+        const pauseEventPayload: ActivityPauseEventPayload[] = pauseIntervals.map((interval) => ({
+          ...interval.event,
+          sequence: interval.sequence,
+          paused_points: uploadRoutePoints
+            .filter((point) => point.timestamp >= interval.startedAt && point.timestamp <= interval.endedAt)
+            .map((point) => pointPayload(point, isExtraDistancePoint(point))),
+        }));
         const laps: ActivityLapPayload[] = completedLaps.map((lap) => ({
           segment_order: lap.segmentOrder,
           segment_type: lap.segmentType,
@@ -1843,16 +1927,11 @@ export default function MapScreen() {
             : null,
           completed: lap.completed,
         }));
-        const isExtraDistancePoint = (point: RunningGpsPoint): boolean => (
-          extraRouteCoordinates.some((coordinate) => (
-            coordinate.latitude === point.latitude
-            && coordinate.longitude === point.longitude
-          ))
-        );
         const pointsBetween = (start: number, end: number | null, nextStart: number | undefined) => uploadRoutePoints
           .filter((point) => point.timestamp >= start
             && (end === null || point.timestamp <= end)
-            && (nextStart === undefined || point.timestamp < nextStart));
+            && (nextStart === undefined || point.timestamp < nextStart)
+            && getPauseSequence(point) === null);
         const trimPointsToDistance = (points: RunningGpsPoint[], maximumDistance: number | null) => {
           if (!Number.isFinite(maximumDistance) || maximumDistance === null || maximumDistance <= 0 || points.length < 2) return points;
           const trimmed = [points[0]];
@@ -1942,7 +2021,7 @@ export default function MapScreen() {
           segmentPayloads.push(segment);
         });
         const extraPoints = uploadRoutePoints
-          .filter((point) => isExtraDistancePoint(point))
+          .filter((point) => isExtraDistancePoint(point) && getPauseSequence(point) === null)
           .map((point) => pointPayload(point, true));
         const extraPayload: ActivityExtraPayload | null = extraPoints.length > 0
           ? {
@@ -1956,7 +2035,9 @@ export default function MapScreen() {
           }
           : null;
         const iosStyleActivityPayload: ActivitySubmissionPayload = {
-          gps_points: uploadRoutePoints.map((point) => pointPayload(point, isExtraDistancePoint(point))),
+          gps_points: uploadRoutePoints
+            .filter((point) => getPauseSequence(point) === null)
+            .map((point) => pointPayload(point, isExtraDistancePoint(point))),
           start_time: startTimeRef.current
             ? new Date(startTimeRef.current).toISOString()
             : new Date().toISOString(),
@@ -1980,8 +2061,8 @@ export default function MapScreen() {
           laps,
           segments: segmentPayloads,
           extra: extraPayload,
-          pause_events: pauseEventsRef.current,
-          pause_count: pauseEventsRef.current.length,
+          pause_events: pauseEventPayload,
+          pause_count: pauseEventPayload.length,
           paused_time_s: Math.round((pausedTimeRef.current ?? 0) / 1000),
         };
         const backendPayloadLog = {
@@ -2079,6 +2160,7 @@ export default function MapScreen() {
       consecutiveMovementRef.current = 0;
       consecutiveStationaryRef.current = 0;
       movementConfirmedRef.current = false;
+      resumeMovementPendingRef.current = false;
       setWorkoutSnapshot(null);
       setIsPlannedWorkout(false);
       isPausedRef.current = false;
@@ -2116,6 +2198,7 @@ export default function MapScreen() {
         distanceKm: (distanceRef.current + extraDistanceRef.current) / 1000,
         elapsedSeconds,
         paceMinutesPerKm: pace,
+        pauseEvents: pauseEventsRef.current,
       });
       Alert.alert(
         'Could not save activity',

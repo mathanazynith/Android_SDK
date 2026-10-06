@@ -3,17 +3,17 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { router, useFocusEffect } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Modal,
-  RefreshControl,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    Modal,
+    RefreshControl,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -21,7 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage } from '../../../service/api';
-import { activityAPI, BackendActivity } from '../../../src/services/activityApi';
+import { activityAPI, BackendActivity, BackendPolylineRoute } from '../../../src/services/activityApi';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
 
@@ -174,10 +174,16 @@ const ActivityCard = memo(function ActivityCard({ activity, onPress }: {
     encodedPolyline: activity.encoded_polyline,
     plannedEncodedPolyline: activity.planned_encoded_polyline,
     extraEncodedPolyline: activity.extra_encoded_polyline,
+    savedGpsPoints: activity.route?.points ?? activity.gps_points ?? [],
+    runningRoutes: activity.route?.running_routes ?? [] as BackendPolylineRoute[],
+    pauseRoutes: activity.route?.pause_routes ?? [] as BackendPolylineRoute[],
+    pauseEvents: activity.pause_events ?? activity.route?.pause_events ?? [],
+    pausePoints: activity.route?.pause_points ?? [],
+    loaded: Array.isArray(activity.route?.running_routes),
   });
 
   useEffect(() => {
-    if (routeData.encodedPolyline) return;
+    if (routeData.loaded) return;
 
     let isMounted = true;
     void activityAPI.get(activity.id)
@@ -187,15 +193,23 @@ const ActivityCard = memo(function ActivityCard({ activity, onPress }: {
             encodedPolyline: detail.encoded_polyline,
             plannedEncodedPolyline: detail.planned_encoded_polyline,
             extraEncodedPolyline: detail.extra_encoded_polyline,
+            savedGpsPoints: detail.route?.points ?? detail.gps_points ?? [],
+            runningRoutes: detail.route?.running_routes ?? [],
+            pauseRoutes: detail.route?.pause_routes ?? [],
+            pauseEvents: detail.pause_events ?? detail.route?.pause_events ?? [],
+            pausePoints: detail.route?.pause_points ?? [],
+            loaded: true,
           });
         }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (isMounted) setRouteData((current) => ({ ...current, loaded: true }));
+      });
 
     return () => {
       isMounted = false;
     };
-  }, [activity.id, routeData.encodedPolyline]);
+  }, [activity.id, routeData.loaded]);
 
   return (
     <TouchableOpacity style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={onPress} activeOpacity={0.82}>
@@ -236,6 +250,11 @@ const ActivityCard = memo(function ActivityCard({ activity, onPress }: {
             encodedPolyline={routeData.encodedPolyline}
             plannedEncodedPolyline={routeData.plannedEncodedPolyline}
             extraEncodedPolyline={routeData.extraEncodedPolyline}
+            savedGpsPoints={routeData.savedGpsPoints}
+            runningRoutes={routeData.runningRoutes}
+            pauseRoutes={routeData.pauseRoutes}
+            pauseEvents={routeData.pauseEvents}
+            pausePoints={routeData.pausePoints}
             variant="preview"
           />
 
