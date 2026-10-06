@@ -1,0 +1,7 @@
+expo.modules.zyrunliveupdate.zyrun-live-update-pngs-0 C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\generated\res\pngs\release
+expo.modules.zyrunliveupdate.zyrun-live-update-resValues-1 C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\generated\res\resValues\release
+expo.modules.zyrunliveupdate.zyrun-live-update-mergeReleaseResources-2 C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\incremental\release\mergeReleaseResources\merged.dir
+expo.modules.zyrunliveupdate.zyrun-live-update-mergeReleaseResources-3 C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\incremental\release\mergeReleaseResources\stripped.dir
+expo.modules.zyrunliveupdate.zyrun-live-update-release-4 C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\merged_res\release\mergeReleaseResources
+expo.modules.zyrunliveupdate.zyrun-live-update-main-5 C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\src\main\res
+expo.modules.zyrunliveupdate.zyrun-live-update-release-6 C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\src\release\res
