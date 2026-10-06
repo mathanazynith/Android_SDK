@@ -2,13 +2,15 @@ import { Alert } from '@/components/ThemedAlert';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { CropRangeSlider } from '../../../../components/CropRangeSlider';
 import { getBackendErrorMessage } from '../../../../service/api';
-import { activityAPI, BackendActivity } from '../../../../src/services/activityApi';
+import { activityAPI, BackendActivity, BackendPauseEvent } from '../../../../src/services/activityApi';
 import { createCatmullRomPolyline } from '../../../../src/utils/catmullRom';
-import { calculateDistanceMeters } from '../../../../src/utils/distance';
+import { calculateActivityCropMetrics } from '../../../../src/utils/activityCropMetrics';
+import { buildActivityPauseMarkers, buildActivityRouteGroups } from '../../../../src/utils/activityRouteGroups';
 import { decodePolyline } from '../../../../src/utils/polylineDecoder';
 import { addRouteTimestamps } from '../../../../src/utils/routeTimestamps';
 
@@ -17,6 +19,8 @@ interface GPSPoint {
   longitude: number;
   timestamp?: string;
   is_extra_distance?: boolean;
+  is_paused?: boolean;
+  pause_sequence?: number | null;
 }
 
 export default function CropActivityScreen() {
@@ -28,6 +32,8 @@ export default function CropActivityScreen() {
   const [endIndex, setEndIndex] = useState(0);
   const [croppingDistance, setCroppingDistance] = useState(0);
   const [croppingElapsedTime, setCroppingElapsedTime] = useState(0);
+  const [croppingMovingTime, setCroppingMovingTime] = useState(0);
+  const [pauseEvents, setPauseEvents] = useState<BackendPauseEvent[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const mapRef = useRef<MapView>(null);
 
@@ -47,20 +53,30 @@ export default function CropActivityScreen() {
       console.log('[CropActivity] Backend activity:', activityData);
 
       setActivity(activityData);
+      const savedPauseEvents = activityData.pauses
+        ?? activityData.pause_events
+        ?? activityData.route?.pauses
+        ?? activityData.route?.pause_events
+        ?? [];
+      setPauseEvents(savedPauseEvents);
 
       // Prefer timestamped backend GPS rows so crop indices match the server.
-      const backendPoints = activityData.gps_points;
+      const backendPoints = activityData.route?.points?.length
+        ? activityData.route.points
+        : activityData.gps_points;
       if (backendPoints && backendPoints.length > 0) {
         const points = addRouteTimestamps(backendPoints.map((point) => ({
           latitude: Number(point.latitude),
           longitude: Number(point.longitude),
           timestamp: point.timestamp,
           is_extra_distance: point.is_extra_distance,
+          is_paused: point.is_paused,
+          pause_sequence: point.pause_sequence,
         })), activityData.start_time, activityData.end_time);
         setGpsPoints(points);
         setStartIndex(0);
         setEndIndex(points.length - 1);
-        calculateCropDistance(0, points.length - 1, points);
+        calculateCropMetrics(0, points.length - 1, points, savedPauseEvents);
       } else if (activityData.encoded_polyline) {
         const decodedPoints = addRouteTimestamps(
           decodePolyline(activityData.encoded_polyline),
@@ -73,7 +89,7 @@ export default function CropActivityScreen() {
         if (decodedPoints.length > 0) {
           setStartIndex(0);
           setEndIndex(decodedPoints.length - 1);
-          calculateCropDistance(0, decodedPoints.length - 1, decodedPoints);
+          calculateCropMetrics(0, decodedPoints.length - 1, decodedPoints, savedPauseEvents);
         }
       }
     } catch (error) {
@@ -85,37 +101,23 @@ export default function CropActivityScreen() {
     }
   }
 
-  const calculateCropDistance = (start: number, end: number, points: GPSPoint[]) => {
+  const calculateCropMetrics = (
+    start: number,
+    end: number,
+    points: GPSPoint[],
+    pauses = pauseEvents,
+  ) => {
     if (!points || points.length === 0 || start > end) {
       setCroppingDistance(0);
+      setCroppingElapsedTime(0);
+      setCroppingMovingTime(0);
       return;
     }
 
-    let totalDistance = 0;
-    for (let i = start; i < end; i++) {
-      if (i < points.length - 1) {
-        const distance = calculateDistanceMeters(
-          {
-            latitude: points[i].latitude,
-            longitude: points[i].longitude,
-          },
-          {
-            latitude: points[i + 1].latitude,
-            longitude: points[i + 1].longitude,
-          }
-        );
-        totalDistance += distance;
-      }
-    }
-
-    setCroppingDistance(totalDistance);
-    const startTimestamp = points[start]?.timestamp ? Date.parse(points[start].timestamp) : NaN;
-    const endTimestamp = points[end]?.timestamp ? Date.parse(points[end].timestamp) : NaN;
-    setCroppingElapsedTime(
-      Number.isFinite(startTimestamp) && Number.isFinite(endTimestamp)
-        ? Math.max(0, Math.round((endTimestamp - startTimestamp) / 1000))
-        : 0,
-    );
+    const metrics = calculateActivityCropMetrics(points, start, end, pauses);
+    setCroppingDistance(metrics.distanceMeters);
+    setCroppingElapsedTime(metrics.elapsedSeconds);
+    setCroppingMovingTime(metrics.movingSeconds);
   };
 
   const fitMapToRoute = (coordinates: GPSPoint[]) => {
@@ -131,7 +133,7 @@ export default function CropActivityScreen() {
     const newStart = Math.floor(value);
     if (newStart <= endIndex) {
       setStartIndex(newStart);
-      calculateCropDistance(newStart, endIndex, gpsPoints);
+      calculateCropMetrics(newStart, endIndex, gpsPoints);
     }
   };
 
@@ -139,7 +141,7 @@ export default function CropActivityScreen() {
     const newEnd = Math.floor(value);
     if (newEnd >= startIndex) {
       setEndIndex(newEnd);
-      calculateCropDistance(startIndex, newEnd, gpsPoints);
+      calculateCropMetrics(startIndex, newEnd, gpsPoints);
     }
   };
 
@@ -164,16 +166,22 @@ export default function CropActivityScreen() {
     setIsSaving(true);
     try {
       console.log('[CropActivity] Saving crop selection:', { startTime, endTime });
-      const preview = await activityAPI.cropPreview(activity.id, startTime, endTime);
+      const cropMetrics = calculateActivityCropMetrics(gpsPoints, startIndex, endIndex, pauseEvents);
+      const timingFallback = {
+        elapsed_time: cropMetrics.elapsedSeconds,
+        moving_time: cropMetrics.movingSeconds,
+      };
+      const preview = await activityAPI.cropPreview(activity.id, startTime, endTime, timingFallback);
       const previewMessage = `Distance ${(Number(preview.distance) / 1000).toFixed(2)} km\n`
-        + `Time ${Math.round(Number(preview.elapsed_time) / 60)} min\n`
+        + `Elapsed ${formatDuration(Number(preview.elapsed_time))}\n`
+        + `Moving ${formatDuration(Number(preview.moving_time))}\n`
         + `Pace ${formatPace(Number(preview.avg_pace))}`;
       Alert.alert('Review crop', previewMessage, [
         { text: 'Cancel', style: 'cancel', onPress: () => setIsSaving(false) },
         {
           text: 'Apply',
           onPress: () => {
-            void activityAPI.crop(activity.id, startTime, endTime)
+            void activityAPI.crop(activity.id, startTime, endTime, timingFallback)
               .then((result) => {
                 Alert.alert('Crop saved', `Distance ${(result.distance / 1000).toFixed(2)} km`, [
                   { text: 'OK', onPress: () => router.dismissTo('/(app)/activity' as any) },
@@ -215,14 +223,22 @@ export default function CropActivityScreen() {
   }
 
   const selectedPoints = gpsPoints.slice(startIndex, endIndex + 1);
-  const smoothPoints = (points: GPSPoint[]) => createCatmullRomPolyline(points);
-  const smoothedFullRoute = smoothPoints(gpsPoints);
-  const smoothedSelectedRoute = smoothPoints(selectedPoints);
-  const selectedPlannedRoute = smoothPoints(selectedPoints.filter((point) => !point.is_extra_distance));
-  const selectedExtraRoute = smoothPoints(selectedPoints.filter((point) => point.is_extra_distance));
+  const fullRouteGroups = buildActivityRouteGroups(gpsPoints).map((group) => ({
+    ...group,
+    coordinates: createCatmullRomPolyline(group.coordinates),
+  }));
+  const selectedRouteGroups = buildActivityRouteGroups(selectedPoints).map((group) => ({
+    ...group,
+    coordinates: createCatmullRomPolyline(group.coordinates),
+  }));
+  const selectedPauseMarkers = buildActivityPauseMarkers(
+    pauseEvents,
+    gpsPoints[startIndex]?.timestamp,
+    gpsPoints[endIndex]?.timestamp,
+  );
   const hasRoute = gpsPoints.length > 1;
   const croppingPace = croppingDistance > 0
-    ? croppingElapsedTime / (croppingDistance / 1000)
+    ? croppingMovingTime / (croppingDistance / 1000)
     : 0;
   const formatDuration = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
   const formatPace = (secondsPerKm: number) => secondsPerKm > 0
@@ -265,43 +281,42 @@ export default function CropActivityScreen() {
           style={styles.map}
           onMapReady={() => fitMapToRoute(gpsPoints)}
         >
-        {/* Full route - faded */}
-        <Polyline
-          coordinates={smoothedFullRoute}
-          strokeWidth={2}
-          strokeColor="rgba(32, 208, 0, 0.15)"
-          lineCap="round"
-          lineJoin="round"
-        />
+        {fullRouteGroups.map(({ type, coordinates }, index) => (
+          <Polyline
+            key={`full-route-${type}-${index}`}
+            coordinates={coordinates}
+            strokeWidth={2}
+            strokeColor={type === 'pause'
+              ? 'rgba(239, 68, 68, 0.2)'
+              : type === 'extra'
+                ? 'rgba(156, 163, 175, 0.2)'
+                : 'rgba(32, 208, 0, 0.15)'}
+            lineCap="round"
+            lineJoin="round"
+          />
+        ))}
 
-        {/* Selected route - bright */}
-        {selectedPlannedRoute.length < 2 && selectedExtraRoute.length < 2 && (
+        {selectedRouteGroups.map(({ type, coordinates }, index) => (
           <Polyline
-            coordinates={smoothedSelectedRoute}
+            key={`selected-route-${type}-${index}`}
+            coordinates={coordinates}
             strokeWidth={3}
-            strokeColor="#20D000"
+            strokeColor={type === 'pause' ? '#EF4444' : type === 'extra' ? '#9CA3AF' : '#20D000'}
             lineCap="round"
             lineJoin="round"
           />
-        )}
-        {selectedPlannedRoute.length > 1 && (
-          <Polyline
-            coordinates={selectedPlannedRoute}
-            strokeWidth={3}
-            strokeColor="#20D000"
-            lineCap="round"
-            lineJoin="round"
-          />
-        )}
-        {selectedExtraRoute.length > 1 && (
-          <Polyline
-            coordinates={selectedExtraRoute}
-            strokeWidth={3}
-            strokeColor="#9CA3AF"
-            lineCap="round"
-            lineJoin="round"
-          />
-        )}
+        ))}
+
+        {selectedPauseMarkers.map((marker) => (
+          <Marker
+            key={marker.key}
+            coordinate={marker.coordinate}
+            title={marker.title}
+            anchor={{ x: 0.5, y: 0.5 }}
+          >
+            <View style={styles.pauseMarker} />
+          </Marker>
+        ))}
 
         {/* Start marker */}
         {gpsPoints[startIndex] && (
@@ -327,7 +342,8 @@ export default function CropActivityScreen() {
         <Text style={styles.cropTitle}>Crop Workout</Text>
         <Text style={styles.distanceText}>{(croppingDistance / 1000).toFixed(2)} km</Text>
         <View style={styles.summaryRow}>
-          <Text style={styles.summaryText}>Time {formatDuration(croppingElapsedTime)}</Text>
+          <Text style={styles.summaryText}>Elapsed {formatDuration(croppingElapsedTime)}</Text>
+          <Text style={styles.summaryText}>Moving {formatDuration(croppingMovingTime)}</Text>
           <Text style={styles.summaryText}>Pace {formatPace(croppingPace)}</Text>
         </View>
         <View style={styles.timeRangeContainer}>
@@ -416,6 +432,14 @@ const styles = StyleSheet.create({
   content: { padding: 12, paddingBottom: 16 },
   mapContainer: { height: 220, overflow: 'hidden', borderRadius: 20 },
   map: { flex: 1 },
+  pauseMarker: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
+  },
   controlsContainer: { backgroundColor: '#0B0E0F', paddingTop: 14 },
   cropTitle: { color: '#F7F7F7', fontSize: 22, fontWeight: '700', textAlign: 'center' },
   distanceText: { color: '#F7F7F7', fontSize: 22, fontWeight: '700', textAlign: 'center', marginTop: 10 },

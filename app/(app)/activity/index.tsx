@@ -5,7 +5,20 @@ import { router, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Animated, Easing, FlatList, LayoutAnimation, Modal, Platform, StatusBar, StyleSheet, Text, TouchableOpacity, UIManager, Vibration, View } from 'react-native';
+import { AccessibilityInfo,  Animated, Easing,  LayoutAnimation,  Platform,    TouchableOpacity, UIManager, Vibration } from 'react-native';
+import {
+    ActivityIndicator,
+    
+    FlatList,
+    Modal,
+    RefreshControl,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    
+    View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Reanimated, {
   useAnimatedStyle,
@@ -18,7 +31,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage } from '../../../service/api';
-import { activityAPI, BackendActivity } from '../../../src/services/activityApi';
+import { activityAPI, BackendActivity, BackendPolylineRoute } from '../../../src/services/activityApi';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
 
@@ -265,6 +278,12 @@ const ActivityCard = memo(function ActivityCard({
     encodedPolyline: activity.encoded_polyline,
     plannedEncodedPolyline: activity.planned_encoded_polyline,
     extraEncodedPolyline: activity.extra_encoded_polyline,
+    savedGpsPoints: activity.route?.points ?? activity.gps_points ?? [],
+    runningRoutes: activity.route?.running_routes ?? [] as BackendPolylineRoute[],
+    pauseRoutes: activity.route?.pause_routes ?? [] as BackendPolylineRoute[],
+    pauseEvents: activity.pause_events ?? activity.route?.pause_events ?? [],
+    pausePoints: activity.route?.pause_points ?? [],
+    loaded: Array.isArray(activity.route?.running_routes),
   });
   const longPressHandledRef = useRef(false);
   const [selectionScale] = useState(() => new Animated.Value(1));
@@ -331,7 +350,7 @@ const ActivityCard = memo(function ActivityCard({
   /* eslint-enable react-hooks/immutability, react-hooks/refs */
 
   useEffect(() => {
-    if (routeData.encodedPolyline) return;
+    if (routeData.loaded) return;
 
     let isMounted = true;
     void activityAPI.get(activity.id)
@@ -341,15 +360,23 @@ const ActivityCard = memo(function ActivityCard({
             encodedPolyline: detail.encoded_polyline,
             plannedEncodedPolyline: detail.planned_encoded_polyline,
             extraEncodedPolyline: detail.extra_encoded_polyline,
+            savedGpsPoints: detail.route?.points ?? detail.gps_points ?? [],
+            runningRoutes: detail.route?.running_routes ?? [],
+            pauseRoutes: detail.route?.pause_routes ?? [],
+            pauseEvents: detail.pause_events ?? detail.route?.pause_events ?? [],
+            pausePoints: detail.route?.pause_points ?? [],
+            loaded: true,
           });
         }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (isMounted) setRouteData((current) => ({ ...current, loaded: true }));
+      });
 
     return () => {
       isMounted = false;
     };
-  }, [activity.id, routeData.encodedPolyline]);
+  }, [activity.id, routeData.loaded]);
 
   return (
     <GestureDetector gesture={selectionGesture}>
@@ -413,6 +440,11 @@ const ActivityCard = memo(function ActivityCard({
             encodedPolyline={routeData.encodedPolyline}
             plannedEncodedPolyline={routeData.plannedEncodedPolyline}
             extraEncodedPolyline={routeData.extraEncodedPolyline}
+            savedGpsPoints={routeData.savedGpsPoints}
+            runningRoutes={routeData.runningRoutes}
+            pauseRoutes={routeData.pauseRoutes}
+            pauseEvents={routeData.pauseEvents}
+            pausePoints={routeData.pausePoints}
             variant="preview"
           />
 
