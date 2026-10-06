@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { useTheme } from '../contexts/ThemeContext';
 import { createCatmullRomPolyline } from '../src/utils/catmullRom';
 import { decodePolyline } from '../src/utils/polylineDecoder';
 
@@ -21,6 +22,7 @@ function ActivityRouteMap({
   cropStartIndex,
   cropEndIndex,
 }: ActivityRouteMapProps) {
+  const { colors } = useTheme();
   const mapRef = useRef<MapView | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const routePoints = useMemo(() => {
@@ -93,8 +95,8 @@ function ActivityRouteMap({
 
   if (visibleRoutePoints.length === 0) {
     return (
-      <View style={styles.emptyRoute}>
-        <Text style={styles.emptyRouteText}>No saved route is available for this workout.</Text>
+      <View style={[styles.emptyRoute, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Text style={[styles.emptyRouteText, { color: colors.textSecondary }]}>No saved route is available for this workout.</Text>
       </View>
     );
   }
@@ -138,6 +140,7 @@ const styles = StyleSheet.create({
   mapContainer: { height: 255, overflow: 'hidden', borderRadius: 22, borderWidth: 1, borderColor: '#35C72B' },
   previewMapContainer: { height: 110, borderRadius: 20, overflow: 'hidden' },
   map: { flex: 1 },
-  emptyRoute: { minHeight: 120, borderRadius: 22, borderWidth: 1, borderColor: '#393C3E', backgroundColor: '#242627', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
-  emptyRouteText: { color: '#A9ADAF', fontSize: 15, textAlign: 'center' },
+  emptyRoute: { minHeight: 120, borderRadius: 22, borderWidth: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
+  emptyRouteText: { fontSize: 15, textAlign: 'center' },
 });
+
