@@ -42,7 +42,6 @@ export default function AppLayout() {
           <Stack.Screen name="calendar" options={{ headerShown: false }} />
           <Stack.Screen name="activity" options={{ headerShown: false }} />
           <Stack.Screen name="activity/[id]" />
-          <Stack.Screen name="running-tracker" options={{ headerShown: false }} />
           <Stack.Screen name="custom-workout" options={{ headerShown: false }} />
         </Stack>
       </BlurTargetView>
