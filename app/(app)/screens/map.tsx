@@ -1,18 +1,9 @@
+import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  AppState,
-  BackHandler,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useAuth } from '../../../service/auth';
 import { workoutPlanService } from '../../../service/workoutPlan';
@@ -333,7 +324,7 @@ export default function MapScreen() {
   const handledNativeRunActionRef = useRef<string | null>(null);
 
 
-  const [logs, setLogs] = useState<string[]>([]);
+  const logsRef = useRef<string[]>([]);
   const [pauseMarkers, setPauseMarkers] = useState<PauseMarker[]>([]);
   const [location, setLocation] = useState<LocationState | null>(null);
 
@@ -358,7 +349,8 @@ export default function MapScreen() {
   }, [location, plannedRouteCoordinates]);
 
   const addLog = useCallback((value: string) => {
-    setLogs((prev) => [...prev, value]);
+    logsRef.current.push(value);
+    if (logsRef.current.length > 200) logsRef.current.shift();
   }, []);
 
   const requestFinish = useCallback(() => {
@@ -814,15 +806,17 @@ export default function MapScreen() {
 
       const movementState = movementStateRef.current;
       const shouldProcessRoute = movementState === 'MOVING';
-      console.log(
-        `[MovementGate] timestamp=${timestamp} lat=${rawGps.latitude} lon=${rawGps.longitude} `
-        + `accuracy=${accuracy.toFixed(1)}m speed=${speed.toFixed(2)}m/s `
-        + `distance=${previousPointDistance.toFixed(1)}m activity=${detectedActivity} `
-        + `steps=${hasRecentStepEvidence} state=${movementStateBefore}->${movementState} `
-        + `movementCount=${consecutiveMovementRef.current} stationaryCount=${consecutiveStationaryRef.current} `
-        + `decision=${shouldProcessRoute ? 'ACCEPT' : 'REJECT'} `
-        + `reason=${!hasGoodAccuracy ? 'poor-accuracy' : !hasMotionEvidence ? 'no-motion-evidence' : !hasMovementMagnitude ? 'no-movement-magnitude' : 'movement-gate'}`
-      );
+      if (__DEV__) {
+        console.log(
+          `[MovementGate] timestamp=${timestamp} lat=${rawGps.latitude} lon=${rawGps.longitude} `
+          + `accuracy=${accuracy.toFixed(1)}m speed=${speed.toFixed(2)}m/s `
+          + `distance=${previousPointDistance.toFixed(1)}m activity=${detectedActivity} `
+          + `steps=${hasRecentStepEvidence} state=${movementStateBefore}->${movementState} `
+          + `movementCount=${consecutiveMovementRef.current} stationaryCount=${consecutiveStationaryRef.current} `
+          + `decision=${shouldProcessRoute ? 'ACCEPT' : 'REJECT'} `
+          + `reason=${!hasGoodAccuracy ? 'poor-accuracy' : !hasMotionEvidence ? 'no-motion-evidence' : !hasMovementMagnitude ? 'no-movement-magnitude' : 'movement-gate'}`
+        );
+      }
 
       previousLocationRef.current = rawGps;
       if (!shouldProcessRoute) {
@@ -862,13 +856,15 @@ export default function MapScreen() {
           );
 
         }
-        console.log(`[WorkoutMapView] 📌 Polyline updated: ${processor.getRawPoints().length} live raw points`);
-        console.log(
-          `[WorkoutMapView] Polyline ${displayPointWasAdded ? 'extended' : 'waiting'}: `
-          + `${processor.getDisplayPoints().length} accepted route points`
-        );
-        console.log(`[LocationManager] Tiers -> raw:${processor.getRawPoints().length} display:${processor.getDisplayPoints().length}`);
-        addLog(`📌 Live polyline: ${processor.getRawPoints().length} points`);
+        if (__DEV__) {
+          console.log(`[WorkoutMapView] 📌 Polyline updated: ${processor.getRawPoints().length} live raw points`);
+          console.log(
+            `[WorkoutMapView] Polyline ${displayPointWasAdded ? 'extended' : 'waiting'}: `
+            + `${processor.getDisplayPoints().length} accepted route points`
+          );
+          console.log(`[LocationManager] Tiers -> raw:${processor.getRawPoints().length} display:${processor.getDisplayPoints().length}`);
+          addLog(`📌 Live polyline: ${processor.getRawPoints().length} points`);
+        }
 
         if (displayPointWasAdded && latestDisplayPoint && lastRetainedCoordinateRef.current) {
           const movementDistance = calculateDistanceMeters(
@@ -892,15 +888,19 @@ export default function MapScreen() {
                 previousWorkoutPointRef.current = latestDisplayPoint;
                 const snapshot = workoutEngine.getSnapshot();
                 setWorkoutSnapshot(snapshot);
-                console.log(
-                  `[Workout] Accepted +${movementDistance.toFixed(2)}m; `
-                  + `SDK total=${nextDistance.toFixed(2)}m; `
-                  + `segment=${snapshot.currentLap?.distanceMeters.toFixed(2) ?? 'completed'}m`
-                );
+                if (__DEV__) {
+                  console.log(
+                    `[Workout] Accepted +${movementDistance.toFixed(2)}m; `
+                    + `SDK total=${nextDistance.toFixed(2)}m; `
+                    + `segment=${snapshot.currentLap?.distanceMeters.toFixed(2) ?? 'completed'}m`
+                  );
+                }
               } else {
-                console.log(
-                  `[Workout] Accepted +${movementDistance.toFixed(2)}m; SDK total=${nextDistance.toFixed(2)}m`
-                );
+                if (__DEV__) {
+                  console.log(
+                    `[Workout] Accepted +${movementDistance.toFixed(2)}m; SDK total=${nextDistance.toFixed(2)}m`
+                  );
+                }
               }
             } else if (workoutEngine && (workoutEngine.getSnapshot().state === 'waiting' || workoutEngine.getSnapshot().state === 'completed')) {
               extraDistanceRef.current += movementDistance;
@@ -910,11 +910,13 @@ export default function MapScreen() {
               completedSplits.forEach((split) => {
                 void workoutVoiceRef.current?.splitCompleted(split.splitNumber * SPLIT_DISTANCE_METERS);
               });
-              console.log(
-                `[Workout] Extra activity accepted: +${movementDistance.toFixed(1)}m `
-                + `(total extra ${extraDistanceRef.current.toFixed(1)}m; `
-                + `SDK total ${totalDistance.toFixed(1)}m)`
-              );
+              if (__DEV__) {
+                console.log(
+                  `[Workout] Extra activity accepted: +${movementDistance.toFixed(1)}m `
+                  + `(total extra ${extraDistanceRef.current.toFixed(1)}m; `
+                  + `SDK total ${totalDistance.toFixed(1)}m)`
+                );
+              }
             }
           }
         }
@@ -929,11 +931,15 @@ export default function MapScreen() {
         // Live route points stay on-device and unfiltered. They are filtered,
         // simplified, and uploaded once only when the user saves the workout.
       } else {
-        console.log('[LocationManager] Rejected: GPS sample did not pass live validation');
-        addLog('? GPS point rejected');
+        if (__DEV__) {
+          console.log('[LocationManager] Rejected: GPS sample did not pass live validation');
+          addLog('? GPS point rejected');
+        }
       }
 
-      console.log(`[WorkoutMapView] Current location: lat=${rawGps.latitude} lon=${rawGps.longitude}`);
+      if (__DEV__) {
+        console.log(`[WorkoutMapView] Current location: lat=${rawGps.latitude} lon=${rawGps.longitude}`);
+      }
       moveMapToLocation(rawGps.latitude, rawGps.longitude);
     },
     [addLog, appendRoutePoint, fitMapToRoute, moveMapToLocation, uploadBatch]
@@ -1179,7 +1185,7 @@ export default function MapScreen() {
       setPace(0);
       setIsPaused(false);
       setOptimizedStats({ rawPointCount: 0, optimizedPointCount: 0, reductionPercent: 0 });
-      setLogs([]);
+      logsRef.current = [];
       previousLocationRef.current = null;
       lastRetainedCoordinateRef.current = null;
       isPausedRef.current = false;

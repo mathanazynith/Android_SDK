@@ -1,17 +1,8 @@
+import { Alert } from '@/components/ThemedAlert';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppInput } from "../../components/common/AppInput";
 import { PrimaryButton } from "../../components/common/PrimaryButton";

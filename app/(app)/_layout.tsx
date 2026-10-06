@@ -1,7 +1,8 @@
+import { Alert } from '@/components/ThemedAlert';
 import { BlurTargetView } from 'expo-blur';
 import { Stack, usePathname } from 'expo-router';
 import { useEffect, useRef } from 'react';
-import { Alert, BackHandler, View } from 'react-native';
+import { BackHandler, View } from 'react-native';
 import GlobalBottomNav, { isPrimaryTabPath } from '../../components/navigation/GlobalBottomNav';
 
 export default function AppLayout() {

@@ -1,16 +1,8 @@
+import { Alert } from '@/components/ThemedAlert';
 // app/(app)/change-password.tsx
 import { router } from 'expo-router';
 import { useState } from 'react';
-import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-} from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { AppInput } from '../../../components/common/AppInput';
 import { PrimaryButton } from '../../../components/common/PrimaryButton';
 import { Colors, Spacing, Typography } from '../../../constants/theme';

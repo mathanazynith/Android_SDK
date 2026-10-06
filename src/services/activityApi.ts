@@ -214,6 +214,7 @@ export interface CropActivityResult {
 
 export interface BackendActivity {
   id: string | number;
+  activity_id?: string | number;
   activity_type: 'RUN' | 'WALK' | string;
   start_time: string;
   end_time: string;
@@ -271,6 +272,9 @@ const getActivityDetailPath = (activityId: BackendActivity['id']) => {
   return `${basePath}/${encodeURIComponent(String(activityId))}/`;
 };
 
+const getActivityDeletePath = (activityId: BackendActivity['id']) =>
+  `${getActivityDetailPath(activityId)}delete/`;
+
 const extractActivities = (payload: unknown): BackendActivity[] => {
   if (Array.isArray(payload)) return payload as BackendActivity[];
 
@@ -312,11 +316,21 @@ const getBackendGpsPoints = (activity: BackendActivity): BackendGpsPoint[] | und
   ?? activity.route?.points
   ?? activity.route?.coordinates;
 
+const getActivityId = (activity: BackendActivity): string | number => {
+  const id = activity.id ?? activity.activity_id;
+  if ((typeof id !== 'string' && typeof id !== 'number') || String(id).trim() === '') {
+    throw new Error('Activity response is missing its ID.');
+  }
+  return id;
+};
+
 const normalizeActivity = (activity: BackendActivity): BackendActivity => {
+  const id = getActivityId(activity);
   const gpsPoints = getBackendGpsPoints(activity);
   const splitData = normalizeActivitySplits(activity);
   return {
     ...activity,
+    id,
     gps_points: activity.gps_points ?? gpsPoints,
     encoded_polyline: activity.encoded_polyline
       ?? activity.route?.encoded_polyline
@@ -471,7 +485,6 @@ export const activityAPI = {
         total_count: rawSource.total_count,
         rawCount: rawActivities.length,
         processingStatuses: rawActivities.map((activity) => activity.processing_status),
-        rawJson: JSON.stringify(response.data),
       });
     }
     const result = await normalizeHistoryPage(response.data, limit, cursor);
@@ -506,7 +519,14 @@ export const activityAPI = {
   },
 
   async delete(activityId: BackendActivity['id']): Promise<string> {
-    const response = await api.delete(`${getActivityDetailPath(activityId)}delete/`);
+    if (
+      (typeof activityId !== 'string' && typeof activityId !== 'number')
+      || String(activityId).trim() === ''
+    ) {
+      throw new Error('Cannot delete activity because its ID is missing.');
+    }
+    const response = await api.delete(getActivityDeletePath(activityId));
+    await storage.removeItem(ACTIVITY_HISTORY_CACHE_KEY).catch(() => undefined);
     return typeof response.data?.message === 'string'
       ? response.data.message
       : 'Activity deleted successfully.';

@@ -146,7 +146,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget: RefObject<
     <BlurView
       intensity={isLegacyAndroidBlur ? 0 : isDark ? 85 : 80}
       tint={isDark ? 'dark' : 'light'}
-      blurMethod="dimezisBlurView"
+      blurMethod="dimezisBlurViewSdk31Plus"
       blurTarget={blurTarget}
       style={[
         styles.container,

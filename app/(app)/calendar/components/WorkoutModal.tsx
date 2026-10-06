@@ -1,18 +1,9 @@
+import { Alert } from '@/components/ThemedAlert';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import {
-    Alert,
-    Animated,
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
-} from 'react-native';
+import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import BenchmarkBadgeIcon from '../../../../components/BenchmarkBadgeIcon';
 import { cacheAssignedRoute, customWorkoutAPI, getCachedAssignedRoute, type SuggestedRoute } from '../../../../service/customWorkout';
 import { workoutPlanService } from '../../../../service/workoutPlan';

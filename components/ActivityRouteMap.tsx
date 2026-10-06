@@ -107,6 +107,7 @@ function ActivityRouteMap({
       <MapView
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
+        liteMode={variant === 'preview'}
         style={styles.map}
         initialRegion={{
           latitude: firstPoint.latitude,
