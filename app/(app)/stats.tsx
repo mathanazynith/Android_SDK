@@ -1,9 +1,10 @@
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Dimensions,
   Modal,
   Pressable,
@@ -36,10 +37,12 @@ import {
   formatKm,
   formatPaceMinutes,
   formatTimeHoursMins,
+  formatWeekRange,
   getAvailableYears,
+  getMonthName,
   normalizeActivities,
   PeriodFilter,
-  UnifiedActivity
+  UnifiedActivity,
 } from '../../src/utils/statsCalculations';
 import {
   buildPlanFromPlanSegments,
@@ -78,6 +81,10 @@ export default function StatsScreen() {
   const [activities, setActivities] = useState<UnifiedActivity[]>([]);
   const [selectedPointKey, setSelectedPointKey] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
+  const [selectedWeekDate, setSelectedWeekDate] = useState<Date>(new Date());
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const barAnim = useRef(new Animated.Value(1)).current;
   const [showYearModal, setShowYearModal] = useState(false);
   const [showBenchmarkModal, setShowBenchmarkModal] = useState(false);
   const [startingWorkoutId, setStartingWorkoutId] = useState<number | null>(null);
@@ -274,18 +281,50 @@ export default function StatsScreen() {
     loadActivities();
   }, [loadActivities]);
 
-  // Aggregate stats based on active period and selectedYear
+  // Smooth fade in / fade out and upward bar fill transition helper
+  const triggerTransition = useCallback((updateFn: () => void) => {
+    Animated.timing(fadeAnim, {
+      toValue: 0.15,
+      duration: 120,
+      useNativeDriver: true,
+    }).start(() => {
+      updateFn();
+      barAnim.setValue(0);
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+        Animated.timing(barAnim, {
+          toValue: 1,
+          duration: 320,
+          useNativeDriver: false,
+        }),
+      ]).start();
+    });
+  }, [fadeAnim, barAnim]);
+
+  const selectedWeekMonday = useMemo(() => {
+    const base = new Date(selectedWeekDate);
+    const day = (base.getDay() + 6) % 7;
+    const monday = new Date(base.getFullYear(), base.getMonth(), base.getDate() - day);
+    monday.setHours(0, 0, 0, 0);
+    return monday;
+  }, [selectedWeekDate]);
+
+  // Aggregate stats based on active period, year, month, and week
   const stats: AggregatedStats = useMemo(() => {
-    return calculatePeriodStats(activities, period, selectedYear);
-  }, [activities, period, selectedYear]);
+    return calculatePeriodStats(activities, period, selectedYear, selectedMonth, selectedWeekMonday);
+  }, [activities, period, selectedYear, selectedMonth, selectedWeekMonday]);
 
   const weekCompletion = useMemo(() => {
-    const weeklyStats = calculatePeriodStats(activities, 'week', selectedYear);
+    const weeklyStats = calculatePeriodStats(activities, 'week', selectedYear, selectedMonth, selectedWeekMonday);
     return {
       workouts: weeklyStats.totalWorkouts,
       distanceKm: weeklyStats.totalDistanceKm,
     };
-  }, [activities, selectedYear]);
+  }, [activities, selectedYear, selectedMonth, selectedWeekMonday]);
 
   // Available years from recorded activities
   const availableYears = useMemo(() => {
@@ -296,7 +335,6 @@ export default function StatsScreen() {
   const yearStats = useMemo(() => {
     return calculateYearStats(activities, selectedYear);
   }, [activities, selectedYear]);
-
 
   // Active selected chart point (or current/latest active point by default)
   const activePoint: ChartBarPoint | null = useMemo(() => {
@@ -310,6 +348,213 @@ export default function StatsScreen() {
     const lastActive = [...stats.chartData].reverse().find((p) => p.value > 0);
     return lastActive || stats.chartData[0];
   }, [stats.chartData, selectedPointKey]);
+
+  // Dynamic distance and label for the hero card (bold KM updates dynamically on selection)
+  const displayedDistance = useMemo(() => {
+    if (selectedPointKey && activePoint) {
+      return activePoint.value.toFixed(1);
+    }
+    return stats.totalDistanceKm.toFixed(1);
+  }, [selectedPointKey, activePoint, stats.totalDistanceKm]);
+
+  const displayedLabel = useMemo(() => {
+    if (selectedPointKey && activePoint) {
+      return (activePoint.fullLabel || activePoint.label).toUpperCase();
+    }
+    return period === 'week'
+      ? 'DISTANCE THIS WEEK'
+      : period === 'month'
+      ? 'DISTANCE THIS MONTH'
+      : period === 'year'
+      ? 'DISTANCE THIS YEAR'
+      : 'TOTAL DISTANCE';
+  }, [selectedPointKey, activePoint, period]);
+
+  // Dynamic Overview Metrics reflecting active selection or current period
+  const activeMetrics = useMemo(() => {
+    if (selectedPointKey && activePoint) {
+      const pointActs = activities.filter((a) => {
+        if (period === 'week' && activePoint.targetDate) {
+          return a.date.toDateString() === activePoint.targetDate.toDateString();
+        }
+        if (period === 'month' && activePoint.targetDate) {
+          const d = a.date.getDate();
+          const startDay = activePoint.targetDate.getDate();
+          return (
+            a.date.getFullYear() === selectedYear &&
+            a.date.getMonth() === selectedMonth &&
+            d >= startDay &&
+            d <= startDay + 6
+          );
+        }
+        if (period === 'year' && activePoint.monthIndex !== undefined) {
+          return (
+            a.date.getFullYear() === selectedYear &&
+            a.date.getMonth() === activePoint.monthIndex
+          );
+        }
+        return false;
+      });
+
+      const runs = pointActs.filter((a) => a.activityType === 'RUN').length;
+      return {
+        title: `Overview Metrics (${activePoint.label})`,
+        runs: runs > 0 ? runs : activePoint.workoutCount,
+        distanceKm: activePoint.value,
+        calories: pointActs.reduce((acc, a) => acc + a.calories, 0),
+        avgPaceSeconds: activePoint.paceSecondsPerKm,
+        totalDurationSeconds: activePoint.durationSeconds,
+        totalWorkouts: activePoint.workoutCount,
+      };
+    }
+
+    const periodLabel =
+      period === 'week'
+        ? 'Selected Week'
+        : period === 'month'
+        ? `${getMonthName(selectedMonth, false)} ${selectedYear}`
+        : period === 'year'
+        ? `${selectedYear}`
+        : 'All Time';
+
+    return {
+      title: `Overview Metrics (${periodLabel})`,
+      runs: stats.runCount > 0 ? stats.runCount : stats.totalWorkouts,
+      distanceKm: stats.totalDistanceKm,
+      calories: stats.totalCalories,
+      avgPaceSeconds: stats.averagePaceSeconds,
+      totalDurationSeconds: stats.totalDurationSeconds,
+      totalWorkouts: stats.totalWorkouts,
+    };
+  }, [selectedPointKey, activePoint, activities, period, selectedYear, selectedMonth, stats]);
+
+  // Sub-Navigation actions with smooth fading transitions
+  const navigatePrevWeek = () => {
+    triggerTransition(() => {
+      setSelectedWeekDate((prev) => {
+        const next = new Date(prev);
+        next.setDate(next.getDate() - 7);
+        setSelectedYear(next.getFullYear());
+        setSelectedMonth(next.getMonth());
+        return next;
+      });
+      setSelectedPointKey(null);
+    });
+  };
+
+  const navigateNextWeek = () => {
+    triggerTransition(() => {
+      setSelectedWeekDate((prev) => {
+        const next = new Date(prev);
+        next.setDate(next.getDate() + 7);
+        setSelectedYear(next.getFullYear());
+        setSelectedMonth(next.getMonth());
+        return next;
+      });
+      setSelectedPointKey(null);
+    });
+  };
+
+  const jumpToCurrentWeek = () => {
+    triggerTransition(() => {
+      const today = new Date();
+      setSelectedWeekDate(today);
+      setSelectedYear(today.getFullYear());
+      setSelectedMonth(today.getMonth());
+      setSelectedPointKey(null);
+    });
+  };
+
+  const navigatePrevMonth = () => {
+    triggerTransition(() => {
+      if (selectedMonth === 0) {
+        setSelectedMonth(11);
+        setSelectedYear((y) => y - 1);
+      } else {
+        setSelectedMonth((m) => m - 1);
+      }
+      setSelectedPointKey(null);
+    });
+  };
+
+  const navigateNextMonth = () => {
+    triggerTransition(() => {
+      if (selectedMonth === 11) {
+        setSelectedMonth(0);
+        setSelectedYear((y) => y + 1);
+      } else {
+        setSelectedMonth((m) => m + 1);
+      }
+      setSelectedPointKey(null);
+    });
+  };
+
+  const jumpToCurrentMonth = () => {
+    triggerTransition(() => {
+      const today = new Date();
+      setSelectedMonth(today.getMonth());
+      setSelectedYear(today.getFullYear());
+      setSelectedPointKey(null);
+    });
+  };
+
+  const navigatePrevYear = () => {
+    triggerTransition(() => {
+      setSelectedYear((y) => y - 1);
+      setSelectedPointKey(null);
+    });
+  };
+
+  const navigateNextYear = () => {
+    triggerTransition(() => {
+      setSelectedYear((y) => y + 1);
+      setSelectedPointKey(null);
+    });
+  };
+
+  const jumpToCurrentYear = () => {
+    triggerTransition(() => {
+      setSelectedYear(new Date().getFullYear());
+      setSelectedPointKey(null);
+    });
+  };
+
+  // Bidirectional drill-down / drill-up handlers
+  const drillDownToMonth = (monthIdx: number) => {
+    triggerTransition(() => {
+      setSelectedMonth(monthIdx);
+      setPeriod('month');
+      setSelectedPointKey(null);
+    });
+  };
+
+  const drillDownToWeek = (targetDate: Date) => {
+    triggerTransition(() => {
+      setSelectedWeekDate(new Date(targetDate));
+      setSelectedMonth(targetDate.getMonth());
+      setSelectedYear(targetDate.getFullYear());
+      setPeriod('week');
+      setSelectedPointKey(null);
+    });
+  };
+
+  const drillUpToMonth = () => {
+    triggerTransition(() => {
+      setPeriod('month');
+      setSelectedPointKey(null);
+    });
+  };
+
+  const drillUpToYear = () => {
+    triggerTransition(() => {
+      setPeriod('year');
+      setSelectedPointKey(null);
+    });
+  };
+
+  const handleBarPress = (pointKey: string) => {
+    setSelectedPointKey((prev) => (prev === pointKey ? null : pointKey));
+  };
 
   const periodLabels: { id: PeriodFilter; label: string }[] = [
     { id: 'week', label: 'Week' },
@@ -411,8 +656,12 @@ export default function StatsScreen() {
                 key={tab.id}
                 style={[styles.periodTab, active && styles.periodTabActive]}
                 onPress={() => {
-                  setPeriod(tab.id);
-                  setSelectedPointKey(null);
+                  if (period !== tab.id) {
+                    triggerTransition(() => {
+                      setPeriod(tab.id);
+                      setSelectedPointKey(null);
+                    });
+                  }
                 }}
                 activeOpacity={0.8}
               >
@@ -424,25 +673,29 @@ export default function StatsScreen() {
           })}
         </View>
 
-        {/* Hero Interactive Distance & Bar Chart Card */}
-        <View style={styles.heroCard}>
+        {/* Sub-Navigation Bar for Week / Month / Year navigation & drill up */}
+
+
+        {/* Hero Interactive Distance & Bar Chart Card with Smooth Fade In/Out */}
+        <Animated.View style={[styles.heroCard, { opacity: fadeAnim }]}>
           <View style={styles.heroHeader}>
             <View>
-              <Text style={styles.heroLabel}>
-                {period === 'week'
-                  ? 'DISTANCE THIS WEEK'
-                  : period === 'month'
-                  ? 'DISTANCE THIS MONTH'
-                  : period === 'year'
-                  ? 'DISTANCE THIS YEAR'
-                  : 'TOTAL DISTANCE'}
-              </Text>
+              <Text style={styles.heroLabel}>{displayedLabel}</Text>
               <View style={styles.heroValueRow}>
                 <Text style={styles.heroValue}>
-                  {stats.totalDistanceKm.toFixed(1)}
+                  {displayedDistance}
                 </Text>
                 <Text style={styles.heroUnit}>km</Text>
               </View>
+              {selectedPointKey && (
+                <TouchableOpacity
+                  style={styles.clearSelectionBtn}
+                  onPress={() => setSelectedPointKey(null)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.clearSelectionText}>✕ Reset to total</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* Streak & Consistency Badge */}
@@ -480,27 +733,32 @@ export default function StatsScreen() {
             </View>
           )}
 
-          {/* Interactive Native Bar Chart */}
+
+          {/* Interactive Native Bar Chart with Fluid Upward Fill */}
           <View style={styles.chartArea}>
             <View style={styles.barsRow}>
               {stats.chartData.map((bar) => {
                 const isSelected = activePoint?.key === bar.key;
                 const ratio = stats.chartMax > 0 ? bar.value / stats.chartMax : 0;
                 const barHeight = bar.value > 0 ? Math.max(8, Math.round(ratio * 125)) : 4;
+                const animatedBarHeight = barAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [4, barHeight],
+                });
 
                 return (
                   <TouchableOpacity
                     key={bar.key}
                     style={styles.barColumn}
-                    onPress={() => setSelectedPointKey(bar.key)}
+                    onPress={() => handleBarPress(bar.key)}
                     activeOpacity={0.7}
                   >
                     <View style={styles.barTrack}>
-                      <View
+                      <Animated.View
                         style={[
                           styles.barFill,
                           {
-                            height: barHeight,
+                            height: animatedBarHeight,
                             backgroundColor: isSelected
                               ? '#30D158'
                               : bar.value > 0
@@ -520,7 +778,7 @@ export default function StatsScreen() {
                             style={StyleSheet.absoluteFill}
                           />
                         )}
-                      </View>
+                      </Animated.View>
                     </View>
                     <Text
                       style={[
@@ -536,13 +794,13 @@ export default function StatsScreen() {
               })}
             </View>
           </View>
-        </View>
+        </Animated.View>
 
-        {/* Key Running Metrics Grid (2 x 3) */}
+        {/* Dynamic Key Running Metrics Grid (2 x 3) */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>Overview Metrics ({selectedYear})</Text>
+          <Text style={styles.sectionTitle}>{activeMetrics.title}</Text>
           <Text style={styles.sectionSubBadge}>
-            {yearStats.totalWorkouts > 0 ? `${yearStats.totalWorkouts} activities` : '0 activities'}
+            {activeMetrics.totalWorkouts > 0 ? `${activeMetrics.totalWorkouts} activities` : '0 activities'}
           </Text>
         </View>
 
@@ -552,7 +810,7 @@ export default function StatsScreen() {
             <View style={[styles.metricIconCircle, { backgroundColor: 'rgba(48, 209, 88, 0.15)' }]}>
               <Feather name="activity" size={20} color="#30D158" />
             </View>
-            <Text style={styles.metricCardValue}>{yearStats.runs}</Text>
+            <Text style={styles.metricCardValue}>{activeMetrics.runs}</Text>
             <Text style={styles.metricCardLabel}>Runs</Text>
           </View>
 
@@ -561,7 +819,7 @@ export default function StatsScreen() {
             <View style={[styles.metricIconCircle, { backgroundColor: 'rgba(48, 209, 88, 0.15)' }]}>
               <Feather name="navigation" size={18} color="#30D158" />
             </View>
-            <Text style={styles.metricCardValue}>{yearStats.distanceKm.toFixed(1)} km</Text>
+            <Text style={styles.metricCardValue}>{activeMetrics.distanceKm.toFixed(1)} km</Text>
             <Text style={styles.metricCardLabel}>Distance</Text>
           </View>
 
@@ -571,7 +829,7 @@ export default function StatsScreen() {
               <Ionicons name="flame" size={20} color="#FF9F0A" />
             </View>
             <Text style={styles.metricCardValue}>
-              {yearStats.calories > 0 ? `${yearStats.calories.toLocaleString()} kcal` : '0 kcal'}
+              {activeMetrics.calories > 0 ? `${activeMetrics.calories.toLocaleString()} kcal` : '0 kcal'}
             </Text>
             <Text style={styles.metricCardLabel}>Calories</Text>
           </View>
@@ -582,7 +840,7 @@ export default function StatsScreen() {
               <Ionicons name="speedometer-outline" size={19} color="#30D158" />
             </View>
             <Text style={styles.metricCardValue}>
-              {formatPaceMinutes(yearStats.avgPaceSeconds)}
+              {formatPaceMinutes(activeMetrics.avgPaceSeconds)}
             </Text>
             <Text style={styles.metricCardLabel}>Avg Pace</Text>
           </View>
@@ -593,7 +851,7 @@ export default function StatsScreen() {
               <Feather name="clock" size={18} color="#0A84FF" />
             </View>
             <Text style={styles.metricCardValue}>
-              {formatTimeHoursMins(yearStats.totalDurationSeconds)}
+              {formatTimeHoursMins(activeMetrics.totalDurationSeconds)}
             </Text>
             <Text style={styles.metricCardLabel}>Active Time</Text>
           </View>
@@ -604,7 +862,7 @@ export default function StatsScreen() {
               <Feather name="award" size={18} color="#BF5AF2" />
             </View>
             <Text style={styles.metricCardValue}>
-              {yearStats.totalWorkouts}
+              {activeMetrics.totalWorkouts}
             </Text>
             <Text style={styles.metricCardLabel}>Workouts</Text>
           </View>
@@ -1158,6 +1416,97 @@ const baseStyles = StyleSheet.create({
   periodTabTextActive: {
     color: '#FFFFFF',
     fontWeight: '700',
+  },
+  navRangeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#141416',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#242428',
+  },
+  navArrowBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#1E1E22',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navRangeCenter: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  navRangeText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  navChipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 6,
+  },
+  navTodayChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: 'rgba(48, 209, 88, 0.15)',
+  },
+  navTodayChipText: {
+    color: '#30D158',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  drillNavChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: 'rgba(10, 132, 255, 0.15)',
+  },
+  drillNavChipText: {
+    color: '#0A84FF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  drillBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: 'rgba(48, 209, 88, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(48, 209, 88, 0.25)',
+    marginBottom: 12,
+  },
+  drillBannerText: {
+    color: '#30D158',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  clearSelectionBtn: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  clearSelectionText: {
+    color: '#8E8E93',
+    fontSize: 10,
+    fontWeight: '600',
   },
   heroCard: {
     backgroundColor: '#141416',
@@ -1915,6 +2264,44 @@ const lightStyles = StyleSheet.create({
   },
   periodTabTextActive: {
     color: '#000000',
+  },
+  navRangeRow: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E1E3E6',
+  },
+  navArrowBtn: {
+    backgroundColor: '#E9EAEC',
+  },
+  navRangeText: {
+    color: '#111111',
+  },
+  navTodayChip: {
+    backgroundColor: 'rgba(48, 209, 88, 0.14)',
+  },
+  navTodayChipText: {
+    color: '#1F8E3B',
+  },
+  drillNavChip: {
+    backgroundColor: 'rgba(10, 132, 255, 0.14)',
+  },
+  drillNavChipText: {
+    color: '#0066CC',
+  },
+  drillBanner: {
+    backgroundColor: 'rgba(48, 209, 88, 0.10)',
+    borderColor: 'rgba(48, 160, 78, 0.25)',
+  },
+  drillBannerText: {
+    color: '#1F8E3B',
+  },
+  clearSelectionBtn: {
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  clearSelectionText: {
+    color: '#55575B',
+  },
+  barLabelSelected: {
+    color: '#1F8E3B',
   },
   heroCard: {
     backgroundColor: '#F1F2F4',
