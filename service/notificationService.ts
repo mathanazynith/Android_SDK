@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { randomUUID } from 'expo-crypto';
 import { Platform } from 'react-native';
-import { API_BASE_URL, notificationsAPI } from './api';
+import { API_BASE_URL, notificationsAPI, type NotificationDeviceRegistration } from './api';
 import { storage } from './storage';
 
 export interface AppNotification {
@@ -37,7 +37,7 @@ export const getNotificationDestination = (
       return '/(app)/calendar';
     case 'NEW_DEVICE_LOGIN':
     case 'PASSWORD_CHANGED':
-      return '/(app)/profile';
+      return '/(app)/dashboard';
     case 'RUN_SAVED_OTHER_DEVICE': {
       const activityId = data.activity_id;
       if (typeof activityId === 'number' && Number.isSafeInteger(activityId) && activityId > 0) {
@@ -162,27 +162,37 @@ const getDeviceId = async (): Promise<string> => {
   return deviceIdRequest;
 };
 
-export const registerNotificationDevice = async (userId: number, fcmToken: string): Promise<void> => {
-  if (Platform.OS !== 'android' || !fcmToken) return;
+export const getNotificationDevicePayload = async (
+  fcmToken: string | null,
+): Promise<NotificationDeviceRegistration> => {
+  if (typeof fcmToken !== 'string' || !fcmToken.trim()) {
+    throw new Error('A Firebase notification token is required to sign in on Android. Enable notifications and try again.');
+  }
 
   const appVersion = Constants.expoConfig?.version;
   if (!appVersion) {
     throw new Error('App version is unavailable for notification device registration.');
   }
 
-  const deviceId = await getDeviceId();
-  const registrationKey = `${userId}:${deviceId}:${fcmToken}`;
+  return {
+    device_id: await getDeviceId(),
+    platform: 'ANDROID',
+    fcm_token: fcmToken,
+    app_version: appVersion,
+  };
+};
+
+export const registerNotificationDevice = async (userId: number, fcmToken: string): Promise<void> => {
+  if (Platform.OS !== 'android' || !fcmToken) return;
+
+  const payload = await getNotificationDevicePayload(fcmToken);
+  const registrationKey = `${userId}:${payload.device_id}:${fcmToken}`;
   if (registeredDeviceKey === registrationKey) return;
 
   const pendingRegistration = pendingRegistrations.get(registrationKey);
   if (pendingRegistration) return pendingRegistration;
 
-  const request = notificationsAPI.registerDevice({
-    device_id: deviceId,
-    platform: 'ANDROID',
-    fcm_token: fcmToken,
-    app_version: appVersion,
-  }).then(() => {
+  const request = notificationsAPI.registerDevice(payload).then(() => {
     registeredDeviceKey = registrationKey;
   }).finally(() => {
     pendingRegistrations.delete(registrationKey);

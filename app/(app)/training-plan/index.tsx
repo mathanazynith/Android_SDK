@@ -1,16 +1,7 @@
+import { Alert } from '@/components/ThemedAlert';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import {
-    ActivityIndicator,
-    Alert,
-    PanResponder,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-} from 'react-native';
+import { ActivityIndicator, PanResponder, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 import { useTheme } from '../../../contexts/ThemeContext';

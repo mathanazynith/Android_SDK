@@ -1,18 +1,9 @@
+import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  // SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
-} from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
@@ -237,6 +228,11 @@ export default function ActivityDetailScreen() {
             encodedPolyline={activity.encoded_polyline}
             plannedEncodedPolyline={activity.planned_encoded_polyline}
             extraEncodedPolyline={activity.extra_encoded_polyline}
+            savedGpsPoints={activity.route?.points ?? activity.gps_points}
+            runningRoutes={activity.route?.running_routes}
+            pauseRoutes={activity.route?.pause_routes}
+            pauseEvents={activity.pause_events ?? activity.route?.pause_events}
+            pausePoints={activity.route?.pause_points}
             cropStartIndex={Number.isFinite(cropStartIndex) ? cropStartIndex : undefined}
             cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
           />

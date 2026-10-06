@@ -9,6 +9,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NotificationProvider } from '../contexts/NotificationContext';
 import { QuestionnaireProvider } from '../contexts/QuestionnaireContext';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
+import { ThemedAlertHost } from '../src/components/ThemedAlert';
 import { AuthProvider } from '../service/auth';
 import '../src/services/backgroundLocationTask';
 import { LIVE_TRACKING_ROUTE, LIVE_TRACKING_STOP_ACTION } from '../src/services/liveTrackingNotification';
@@ -60,6 +61,7 @@ function RootSurface({ children }: { children: ReactNode }) {
   return <>
     <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} translucent backgroundColor="transparent" />
     <>{children}</>
+    <ThemedAlertHost />
   </>;
 }
 

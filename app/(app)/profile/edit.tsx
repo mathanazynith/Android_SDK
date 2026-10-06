@@ -1,9 +1,6 @@
+import { Alert } from '@/components/ThemedAlert';
 import React, { useRef, useState } from "react";
-import {
-  ActivityIndicator, Alert, FlatList, Image, Keyboard, KeyboardAvoidingView, Modal,
-  Platform, Pressable, ScrollView, StyleSheet,
-  Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View,
-} from "react-native";
+import { ActivityIndicator, FlatList, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from "react-native";
 import { router } from "expo-router";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import * as ImagePicker from "expo-image-picker";

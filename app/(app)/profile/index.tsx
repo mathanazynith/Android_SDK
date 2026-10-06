@@ -1,16 +1,8 @@
+import { Alert } from '@/components/ThemedAlert';
 import React from "react";
-import {
-  Alert,
-  ActivityIndicator,
-  Image,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../../../service/auth";
@@ -18,6 +10,7 @@ import { Colors } from "../../../constants/theme";
 import { resolveApiUrl } from "../../../service/api";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
+import { subscriptionAPI, type UserSubscription } from "../../../src/services/subscriptionApi";
 
 type DetailRowProps = { label: string; value: string };
 
@@ -55,10 +48,52 @@ const calculateAge = (dateOfBirth?: string) => {
   return String(age);
 };
 
+const formatSubscriptionAmount = (subscription: UserSubscription) => {
+  const amount = Number(subscription.amount);
+  let formattedAmount: string;
+  try {
+    formattedAmount = new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: subscription.currency,
+    }).format(amount);
+  } catch {
+    formattedAmount = `${subscription.currency} ${amount.toFixed(2)}`;
+  }
+
+  const interval = subscription.billing_interval || 1;
+  const unit = subscription.billing_interval_unit || "month";
+  const period = interval > 1 ? `/${interval} ${unit}s` : `/${unit}`;
+  return `${formattedAmount}${period}`;
+};
+
 export default function ProfileScreen() {
   const { colors } = useTheme();
   const { user, logout, uploadProfilePicture } = useAuth();
   const [isUploadingPicture, setIsUploadingPicture] = React.useState(false);
+  const [activeSubscription, setActiveSubscription] = React.useState<UserSubscription | null>(null);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      let isCurrent = true;
+      subscriptionAPI.getCurrent()
+        .then(({ data }) => {
+          if (!isCurrent) return;
+          const subscription = data.subscription;
+          setActiveSubscription(
+            subscription && ["active", "trialing"].includes(subscription.status)
+              ? subscription
+              : null,
+          );
+        })
+        .catch((error) => {
+          console.warn("[Profile] Unable to load current subscription", error);
+        });
+
+      return () => {
+        isCurrent = false;
+      };
+    }, []),
+  );
 
   const handleBackPress = () => {
     router.replace('/(app)/dashboard');
@@ -139,7 +174,7 @@ export default function ProfileScreen() {
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        scrollEnabled={false}
+        scrollEnabled
       >
         <LinearGradient
           colors={["#39C80B", "#16A600"]}
@@ -179,6 +214,52 @@ export default function ProfileScreen() {
             <Text style={styles.username}>@{user.username || "user"}</Text>
           </View>
         </LinearGradient>
+
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={activeSubscription ? `Current plan, ${activeSubscription.plan_name_snapshot}, ${formatSubscriptionAmount(activeSubscription)}` : "Subscription plans"}
+          onPress={() => router.push('/(app)/profile/subscription')}
+          style={[
+            styles.subscriptionCard,
+            activeSubscription && styles.activeSubscriptionCard,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+          ]}
+        >
+          <View style={[styles.subscriptionIcon, { backgroundColor: colors.selected }]}>
+            <Feather name="credit-card" size={20} color={BRAND_GREEN} />
+          </View>
+          <View style={styles.subscriptionCopy}>
+            {activeSubscription ? (
+              <>
+                <Text style={[styles.subscriptionSubtitle, { color: colors.textSecondary }]}>Current plan</Text>
+                <View style={styles.activePlanSummary}>
+                  <Text style={[styles.activePlanName, { color: colors.text }]} numberOfLines={1}>
+                    {activeSubscription.plan_name_snapshot || "Active plan"}
+                  </Text>
+                  <Text style={[styles.activePlanAmount, { color: colors.textSecondary }]} numberOfLines={1}>
+                    {formatSubscriptionAmount(activeSubscription)}
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={[styles.subscriptionTitle, { color: colors.text }]}>Subscription plans</Text>
+                <Text style={[styles.subscriptionSubtitle, { color: colors.textSecondary }]}>View plans, billing, and invoices</Text>
+              </>
+            )}
+          </View>
+          <View style={styles.subscriptionTrailing}>
+            {activeSubscription ? (
+              <View style={[styles.statusBadge, { backgroundColor: colors.selected }]}>
+                <View style={[styles.statusDot, { backgroundColor: BRAND_GREEN }]} />
+                <Text style={[styles.statusBadgeText, { color: colors.primary }]}>
+                  {activeSubscription.status === "trialing" ? "TRIAL" : "ACTIVE"}
+                </Text>
+              </View>
+            ) : null}
+            <Feather name="chevron-right" size={20} color={colors.textSecondary} />
+          </View>
+        </TouchableOpacity>
 
         <View style={[styles.detailsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <DetailRow label="Email" value={user.email || "--"} />
@@ -236,6 +317,19 @@ const styles = StyleSheet.create({
   name: { color: "#FFFFFF", fontSize: 18, lineHeight: 23, fontWeight: "700", textAlign: "center" },
   username: { color: "rgba(255,255,255,0.72)", fontSize: 14, fontWeight: "500", marginTop: 0 },
   detailsCard: { marginHorizontal: 16, marginTop: 12, borderRadius: 20, backgroundColor: "#242627", borderWidth: 1.25, borderColor: "#66686A", paddingHorizontal: 15, paddingVertical: 5, shadowColor: "#000000", shadowOpacity: 0.2, shadowOffset: { width: 0, height: 6 }, shadowRadius: 10, elevation: 3 },
+  subscriptionCard: { minHeight: 70, marginHorizontal: 16, marginTop: 12, paddingHorizontal: 14, borderRadius: 17, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 12, overflow: "hidden" },
+  activeSubscriptionCard: { borderLeftWidth: 3, borderLeftColor: BRAND_GREEN, paddingLeft: 12 },
+  subscriptionIcon: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  subscriptionCopy: { flex: 1, gap: 3 },
+  subscriptionTitle: { fontSize: 14, fontWeight: "700" },
+  subscriptionSubtitle: { fontSize: 10, fontWeight: "600", letterSpacing: 0.3 },
+  activePlanSummary: { flexDirection: "row", alignItems: "baseline", gap: 8 },
+  activePlanName: { flexShrink: 1, fontSize: 15, fontWeight: "800" },
+  activePlanAmount: { flexShrink: 0, fontSize: 12, fontWeight: "600" },
+  subscriptionTrailing: { flexDirection: "row", alignItems: "center", gap: 8 },
+  statusBadge: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 5 },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  statusBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.4 },
   detailRow: { minHeight: 34, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#515354" },
   detailLabel: { flex: 0.45, color: "#BDBEC0", fontSize: 13, fontWeight: "500" },
   detailValue: { flex: 0.55, color: "#F7F7F7", fontSize: 13, fontWeight: "700", textAlign: "right" },

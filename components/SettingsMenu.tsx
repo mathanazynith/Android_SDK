@@ -21,8 +21,7 @@ interface SettingsMenuProps {
 const baseOptions = [
   { label: 'Edit Profile', icon: 'user' },
   { label: 'Notifications', icon: 'bell' },
-  { label: 'Plan', icon: 'clipboard' },
-  { label: 'Use Mock Calendar', icon: 'shuffle' },
+  { label: 'Subscription', icon: 'credit-card' },
   { label: 'Logout', icon: 'log-out' },
 ];
 

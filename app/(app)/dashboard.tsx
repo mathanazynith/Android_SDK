@@ -1,7 +1,8 @@
+import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import NotificationBell from '../../components/NotificationBell';
 import SettingsMenu from '../../components/SettingsMenu';
@@ -109,7 +110,7 @@ export default function DashboardScreen() {
     if (option === 'Edit Profile') router.push('/(app)/profile/edit');
     if (option === 'Change Password' || option === 'Set Password') router.push('/(app)/screens/change-password');
     if (option === 'Notifications') router.push('/(app)/screens/notifications');
-    if (option === 'Plan') router.push('/(app)/training-plan');
+    if (option === 'Subscription') router.push('/(app)/profile/subscription');
     if (option === 'Logout') {
       Alert.alert('Logout', 'Are you sure you want to logout?', [
         { text: 'Cancel', style: 'cancel' },

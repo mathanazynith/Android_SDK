@@ -1,14 +1,6 @@
+import { Alert } from '@/components/ThemedAlert';
 import { useState } from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-} from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { authAPI } from "../../service/api";
 import { AppInput } from "../../components/common/AppInput";
