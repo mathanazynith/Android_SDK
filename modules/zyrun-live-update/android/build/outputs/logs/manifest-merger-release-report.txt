@@ -1,16 +1,16 @@
 -- Merging decision tree log ---
 manifest
-ADDED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest2002359231087918508.xml:2:13-83
-INJECTED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest2002359231087918508.xml:2:13-83
+ADDED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest11111087196572220841.xml:2:13-83
+INJECTED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest11111087196572220841.xml:2:13-83
 	package
-		INJECTED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest2002359231087918508.xml
+		INJECTED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest11111087196572220841.xml
 	xmlns:android
-		ADDED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest2002359231087918508.xml:2:23-81
+		ADDED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest11111087196572220841.xml:2:23-81
 uses-sdk
-INJECTED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest2002359231087918508.xml reason: use-sdk injection requested
-INJECTED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest2002359231087918508.xml
-INJECTED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest2002359231087918508.xml
+INJECTED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest11111087196572220841.xml reason: use-sdk injection requested
+INJECTED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest11111087196572220841.xml
+INJECTED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest11111087196572220841.xml
 	android:targetSdkVersion
-		INJECTED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest2002359231087918508.xml
+		INJECTED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest11111087196572220841.xml
 	android:minSdkVersion
-		INJECTED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest2002359231087918508.xml
+		INJECTED from C:\Users\Anish-Zynith\Android_SDK\Android_SDK\modules\zyrun-live-update\android\build\intermediates\tmp\ProcessLibraryManifest\release\tempAndroidManifest11111087196572220841.xml
