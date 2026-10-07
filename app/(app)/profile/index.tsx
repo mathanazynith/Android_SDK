@@ -10,6 +10,7 @@ import { Colors } from "../../../constants/theme";
 import { resolveApiUrl } from "../../../service/api";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
+import MotionEntrance from "../../../components/MotionEntrance";
 import { subscriptionAPI, type UserSubscription } from "../../../src/services/subscriptionApi";
 
 type DetailRowProps = { label: string; value: string };
@@ -176,12 +177,13 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         scrollEnabled
       >
-        <LinearGradient
-          colors={["#39C80B", "#16A600"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.hero}
-        >
+        <MotionEntrance>
+          <LinearGradient
+            colors={["#39C80B", "#16A600"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.hero}
+          >
           <View style={styles.heroNavigation}>
             <TouchableOpacity
               accessibilityLabel="Go back"
@@ -213,8 +215,10 @@ export default function ProfileScreen() {
             <Text style={styles.name}>{displayName}</Text>
             <Text style={styles.username}>@{user.username || "user"}</Text>
           </View>
-        </LinearGradient>
+          </LinearGradient>
+        </MotionEntrance>
 
+        <MotionEntrance delay={45}>
         <TouchableOpacity
           accessibilityRole="button"
           accessibilityLabel={activeSubscription ? `Current plan, ${activeSubscription.plan_name_snapshot}, ${formatSubscriptionAmount(activeSubscription)}` : "Subscription plans"}
@@ -260,7 +264,9 @@ export default function ProfileScreen() {
             <Feather name="chevron-right" size={20} color={colors.textSecondary} />
           </View>
         </TouchableOpacity>
+        </MotionEntrance>
 
+        <MotionEntrance delay={90}>
         <View style={[styles.detailsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <DetailRow label="Email" value={user.email || "--"} />
           <DetailRow label="Phone Number" value={user.phone_number || profile?.phone_number || "--"} />
@@ -272,7 +278,9 @@ export default function ProfileScreen() {
           <DetailRow label="Weight" value={profile?.weight_kg ? `${profile.weight_kg} kg` : "--"} />
           <DetailRow label="Member Since" value={formatDate(memberSince)} />
         </View>
+        </MotionEntrance>
 
+        <MotionEntrance delay={135}>
         <TouchableOpacity
           accessibilityRole="button"
           onPress={handleLogout}
@@ -281,6 +289,7 @@ export default function ProfileScreen() {
           <Feather name="log-out" size={17} color="#EF4444" />
           <Text style={[styles.logoutText, { color: '#EF4444' }]}>Log out</Text>
         </TouchableOpacity>
+        </MotionEntrance>
       </ScrollView>
     </SafeAreaView>
   );

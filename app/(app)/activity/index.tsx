@@ -1338,7 +1338,7 @@ export default function ActivityScreen() {
                 }}
                 style={[styles.modalActionButton, { backgroundColor: colors.background, borderColor: colors.border }]}
               >
-                <Text style={[styles.modalActionText, { color: colors.text }]}>Clear</Text>
+                <Text style={[styles.modalActionText, { color: '#EF4444' }]}>Clear</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -1399,7 +1399,7 @@ export default function ActivityScreen() {
               }}
               style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
             >
-              <Text style={[styles.sheetClearText, { color: colors.text }]}>Clear</Text>
+              <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1441,7 +1441,7 @@ export default function ActivityScreen() {
               }}
               style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
             >
-              <Text style={[styles.sheetClearText, { color: colors.text }]}>Clear</Text>
+              <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1633,7 +1633,7 @@ const styles = StyleSheet.create({
   filterBarButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, minHeight: 42 },
   filterBarText: { fontSize: 12, fontWeight: '600' },
   resetButton: { alignSelf: 'flex-start', marginBottom: 12, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, backgroundColor: '#23372A' },
-  resetButtonText: { color: '#D9F9DB', fontSize: 12, fontWeight: '700' },
+  resetButtonText: { color: '#EF4444', fontSize: 12, fontWeight: '700' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.42)', justifyContent: 'flex-end' },
   modalCard: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, padding: 18, paddingBottom: 20 },
   modalHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },

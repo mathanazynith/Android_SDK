@@ -2,12 +2,13 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import ActivitySplitsModal from '../../../components/ActivitySplitsModal';
+import MotionEntrance from '../../../components/MotionEntrance';
 import { getBackendErrorMessage } from '../../../service/api';
 import { activityAPI, BackendActivity, normalizeActivitySplits } from '../../../src/services/activityApi';
 import { ActivityExtraSplits, ActivitySegmentSplits } from '../../../src/types/activity';
@@ -210,6 +211,7 @@ export default function ActivityDetailScreen() {
         </View>
       ) : activity ? (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <MotionEntrance>
           <Text style={styles.activityType}>{activity.activity_type.toUpperCase() === 'WALK' ? 'Walk' : 'Run'}</Text>
           <Text style={styles.date}>
             {new Date(activity.start_time).toLocaleString(undefined, {
@@ -264,6 +266,7 @@ export default function ActivityDetailScreen() {
             <DetailMetric label="Elevation loss" value={`${Math.round(activity.elevation_loss)} m`} />
             <DetailMetric label="Route processed" value={activity.is_processed ? 'Yes' : 'No'} />
           </View>
+          </MotionEntrance>
         </ScrollView>
       ) : null}
       <ActivitySplitsModal

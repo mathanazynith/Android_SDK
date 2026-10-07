@@ -2,6 +2,7 @@ import { StyleSheet, View } from 'react-native';
 import WorkoutCard from './WorkoutCard';
 import { WorkoutDetail } from './types';
 import { useTheme } from '../../../../contexts/ThemeContext';
+import MotionEntrance from '../../../../components/MotionEntrance';
 
 interface TimelineProps {
   workouts: WorkoutDetail[];
@@ -14,15 +15,17 @@ export default function Timeline({ workouts, onSelectWorkout, onSwapWorkout }: T
   return (
     <View style={styles.container}>
       {workouts.map((workout, index) => (
-        <View key={workout.id} style={styles.row}>
-          <View style={styles.leftRail}>
-            <View style={styles.dot} />
-            {index < workouts.length - 1 && <View style={[styles.line, { backgroundColor: colors.border }]} />}
+        <MotionEntrance key={workout.id} delay={Math.min(index, 5) * 35}>
+          <View style={styles.row}>
+            <View style={styles.leftRail}>
+              <View style={styles.dot} />
+              {index < workouts.length - 1 && <View style={[styles.line, { backgroundColor: colors.border }]} />}
+            </View>
+            <View style={styles.cardWrapper}>
+              <WorkoutCard workout={workout} onPress={onSelectWorkout} onSwap={onSwapWorkout} />
+            </View>
           </View>
-          <View style={styles.cardWrapper}>
-            <WorkoutCard workout={workout} onPress={onSelectWorkout} onSwap={onSwapWorkout} />
-          </View>
-        </View>
+        </MotionEntrance>
       ))}
     </View>
   );

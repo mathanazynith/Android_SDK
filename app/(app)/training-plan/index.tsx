@@ -3,6 +3,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, PanResponder, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import MotionEntrance from '../../../components/MotionEntrance';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useAuth } from '../../../service/auth';
@@ -289,8 +290,8 @@ export default function TrainingPlanScreen() {
 
   if (!plan) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <StatusBar barStyle="light-content" />
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+          <StatusBar barStyle="light-content" />
         <View style={styles.center}>
           <Text style={[styles.error, { color: colors.text }]}>{workoutPlanError || 'No training plan is available.'}</Text>
           <TouchableOpacity onPress={() => void fetchWorkoutPlan(true)} style={[styles.retry, { backgroundColor: '#4ADE80' }]}>
@@ -305,8 +306,10 @@ export default function TrainingPlanScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle="light-content" />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <MotionEntrance>
         <RunningPlanHeader planName={plan.name} focusLabel={plan.focus} userName={userName} />
-
+        </MotionEntrance>
+        <MotionEntrance delay={55}>
         <View {...weekSwipeResponder.panHandlers}>
           <TrainingCalendarCard
             weekLabel={selectedWeek?.label ?? `Week ${selectedWeekIndex + 1}`}
@@ -330,6 +333,7 @@ export default function TrainingPlanScreen() {
             />
           </View>
         </View>
+        </MotionEntrance>
       </ScrollView>
 
       <WorkoutModal
