@@ -11,6 +11,15 @@ export interface BackendGpsPoint {
   longitude: number;
   timestamp?: string;
   is_extra_distance?: boolean;
+  is_paused?: boolean;
+}
+
+export interface BackendPauseEvent {
+  sequence?: number;
+  paused_at?: string;
+  resumed_at?: string;
+  pause_location?: { latitude?: number; longitude?: number } | null;
+  resume_location?: { latitude?: number; longitude?: number } | null;
 }
 
 const getPointTimestamp = (point: BackendGpsPoint): number | null => {
