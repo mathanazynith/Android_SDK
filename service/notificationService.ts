@@ -144,6 +144,45 @@ export const markNotificationRead = (id: number | string): Promise<unknown> =>
 export const markAllNotificationsRead = (): Promise<unknown> =>
   notificationsAPI.markAllRead().then((response) => response.data);
 
+const notificationDismissalKey = (userId: number): string =>
+  `notification_dismissed_ids_${userId}`;
+
+const pendingDismissalWrites = new Map<number, Promise<void>>();
+
+export const getLocallyDismissedNotificationIds = async (userId: number): Promise<Set<string>> => {
+  const storedIds = await storage.getItem(notificationDismissalKey(userId));
+  if (storedIds === null) return new Set();
+
+  let parsedIds: unknown;
+  try {
+    parsedIds = JSON.parse(storedIds);
+  } catch (error) {
+    throw new Error('Saved notification dismissals are corrupted and could not be read.', { cause: error });
+  }
+  if (!Array.isArray(parsedIds) || !parsedIds.every((id) => typeof id === 'string')) {
+    throw new Error('Saved notification dismissals have an invalid format.');
+  }
+  return new Set(parsedIds);
+};
+
+export const saveLocallyDismissedNotification = async (
+  userId: number,
+  notificationId: number | string,
+): Promise<void> => {
+  const previousWrite = pendingDismissalWrites.get(userId);
+  const write = (previousWrite ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    const dismissedIds = await getLocallyDismissedNotificationIds(userId);
+    dismissedIds.add(String(notificationId));
+    await storage.setItem(notificationDismissalKey(userId), JSON.stringify([...dismissedIds]));
+  });
+  pendingDismissalWrites.set(userId, write);
+  try {
+    await write;
+  } finally {
+    if (pendingDismissalWrites.get(userId) === write) pendingDismissalWrites.delete(userId);
+  }
+};
+
 const getDeviceId = async (): Promise<string> => {
   if (!deviceIdRequest) {
     deviceIdRequest = (async () => {
