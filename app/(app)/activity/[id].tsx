@@ -241,6 +241,14 @@ export default function ActivityDetailScreen() {
             extraEncodedPolyline={activity.extra_encoded_polyline}
             cropStartIndex={Number.isFinite(cropStartIndex) ? cropStartIndex : undefined}
             cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
+            enableFullScreen
+            activityStats={{
+              distance: activity.distance,
+              duration: activity.moving_time || activity.elapsed_time,
+              pace: activity.avg_pace,
+              elevationGain: activity.elevation_gain,
+              activityType: activity.activity_type,
+            }}
           />
 
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Performance</Text>
