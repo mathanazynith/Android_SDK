@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useTheme } from '../contexts/ThemeContext';
+import type { BackendGpsPoint, BackendPauseEvent, BackendPolylineRoute } from '../src/services/activityApi';
 import { buildActivityRouteGroups } from '../src/utils/activityRouteGroups';
 import { createCatmullRomPolyline } from '../src/utils/catmullRom';
 import { decodePolyline } from '../src/utils/polylineDecoder';
@@ -376,4 +377,6 @@ const styles = StyleSheet.create({
   map: { flex: 1 },
   emptyRoute: { minHeight: 120, borderRadius: 22, borderWidth: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
   emptyRouteText: { fontSize: 15, textAlign: 'center' },
+  pauseMarker: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#FFFFFF', borderWidth: 2, borderColor: '#D1D5DB' },
+  previewPauseMarker: { width: 12, height: 12, borderRadius: 6 },
 });

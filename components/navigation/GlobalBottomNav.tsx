@@ -129,6 +129,8 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget: RefObject<
 
   const hasActivePlan = isWorkoutPlanLoaded && Boolean(workoutPlan?.weeks?.length);
   const handleTabPress = useCallback((tab: Tab) => {
+    if (isTabActive(pathname, tab.route)) return;
+
     if (tab.label === 'Home') {
       router.replace('/(app)/dashboard');
       return;
@@ -138,7 +140,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget: RefObject<
       return;
     }
     router.replace(tab.route);
-  }, []);
+  }, [pathname]);
 
   if (!isPrimaryTabPath(pathname)) return null;
 

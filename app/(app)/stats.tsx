@@ -1,7 +1,7 @@
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -17,8 +17,10 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useReducedMotion } from 'react-native-reanimated';
 
 import BenchmarkBadgeIcon from '../../components/BenchmarkBadgeIcon';
+import MotionEntrance from '../../components/MotionEntrance';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { customWorkoutAPI, type UserWorkoutResponse } from '../../service/customWorkout';
@@ -74,6 +76,7 @@ export default function StatsScreen() {
   );
 
   const { isDark } = useTheme();
+  const reduceMotion = useReducedMotion();
   const styles = getThemeStyles(isDark);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -83,8 +86,10 @@ export default function StatsScreen() {
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedWeekDate, setSelectedWeekDate] = useState<Date>(new Date());
-  const fadeAnim = useRef(new Animated.Value(1)).current;
-  const barAnim = useRef(new Animated.Value(1)).current;
+  const fadeAnim = useMemo(() => new Animated.Value(1), []);
+  const barAnim = useMemo(() => new Animated.Value(1), []);
+  const chartTranslateY = useMemo(() => new Animated.Value(0), []);
+  const distributionAnim = useMemo(() => new Animated.Value(0), []);
   const [showYearModal, setShowYearModal] = useState(false);
   const [showBenchmarkModal, setShowBenchmarkModal] = useState(false);
   const [startingWorkoutId, setStartingWorkoutId] = useState<number | null>(null);
@@ -283,13 +288,29 @@ export default function StatsScreen() {
 
   // Smooth fade in / fade out and upward bar fill transition helper
   const triggerTransition = useCallback((updateFn: () => void) => {
-    Animated.timing(fadeAnim, {
-      toValue: 0.15,
-      duration: 120,
-      useNativeDriver: true,
-    }).start(() => {
+    if (reduceMotion) {
+      updateFn();
+      fadeAnim.setValue(1);
+      barAnim.setValue(1);
+      chartTranslateY.setValue(0);
+      return;
+    }
+
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 0.15,
+        duration: 120,
+        useNativeDriver: true,
+      }),
+      Animated.timing(chartTranslateY, {
+        toValue: -5,
+        duration: 120,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
       updateFn();
       barAnim.setValue(0);
+      chartTranslateY.setValue(8);
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 1,
@@ -301,9 +322,14 @@ export default function StatsScreen() {
           duration: 320,
           useNativeDriver: false,
         }),
+        Animated.timing(chartTranslateY, {
+          toValue: 0,
+          duration: 260,
+          useNativeDriver: true,
+        }),
       ]).start();
     });
-  }, [fadeAnim, barAnim]);
+  }, [fadeAnim, barAnim, chartTranslateY, reduceMotion]);
 
   const selectedWeekMonday = useMemo(() => {
     const base = new Date(selectedWeekDate);
@@ -317,6 +343,20 @@ export default function StatsScreen() {
   const stats: AggregatedStats = useMemo(() => {
     return calculatePeriodStats(activities, period, selectedYear, selectedMonth, selectedWeekMonday);
   }, [activities, period, selectedYear, selectedMonth, selectedWeekMonday]);
+
+  useEffect(() => {
+    if (reduceMotion) {
+      distributionAnim.setValue(1);
+      return;
+    }
+
+    distributionAnim.setValue(0);
+    Animated.timing(distributionAnim, {
+      toValue: 1,
+      duration: 420,
+      useNativeDriver: false,
+    }).start();
+  }, [distributionAnim, reduceMotion, stats.runCount, stats.walkCount]);
 
   const weekCompletion = useMemo(() => {
     const weeklyStats = calculatePeriodStats(activities, 'week', selectedYear, selectedMonth, selectedWeekMonday);
@@ -643,11 +683,14 @@ export default function StatsScreen() {
 
 
         {/* Section Header: Trends & Detailed Visualizations */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>Performance Trends & Charts</Text>
-        </View>
+        <MotionEntrance delay={70}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Performance Trends & Charts</Text>
+          </View>
+        </MotionEntrance>
 
         {/* Period Selector Tabs */}
+        <MotionEntrance delay={115}>
         <View style={styles.periodTabsContainer}>
           {periodLabels.map((tab) => {
             const active = period === tab.id;
@@ -672,12 +715,22 @@ export default function StatsScreen() {
             );
           })}
         </View>
+        </MotionEntrance>
 
         {/* Sub-Navigation Bar for Week / Month / Year navigation & drill up */}
 
 
         {/* Hero Interactive Distance & Bar Chart Card with Smooth Fade In/Out */}
-        <Animated.View style={[styles.heroCard, { opacity: fadeAnim }]}>
+        <MotionEntrance delay={160}>
+        <Animated.View
+          style={[
+            styles.heroCard,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: chartTranslateY }],
+            },
+          ]}
+        >
           <View style={styles.heroHeader}>
             <View>
               <Text style={styles.heroLabel}>{displayedLabel}</Text>
@@ -795,15 +848,19 @@ export default function StatsScreen() {
             </View>
           </View>
         </Animated.View>
+        </MotionEntrance>
 
         {/* Dynamic Key Running Metrics Grid (2 x 3) */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>{activeMetrics.title}</Text>
-          <Text style={styles.sectionSubBadge}>
-            {activeMetrics.totalWorkouts > 0 ? `${activeMetrics.totalWorkouts} activities` : '0 activities'}
-          </Text>
-        </View>
+        <MotionEntrance delay={210}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>{activeMetrics.title}</Text>
+            <Text style={styles.sectionSubBadge}>
+              {activeMetrics.totalWorkouts > 0 ? `${activeMetrics.totalWorkouts} activities` : '0 activities'}
+            </Text>
+          </View>
+        </MotionEntrance>
 
+        <MotionEntrance delay={250}>
         <View style={styles.metricsGrid}>
           {/* 1. Runs */}
           <View style={styles.metricCard}>
@@ -867,9 +924,11 @@ export default function StatsScreen() {
             <Text style={styles.metricCardLabel}>Workouts</Text>
           </View>
         </View>
+        </MotionEntrance>
 
         {/* Activity Distribution: Runs vs Walks */}
         {stats.totalWorkouts > 0 && (
+          <MotionEntrance delay={300}>
           <View style={styles.cardContainer}>
             <View style={styles.splitHeader}>
               <Text style={styles.cardTitle}>Activity Breakdown</Text>
@@ -879,20 +938,26 @@ export default function StatsScreen() {
             </View>
 
             <View style={styles.splitBarTrack}>
-              <View
+              <Animated.View
                 style={[
                   styles.splitBarFill,
                   {
-                    flex: Math.max(stats.runCount, 0.05),
+                    flex: distributionAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, Math.max(stats.runCount, 0.05)],
+                    }),
                     backgroundColor: '#0A84FF',
                   },
                 ]}
               />
-              <View
+              <Animated.View
                 style={[
                   styles.splitBarFill,
                   {
-                    flex: Math.max(stats.walkCount, 0.05),
+                    flex: distributionAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, Math.max(stats.walkCount, 0.05)],
+                    }),
                     backgroundColor: '#30D158',
                   },
                 ]}
@@ -915,6 +980,7 @@ export default function StatsScreen() {
               </View>
             </View>
           </View>
+          </MotionEntrance>
         )}
 
         {/* Personal Bests & Milestones */}

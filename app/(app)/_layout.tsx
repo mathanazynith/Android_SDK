@@ -46,8 +46,6 @@ export default function AppLayout() {
           <Stack.Screen name="home" />
           <Stack.Screen name="history" />
           <Stack.Screen name="run" />
-          <Stack.Screen name="profile/edit" />
-          <Stack.Screen name="profile/subscription" />
           <Stack.Screen name="questionnaire" options={{ headerShown: false }} />
           <Stack.Screen name="training-plan" options={{ headerShown: false, animation: 'none' }} />
           <Stack.Screen name="calendar" options={{ headerShown: false }} />

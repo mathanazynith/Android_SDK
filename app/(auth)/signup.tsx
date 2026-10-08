@@ -1,15 +1,16 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AuthModeTabs from "../../components/auth/AuthModeTabs";
 import { AppInput } from "../../components/common/AppInput";
 import { PrimaryButton } from "../../components/common/PrimaryButton";
 import GoogleLoginButton from "../../components/GoogleLoginButton";
 import { LegalConsent } from "../../components/LegalConsent";
 import { BorderRadius, Colors, Spacing, Typography } from "../../constants/theme";
-import { BRAND_GREEN, useTheme } from "../../contexts/ThemeContext";
+import { useTheme } from "../../contexts/ThemeContext";
 import { authAPI } from "../../service/api";
 import { useAuth } from "../../service/auth";
 
@@ -17,6 +18,7 @@ export default function SignupScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { googleLogin, googleSignupData, setGoogleSignupData } = useAuth();
+  const { fromAuthTab } = useLocalSearchParams<{ fromAuthTab?: string }>();
 
   const hasGoogleData = googleSignupData !== null;
 
@@ -341,12 +343,16 @@ export default function SignupScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.authCard}>
-          <View style={[styles.segmentedControl, { backgroundColor: colors.surfaceRaised }]}>
-            <TouchableOpacity style={styles.segment} onPress={() => router.back()} disabled={loading}>
-              <Text style={styles.segmentText}>Sign in</Text>
-            </TouchableOpacity>
-            <View style={[styles.segment, { backgroundColor: BRAND_GREEN }]}><Text style={styles.activeSegmentText}>Sign up</Text></View>
-          </View>
+          <AuthModeTabs
+            mode="signup"
+            onChange={() => {
+              if (fromAuthTab === '1') {
+                router.back();
+              } else {
+                router.push("/(auth)/login");
+              }
+            }}
+          />
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()} disabled={loading} accessibilityLabel="Go back">
             <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
           </TouchableOpacity>
@@ -596,11 +602,6 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   authCard: { width: '100%', maxWidth: 520, alignSelf: 'center' },
-  segmentedControl: { flexDirection: 'row', backgroundColor: '#202124', padding: 3, borderRadius: 10, marginBottom: 8 },
-  segment: { flex: 1, minHeight: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
-  activeSegment: { backgroundColor: '#63C438' },
-  segmentText: { color: Colors.textSecondary, fontSize: 12, fontWeight: '600' },
-  activeSegmentText: { color: '#101510', fontSize: 12, fontWeight: '700' },
   backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 20, backgroundColor: '#202124', borderWidth: 1, borderColor: '#333538', marginBottom: 8 },
   googleButtonContainer: { marginBottom: 8 },
   emailDivider: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 10 },
