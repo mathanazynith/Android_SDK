@@ -89,21 +89,6 @@ export interface GpsOptimizationConfig {
   /** RDP tolerance (meters) for TURN segments */
   rdpTurnToleranceMeters: number;
 
-  // ============================================================
-  // LOGGING & DIAGNOSTICS
-  // ============================================================
-
-  /** Frequency of raw GPS logging (log every Nth sample, 1 = every sample, 15 = every 15th) */
-  rawGpsLogFrequency: number;
-
-  /** Enable detailed point acceptance/rejection logging during filtering */
-  enableDetailedFilterLogging: boolean;
-
-  /** Enable detailed movement analysis logging during optimization */
-  enableDetailedMovementAnalysisLogging: boolean;
-
-  /** Enable distance validation logging */
-  enableDistanceValidationLogging: boolean;
 }
 
 /**
@@ -145,11 +130,6 @@ export const DEFAULT_GPS_OPTIMIZATION_CONFIG: GpsOptimizationConfig = {
   rdpCurveToleranceMeters: 1,       // Curve: very tight (preserve shape)
   rdpTurnToleranceMeters: 0.5,      // Turn: extremely tight (preserve angle)
 
-  // Logging
-  rawGpsLogFrequency: 15,                    // Log every 15th raw GPS point
-  enableDetailedFilterLogging: true,         // Show each point's decision
-  enableDetailedMovementAnalysisLogging: true, // Show heading/speed analysis
-  enableDistanceValidationLogging: true,     // Show distance calculations
 };
 
 /**
@@ -164,10 +144,8 @@ export function getGpsOptimizationConfig(): GpsOptimizationConfig {
 
 export function setGpsOptimizationConfig(config: Partial<GpsOptimizationConfig>): void {
   globalConfig = { ...globalConfig, ...config };
-  console.log('[GPS Config] Configuration updated:', globalConfig);
 }
 
 export function resetGpsOptimizationConfig(): void {
   globalConfig = DEFAULT_GPS_OPTIMIZATION_CONFIG;
-  console.log('[GPS Config] Configuration reset to defaults');
 }

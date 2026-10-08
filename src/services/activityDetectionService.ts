@@ -17,12 +17,10 @@ export type DetectedActivity =
 export class ActivityDetectionService {
   private subscription: Location.LocationSubscription | null = null;
   private currentActivity: DetectedActivity = 'unknown';
-  private recordingStartedAt: number | null = null;
   private available = false;
 
-  public async start(recordingStartedAt = Date.now()): Promise<void> {
+  public async start(): Promise<void> {
     this.stop();
-    this.recordingStartedAt = recordingStartedAt;
 
     if (Platform.OS === 'web') {
       console.warn('[LocationManager] Activity monitoring is not available on web; GPS recording allowed');
@@ -44,7 +42,6 @@ export class ActivityDetectionService {
           console.warn(`[LocationManager] Activity monitoring error: ${reason}; GPS recording allowed`);
         }
       );
-      console.log('[LocationManager] Activity monitoring started');
     } catch (error) {
       this.available = false;
       console.warn('[LocationManager] Activity monitoring is unavailable; GPS recording allowed', error);
@@ -56,7 +53,6 @@ export class ActivityDetectionService {
     this.subscription = null;
     this.available = false;
     this.currentActivity = 'unknown';
-    this.recordingStartedAt = null;
   }
 
   public getCurrentActivity(): DetectedActivity {
@@ -84,20 +80,5 @@ export class ActivityDetectionService {
 
     this.currentActivity = nextActivity;
 
-    const label: Record<DetectedActivity, string> = {
-      running: 'Running',
-      walking: 'Walking',
-      cycling: 'Cycling',
-      automotive: 'Driving',
-      stationary: 'Stationary',
-      unknown: 'Unknown',
-    };
-    const isGracePeriod = this.recordingStartedAt !== null
-      && Date.now() - this.recordingStartedAt < 5_000;
-    const status = isGracePeriod
-      ? 'CLASSIFIED (grace period; raw GPS retained)'
-      : 'CLASSIFIED (raw GPS retained; filters apply on save)';
-
-    console.log(`[LocationManager] Activity: ${label[nextActivity]} - ${status}`);
   }
 }

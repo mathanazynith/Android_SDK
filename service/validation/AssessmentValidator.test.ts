@@ -127,4 +127,3 @@ const run = () => {
 };
 
 run();
-console.log("AssessmentValidator tests passed");

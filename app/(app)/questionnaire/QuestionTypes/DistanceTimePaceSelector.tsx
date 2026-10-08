@@ -195,9 +195,6 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
   // ------------------------------------------------------------
   const handleOptionSelect = useCallback((optionId: string) => {
     // Debug: inspect actual question options when selecting a custom type
-    if (__DEV__) {
-      console.log("[DEBUG] question.options for this field:", JSON.stringify(options));
-    }
 
     // Find the option from the list
     const nextOption = distanceOptions.find((option) => option.id === optionId);
@@ -214,9 +211,6 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
     if (nextIsCustom) {
       if (customOptionId) {
         actualOptionId = customOptionId;
-        if (__DEV__) {
-          console.log("[DistanceTimePaceSelector] Custom option selected. Using ID:", actualOptionId);
-        }
       } else {
         console.warn("[DistanceTimePaceSelector] No custom option found in options list!");
       }

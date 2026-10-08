@@ -383,12 +383,6 @@ const applySdkDistance = async (activity: BackendActivity): Promise<BackendActiv
   const timing = await activityTimingOverrides.get(activity.id);
   if (sdkDistance === null && !timing) return activity;
 
-  if (sdkDistance !== null) {
-    console.log(
-      `[ActivityDistance] Using SDK total ${sdkDistance.toFixed(2)}m for activity ${activity.id} `
-      + `instead of backend GPS total ${activity.distance.toFixed(2)}m`
-    );
-  }
   return { ...activity, ...(sdkDistance !== null ? { distance: sdkDistance } : {}), ...(timing ?? {}) };
 };
 
@@ -488,14 +482,6 @@ export const normalizeHistoryPage = async (
         fallbackCursor,
       });
     }
-    console.log('[ActivityHistory] page fetch', {
-      cursorSent,
-      rawCount: rawActivities.length,
-      pageRawCount: rawSlice.length,
-      filteredCount: activities.length,
-      nextCursor,
-      hasMore,
-    });
   }
 
   return {
@@ -539,18 +525,6 @@ export const activityAPI = {
     if (__DEV__ && cursor === null) {
       const rawSource = getPaginationSource(response.data);
       const rawActivities = extractActivities(response.data);
-      console.log('[ActivityHistory] first page raw response', {
-        has_more: rawSource.has_more,
-        hasMore: rawSource.hasMore,
-        next_cursor: rawSource.next_cursor,
-        nextCursor: rawSource.nextCursor,
-        last_id: rawSource.last_id,
-        count: rawSource.count,
-        total: rawSource.total,
-        total_count: rawSource.total_count,
-        rawCount: rawActivities.length,
-        processingStatuses: rawActivities.map((activity) => activity.processing_status),
-      });
     }
     const result = await normalizeHistoryPage(response.data, limit, cursor);
     if (cursor === null) {
@@ -617,14 +591,6 @@ export const activityAPI = {
     };
     const endpoint = `${getActivityDetailPath(activityId)}crop/preview/`;
 
-    console.log('[CropActivity] Preview payload JSON:', JSON.stringify(payload, null, 2));
-    console.log('[CropActivity] Request:', {
-      method: 'POST',
-      url: endpoint,
-      payload,
-      startTimeMilliseconds: startMilliseconds,
-      endTimeMilliseconds: endMilliseconds,
-    });
 
     let response;
     try {
@@ -663,8 +629,6 @@ export const activityAPI = {
     };
     const endpoint = `${getActivityDetailPath(activityId)}crop/`;
 
-    console.log('[CropActivity] Apply payload JSON:', JSON.stringify(payload, null, 2));
-    console.log('[CropActivity] Apply request:', { method: 'POST', url: endpoint, payload });
 
     let response;
     try {
@@ -712,11 +676,6 @@ export const activityAPI = {
         `[ActivityTiming] Crop saved for activity ${activityId}, but its response did not contain valid elapsed_time and moving_time values`,
       );
     }
-    console.log(
-      `[Activity] Crop returned distance=${croppedDistance.toFixed(2)}m, `
-      + `moving=${croppedMovingTime}s, elapsed=${croppedElapsedTime}s, `
-      + `pace=${Number(result.avg_pace).toFixed(2)}s/km`
-    );
     return result as CropActivityResult;
   },
 

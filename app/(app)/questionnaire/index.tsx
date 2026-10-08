@@ -156,14 +156,6 @@ const QuestionField = ({
 
   const resolvedValue = resolveComputedValue();
 
-  console.log("[QuestionField] rendering question", {
-    id,
-    type,
-    questionText,
-    value,
-    unit,
-    customValues,
-  });
 
   // Page 5 uses ordinary backend question types, so route only its two
   // identified questions through the same Page 2 primitives.
@@ -755,7 +747,7 @@ export default function QuestionnaireScreen() {
     setIsSubmitting(true);
     try {
       await goToNext();
-    } catch (err) {
+    } catch {
       // error is already set in context
     } finally {
       setIsSubmitting(false);

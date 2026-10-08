@@ -29,10 +29,8 @@ export class StepDetectionService {
 
     this.subscription = Pedometer.watchStepCount(({ steps }) => {
       this.stepCount += steps;
-      console.log('[LocationManager] Motion steps detected: +' + steps + ', total:' + this.stepCount);
       onStepCount(this.stepCount);
     });
-    console.log('[LocationManager] Pedometer motion tracking started');
   }
 
   public stop(): void {

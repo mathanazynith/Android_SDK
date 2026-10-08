@@ -64,7 +64,6 @@ export class PathProcessor {
       raw.latitude < -90 || raw.latitude > 90 ||
       raw.longitude < -180 || raw.longitude > 180
     ) {
-      console.log('[LocationManager] LIVE GPS rejected malformed raw sample');
       return null;
     }
 
@@ -105,12 +104,6 @@ export class PathProcessor {
     // Summing those indoor/outdoor jitters on the backend inflated the saved
     // Activity distance.
     if (!this.gpsFilter.validateRawPoint(raw)) {
-      console.log(
-        `[LocationManager] Display point skipped: accuracy ${point.accuracy ?? 'n/a'}m or speed ${point.speed ?? 'n/a'}m/s is outside the route-quality limit`
-      );
-      console.log(
-        `[LocationManager] LIVE raw point #${this.workingPoints.length} recorded -> lat:${point.latitude} lon:${point.longitude} acc:${point.accuracy ?? 'n/a'}m speed:${point.speed ?? 'n/a'}m/s`
-      );
       return pathPoint;
     }
 
@@ -120,7 +113,6 @@ export class PathProcessor {
     const lastDisplay = this.displayPoints.at(-1);
     if (!lastDisplay) {
       this.displayPoints.push(pathPoint);
-      console.log('[LocationManager] Display point #1 recorded');
     } else {
       const displayDistance = calculateDistanceMeters(lastDisplay, pathPoint);
       const displayElapsedSeconds = Math.max(0, (pathPoint.timestamp - lastDisplay.timestamp) / 1_000);
@@ -129,27 +121,14 @@ export class PathProcessor {
       // is filtered out before it reaches the SDK polyline.
       const displayThreshold = 2;
 
-      if (displayDistance > 500 && displayElapsedSeconds < 10) {
-        console.log(`[LocationManager] Display rejected huge jump: ${displayDistance.toFixed(1)}m`);
-      } else if (
+      if (
+        !(displayDistance > 500 && displayElapsedSeconds < 10)
+        &&
         displayElapsedSeconds >= 1 &&
         displayDistance >= displayThreshold
       ) {
         this.displayPoints.push(pathPoint);
-        console.log(`[LocationManager] Display point #${this.displayPoints.length} recorded`);
-      } else if (this.workingPoints.length % 15 === 0) {
-        console.log(
-          `[LocationManager] Route waiting: ${displayDistance.toFixed(1)}m below ${displayThreshold.toFixed(1)}m gate `
-          + `(${this.displayPoints.length} accepted points)`
-        );
       }
-    }
-
-    if (this.workingPoints.length % 15 === 0) {
-      console.log(
-        `[LocationManager] Raw GPS retained: ${this.workingPoints.length} samples, `
-        + `${this.displayPoints.length} accepted route points`
-      );
     }
     return pathPoint;
   }
@@ -157,7 +136,6 @@ export class PathProcessor {
   public filterRawPoints(): RunningPathPoint[] {
     this.filteredPoints.length = 0;
 
-    console.log(`[LocationManager] Save filter started: evaluating ${this.workingPoints.length} raw points`);
 
     for (const rawPoint of this.workingPoints) {
       const rawPayload: RawGpsPayload = {
@@ -172,24 +150,18 @@ export class PathProcessor {
 
       const candidate = this.gpsFilter.validateRawPoint(rawPayload);
       if (!candidate) {
-        console.log(`[LocationManager] ❌ Save filter rejected #${rawPoint.sequence}: invalid coordinates, accuracy, or speed`);
         continue;
       }
 
       const ageSeconds = Math.max(0, (Date.now() - rawPoint.timestamp) / 1000);
       if (ageSeconds > 60 * 60 * 24) {
-        console.log(`[LocationManager] ❌ Save filter rejected #${rawPoint.sequence}: stale point age ${ageSeconds.toFixed(1)}s`);
         continue;
       }
 
       const previous = this.filteredPoints.at(-1);
       if (previous) {
         const distance = calculateDistanceMeters(previous, rawPoint);
-        const elapsedSeconds = Math.max(0.001, (rawPoint.timestamp - previous.timestamp) / 1000);
-        const impliedSpeed = distance / elapsedSeconds;
-
         if (distance < 0.5) {
-          console.log(`[LocationManager] ❌ Save filter rejected #${rawPoint.sequence}: movement ${distance.toFixed(1)}m < 0.5m`);
           continue;
         }
 
@@ -197,7 +169,6 @@ export class PathProcessor {
         // speed is unreliable. Keep plausible points and reject only a large,
         // obvious GPS jump; RDP will simplify indoor jitter after saving.
         if (distance > 500) {
-          console.log(`[LocationManager] ❌ Save filter rejected #${rawPoint.sequence}: GPS jump ${distance.toFixed(1)}m at ${impliedSpeed.toFixed(2)}m/s`);
           continue;
         }
       }
@@ -221,15 +192,11 @@ export class PathProcessor {
           elapsedMilliseconds < getMIN_DISPLAY_INTERVAL_MS() ||
           distance < minimumMeaningfulDistance
         ) {
-          console.log(
-            `[LocationManager] Save filter rejected #${rawPoint.sequence}: ${distance.toFixed(1)}m in ${(elapsedMilliseconds / 1_000).toFixed(1)}s does not pass ${minimumMeaningfulDistance.toFixed(1)}m / ${(getMIN_DISPLAY_INTERVAL_MS() / 1_000).toFixed(0)}s route gate`
-          );
           continue;
         }
       }
 
       this.filteredPoints.push(filteredPoint);
-      console.log(`[LocationManager] ✅ Save filter accepted #${rawPoint.sequence}: lat:${rawPoint.latitude} lon:${rawPoint.longitude}`);
     }
 
     this.collapseIndoorDrift();
@@ -330,12 +297,8 @@ export class PathProcessor {
         ? point
         : best
     );
-    const originalCount = this.filteredPoints.length;
     this.filteredPoints.length = 0;
     this.filteredPoints.push(anchor);
-    console.log(
-      `[LocationManager] Indoor drift detected: ${originalCount} points, ${radius.toFixed(1)}m radius, ${travelledDistance.toFixed(1)}m jitter over ${durationSeconds.toFixed(0)}s -> stationary anchor retained`
-    );
   }
 
   public simplifyFinal(filtered: RunningPathPoint[] = this.filteredPoints): RunningPathPoint[] {
@@ -343,7 +306,6 @@ export class PathProcessor {
     if (filtered.length <= 2) {
       this.optimizedPoints.length = 0;
       this.optimizedPoints.push(...filtered);
-      console.log(`[LocationManager] 📊 Polyline optimization: ${filtered.length} → ${filtered.length} points (not enough points to simplify)`);
       return [...this.optimizedPoints];
     }
 
@@ -365,8 +327,6 @@ export class PathProcessor {
 
     this.optimizedPoints.length = 0;
     this.optimizedPoints.push(...optimized);
-    const reduction = this.gpsFilter.snapshotSummary(filtered.length, optimized.length);
-    console.log(`[LocationManager] 📊 Polyline optimization: ${filtered.length} → ${optimized.length} points (reduced by ${reduction}%)`);
     return [...this.optimizedPoints];
   }
 

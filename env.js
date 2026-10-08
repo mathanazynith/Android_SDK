@@ -4,11 +4,6 @@ import Constants from 'expo-constants';
 // Get environment variables from app.config.js extra
 const config = Constants.expoConfig?.extra || {};
 
-console.log('📦 Config loaded:', {
-  hasApiUrl: !!config.apiUrl,
-  hasGoogleKey: !!config.googleMapsApiKey,
-  keyLength: config.googleMapsApiKey?.length || 0,
-});
 
 const ENV = {
   API_URL: config.apiUrl || 'https://zyrun.zynith-it.com',

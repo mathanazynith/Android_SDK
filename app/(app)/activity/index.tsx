@@ -713,15 +713,6 @@ export default function ActivityScreen() {
   }, [isDeletingActivities, loadFirstPage, loading, loadingMore, refreshing, selectionMode]);
 
   const loadMore = useCallback(async () => {
-    if (__DEV__) {
-      console.log('[ActivityHistory] onEndReached', {
-        cursor: cursorRef.current,
-        hasMore,
-        loadingMore,
-        loading,
-        refreshing,
-      });
-    }
     if (loadingMore || !hasMore || loadingMoreRef.current || loadingFirstPageRef.current || loading || refreshing) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);

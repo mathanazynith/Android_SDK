@@ -172,10 +172,6 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, async ({ data, error }) =>
     payloads.forEach(globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__);
   }
 
-  console.log(
-    `[BackgroundLocationTask] lat=${payload.latitude} lon=${payload.longitude} ` +
-      `acc=${payload.accuracy ?? 0}m speed=${payload.speed ?? 0}m/s`
-  );
 });
 
 export const startBackgroundLocationTracking = async (): Promise<void> => {
@@ -191,12 +187,10 @@ export const startBackgroundLocationTracking = async (): Promise<void> => {
       killServiceOnDestroy: false,
     },
   });
-  console.log('[BackgroundLocationTask] Android foreground service started');
 };
 
 export const stopBackgroundLocationTracking = async (): Promise<void> => {
   if (await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME)) {
     await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME);
   }
-  console.log('[BackgroundLocationTask] Android foreground service stopped');
 };

@@ -88,7 +88,6 @@ export default function VerifyOTPScreen() {
           {
             text: 'Continue',
             onPress: () => {
-              console.log('Navigating to dashboard...');
               router.replace('/(app)/dashboard');
             }
           }
