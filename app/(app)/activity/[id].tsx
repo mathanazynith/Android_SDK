@@ -1,22 +1,15 @@
+import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  // SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
-} from 'react-native';
+import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import ActivitySplitsModal from '../../../components/ActivitySplitsModal';
 import { useTheme } from '../../../contexts/ThemeContext';
+import MotionEntrance from '../../../components/MotionEntrance';
 import { getBackendErrorMessage } from '../../../service/api';
 import { activityAPI, BackendActivity, normalizeActivitySplits } from '../../../src/services/activityApi';
 import { ActivityExtraSplits, ActivitySegmentSplits } from '../../../src/types/activity';
@@ -221,7 +214,8 @@ export default function ActivityDetailScreen() {
         </View>
       ) : activity ? (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <Text style={[styles.activityType, { color: colors.text }]}>{activity.activity_type.toUpperCase() === 'WALK' ? 'Walk' : 'Run'}</Text>
+          <MotionEntrance>
+            <Text style={[styles.activityType, { color: colors.text }]}>{activity.activity_type.toUpperCase() === 'WALK' ? 'Walk' : 'Run'}</Text>
           <Text style={[styles.date, { color: colors.textSecondary }]}>
             {new Date(activity.start_time).toLocaleString(undefined, {
               weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
@@ -239,6 +233,11 @@ export default function ActivityDetailScreen() {
             encodedPolyline={activity.encoded_polyline}
             plannedEncodedPolyline={activity.planned_encoded_polyline}
             extraEncodedPolyline={activity.extra_encoded_polyline}
+            savedGpsPoints={activity.route?.points ?? activity.gps_points}
+            runningRoutes={activity.route?.running_routes}
+            pauseRoutes={activity.route?.pause_routes}
+            pauseEvents={activity.pause_events ?? activity.route?.pause_events}
+            pausePoints={activity.route?.pause_points}
             cropStartIndex={Number.isFinite(cropStartIndex) ? cropStartIndex : undefined}
             cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
             enableFullScreen
@@ -278,6 +277,7 @@ export default function ActivityDetailScreen() {
             <DetailMetric label="Elevation loss" value={`${Math.round(activity.elevation_loss)} m`} />
             <DetailMetric label="Route processed" value={activity.is_processed ? 'Yes' : 'No'} />
           </View>
+          </MotionEntrance>
         </ScrollView>
       ) : null}
       <ActivitySplitsModal

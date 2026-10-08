@@ -4,7 +4,7 @@ import * as Location from 'expo-location';
 import * as SecureStore from 'expo-secure-store';
 import * as TaskManager from 'expo-task-manager';
 import { AppState } from 'react-native';
-import { RawGpsPayload } from '../types/running';
+import { ActivityPauseEventPayload, RawGpsPayload } from '../types/running';
 import { calculateDistanceMeters } from '../utils/distance';
 import { appendActiveRunPoints, readActiveRunJournal } from './activeRunJournal';
 import { updateLiveTrackingNotification, WORKOUT_FOREGROUND_NOTIFICATION_ID } from './liveTrackingNotification';
@@ -29,6 +29,7 @@ export interface BackgroundLocationSessionState {
   elapsedSeconds?: number;
   paceMinutesPerKm?: number;
   movementConfirmed?: boolean;
+  pauseEvents?: Omit<ActivityPauseEventPayload, 'sequence' | 'paused_points'>[];
 }
 
 declare global {
@@ -128,10 +129,11 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, async ({ data, error }) =>
     lastLocation: payload,
     updatedAt: Date.now(),
     distanceKm: previous.distanceKm,
-    elapsedSeconds: previous.elapsedSeconds,
+    elapsedSeconds: previous.elapsedSeconds,   
     paceMinutesPerKm: previous.paceMinutesPerKm,
     movementConfirmed: previous.movementConfirmed,
     confirmationPromptVisible: previous.confirmationPromptVisible,
+    pauseEvents: previous.pauseEvents,
   };
 
   await persistBackgroundLocationSession(nextState);
@@ -154,6 +156,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, async ({ data, error }) =>
     ? Math.max(0, (Date.now() - new Date(previous.startedAt).getTime()) / 1000)
     : 0);
   updateLiveTrackingNotification({
+    runId: previous.runId,
     distanceKm,
     elapsedSeconds,
     paceMinutesPerKm: previous.paceMinutesPerKm ?? (distanceKm > 0 ? elapsedSeconds / 60 / distanceKm : 0),

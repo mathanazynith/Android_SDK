@@ -1,27 +1,37 @@
+import { Alert } from '@/components/ThemedAlert';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { router, useFocusEffect } from 'expo-router';
+import * as Haptics from 'expo-haptics';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AccessibilityInfo,  Animated, Easing,  LayoutAnimation,  Platform,    TouchableOpacity, UIManager, Vibration } from 'react-native';
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Modal,
-  RefreshControl,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    
+    FlatList,
+    Modal,
+    RefreshControl,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Reanimated, {
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 
-//import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage } from '../../../service/api';
-import { activityAPI, BackendActivity } from '../../../src/services/activityApi';
+import { activityAPI, BackendActivity, BackendPolylineRoute } from '../../../src/services/activityApi';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
 
@@ -48,6 +58,11 @@ type ActivityDateFilter = 'all' | '7d' | '30d' | '90d' | 'year' | 'single' | 'ra
 type ActivityDistanceFilter = 'all' | 'under1' | 'under2' | 'short' | 'medium' | 'long';
 type ActivitySortFilter = 'newest' | 'oldest' | 'longest' | 'fastest';
 type DatePickerTarget = 'start' | 'end';
+type ActivityGroupMode = 'month' | 'week';
+
+type ActivityListRow =
+  | { type: 'section'; key: string; title: string; activities: BackendActivity[] }
+  | { type: 'activity'; key: string; activity: BackendActivity };
 
 const activityTypeOptions: { label: string; value: ActivityTypeFilter }[] = [
   { label: 'All', value: 'all' },
@@ -80,6 +95,10 @@ const activitySortOptions: { label: string; value: ActivitySortFilter }[] = [
   { label: 'Longest', value: 'longest' },
   { label: 'Fastest', value: 'fastest' },
 ];
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const formatDateLabel = (value: Date | null) => {
   if (!value) return 'Select date';
@@ -163,21 +182,175 @@ const sortActivities = (items: BackendActivity[], sortBy: ActivitySortFilter) =>
   return cloned;
 };
 
-const ActivityCard = memo(function ActivityCard({ activity, onPress }: {
+const getActivityGroup = (activity: BackendActivity, mode: ActivityGroupMode) => {
+  const date = new Date(activity.start_time);
+  if (!Number.isFinite(date.getTime())) {
+    return { key: 'unknown-date', title: 'Date unavailable', timestamp: Number.NEGATIVE_INFINITY };
+  }
+
+  if (mode === 'month') {
+    return {
+      key: `month-${date.getFullYear()}-${date.getMonth()}`,
+      title: new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(date),
+      timestamp: new Date(date.getFullYear(), date.getMonth(), 1).getTime(),
+    };
+  }
+
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  const dateFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
+  const yearFormatter = new Intl.DateTimeFormat(undefined, { year: 'numeric' });
+  const title = `${dateFormatter.format(start)} – ${dateFormatter.format(end)}, ${yearFormatter.format(end)}`;
+
+  return {
+    key: `week-${start.getFullYear()}-${start.getMonth()}-${start.getDate()}`,
+    title,
+    timestamp: start.getTime(),
+  };
+};
+
+const buildActivityRows = (
+  activities: BackendActivity[],
+  groupMode: ActivityGroupMode,
+  sortBy: ActivitySortFilter,
+): ActivityListRow[] => {
+  const groups = new Map<string, { title: string; timestamp: number; activities: BackendActivity[] }>();
+
+  activities.forEach((activity) => {
+    const group = getActivityGroup(activity, groupMode);
+    const existing = groups.get(group.key);
+    if (existing) {
+      existing.activities.push(activity);
+    } else {
+      groups.set(group.key, { title: group.title, timestamp: group.timestamp, activities: [activity] });
+    }
+  });
+
+  return [...groups.entries()]
+    .sort(([, first], [, second]) => {
+      const firstHasDate = Number.isFinite(first.timestamp);
+      const secondHasDate = Number.isFinite(second.timestamp);
+      if (!firstHasDate) return secondHasDate ? 1 : 0;
+      if (!secondHasDate) return -1;
+      return sortBy === 'oldest'
+        ? first.timestamp - second.timestamp
+        : second.timestamp - first.timestamp;
+    })
+    .flatMap(([key, group]) => [
+      { type: 'section' as const, key: `section:${key}`, title: group.title, activities: group.activities },
+      ...sortActivities(group.activities, sortBy).map((activity) => ({
+        type: 'activity' as const,
+        key: `activity:${activity.id}`,
+        activity,
+      })),
+    ]);
+};
+
+interface ActivityCardProps {
   activity: BackendActivity;
   onPress: () => void;
-}) {
+  onStartSelection: (activityId: BackendActivity['id']) => void;
+  reduceMotion: boolean;
+  selectionMode: boolean;
+  selected: boolean;
+  deleting: boolean;
+  busy: boolean;
+}
+
+const ActivityCard = memo(function ActivityCard({
+  activity,
+  onPress,
+  onStartSelection,
+  reduceMotion,
+  selectionMode,
+  selected,
+  deleting,
+  busy,
+}: ActivityCardProps) {
   const { colors } = useTheme();
   const activityName = formatActivityType(activity.activity_type);
+  const activityId = activity.id;
   const duration = activity.moving_time || activity.elapsed_time;
   const [routeData, setRouteData] = useState({
     encodedPolyline: activity.encoded_polyline,
     plannedEncodedPolyline: activity.planned_encoded_polyline,
     extraEncodedPolyline: activity.extra_encoded_polyline,
+    savedGpsPoints: activity.route?.points ?? activity.gps_points ?? [],
+    runningRoutes: activity.route?.running_routes ?? [] as BackendPolylineRoute[],
+    pauseRoutes: activity.route?.pause_routes ?? [] as BackendPolylineRoute[],
+    pauseEvents: activity.pause_events ?? activity.route?.pause_events ?? [],
+    pausePoints: activity.route?.pause_points ?? [],
+    loaded: Array.isArray(activity.route?.running_routes),
   });
+  const longPressHandledRef = useRef(false);
+  const [selectionScale] = useState(() => new Animated.Value(1));
+  const [cardEntrance] = useState(() => new Animated.Value(0));
+  const holdProgress = useSharedValue(0);
+  const holdProgressStyle = useAnimatedStyle(() => ({
+    width: `${holdProgress.value * 100}%`,
+    opacity: holdProgress.value > 0.03 ? 1 : 0,
+  }));
 
   useEffect(() => {
-    if (routeData.encodedPolyline) return;
+    Animated.spring(selectionScale, {
+      toValue: selected ? 0.99 : 1,
+      damping: 18,
+      stiffness: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [selected, selectionScale]);
+
+  useEffect(() => {
+    Animated.timing(cardEntrance, {
+      toValue: 1,
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [cardEntrance]);
+
+  const handleCardPress = () => {
+    if (longPressHandledRef.current) {
+      longPressHandledRef.current = false;
+      return;
+    }
+    onPress();
+  };
+
+  const handleStartSelection = useCallback(() => {
+    longPressHandledRef.current = true;
+    onStartSelection(activityId);
+    if (Platform.OS === 'android') {
+      Vibration.vibrate(12);
+    } else {
+      void Haptics.selectionAsync()
+        .catch((hapticError: unknown) => console.warn('[ActivityHistory] Selection haptic unavailable', hapticError));
+    }
+  }, [activityId, onStartSelection]);
+
+  // The hold indicator runs on the UI thread and selection begins after the 500 ms long press.
+  /* eslint-disable react-hooks/immutability, react-hooks/refs */
+  const selectionGesture = useMemo(() => Gesture.LongPress()
+      .enabled(!busy)
+      .minDuration(500)
+      .maxDistance(12)
+      .onBegin(() => {
+        holdProgress.value = withTiming(1, { duration: 500 });
+      })
+      .onStart(() => {
+        holdProgress.value = withTiming(1, { duration: reduceMotion ? 0 : 80 });
+        scheduleOnRN(handleStartSelection);
+      })
+      .onFinalize(() => {
+        holdProgress.value = withTiming(0, { duration: reduceMotion ? 0 : 130 });
+      }), [busy, handleStartSelection, holdProgress, reduceMotion]);
+  /* eslint-enable react-hooks/immutability, react-hooks/refs */
+
+  useEffect(() => {
+    if (routeData.loaded) return;
 
     let isMounted = true;
     void activityAPI.get(activity.id)
@@ -187,19 +360,50 @@ const ActivityCard = memo(function ActivityCard({ activity, onPress }: {
             encodedPolyline: detail.encoded_polyline,
             plannedEncodedPolyline: detail.planned_encoded_polyline,
             extraEncodedPolyline: detail.extra_encoded_polyline,
+            savedGpsPoints: detail.route?.points ?? detail.gps_points ?? [],
+            runningRoutes: detail.route?.running_routes ?? [],
+            pauseRoutes: detail.route?.pause_routes ?? [],
+            pauseEvents: detail.pause_events ?? detail.route?.pause_events ?? [],
+            pausePoints: detail.route?.pause_points ?? [],
+            loaded: true,
           });
         }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (isMounted) setRouteData((current) => ({ ...current, loaded: true }));
+      });
 
     return () => {
       isMounted = false;
     };
-  }, [activity.id, routeData.encodedPolyline]);
+  }, [activity.id, routeData.loaded]);
 
   return (
-    <TouchableOpacity style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={onPress} activeOpacity={0.82}>
-      <View style={styles.cardContent}>
+    <GestureDetector gesture={selectionGesture}>
+      <Reanimated.View>
+      <Animated.View
+        style={[
+          styles.card,
+          { backgroundColor: colors.surface, borderColor: selected ? '#35C72B' : colors.border },
+          {
+            opacity: cardEntrance,
+            transform: [
+              { scale: selectionScale },
+              { translateY: cardEntrance.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) },
+            ],
+          },
+        ]}
+      >
+      <TouchableOpacity
+        style={styles.cardContent}
+        accessibilityRole="button"
+        accessibilityLabel={`${activityName} activity, ${formatDistance(activity.distance)}, ${formatDuration(duration)}`}
+        accessibilityHint={selectionMode ? 'Tap to toggle selection. Long press to select this activity.' : 'Open activity details, or long press to select this activity.'}
+        onPress={handleCardPress}
+        onPressIn={() => { longPressHandledRef.current = false; }}
+        activeOpacity={0.82}
+        disabled={busy}
+      >
         <View style={styles.cardDetails}>
           <Text style={[styles.activityType, { color: colors.text }]}>{activityName}</Text>
           <Text style={[styles.activityDate, { color: colors.textSecondary }]}>
@@ -236,6 +440,11 @@ const ActivityCard = memo(function ActivityCard({ activity, onPress }: {
             encodedPolyline={routeData.encodedPolyline}
             plannedEncodedPolyline={routeData.plannedEncodedPolyline}
             extraEncodedPolyline={routeData.extraEncodedPolyline}
+            savedGpsPoints={routeData.savedGpsPoints}
+            runningRoutes={routeData.runningRoutes}
+            pauseRoutes={routeData.pauseRoutes}
+            pauseEvents={routeData.pauseEvents}
+            pausePoints={routeData.pausePoints}
             variant="preview"
           />
 
@@ -249,8 +458,31 @@ const ActivityCard = memo(function ActivityCard({ activity, onPress }: {
             </View>
           </View>
         </View>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+      <Reanimated.View
+        pointerEvents="none"
+        style={[
+          styles.longPressProgressTrack,
+          holdProgressStyle,
+        ]}
+      />
+      {selectionMode && (
+        <TouchableOpacity
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: selected, disabled: busy }}
+          accessibilityLabel={`${selected ? 'Deselect' : 'Select'} ${activityName.toLowerCase()}`}
+          disabled={busy}
+          onPress={onPress}
+          style={[styles.cardCheckbox, selected && styles.cardCheckboxSelected]}
+        >
+          {deleting
+            ? <ActivityIndicator size="small" color="#FF6B6B" />
+            : <Feather name={selected ? 'check-square' : 'square'} size={20} color={selected ? '#35C72B' : '#FFFFFF'} />}
+        </TouchableOpacity>
+      )}
+      </Animated.View>
+      </Reanimated.View>
+    </GestureDetector>
   );
 });
 
@@ -300,8 +532,15 @@ async function fetchHistoryPageSkippingEmptyPages(cursor: string | null) {
 
 export default function ActivityScreen() {
   const { colors } = useTheme();
+  const reduceMotion = useReducedMotion();
   const [activities, setActivities] = useState<BackendActivity[]>([]);
-  const [search, setSearch] = useState('');
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedActivityIds, setSelectedActivityIds] = useState<Set<string>>(() => new Set());
+  const [groupMode, setGroupMode] = useState<ActivityGroupMode>('month');
+  const [selectionToast, setSelectionToast] = useState<string | null>(null);
+  const [deleteSuccess, setDeleteSuccess] = useState(false);
+  const [deletingActivityIds, setDeletingActivityIds] = useState<Set<string>>(() => new Set());
+  const [isDeletingActivities, setIsDeletingActivities] = useState(false);
   const [selectedType, setSelectedType] = useState<ActivityTypeFilter>('all');
   const [selectedDateRange, setSelectedDateRange] = useState<ActivityDateFilter>('all');
   const [selectedDistanceRange, setSelectedDistanceRange] = useState<ActivityDistanceFilter>('all');
@@ -323,20 +562,119 @@ export default function ActivityScreen() {
   const cursorRef = useRef<string | null>(null);
   const loadingMoreRef = useRef(false);
   const loadingFirstPageRef = useRef(false);
+  const hasLoadedHistoryRef = useRef(false);
   const requestIdRef = useRef(0);
+  const selectionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deleteSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [deleteButtonStateProgress] = useState(() => new Animated.Value(0));
+  const [deleteTrayOpacity] = useState(() => new Animated.Value(0));
+  const [deleteTrayTranslateY] = useState(() => new Animated.Value(24));
+  const [deleteSuccessScale] = useState(() => new Animated.Value(0.65));
+  const [refreshRotation] = useState(() => new Animated.Value(0));
+
+  const showSelectionToast = useCallback((message: string) => {
+    if (selectionToastTimerRef.current) clearTimeout(selectionToastTimerRef.current);
+    setSelectionToast(message);
+    selectionToastTimerRef.current = setTimeout(() => {
+      setSelectionToast(null);
+      selectionToastTimerRef.current = null;
+    }, 2400);
+  }, []);
+
+  useEffect(() => () => {
+    if (selectionToastTimerRef.current) clearTimeout(selectionToastTimerRef.current);
+    if (deleteSuccessTimerRef.current) clearTimeout(deleteSuccessTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    const enabled = selectedActivityIds.size > 0 || deleteSuccess;
+    const targetState = deleteSuccess ? 0.55 : enabled ? 0.55 : 0;
+    Animated.timing(deleteButtonStateProgress, {
+      toValue: targetState,
+      duration: 200,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [deleteButtonStateProgress, deleteSuccess, selectedActivityIds.size]);
+
+  useEffect(() => {
+    if (selectionMode) {
+      deleteTrayOpacity.setValue(0);
+      deleteTrayTranslateY.setValue(24);
+      Animated.parallel([
+        Animated.timing(deleteTrayOpacity, {
+          toValue: 1,
+          duration: 220,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        }),
+        Animated.spring(deleteTrayTranslateY, {
+          toValue: 0,
+          damping: 16,
+          stiffness: 180,
+          useNativeDriver: false,
+        }),
+      ]).start();
+      return;
+    }
+
+    Animated.parallel([
+      Animated.timing(deleteTrayOpacity, {
+        toValue: 0,
+        duration: 180,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: false,
+      }),
+      Animated.timing(deleteTrayTranslateY, {
+        toValue: 24,
+        duration: 180,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, [deleteTrayOpacity, deleteTrayTranslateY, selectionMode]);
+
+  useEffect(() => {
+    Animated.spring(deleteSuccessScale, {
+      toValue: deleteSuccess ? 1 : 0.65,
+      damping: 14,
+      stiffness: 220,
+      useNativeDriver: false,
+    }).start();
+  }, [deleteSuccess, deleteSuccessScale]);
+
+  useEffect(() => {
+    if (!refreshing) {
+      refreshRotation.setValue(0);
+      return;
+    }
+
+    refreshRotation.setValue(0);
+    const animation = Animated.loop(Animated.timing(refreshRotation, {
+      toValue: 1,
+      duration: 850,
+      easing: Easing.linear,
+      useNativeDriver: true,
+    }));
+    animation.start();
+    return () => animation.stop();
+  }, [refreshing, refreshRotation]);
 
   const loadFirstPage = useCallback(async (isRefresh = false) => {
     const requestId = ++requestIdRef.current;
+    let hasUsableHistory = hasLoadedHistoryRef.current;
     cursorRef.current = null;
     loadingFirstPageRef.current = true;
     setHasMore(true);
     if (isRefresh) setRefreshing(true);
-    else setLoading(true);
+    else if (!hasUsableHistory) setLoading(true);
 
     try {
       setError(null);
       const cached = await activityAPI.getCachedFirstPage();
       if (cached && requestId === requestIdRef.current) {
+        hasUsableHistory = true;
+        hasLoadedHistoryRef.current = true;
         setActivities(cached.activities);
         setHasMore(cached.hasMore);
         setTotalHistoryCount(cached.totalCount ?? cached.activities.length);
@@ -345,15 +683,21 @@ export default function ActivityScreen() {
       }
       const result = await fetchHistoryPageSkippingEmptyPages(null);
       if (requestId !== requestIdRef.current) return;
+      hasLoadedHistoryRef.current = true;
       setActivities(result.activities);
       setHasMore(result.hasMore);
       setTotalHistoryCount(result.totalCount ?? result.activities.length);
       cursorRef.current = result.nextCursor;
     } catch (requestError) {
       if (requestId !== requestIdRef.current) return;
-      const message = getBackendErrorMessage(requestError, 'Unable to load workout history.');
-      setError(message);
-      Alert.alert('Workout history unavailable', message);
+      if (hasUsableHistory || hasLoadedHistoryRef.current) {
+        console.warn('[ActivityHistory] Refresh failed; keeping the currently loaded history.', requestError);
+        showSelectionToast('Could not refresh. Showing saved history.');
+      } else {
+        const message = getBackendErrorMessage(requestError, 'Unable to load workout history.');
+        setError(message);
+        Alert.alert('Workout history unavailable', message);
+      }
     } finally {
       if (requestId === requestIdRef.current) {
         loadingFirstPageRef.current = false;
@@ -361,7 +705,12 @@ export default function ActivityScreen() {
         setRefreshing(false);
       }
     }
-  }, []);
+  }, [showSelectionToast]);
+
+  const refreshHistory = useCallback(() => {
+    if (refreshing || loading || loadingMore || selectionMode || isDeletingActivities || loadingFirstPageRef.current) return;
+    void loadFirstPage(true);
+  }, [isDeletingActivities, loadFirstPage, loading, loadingMore, refreshing, selectionMode]);
 
   const loadMore = useCallback(async () => {
     if (__DEV__) {
@@ -379,10 +728,16 @@ export default function ActivityScreen() {
     const cursor = cursorRef.current;
     try {
       const result = await fetchHistoryPageSkippingEmptyPages(cursor);
-      setActivities((current) => [
-        ...current,
-        ...result.activities.filter((item) => !current.some((existing) => existing.id === item.id)),
-      ]);
+      setActivities((current) => {
+        const knownIds = new Set(current.map((activity) => String(activity.id)));
+        const newActivities = result.activities.filter((activity) => {
+          const id = String(activity.id);
+          if (knownIds.has(id)) return false;
+          knownIds.add(id);
+          return true;
+        });
+        return newActivities.length > 0 ? [...current, ...newActivities] : current;
+      });
       setTotalHistoryCount((current) => result.totalCount ?? current ?? 0);
       cursorRef.current = result.nextCursor;
       // A repeated cursor would otherwise keep requesting the same page indefinitely.
@@ -429,13 +784,12 @@ export default function ActivityScreen() {
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
-    if (search.trim()) count += 1;
     if (selectedType !== 'all') count += 1;
     if (selectedDateRange !== 'all') count += 1;
     if (selectedDistanceRange !== 'all') count += 1;
     if (sortBy !== 'newest') count += 1;
     return count;
-  }, [search, selectedDateRange, selectedDistanceRange, selectedType, sortBy]);
+  }, [selectedDateRange, selectedDistanceRange, selectedType, sortBy]);
 
   const hasActiveFilters = activeFilterCount > 0;
 
@@ -449,15 +803,7 @@ export default function ActivityScreen() {
   }, [dateSummary, distanceSummary, selectedDateRange, selectedDistanceRange, selectedType, sortBy, sortSummary]);
 
   const visibleActivities = useMemo(() => {
-    const query = search.trim().toLowerCase();
     let filtered = [...activities];
-
-    if (query) {
-      filtered = filtered.filter((activity) => {
-        const typeLabel = formatActivityType(activity.activity_type).toLowerCase();
-        return typeLabel.includes(query);
-      });
-    }
 
     if (selectedType !== 'all') {
       filtered = filtered.filter((activity) => getNormalizedActivityType(activity.activity_type) === selectedType);
@@ -472,14 +818,240 @@ export default function ActivityScreen() {
     }
 
     return sortActivities(filtered, sortBy);
-  }, [activities, rangeEndDate, rangeStartDate, search, selectedDateRange, selectedDayDate, selectedDistanceRange, selectedType, sortBy]);
+  }, [activities, rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate, selectedDistanceRange, selectedType, sortBy]);
 
-  const renderActivityCard = useCallback(({ item }: { item: BackendActivity }) => (
-    <ActivityCard
-      activity={item}
-      onPress={() => router.push(`/(app)/activity/${item.id}` as any)}
-    />
-  ), []);
+  const activityRows = useMemo(
+    () => buildActivityRows(visibleActivities, groupMode, sortBy),
+    [groupMode, sortBy, visibleActivities],
+  );
+
+  const selectedActivities = useMemo(
+    () => activities.filter((activity) => selectedActivityIds.has(String(activity.id))),
+    [activities, selectedActivityIds],
+  );
+
+  useEffect(() => {
+    if (selectionMode) {
+      AccessibilityInfo.announceForAccessibility(`${selectedActivities.length} ${selectedActivities.length === 1 ? 'activity' : 'activities'} selected.`);
+    }
+  }, [selectedActivities.length, selectionMode]);
+
+  const toggleActivitySelection = useCallback((activityId: BackendActivity['id']) => {
+    const key = String(activityId);
+    setSelectedActivityIds((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const startActivitySelection = useCallback((activityId: BackendActivity['id']) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSelectionMode(true);
+    setSelectedActivityIds((current) => new Set(current).add(String(activityId)));
+  }, []);
+
+  const cancelActivitySelection = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSelectionMode(false);
+    setSelectedActivityIds(new Set());
+  }, []);
+
+  const toggleGroupSelection = useCallback((groupActivities: BackendActivity[]) => {
+    const groupIds = groupActivities.map((activity) => String(activity.id));
+    setSelectedActivityIds((current) => {
+      const allSelected = groupIds.length > 0 && groupIds.every((id) => current.has(id));
+      const next = new Set(current);
+      if (allSelected) groupIds.forEach((id) => next.delete(id));
+      else groupIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }, []);
+
+  const toggleAllVisibleSelection = useCallback(() => {
+    const visibleIds = visibleActivities.map((activity) => String(activity.id));
+    if (visibleIds.length === 0) return;
+    setSelectedActivityIds((current) => {
+      if (visibleIds.every((id) => current.has(id))) return new Set();
+      const next = new Set(current);
+      visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }, [visibleActivities]);
+
+  const deleteActivities = useCallback(async (targets: BackendActivity[]) => {
+    if (targets.length === 0 || isDeletingActivities) return;
+
+    if (deleteSuccessTimerRef.current) {
+      clearTimeout(deleteSuccessTimerRef.current);
+      deleteSuccessTimerRef.current = null;
+    }
+    setDeleteSuccess(false);
+    const targetIds = new Set(targets.map((activity) => String(activity.id)));
+    setIsDeletingActivities(true);
+    setDeletingActivityIds(targetIds);
+
+    const results: PromiseSettledResult<string>[] = [];
+    for (let index = 0; index < targets.length; index += 4) {
+      const batch = targets.slice(index, index + 4);
+      results.push(...await Promise.allSettled(batch.map(async (activity) => {
+        try {
+          return await activityAPI.delete(activity.id);
+        } catch (deleteError: any) {
+          try {
+            await activityAPI.get(activity.id);
+          } catch (verificationError: any) {
+            if (verificationError?.response?.status === 404) {
+              return 'Activity deleted successfully.';
+            }
+          }
+          throw deleteError;
+        }
+      })));
+    }
+
+    const deletedIds = new Set<string>();
+    let firstFailure: any = null;
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        deletedIds.add(String(targets[index].id));
+      } else if (!firstFailure) {
+        firstFailure = result.reason;
+      }
+    });
+
+    if (deletedIds.size > 0) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setActivities((current) => current.filter((activity) => !deletedIds.has(String(activity.id))));
+    setTotalHistoryCount((current) => current === null ? null : Math.max(0, current - deletedIds.size));
+    setSelectedActivityIds((current) => {
+      const next = new Set(current);
+      deletedIds.forEach((id) => next.delete(id));
+      return next;
+    });
+    setDeletingActivityIds(new Set());
+
+    const failedCount = targets.length - deletedIds.size;
+    if (failedCount > 0) {
+      setIsDeletingActivities(false);
+      AccessibilityInfo.announceForAccessibility(
+        deletedIds.size > 0
+          ? `${deletedIds.size} activities deleted. ${failedCount} could not be deleted.`
+          : 'Activities could not be deleted.',
+      );
+      Alert.alert(
+        deletedIds.size > 0 ? 'Some workouts could not be deleted' : 'Could not delete workouts',
+        deletedIds.size > 0
+          ? `${deletedIds.size} deleted, ${failedCount} failed. ${getBackendErrorMessage(firstFailure, 'Failed items remain selected so you can retry.')}`
+          : getBackendErrorMessage(firstFailure, 'Please try again.'),
+      );
+      return;
+    }
+
+    if (Platform.OS === 'android') {
+      Vibration.vibrate([0, 35, 45, 35]);
+    } else {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+        .catch((hapticError: unknown) => console.warn('[ActivityHistory] Delete success haptic unavailable', hapticError));
+    }
+    setDeleteSuccess(true);
+    AccessibilityInfo.announceForAccessibility(targets.length === 1 ? 'Activity deleted.' : `${targets.length} activities deleted.`);
+    showSelectionToast(targets.length === 1 ? 'Workout deleted.' : `${targets.length} workouts deleted.`);
+    deleteSuccessTimerRef.current = setTimeout(() => {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      if (selectionMode) {
+        setSelectionMode(false);
+        setSelectedActivityIds(new Set());
+      }
+      setDeleteSuccess(false);
+      setIsDeletingActivities(false);
+      deleteSuccessTimerRef.current = null;
+    }, 620);
+  }, [isDeletingActivities, selectionMode, showSelectionToast]);
+
+  const confirmDeleteActivities = useCallback((targets: BackendActivity[]) => {
+    if (targets.length === 0) {
+      showSelectionToast('Please select at least one activity to delete.');
+      return;
+    }
+    const count = targets.length;
+    Alert.alert(
+      count === 1 ? 'Delete workout?' : 'Delete selected workouts?',
+      count === 1
+        ? 'Delete this workout from your history? This cannot be undone.'
+        : `Delete ${count} workouts from your history? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void deleteActivities(targets);
+          },
+        },
+      ],
+      { cancelable: true },
+    );
+  }, [deleteActivities, showSelectionToast]);
+
+  const confirmDeleteSelected = useCallback(() => {
+    confirmDeleteActivities(selectedActivities);
+  }, [confirmDeleteActivities, selectedActivities]);
+
+  const renderActivityRow = useCallback(({ item }: { item: ActivityListRow }) => {
+    if (item.type === 'section') {
+      const selectedCount = item.activities.filter((activity) => selectedActivityIds.has(String(activity.id))).length;
+      const allSelected = selectedCount === item.activities.length;
+      return (
+        <TouchableOpacity
+          accessibilityRole={selectionMode ? 'checkbox' : undefined}
+          accessibilityState={selectionMode ? { checked: allSelected } : undefined}
+          accessibilityLabel={`${item.title}, ${item.activities.length} activities${selectionMode ? `, ${selectedCount} selected` : ''}`}
+          activeOpacity={selectionMode ? 0.75 : 1}
+          disabled={!selectionMode || isDeletingActivities}
+          onPress={() => toggleGroupSelection(item.activities)}
+          style={styles.sectionHeader}
+        >
+          {selectionMode && (
+            <Feather
+              name={allSelected ? 'check-square' : selectedCount > 0 ? 'minus-square' : 'square'}
+              size={20}
+              color={allSelected || selectedCount > 0 ? '#35C72B' : colors.textSecondary}
+            />
+          )}
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>{item.title}</Text>
+          <Text style={[styles.sectionCount, { color: colors.textSecondary }]}>{item.activities.length}</Text>
+        </TouchableOpacity>
+      );
+    }
+
+    const activity = item.activity;
+    return (
+      <ActivityCard
+        activity={activity}
+        onPress={() => selectionMode
+          ? toggleActivitySelection(activity.id)
+          : router.push(`/(app)/activity/${activity.id}` as any)}
+        onStartSelection={startActivitySelection}
+        reduceMotion={reduceMotion}
+        selectionMode={selectionMode}
+        selected={selectedActivityIds.has(String(activity.id))}
+        deleting={deletingActivityIds.has(String(activity.id))}
+        busy={isDeletingActivities}
+      />
+    );
+  }, [
+    colors.text,
+    colors.textSecondary,
+    deletingActivityIds,
+    isDeletingActivities,
+    reduceMotion,
+    selectedActivityIds,
+    selectionMode,
+    startActivitySelection,
+    toggleActivitySelection,
+    toggleGroupSelection,
+  ]);
 
   const footerCountText = useMemo(() => {
     const loadedCount = activities.length;
@@ -489,42 +1061,109 @@ export default function ActivityScreen() {
     return `${loadedCount} of ${totalHistoryCount} loaded`;
   }, [activities.length, totalHistoryCount]);
 
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} />
-      <View style={styles.heading}>
-        <Text style={[styles.title, { color: colors.text }]}>Workout History</Text>
-        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Your completed runs and walks</Text>
-      </View>
+  const listExtraData = useMemo(
+    () => ({ selectionMode, selectedActivityIds, deletingActivityIds, isDeletingActivities }),
+    [deletingActivityIds, isDeletingActivities, selectedActivityIds, selectionMode],
+  );
 
-      <View style={[styles.searchBox, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]}>
-        <Feather name="search" size={22} color={colors.textSecondary} />
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Search workouts..."
-          placeholderTextColor={colors.textSecondary}
-          style={[styles.searchInput, { color: colors.text }]}
-          accessibilityLabel="Search workout history"
-        />
-      </View>
+  return (
+    <GestureHandlerRootView style={styles.gestureRoot}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={styles.screenContent}>
+      <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} />
+      {selectionMode ? (
+        <Animated.View
+          style={styles.selectionToolbar}
+        >
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Cancel workout selection"
+            disabled={isDeletingActivities}
+            onPress={cancelActivitySelection}
+            style={[styles.selectionToolbarButton, styles.cancelSelectionButton, { borderColor: colors.border }]}
+          >
+            <Feather name="x" size={19} color="#E53935" />
+          </TouchableOpacity>
+          <Text style={[styles.selectionCount, { color: colors.text }]}>{selectedActivities.length} selected</Text>
+          <View style={styles.groupModeSwitch}>
+            {(['month', 'week'] as const).map((mode) => (
+              <TouchableOpacity
+                key={mode}
+                accessibilityRole="button"
+                accessibilityState={{ selected: groupMode === mode }}
+                disabled={isDeletingActivities}
+                onPress={() => setGroupMode(mode)}
+                style={[styles.groupModeButton, groupMode === mode && styles.groupModeButtonSelected]}
+              >
+                <Text style={[styles.groupModeText, { color: groupMode === mode ? '#08110A' : '#111827' }]}>
+                  {mode === 'month' ? 'Month' : 'Week'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity
+            accessibilityRole="button"
+            disabled={isDeletingActivities || visibleActivities.length === 0}
+            onPress={toggleAllVisibleSelection}
+            style={[styles.selectionToolbarButton, { borderColor: colors.border, backgroundColor: colors.surface }]}
+          >
+            <Text style={[styles.selectionToolbarButtonText, { color: colors.text }]}>
+              {visibleActivities.length > 0 && visibleActivities.every((activity) => selectedActivityIds.has(String(activity.id)))
+                ? 'Deselect all'
+                : 'Select all'}
+            </Text>
+          </TouchableOpacity>
+        </Animated.View>
+      ) : (
+        <View style={styles.heading}>
+          <Text style={[styles.title, { color: colors.text }]}>Workout History</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Your completed runs and walks</Text>
+        </View>
+      )}
 
       <View style={styles.filterHeader}>
-        <View style={styles.typeChipRow}>
-          <Text style={[styles.filterLabel, { color: colors.textSecondary }]}>Event</Text>
-          {activityTypeOptions.map((option) => {
-            const active = selectedType === option.value;
-            return (
-              <TouchableOpacity
-                key={option.value}
-                activeOpacity={0.85}
-                onPress={() => setSelectedType(option.value)}
-                style={[styles.typeChip, active && styles.typeChipSelected, { backgroundColor: active ? '#35C72B' : colors.surface, borderColor: colors.border }]}
-              >
-                <Text style={[styles.typeChipText, active && styles.typeChipTextSelected, { color: active ? '#08110A' : colors.text }]}>{option.label}</Text>
-              </TouchableOpacity>
-            );
-          })}
+        <View style={styles.eventFilterRow}>
+          <View style={styles.typeChipRow}>
+            <Text style={[styles.filterLabel, { color: colors.textSecondary }]}>Event</Text>
+            {activityTypeOptions.map((option) => {
+              const active = selectedType === option.value;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  activeOpacity={0.85}
+                  onPress={() => setSelectedType(option.value)}
+                  style={[styles.typeChip, active && styles.typeChipSelected, { backgroundColor: active ? '#35C72B' : colors.surface, borderColor: colors.border }]}
+                >
+                  <Text style={[styles.typeChipText, active && styles.typeChipTextSelected, { color: active ? '#08110A' : colors.text }]}>{option.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={refreshing ? 'Refreshing activity history' : 'Refresh activity history'}
+            accessibilityState={{ disabled: refreshing || loading || loadingMore || selectionMode || isDeletingActivities, busy: refreshing }}
+            disabled={refreshing || loading || loadingMore || selectionMode || isDeletingActivities}
+            onPress={refreshHistory}
+            style={[
+              styles.refreshButton,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+              (refreshing || loading || loadingMore || selectionMode || isDeletingActivities) && styles.refreshButtonDisabled,
+            ]}
+          >
+            <Animated.View
+              style={{
+                transform: [{
+                  rotate: refreshRotation.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['0deg', '360deg'],
+                  }),
+                }],
+              }}
+            >
+              <Feather name="refresh-cw" size={17} color={colors.text} />
+            </Animated.View>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -576,7 +1215,6 @@ export default function ActivityScreen() {
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={() => {
-            setSearch('');
             setSelectedType('all');
             setSelectedDateRange('all');
             setSelectedDayDate(null);
@@ -700,7 +1338,7 @@ export default function ActivityScreen() {
                 }}
                 style={[styles.modalActionButton, { backgroundColor: colors.background, borderColor: colors.border }]}
               >
-                <Text style={[styles.modalActionText, { color: colors.text }]}>Clear</Text>
+                <Text style={[styles.modalActionText, { color: '#EF4444' }]}>Clear</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -761,7 +1399,7 @@ export default function ActivityScreen() {
               }}
               style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
             >
-              <Text style={[styles.sheetClearText, { color: colors.text }]}>Clear</Text>
+              <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -803,7 +1441,7 @@ export default function ActivityScreen() {
               }}
               style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
             >
-              <Text style={[styles.sheetClearText, { color: colors.text }]}>Clear</Text>
+              <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -853,15 +1491,15 @@ export default function ActivityScreen() {
         </View>
       ) : (
         <FlatList
-          data={visibleActivities}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={renderActivityCard}
+          data={activityRows}
+          extraData={listExtraData}
+          keyExtractor={(item) => item.key}
+          renderItem={renderActivityRow}
           initialNumToRender={10}
-          maxToRenderPerBatch={10}
-          windowSize={5}
+          maxToRenderPerBatch={4}
+          windowSize={7}
           removeClippedSubviews
-          updateCellsBatchingPeriod={50}
-          getItemLayout={(_, index) => ({ length: 162, offset: 162 * index, index })}
+          updateCellsBatchingPeriod={16}
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
           ListFooterComponent={loadingMore
@@ -874,26 +1512,114 @@ export default function ActivityScreen() {
             : hasMore
               ? null
               : <Text style={styles.endMessage}>You&apos;ve reached the end of your activity history!</Text>}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            selectionMode && styles.scrollContentWithDeleteTray,
+          ]}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadFirstPage(true)} tintColor="#35C72B" />}
-          ListEmptyComponent={<Text style={styles.empty}>{activities.length === 0 ? 'No completed workouts yet.' : hasActiveFilters ? 'No workouts match your current filters.' : 'No workouts match your search.'}</Text>}
+          ListEmptyComponent={<Text style={styles.empty}>{activities.length === 0 ? 'No completed workouts yet.' : 'No workouts match your current filters.'}</Text>}
         />
       )}
+      <Animated.View
+        pointerEvents={selectionMode ? 'auto' : 'none'}
+        accessibilityElementsHidden={!selectionMode}
+        importantForAccessibility={selectionMode ? 'auto' : 'no-hide-descendants'}
+        style={[
+          styles.deleteTray,
+          {
+            opacity: deleteTrayOpacity,
+            transform: [{ translateY: deleteTrayTranslateY }],
+          },
+        ]}
+      >
+          <Animated.View
+            style={[
+              styles.deleteButton,
+              {
+                backgroundColor: deleteButtonStateProgress.interpolate({
+                  inputRange: [0, 0.55, 1],
+                  outputRange: ['#737373', '#E53935', '#B91C1C'],
+                }),
+                borderColor: deleteButtonStateProgress.interpolate({
+                  inputRange: [0, 0.55, 1],
+                  outputRange: ['#737373', '#E53935', '#FFFFFF'],
+                }),
+                opacity: deleteButtonStateProgress.interpolate({
+                  inputRange: [0, 0.55],
+                  outputRange: [0.62, 1],
+                  extrapolate: 'clamp',
+                }),
+              },
+            ]}
+          >
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={deleteSuccess
+                ? 'Activities deleted successfully'
+                : selectedActivities.length > 0
+                ? `Delete ${selectedActivities.length} selected activities`
+                : 'Delete disabled: no activities selected'}
+              accessibilityState={{
+                disabled: !selectionMode || isDeletingActivities || deleteSuccess || selectedActivities.length === 0,
+                busy: isDeletingActivities && !deleteSuccess,
+              }}
+              disabled={!selectionMode || isDeletingActivities || deleteSuccess || selectedActivities.length === 0}
+              onPress={() => void confirmDeleteSelected()}
+              style={styles.deleteButtonAction}
+            >
+              {deleteSuccess
+                ? (
+                  <Animated.View style={{ opacity: deleteSuccessScale, transform: [{ scale: deleteSuccessScale }] }}>
+                    <Feather name="check-circle" size={23} color="#FFFFFF" />
+                  </Animated.View>
+                )
+                : isDeletingActivities
+                ? <ActivityIndicator size="small" color="#FFFFFF" />
+                : <Feather name="trash-2" size={23} color="#FFFFFF" />}
+              <Text style={styles.deleteButtonText}>
+                {deleteSuccess
+                  ? 'Deleted'
+                  : isDeletingActivities
+                    ? 'Deleting…'
+                    : `Delete selected · ${selectedActivities.length}`}
+              </Text>
+            </TouchableOpacity>
+          </Animated.View>
+      </Animated.View>
+      {selectionToast && (
+        <View pointerEvents="none" style={styles.toast}>
+          <Text style={styles.toastText}>{selectionToast}</Text>
+        </View>
+      )}
+      </View>
     </SafeAreaView>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  gestureRoot: { flex: 1 },
+  screenContent: { flex: 1 },
   container: { flex: 1, backgroundColor: '#0B0E0F', paddingHorizontal: 22 },
   heading: { paddingTop: 20, paddingBottom: 18 },
   title: { color: '#F7F7F7', fontSize: 31, fontWeight: '700' },
   subtitle: { color: '#A9ADAF', fontSize: 15, marginTop: 4 },
-  searchBox: { height: 58, backgroundColor: '#242627', borderRadius: 18, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, marginBottom: 14 },
-  searchInput: { flex: 1, color: '#F7F7F7', fontSize: 17, marginLeft: 12, height: '100%' },
+  selectionToolbar: { minHeight: 72, paddingTop: 14, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
+  selectionCount: { minWidth: 72, flexGrow: 1, fontSize: 13, fontWeight: '700' },
+  selectionToolbarButton: { minHeight: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 11, borderWidth: 1, borderRadius: 10 },
+  cancelSelectionButton: { width: 40, paddingHorizontal: 0, backgroundColor: '#FFFFFF' },
+  selectionToolbarButtonText: { fontSize: 12, fontWeight: '700' },
+  groupModeSwitch: { flexDirection: 'row', padding: 3, borderRadius: 11, backgroundColor: '#FFFFFF', gap: 2 },
+  groupModeButton: { minHeight: 34, justifyContent: 'center', paddingHorizontal: 9, borderRadius: 8 },
+  groupModeButtonSelected: { backgroundColor: '#35C72B' },
+  groupModeText: { fontSize: 11, fontWeight: '700' },
+  disabledButton: { opacity: 0.45 },
   filterHeader: { marginBottom: 12 },
-  typeChipRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
+  eventFilterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  typeChipRow: { flex: 1, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
   filterLabel: { fontSize: 12, fontWeight: '700', marginRight: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
+  refreshButton: { width: 42, height: 42, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 13, borderWidth: 1 },
+  refreshButtonDisabled: { opacity: 0.52 },
   typeChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1 },
   typeChipSelected: { backgroundColor: '#35C72B' },
   typeChipText: { fontSize: 13, fontWeight: '600' },
@@ -907,7 +1633,7 @@ const styles = StyleSheet.create({
   filterBarButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, minHeight: 42 },
   filterBarText: { fontSize: 12, fontWeight: '600' },
   resetButton: { alignSelf: 'flex-start', marginBottom: 12, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, backgroundColor: '#23372A' },
-  resetButtonText: { color: '#D9F9DB', fontSize: 12, fontWeight: '700' },
+  resetButtonText: { color: '#EF4444', fontSize: 12, fontWeight: '700' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.42)', justifyContent: 'flex-end' },
   modalCard: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, padding: 18, paddingBottom: 20 },
   modalHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
@@ -935,10 +1661,21 @@ const styles = StyleSheet.create({
   sheetClearButton: { borderWidth: 1, borderRadius: 12, paddingVertical: 11, alignItems: 'center', marginTop: 4 },
   sheetClearText: { fontSize: 13, fontWeight: '700'},
   scrollContent: { paddingBottom: 118 },
-  section: { marginBottom: 24 },
-  sectionTitle: { color: '#F7F7F7', fontSize: 24, fontWeight: '700', marginBottom: 13 },
+  scrollContentWithDeleteTray: { paddingBottom: 205 },
+  sectionHeader: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 12, paddingBottom: 8 },
+  sectionTitle: { flex: 1, fontSize: 19, fontWeight: '700' },
+  sectionCount: { fontSize: 12, fontWeight: '600' },
+  toast: { position: 'absolute', alignSelf: 'center', bottom: 178, maxWidth: '90%', paddingHorizontal: 16, paddingVertical: 11, borderRadius: 22, backgroundColor: '#252A27', borderWidth: 1, borderColor: '#3C4B3F' },
+  toastText: { color: '#F7F7F7', fontSize: 13, fontWeight: '600', textAlign: 'center' },
   card: { height: 150, backgroundColor: '#242627', borderRadius: 25, paddingVertical: 14, paddingHorizontal: 15, marginBottom: 5, borderWidth: 1, borderColor: '#393C3E', overflow: 'hidden' },
+  longPressProgressTrack: { position: 'absolute', top: 0, left: 0, height: 3, backgroundColor: '#35C72B', borderTopLeftRadius: 25, borderTopRightRadius: 3 },
+  deleteTray: { position: 'absolute', left: 22, right: 22, bottom: 96, zIndex: 20, alignItems: 'center' },
+  deleteButton: { minWidth: 190, minHeight: 58, borderRadius: 29, backgroundColor: '#E53935', borderWidth: 2, borderColor: '#E53935', elevation: 10, shadowColor: '#E53935', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.25, shadowRadius: 10 },
+  deleteButtonAction: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 22, borderRadius: 27 },
+  deleteButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   cardContent: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden' },
+  cardCheckbox: { position: 'absolute', top: 7, right: 7, width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(11, 14, 15, 0.78)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', zIndex: 2 },
+  cardCheckboxSelected: { backgroundColor: '#132219', borderColor: '#35C72B' },
   cardDetails: { flex: 1.05, minWidth: 0, paddingRight: 8 },
   activityType: { color: '#F7F7F7', fontSize: 18, lineHeight: 22, fontWeight: '800' },
   activityDate: { color: '#A9ADAF', fontSize: 12, lineHeight: 15, marginTop: 2 },

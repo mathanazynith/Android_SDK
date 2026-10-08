@@ -1,8 +1,9 @@
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  LayoutAnimation,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -10,10 +11,20 @@ import {
   Text,
   View,
 } from 'react-native';
+import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNotifications } from '../../../contexts/NotificationContext';
 import { BRAND_GREEN, useTheme } from '../../../contexts/ThemeContext';
-import { getNotificationDestination, type AppNotification } from '../../../service/notificationService';
+import { useAuth } from '../../../service/auth';
+import {
+  getLocallyDismissedNotificationIds,
+  getNotificationDestination,
+  saveLocallyDismissedNotification,
+  type AppNotification,
+} from '../../../service/notificationService';
+
+const EMPTY_IDS = new Set<string>();
   
   type IconName = keyof typeof Feather.glyphMap;
   
@@ -42,14 +53,14 @@ import { getNotificationDestination, type AppNotification } from '../../../servi
   
   const dateGroupFor = (value: string, now: Date): string => {
     const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return 'Earlier';
+    if (Number.isNaN(date.getTime())) return 'Date unavailable';
   
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const day = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const daysAgo = Math.round((today.getTime() - day.getTime()) / 86_400_000);
+    const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    const day = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+    const daysAgo = (today - day) / 86_400_000;
     if (daysAgo === 0) return 'Today';
     if (daysAgo === 1) return 'Yesterday';
-    return 'Earlier';
+    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
   };
   
   const formatTime = (value: string): string => {
@@ -61,6 +72,8 @@ import { getNotificationDestination, type AppNotification } from '../../../servi
   
 export default function NotificationsScreen() {
     const { colors } = useTheme();
+    const { user } = useAuth();
+    const userId = user?.id ?? null;
     const {
       notifications,
       unreadCount,
@@ -74,20 +87,93 @@ export default function NotificationsScreen() {
       markAllRead,
     } = useNotifications();
     const [actionError, setActionError] = useState<string | null>(null);
-    const unreadInList = notifications.some((item) => !item.is_read);
+    const [dismissalState, setDismissalState] = useState<{
+      userId: number | null;
+      dismissedIds: Set<string>;
+      loaded: boolean;
+    }>({ userId: null, dismissedIds: new Set(), loaded: false });
+    const [dismissalRetry, setDismissalRetry] = useState(0);
+    const [dismissalReadError, setDismissalReadError] = useState<{
+      userId: number;
+      message: string;
+    } | null>(null);
+    const activeUserId = useRef(userId);
+    useEffect(() => {
+      activeUserId.current = userId;
+    }, [userId]);
+    const dismissedIds = dismissalState.userId === userId ? dismissalState.dismissedIds : EMPTY_IDS;
+    const dismissalsLoaded = dismissalState.userId === userId && dismissalState.loaded;
+    const currentDismissalReadError = dismissalReadError?.userId === userId
+      ? dismissalReadError.message
+      : null;
+
+    useEffect(() => {
+      if (userId == null) return;
+      let cancelled = false;
+      void getLocallyDismissedNotificationIds(userId).then((storedDismissedIds) => {
+        if (cancelled) return;
+        setDismissalState({
+          userId,
+          dismissedIds: storedDismissedIds,
+          loaded: true,
+        });
+      }).catch((error) => {
+        if (cancelled) return;
+        setDismissalReadError({
+          userId,
+          message: 'Saved notification dismissals could not be loaded. Please try again.',
+        });
+        console.warn('[Notifications] Local dismissal lookup failed', error);
+      });
+
+      return () => {
+        cancelled = true;
+      };
+    }, [dismissalRetry, userId]);
+
+    const visibleNotifications = useMemo(
+      () => notifications.filter((item) => dismissalsLoaded && !dismissedIds.has(String(item.id))),
+      [dismissalsLoaded, dismissedIds, notifications],
+    );
+    const isCheckingDismissals = userId !== null && !dismissalsLoaded && currentDismissalReadError === null;
+    const unreadInList = visibleNotifications.some((item) => !item.is_read);
+    const dismissNotification = async (id: AppNotification['id']) => {
+      if (userId === null || !dismissalsLoaded) return;
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setDismissalState((current) => {
+        if (current.userId !== userId || !current.loaded) return current;
+        return { ...current, dismissedIds: new Set(current.dismissedIds).add(String(id)) };
+      });
+      try {
+        await saveLocallyDismissedNotification(userId, id);
+      } catch (error) {
+        if (activeUserId.current === userId) {
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          setDismissalState((current) => {
+            if (current.userId !== userId || !current.loaded) return current;
+            const nextDismissedIds = new Set(current.dismissedIds);
+            nextDismissedIds.delete(String(id));
+            return { ...current, dismissedIds: nextDismissedIds };
+          });
+          setActionError('This notification could not be dismissed on this device. Please try again.');
+        }
+        console.warn('[Notifications] Local dismissal save failed', error);
+      }
+    };
     const sections = useMemo(() => {
       const now = new Date();
       const groups = new Map<string, AppNotification[]>();
-      for (const notification of notifications) {
+      for (const notification of visibleNotifications) {
         const label = dateGroupFor(notification.created_at, now);
         const group = groups.get(label) ?? [];
         group.push(notification);
         groups.set(label, group);
       }
-      return ['Today', 'Yesterday', 'Earlier']
-        .map((label) => ({ title: label, items: groups.get(label) ?? [] }))
-        .filter((section) => section.items.length > 0);
-    }, [notifications]);
+      return Array.from(groups, ([title, items]) => ({ title, items }))
+        .sort((first, second) => (
+          new Date(second.items[0].created_at).getTime() - new Date(first.items[0].created_at).getTime()
+        ));
+    }, [visibleNotifications]);
   
     const openNotification = async (notification: AppNotification) => {
       setActionError(null);
@@ -113,6 +199,7 @@ export default function NotificationsScreen() {
     };
   
     return (
+      <GestureHandlerRootView style={styles.gestureRoot}>
       <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]} edges={['top']}>
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <Pressable
@@ -155,13 +242,47 @@ export default function NotificationsScreen() {
               <Text style={styles.retryText}>Try again</Text>
             </Pressable>
           </View>
-        ) : notifications.length === 0 ? (
+        ) : currentDismissalReadError ? (
+          <View style={styles.stateContainer}>
+            <Feather name="alert-circle" size={27} color={colors.textSecondary} />
+            <Text style={[styles.stateText, { color: colors.text }]}>
+              {currentDismissalReadError}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setDismissalReadError(null);
+                setDismissalRetry((attempt) => attempt + 1);
+              }}
+              style={styles.retryButton}
+            >
+              <Text style={styles.retryText}>Try again</Text>
+            </Pressable>
+          </View>
+        ) : isCheckingDismissals ? (
+          <View style={styles.stateContainer}>
+            <ActivityIndicator color={BRAND_GREEN} />
+            <Text style={[styles.stateText, { color: colors.textSecondary }]}>Loading notifications...</Text>
+          </View>
+        ) : visibleNotifications.length === 0 ? (
           <View style={styles.stateContainer}>
             <View style={styles.emptyIcon}>
               <Feather name="bell" size={24} color={BRAND_GREEN} />
             </View>
             <Text style={[styles.emptyTitle, { color: colors.text }]}>You&apos;re all caught up</Text>
             <Text style={[styles.stateText, { color: colors.textSecondary }]}>New notifications will appear here.</Text>
+            {hasMore ? (
+              <Pressable
+                accessibilityRole="button"
+                disabled={isLoadingMore}
+                onPress={() => void loadMore()}
+                style={styles.loadMoreButton}
+              >
+                {isLoadingMore
+                  ? <ActivityIndicator size="small" color={BRAND_GREEN} />
+                  : <Text style={styles.markAllText}>Load older notifications</Text>}
+              </Pressable>
+            ) : null}
           </View>
         ) : (
           <ScrollView
@@ -181,32 +302,63 @@ export default function NotificationsScreen() {
                 {section.items.map((notification) => {
                   const presentation = eventPresentation(notification.type);
                   return (
-                    <Pressable
+                    <ReanimatedSwipeable
                       key={String(notification.id)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${notification.title}. ${notification.is_read ? 'Read' : 'Unread'}`}
-                      onPress={() => void openNotification(notification)}
-                      style={({ pressed }) => [
-                        styles.notificationRow,
-                        { borderBottomColor: colors.border, opacity: pressed ? 0.72 : 1 },
-                      ]}
-                    >
-                      <View style={[styles.eventIcon, { backgroundColor: `${presentation.color}18` }]}>
-                        <Feather name={presentation.icon} size={18} color={presentation.color} />
-                      </View>
-                      <View style={styles.notificationContent}>
-                        <View style={styles.titleLine}>
-                          {!notification.is_read ? <View style={styles.unreadDot} /> : null}
-                          <Text style={[styles.notificationTitle, { color: colors.text }]} numberOfLines={2}>
-                            {notification.title}
-                          </Text>
-                          <Text style={[styles.timestamp, { color: colors.textSecondary }]}>
-                            {formatTime(notification.created_at)}
-                          </Text>
+                      overshootRight={false}
+                      overshootLeft={false}
+                      rightThreshold={40}
+                      leftThreshold={40}
+                      renderLeftActions={() => (
+                        <View style={styles.dismissAction}>
+                          <Feather name="trash-2" size={18} color="#FFFFFF" />
+                          <Text style={styles.dismissActionText}>Dismiss</Text>
                         </View>
-                        <Text style={[styles.message, { color: colors.textSecondary }]}>{notification.message}</Text>
-                      </View>
-                    </Pressable>
+                      )}
+                      renderRightActions={() => (
+                        <View style={styles.dismissAction}>
+                          <Feather name="trash-2" size={18} color="#FFFFFF" />
+                          <Text style={styles.dismissActionText}>Dismiss</Text>
+                        </View>
+                      )}
+                      onSwipeableOpen={() => dismissNotification(notification.id)}
+                    >
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`${notification.title}. ${notification.is_read ? 'Read' : 'Unread'}`}
+                        accessibilityActions={[{ name: 'dismiss', label: 'Dismiss notification' }]}
+                        onAccessibilityAction={({ nativeEvent }) => {
+                          if (nativeEvent.actionName === 'dismiss') void dismissNotification(notification.id);
+                        }}
+                        onPress={() => void openNotification(notification)}
+                        style={({ pressed }) => [
+                          styles.notificationRow,
+                          {
+                            backgroundColor: colors.background,
+                            borderBottomColor: colors.border,
+                            opacity: pressed ? 0.72 : 1,
+                          },
+                        ]}
+                      >
+                        <View style={[styles.eventIcon, { backgroundColor: `${presentation.color}18` }]}>
+                          <Feather name={presentation.icon} size={18} color={presentation.color} />
+                        </View>
+                        <View style={styles.notificationContent}>
+                          <View style={styles.titleLine}>
+                            {!notification.is_read ? <View style={styles.unreadDot} /> : null}
+                            <Text style={[styles.notificationTitle, { color: colors.text }]} numberOfLines={2}>
+                              {notification.title}
+                            </Text>
+                            <Text
+                              numberOfLines={1}
+                              style={[styles.timestamp, { color: colors.textSecondary }]}
+                            >
+                              {formatTime(notification.created_at)}
+                            </Text>
+                          </View>
+                          <Text style={[styles.message, { color: colors.textSecondary }]}>{notification.message}</Text>
+                        </View>
+                      </Pressable>
+                    </ReanimatedSwipeable>
                   );
                 })}
               </View>
@@ -226,10 +378,12 @@ export default function NotificationsScreen() {
           </ScrollView>
         )}
       </SafeAreaView>
+      </GestureHandlerRootView>
     );
   }
   
 const styles = StyleSheet.create({
+    gestureRoot: { flex: 1 },
     screen: { flex: 1 },
     header: {
       minHeight: 68,
@@ -250,12 +404,14 @@ const styles = StyleSheet.create({
     listContent: { paddingHorizontal: 18, paddingBottom: 36 },
     sectionHeading: { marginTop: 22, marginBottom: 7, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
     notificationRow: { minHeight: 82, flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth, gap: 12 },
+    dismissAction: { width: 88, minHeight: 82, alignItems: 'center', justifyContent: 'center', backgroundColor: '#D9534F', gap: 4 },
+    dismissActionText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
     eventIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
     notificationContent: { flex: 1, minWidth: 0 },
     titleLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 7 },
     unreadDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: BRAND_GREEN, marginTop: 6 },
     notificationTitle: { flex: 1, fontSize: 14, lineHeight: 19, fontWeight: '700' },
-    timestamp: { fontSize: 11, marginTop: 2 },
+    timestamp: { width: 64, flexShrink: 0, fontSize: 11, marginTop: 2, textAlign: 'right' },
     message: { fontSize: 13, lineHeight: 19, marginTop: 5 },
     loadMoreButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center' },
     stateContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 35, gap: 12 },

@@ -67,6 +67,11 @@ const isAuthEndpoint = (url?: string) => {
 const isNotificationDeviceEndpoint = (url?: string) =>
   Boolean(url?.includes("/notifications/devices/"));
 
+const isSensitiveApiEndpoint = (url?: string) =>
+  isAuthEndpoint(url) ||
+  Boolean(url?.includes("/auth/google-login/")) ||
+  isNotificationDeviceEndpoint(url);
+
 let isRefreshing = false;
 let refreshSubscribers: Array<(token: string | null) => void> = [];
 
@@ -127,7 +132,7 @@ api.interceptors.request.use(
       console.log("========== API REQUEST ==========");
       console.log("URL:", `${config.baseURL}${config.url}`);
       console.log("METHOD:", config.method?.toUpperCase());
-      console.log("BODY:", isNotificationDeviceEndpoint(config.url) ? "[REDACTED]" : config.data);
+      console.log("BODY:", isSensitiveApiEndpoint(config.url) ? "[REDACTED]" : config.data);
       return config;
     } catch (error) {
       console.log("REQUEST INTERCEPTOR ERROR:", error);
@@ -141,7 +146,7 @@ api.interceptors.response.use(
   (response) => {
     console.log("========== API RESPONSE ==========");
     console.log("STATUS:", response.status);
-    console.log("DATA:", isNotificationDeviceEndpoint(response.config.url) ? "[REDACTED]" : response.data);
+    console.log("DATA:", isSensitiveApiEndpoint(response.config.url) ? "[REDACTED]" : response.data);
     return response;
   },
   async (error) => {
@@ -154,7 +159,7 @@ api.interceptors.response.use(
     console.log("STATUS:", status);
     console.log(
       "RESPONSE DATA:",
-      isNotificationDeviceEndpoint(requestUrl) ? "[REDACTED]" : error?.response?.data
+      isSensitiveApiEndpoint(requestUrl) ? "[REDACTED]" : error?.response?.data
     );
     if (error.code === "ECONNABORTED") {
       console.log("Request timed out");
@@ -216,7 +221,10 @@ export const authAPI = {
   usernameAvailable: (username: string) =>
     api.get(API_ENDPOINTS.auth.usernameAvailable, { params: { username } }),
 
-  login: (data: { identifier: string; password: string }) =>
+  login: (data: {
+    identifier: string;
+    password: string;
+  } & Partial<NotificationDeviceRegistration>) =>
     api.post("/auth/login/", data),
 
   verifyOtp: (data: { email: string; otp_code: string }) =>
@@ -225,8 +233,8 @@ export const authAPI = {
   resendOtp: (data: { email: string; purpose: string }) =>
     api.post("/auth/resend-otp/", data),
 
-  googleLogin: (data: { id_token: string }) =>
-    api.post("/auth/google-login/", { id_token: data.id_token }),
+  googleLogin: (data: { id_token: string } & Partial<NotificationDeviceRegistration>) =>
+    api.post("/auth/google-login/", data),
 
   passwordResetRequest: (data: { email: string }) =>
     api.post("/auth/password-reset/", data),

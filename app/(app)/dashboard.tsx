@@ -1,19 +1,25 @@
+import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import NotificationBell from '../../components/NotificationBell';
+import MotionEntrance from '../../components/MotionEntrance';
 import SettingsMenu from '../../components/SettingsMenu';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../service/auth';
+import { getFcmToken } from '../../service/fcmService';
+import { registerNotificationDevice } from '../../service/notificationService';
 import { useResponsive } from '../../utils/responsive';
 import DashboardActivePlan from './DashboardActivePlan';
 import DashboardNoPlan from './DashboardNoPlan';
 // import { LocationService } from '../../src/services/locationService';
 // import { getWeatherByLocation, type WeatherData } from '../../service/weather';
+
+const NOTIFICATION_PERMISSION_DELAY_MS = 1_000;
 
 export default function DashboardScreen() {
   const { colors } = useTheme();
@@ -21,8 +27,15 @@ export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
   const { unreadCount } = useNotifications();
-  const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
+  const {
+    workoutPlan,
+    workoutPlanError,
+    isWorkoutPlanLoaded,
+    isWorkoutPlanLoading,
+    fetchWorkoutPlan,
+  } = useQuestionnaire();
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const permissionRequestStarted = useRef(false);
   // const [weather, setWeather] = useState<WeatherData | null>(null);
   // const [loadingWeather, setLoadingWeather] = useState(true);
   // const [weatherError, setWeatherError] = useState<string | null>(null);
@@ -30,6 +43,38 @@ export default function DashboardScreen() {
   useEffect(() => {
     void fetchWorkoutPlan();
   }, [fetchWorkoutPlan]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (
+        !user?.id ||
+        !isWorkoutPlanLoaded ||
+        isWorkoutPlanLoading ||
+        permissionRequestStarted.current
+      ) {
+        return;
+      }
+
+      let isActive = true;
+      const permissionTimer = setTimeout(() => {
+        permissionRequestStarted.current = true;
+
+        void getFcmToken()
+          .then(async (token) => {
+            if (!isActive || !token) return;
+            await registerNotificationDevice(user.id, token);
+          })
+          .catch((error) => {
+            console.warn('[Notifications] Dashboard device registration failed', error);
+          });
+      }, NOTIFICATION_PERMISSION_DELAY_MS);
+
+      return () => {
+        isActive = false;
+        clearTimeout(permissionTimer);
+      };
+    }, [isWorkoutPlanLoaded, isWorkoutPlanLoading, user]),
+  );
 
   // useEffect(() => {
   //   let isActive = true;
@@ -109,7 +154,7 @@ export default function DashboardScreen() {
     if (option === 'Edit Profile') router.push('/(app)/profile/edit');
     if (option === 'Change Password' || option === 'Set Password') router.push('/(app)/screens/change-password');
     if (option === 'Notifications') router.push('/(app)/screens/notifications');
-    if (option === 'Plan') router.push('/(app)/training-plan');
+    if (option === 'Subscription') router.push('/(app)/profile/subscription');
     if (option === 'Logout') {
       Alert.alert('Logout', 'Are you sure you want to logout?', [
         { text: 'Cancel', style: 'cancel' },
@@ -139,8 +184,9 @@ export default function DashboardScreen() {
         </View>
       </View>
       <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: spacing(20), paddingBottom: spacing(118) }]} showsVerticalScrollIndicator={false}>
-        <View style={[styles.greeting, { minHeight: spacing(82), paddingHorizontal: spacing(18), paddingVertical: spacing(14), marginBottom: spacing(14), backgroundColor: colors.surface }]}>
-          <Text style={[styles.greetingText, { color: colors.text, fontSize: fontSize(24, 20, 26) }]} numberOfLines={2}><Text>Hi </Text><Text style={[styles.name, { color: BRAND_GREEN }]}>{userName}</Text></Text>
+        <MotionEntrance>
+          <View style={[styles.greeting, { minHeight: spacing(82), paddingHorizontal: spacing(18), paddingVertical: spacing(14), marginBottom: spacing(14), backgroundColor: colors.surface }]}>
+            <Text style={[styles.greetingText, { color: colors.text, fontSize: fontSize(24, 20, 26) }]} numberOfLines={2}><Text>Hi </Text><Text style={[styles.name, { color: BRAND_GREEN }]}>{userName}</Text></Text>
               {/*
               <TouchableOpacity
                 accessibilityLabel="Open current weather details"
@@ -159,8 +205,11 @@ export default function DashboardScreen() {
                 </View>
               </TouchableOpacity>
               */}
-        </View>
-        {workoutPlan ? <DashboardActivePlan todayWorkout={todayWorkout} nextWorkout={nextWorkout} /> : <DashboardNoPlan canStartAssessment={canStartAssessment} onStartAssessment={startAssessment} />}
+          </View>
+        </MotionEntrance>
+        <MotionEntrance delay={55}>
+          {workoutPlan ? <DashboardActivePlan todayWorkout={todayWorkout} nextWorkout={nextWorkout} /> : <DashboardNoPlan canStartAssessment={canStartAssessment} onStartAssessment={startAssessment} />}
+        </MotionEntrance>
       </ScrollView>
       <SettingsMenu
         visible={settingsVisible}

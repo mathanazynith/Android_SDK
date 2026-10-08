@@ -12,14 +12,22 @@ export interface BackendGpsPoint {
   timestamp?: string;
   is_extra_distance?: boolean;
   is_paused?: boolean;
+  pause_sequence?: number | null;
+}
+
+export interface BackendPolylineRoute {
+  sequence: number;
+  encoded_polyline: string | null;
+  point_count: number;
 }
 
 export interface BackendPauseEvent {
   sequence?: number;
   paused_at?: string;
-  resumed_at?: string;
-  pause_location?: { latitude?: number; longitude?: number } | null;
-  resume_location?: { latitude?: number; longitude?: number } | null;
+  resumed_at?: string | null;
+  duration_s?: number | null;
+  pause_location?: BackendGpsPoint | { latitude?: number; longitude?: number } | null;
+  resume_location?: BackendGpsPoint | { latitude?: number; longitude?: number } | null;
 }
 
 const getPointTimestamp = (point: BackendGpsPoint): number | null => {
@@ -216,13 +224,21 @@ export interface CropActivityResult {
   distance_km: number;
   elapsed_time: number;
   moving_time: number;
+  paused_time_s?: number;
+  pause_count?: number;
   avg_speed: number;
   avg_pace: number;
   gps_points_count: number;
 }
 
+export interface CropTimingFallback {
+  elapsed_time: number;
+  moving_time: number;
+}
+
 export interface BackendActivity {
   id: string | number;
+  activity_id?: string | number;
   activity_type: 'RUN' | 'WALK' | string;
   start_time: string;
   end_time: string;
@@ -253,10 +269,17 @@ export interface BackendActivity {
     coordinates?: BackendGpsPoint[];
     planned_points?: BackendGpsPoint[];
     extra_points?: BackendGpsPoint[];
+    pause_points?: BackendGpsPoint[];
+    pause_events?: BackendPauseEvent[];
+    pauses?: BackendPauseEvent[];
+    running_routes?: BackendPolylineRoute[];
+    pause_routes?: BackendPolylineRoute[];
   } | null;
   gps_points?: BackendGpsPoint[];
   points?: BackendGpsPoint[];
   coordinates?: BackendGpsPoint[];
+  pause_events?: BackendPauseEvent[];
+  pauses?: BackendPauseEvent[];
   processing_status: string;
   is_processed: boolean;
   segments?: ActivitySegmentSplits[];
@@ -279,6 +302,9 @@ const getActivityDetailPath = (activityId: BackendActivity['id']) => {
   const basePath = ACTIVITY_HISTORY_PATH.replace(/\/+$/, '');
   return `${basePath}/${encodeURIComponent(String(activityId))}/`;
 };
+
+const getActivityDeletePath = (activityId: BackendActivity['id']) =>
+  `${getActivityDetailPath(activityId)}delete/`;
 
 const extractActivities = (payload: unknown): BackendActivity[] => {
   if (Array.isArray(payload)) return payload as BackendActivity[];
@@ -321,15 +347,26 @@ const getBackendGpsPoints = (activity: BackendActivity): BackendGpsPoint[] | und
   ?? activity.route?.points
   ?? activity.route?.coordinates;
 
+const getActivityId = (activity: BackendActivity): string | number => {
+  const id = activity.id ?? activity.activity_id;
+  if ((typeof id !== 'string' && typeof id !== 'number') || String(id).trim() === '') {
+    throw new Error('Activity response is missing its ID.');
+  }
+  return id;
+};
+
 const normalizeActivity = (activity: BackendActivity): BackendActivity => {
+  const id = getActivityId(activity);
   const gpsPoints = getBackendGpsPoints(activity);
   const splitData = normalizeActivitySplits(activity);
+  const hasBackendRouteGroups = Array.isArray(activity.route?.running_routes);
   return {
     ...activity,
+    id,
     gps_points: activity.gps_points ?? gpsPoints,
     encoded_polyline: activity.encoded_polyline
       ?? activity.route?.encoded_polyline
-      ?? encodeRouteFallback(activity),
+      ?? (hasBackendRouteGroups ? null : encodeRouteFallback(activity)),
     planned_encoded_polyline: activity.planned_encoded_polyline
       ?? activity.route?.planned_encoded_polyline
       ?? null,
@@ -353,6 +390,39 @@ const applySdkDistance = async (activity: BackendActivity): Promise<BackendActiv
     );
   }
   return { ...activity, ...(sdkDistance !== null ? { distance: sdkDistance } : {}), ...(timing ?? {}) };
+};
+
+const applyCropTimingFallback = (
+  result: CropActivityResult,
+  fallback?: CropTimingFallback,
+): CropActivityResult => {
+  if (!fallback) return result;
+
+  const fallbackElapsed = Number(fallback.elapsed_time);
+  const fallbackMoving = Number(fallback.moving_time);
+  const responseElapsed = Number(result.elapsed_time);
+  const responseMoving = Number(result.moving_time);
+  const elapsedTime = Number.isFinite(responseElapsed) && responseElapsed > 0
+    ? responseElapsed
+    : fallbackElapsed;
+  const movingTime = Number.isFinite(responseMoving) && responseMoving > 0
+    ? responseMoving
+    : fallbackMoving;
+
+  if (
+    !Number.isFinite(elapsedTime)
+    || elapsedTime < 0
+    || !Number.isFinite(movingTime)
+    || movingTime < 0
+  ) {
+    return result;
+  }
+
+  return {
+    ...result,
+    elapsed_time: elapsedTime,
+    moving_time: Math.min(movingTime, elapsedTime),
+  };
 };
 
 const getPaginationSource = (payload: unknown): Record<string, unknown> => {
@@ -480,7 +550,6 @@ export const activityAPI = {
         total_count: rawSource.total_count,
         rawCount: rawActivities.length,
         processingStatuses: rawActivities.map((activity) => activity.processing_status),
-        rawJson: JSON.stringify(response.data),
       });
     }
     const result = await normalizeHistoryPage(response.data, limit, cursor);
@@ -515,7 +584,14 @@ export const activityAPI = {
   },
 
   async delete(activityId: BackendActivity['id']): Promise<string> {
-    const response = await api.delete(`${getActivityDetailPath(activityId)}delete/`);
+    if (
+      (typeof activityId !== 'string' && typeof activityId !== 'number')
+      || String(activityId).trim() === ''
+    ) {
+      throw new Error('Cannot delete activity because its ID is missing.');
+    }
+    const response = await api.delete(getActivityDeletePath(activityId));
+    await storage.removeItem(ACTIVITY_HISTORY_CACHE_KEY).catch(() => undefined);
     return typeof response.data?.message === 'string'
       ? response.data.message
       : 'Activity deleted successfully.';
@@ -525,6 +601,7 @@ export const activityAPI = {
     activityId: BackendActivity['id'],
     startTime: string,
     endTime: string,
+    timingFallback?: CropTimingFallback,
   ): Promise<CropActivityResult> {
     const startDate = new Date(startTime);
     const endDate = new Date(endTime);
@@ -563,13 +640,14 @@ export const activityAPI = {
     }
 
     const result = response.data?.data ?? response.data;
-    return result as CropActivityResult;
+    return applyCropTimingFallback(result as CropActivityResult, timingFallback);
   },
 
   async crop(
     activityId: BackendActivity['id'],
     startTime: string,
     endTime: string,
+    timingFallback?: CropTimingFallback,
   ): Promise<CropActivityResult> {
     const startDate = new Date(startTime);
     const endDate = new Date(endTime);
@@ -601,14 +679,43 @@ export const activityAPI = {
       throw error;
     }
 
-    const result = response.data?.data ?? response.data;
+    const responseResult = response.data?.data ?? response.data;
+    const result = applyCropTimingFallback(responseResult as CropActivityResult, timingFallback);
     const croppedDistance = Number(result.distance);
     if (Number.isFinite(croppedDistance)) {
       await activityDistanceOverrides.save(activityId, croppedDistance);
     }
+    const croppedElapsedTime = Number(result.elapsed_time);
+    const croppedMovingTime = Number(result.moving_time);
+    if (
+      Number.isFinite(croppedElapsedTime)
+      && croppedElapsedTime >= 0
+      && Number.isFinite(croppedMovingTime)
+      && croppedMovingTime >= 0
+    ) {
+      const pausedTime = Number(result.paused_time_s);
+      const pauseCount = Number(result.pause_count);
+      await activityTimingOverrides.save(activityId, {
+        moving_time: croppedMovingTime,
+        elapsed_time: croppedElapsedTime,
+        moving_time_s: croppedMovingTime,
+        elapsed_time_s: croppedElapsedTime,
+        paused_time_s: Number.isFinite(pausedTime) && pausedTime >= 0
+          ? pausedTime
+          : Math.max(0, croppedElapsedTime - croppedMovingTime),
+        pause_count: Number.isFinite(pauseCount) && pauseCount >= 0
+          ? pauseCount
+          : 0,
+      });
+    } else {
+      console.warn(
+        `[ActivityTiming] Crop saved for activity ${activityId}, but its response did not contain valid elapsed_time and moving_time values`,
+      );
+    }
     console.log(
-      `[Activity] Cropped distance returned by backend: ${croppedDistance.toFixed(2)}m; `
-      + `pace returned by backend: ${Number(result.avg_pace).toFixed(2)}s/km`
+      `[Activity] Crop returned distance=${croppedDistance.toFixed(2)}m, `
+      + `moving=${croppedMovingTime}s, elapsed=${croppedElapsedTime}s, `
+      + `pace=${Number(result.avg_pace).toFixed(2)}s/km`
     );
     return result as CropActivityResult;
   },

@@ -1,21 +1,11 @@
+import { Alert } from '@/components/ThemedAlert';
 import { Feather } from "@expo/vector-icons";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-} from "react-native";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import MotionEntrance from "../../../components/MotionEntrance";
 import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { Colors } from "../../../constants/theme";
@@ -881,6 +871,7 @@ export default function CustomWorkoutOverview() {
         contentContainerStyle={styles.bodyContent}
         showsVerticalScrollIndicator={false}
       >
+        <MotionEntrance>
         {/* Workout Date Banner */}
         <View style={styles.dateBanner}>
           <Feather name="calendar" size={16} color={Colors.primaryLight} />
@@ -1153,6 +1144,7 @@ export default function CustomWorkoutOverview() {
             </TouchableOpacity>
           </View>
         )}
+        </MotionEntrance>
       </ScrollView>
 
       {/* Title & Notes Edit Modal */}

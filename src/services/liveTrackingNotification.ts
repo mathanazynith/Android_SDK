@@ -1,13 +1,19 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { updateNativeRunNotification } from '../../modules/zyrun-live-update';
 
 /** Reserved ID for the one native Android workout foreground notification. */
 export const WORKOUT_FOREGROUND_NOTIFICATION_ID = 1001;
-export const LIVE_TRACKING_CHANNEL_ID = 'zyrun-live-tracking';
+// Bump the channel ID when changing importance: Android keeps a channel's
+// original importance and ignores attempts to raise it in place.
+export const LIVE_TRACKING_CHANNEL_ID = 'zyrun-live-tracking-v2';
 export const LIVE_TRACKING_ROUTE = '/(app)/screens/map';
 export const LIVE_TRACKING_STOP_ACTION = 'zyrun-stop';
+export const LIVE_TRACKING_PAUSE_ACTION = 'zyrun-pause';
+export const LIVE_TRACKING_RESUME_ACTION = 'zyrun-resume';
 
 type LiveTrackingMetrics = {
+  runId?: string | null;
   distanceKm: number;
   elapsedSeconds?: number;
   paceMinutesPerKm: number;
@@ -57,7 +63,10 @@ export async function configureLiveTrackingNotifications(): Promise<boolean> {
   await Notifications.setNotificationChannelAsync(LIVE_TRACKING_CHANNEL_ID, {
     name: 'Live workout metrics',
     description: 'Time, distance, and pace while a workout is active.',
-    importance: Notifications.AndroidImportance.LOW,
+    // The fallback notification uses this channel on Android versions where
+    // the native ongoing-notification update is unavailable. HIGH is needed
+    // for heads-up presentation; sound and vibration remain disabled below.
+    importance: Notifications.AndroidImportance.HIGH,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     sound: null,
     enableVibrate: false,
@@ -75,6 +84,21 @@ export async function configureLiveTrackingNotifications(): Promise<boolean> {
 
 const publish = async (metrics: LiveTrackingMetrics, currentGeneration: number): Promise<void> => {
   if (currentGeneration !== generation || !(await configureLiveTrackingNotifications())) return;
+  if (Platform.OS === 'android') {
+    const updatedNativeNotification = updateNativeRunNotification({
+      runId: metrics.runId ?? null,
+      distanceKm: metrics.distanceKm,
+      elapsedSeconds: metrics.elapsedSeconds ?? 0,
+      paceMinutesPerKm: metrics.paceMinutesPerKm,
+      status: metrics.status,
+      startedAtMs: getStartTimestamp(metrics),
+    });
+    if (updatedNativeNotification) {
+      await Notifications.dismissNotificationAsync(String(WORKOUT_FOREGROUND_NOTIFICATION_ID)).catch(() => undefined);
+      return;
+    }
+  }
+
   const content = ({
     title: 'Zy-Run  |  Live workout',
     body: notificationBody(metrics),
@@ -88,7 +112,7 @@ const publish = async (metrics: LiveTrackingMetrics, currentGeneration: number):
     sticky: true,
     autoDismiss: false,
     onlyAlertOnce: true,
-    priority: Notifications.AndroidNotificationPriority.DEFAULT,
+    priority: Notifications.AndroidNotificationPriority.HIGH,
   } as unknown) as Notifications.NotificationContentInput & { channelId: string };
 
   await Notifications.scheduleNotificationAsync({
@@ -160,4 +184,5 @@ export async function stopLiveTrackingNotification(): Promise<void> {
   lastPublishedDistanceKm = null;
   lastPublishedAt = 0;
   lastPublishedStatus = null;
+  await Notifications.dismissNotificationAsync(String(WORKOUT_FOREGROUND_NOTIFICATION_ID)).catch(() => undefined);
 }

@@ -1,16 +1,18 @@
 import React, {
-    createContext,
-    useContext,
-    useEffect,
-    useRef,
-    useState,
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
 } from "react";
-import { AppState } from "react-native";
 import { authAPI } from "./api";
-import { getFcmToken, subscribeToFcmTokenRefresh } from "./fcmService";
+import { subscribeToFcmTokenRefresh } from "./fcmService";
 import "./googleAuth"; // Ensure GoogleAuthService is initialized
 import { googleAuthService } from "./googleAuth";
-import { deactivateNotificationDevice, registerNotificationDevice } from "./notificationService";
+import {
+  deactivateNotificationDevice,
+  registerNotificationDevice,
+} from "./notificationService";
 import { storage } from "./storage";
 
 interface User {
@@ -155,24 +157,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.warn('[Notifications] Device registration failed', error);
       }
     };
-    const registerCurrentToken = () => {
-      void getFcmToken().then((token) => {
-        if (token) void registerToken(token);
-      });
-    };
-
-    registerCurrentToken();
     const unsubscribe = subscribeToFcmTokenRefresh((token: string) => {
       void registerToken(token);
-    });
-    const appStateSubscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') registerCurrentToken();
     });
 
     return () => {
       isActive = false;
       unsubscribe();
-      appStateSubscription.remove();
     };
   }, [isLoading, user?.id]);
 

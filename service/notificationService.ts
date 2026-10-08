@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { randomUUID } from 'expo-crypto';
 import { Platform } from 'react-native';
-import { API_BASE_URL, notificationsAPI } from './api';
+import { API_BASE_URL, notificationsAPI, type NotificationDeviceRegistration } from './api';
 import { storage } from './storage';
 
 export interface AppNotification {
@@ -37,7 +37,7 @@ export const getNotificationDestination = (
       return '/(app)/calendar';
     case 'NEW_DEVICE_LOGIN':
     case 'PASSWORD_CHANGED':
-      return '/(app)/profile';
+      return '/(app)/dashboard';
     case 'RUN_SAVED_OTHER_DEVICE': {
       const activityId = data.activity_id;
       if (typeof activityId === 'number' && Number.isSafeInteger(activityId) && activityId > 0) {
@@ -144,6 +144,45 @@ export const markNotificationRead = (id: number | string): Promise<unknown> =>
 export const markAllNotificationsRead = (): Promise<unknown> =>
   notificationsAPI.markAllRead().then((response) => response.data);
 
+const notificationDismissalKey = (userId: number): string =>
+  `notification_dismissed_ids_${userId}`;
+
+const pendingDismissalWrites = new Map<number, Promise<void>>();
+
+export const getLocallyDismissedNotificationIds = async (userId: number): Promise<Set<string>> => {
+  const storedIds = await storage.getItem(notificationDismissalKey(userId));
+  if (storedIds === null) return new Set();
+
+  let parsedIds: unknown;
+  try {
+    parsedIds = JSON.parse(storedIds);
+  } catch (error) {
+    throw new Error('Saved notification dismissals are corrupted and could not be read.', { cause: error });
+  }
+  if (!Array.isArray(parsedIds) || !parsedIds.every((id) => typeof id === 'string')) {
+    throw new Error('Saved notification dismissals have an invalid format.');
+  }
+  return new Set(parsedIds);
+};
+
+export const saveLocallyDismissedNotification = async (
+  userId: number,
+  notificationId: number | string,
+): Promise<void> => {
+  const previousWrite = pendingDismissalWrites.get(userId);
+  const write = (previousWrite ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    const dismissedIds = await getLocallyDismissedNotificationIds(userId);
+    dismissedIds.add(String(notificationId));
+    await storage.setItem(notificationDismissalKey(userId), JSON.stringify([...dismissedIds]));
+  });
+  pendingDismissalWrites.set(userId, write);
+  try {
+    await write;
+  } finally {
+    if (pendingDismissalWrites.get(userId) === write) pendingDismissalWrites.delete(userId);
+  }
+};
+
 const getDeviceId = async (): Promise<string> => {
   if (!deviceIdRequest) {
     deviceIdRequest = (async () => {
@@ -162,27 +201,37 @@ const getDeviceId = async (): Promise<string> => {
   return deviceIdRequest;
 };
 
-export const registerNotificationDevice = async (userId: number, fcmToken: string): Promise<void> => {
-  if (Platform.OS !== 'android' || !fcmToken) return;
+export const getNotificationDevicePayload = async (
+  fcmToken: string | null,
+): Promise<NotificationDeviceRegistration> => {
+  if (typeof fcmToken !== 'string' || !fcmToken.trim()) {
+    throw new Error('A Firebase notification token is required to sign in on Android. Enable notifications and try again.');
+  }
 
   const appVersion = Constants.expoConfig?.version;
   if (!appVersion) {
     throw new Error('App version is unavailable for notification device registration.');
   }
 
-  const deviceId = await getDeviceId();
-  const registrationKey = `${userId}:${deviceId}:${fcmToken}`;
+  return {
+    device_id: await getDeviceId(),
+    platform: 'ANDROID',
+    fcm_token: fcmToken,
+    app_version: appVersion,
+  };
+};
+
+export const registerNotificationDevice = async (userId: number, fcmToken: string): Promise<void> => {
+  if (Platform.OS !== 'android' || !fcmToken) return;
+
+  const payload = await getNotificationDevicePayload(fcmToken);
+  const registrationKey = `${userId}:${payload.device_id}:${fcmToken}`;
   if (registeredDeviceKey === registrationKey) return;
 
   const pendingRegistration = pendingRegistrations.get(registrationKey);
   if (pendingRegistration) return pendingRegistration;
 
-  const request = notificationsAPI.registerDevice({
-    device_id: deviceId,
-    platform: 'ANDROID',
-    fcm_token: fcmToken,
-    app_version: appVersion,
-  }).then(() => {
+  const request = notificationsAPI.registerDevice(payload).then(() => {
     registeredDeviceKey = registrationKey;
   }).finally(() => {
     pendingRegistrations.delete(registrationKey);
