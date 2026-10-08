@@ -510,9 +510,6 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
           return next;
         }
 
-        if (__DEV__) {
-          console.log("[Questionnaire] Answer stored for id", numericId, newAnswer);
-        }
 
         return {
           ...prev,
@@ -607,9 +604,6 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       });
     }
 
-    if (__DEV__) {
-      console.log("[Questionnaire] buildAnswersPayload", JSON.stringify(payload, null, 2));
-    }
     return payload;
   }, [currentPageQuestions, allAnswers]);
 

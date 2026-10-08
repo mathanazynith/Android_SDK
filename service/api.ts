@@ -16,7 +16,6 @@ export const resolveApiUrl = (value?: string | null) => {
   return `${API_BASE_URL}/${value}`;
 };
 
-console.log("API_BASE_URL", API_BASE_URL);
 
 export const API_ENDPOINTS = {
   auth: {
@@ -49,11 +48,6 @@ const api = axios.create({
   },
 });
 
-const isRefreshEndpoint = (url?: string) => {
-  if (!url) return false;
-  return REFRESH_TOKEN_PATHS.some((path) => url.endsWith(path) || url.includes(path));
-};
-
 const isAuthEndpoint = (url?: string) => {
   if (!url) return false;
   return [
@@ -63,14 +57,6 @@ const isAuthEndpoint = (url?: string) => {
     ...REFRESH_TOKEN_PATHS,
   ].some((path) => url.endsWith(path) || url.includes(path));
 };
-
-const isNotificationDeviceEndpoint = (url?: string) =>
-  Boolean(url?.includes("/notifications/devices/"));
-
-const isSensitiveApiEndpoint = (url?: string) =>
-  isAuthEndpoint(url) ||
-  Boolean(url?.includes("/auth/google-login/")) ||
-  isNotificationDeviceEndpoint(url);
 
 let isRefreshing = false;
 let refreshSubscribers: Array<(token: string | null) => void> = [];
@@ -129,13 +115,8 @@ api.interceptors.request.use(
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
-      console.log("========== API REQUEST ==========");
-      console.log("URL:", `${config.baseURL}${config.url}`);
-      console.log("METHOD:", config.method?.toUpperCase());
-      console.log("BODY:", isSensitiveApiEndpoint(config.url) ? "[REDACTED]" : config.data);
       return config;
     } catch (error) {
-      console.log("REQUEST INTERCEPTOR ERROR:", error);
       return config;
     }
   },
@@ -144,26 +125,12 @@ api.interceptors.request.use(
 
 api.interceptors.response.use(
   (response) => {
-    console.log("========== API RESPONSE ==========");
-    console.log("STATUS:", response.status);
-    console.log("DATA:", isSensitiveApiEndpoint(response.config.url) ? "[REDACTED]" : response.data);
     return response;
   },
   async (error) => {
     const originalRequest = error?.config;
     const status = error?.response?.status;
     const requestUrl = originalRequest?.url;
-
-    console.log("========== API ERROR ==========");
-    console.log("MESSAGE:", error?.message);
-    console.log("STATUS:", status);
-    console.log(
-      "RESPONSE DATA:",
-      isSensitiveApiEndpoint(requestUrl) ? "[REDACTED]" : error?.response?.data
-    );
-    if (error.code === "ECONNABORTED") {
-      console.log("Request timed out");
-    }
 
     if (
       status === 401 &&
@@ -378,11 +345,6 @@ export const assessmentAPI = {
   submitAnswers: async (assessmentId: number, answers: any[]) => {
       const payload = { answers };
 
-      console.log("========== SUBMIT ANSWERS ==========");
-      console.log("Assessment ID:", assessmentId);
-      console.log("Request URL:", `/assessments/${assessmentId}/answers/`);
-      console.log("Payload:");
-      console.log(JSON.stringify(payload, null, 2));
 
       try {
         const response = await api.post(
@@ -390,17 +352,9 @@ export const assessmentAPI = {
           payload
         );
 
-        console.log("========== RESPONSE ==========");
-        console.log(JSON.stringify(response.data, null, 2));
 
         return response;
       } catch (error: any) {
-        console.log("========== API ERROR ==========");
-        console.log("Status:", error?.response?.status);
-        console.log(
-          "Response:",
-          JSON.stringify(error?.response?.data, null, 2)
-        );
         throw error;
       }
     },
@@ -440,4 +394,3 @@ export const notificationsAPI = {
 };
 
 export default api;
-

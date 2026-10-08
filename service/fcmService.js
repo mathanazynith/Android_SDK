@@ -30,14 +30,10 @@ export async function getFcmToken() {
     const permissionGranted = await requestFcmPermission();
 
     if (!permissionGranted) {
-      console.log('[FCM] Notification permission not granted');
       return null;
     }
 
     const token = await getToken(getMessaging());
-    if (__DEV__) {
-      console.info('[FCM] Device token acquired');
-    }
     return token;
   } catch (error) {
     console.error('[FCM] Failed to get FCM token:', error);

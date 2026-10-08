@@ -227,8 +227,6 @@ export default function SignupScreen() {
     try {
       setLoading(true);
 
-      console.log("========== SIGNUP REQUEST ==========");
-      console.log(signupData);
 
       const response = await authAPI.signup(signupData);
 
@@ -245,8 +243,6 @@ export default function SignupScreen() {
       });
 
     } catch (error: any) {
-      console.log("========== SIGNUP ERROR ==========");
-      console.log(error);
 
       let errorMessage = "Something went wrong";
 

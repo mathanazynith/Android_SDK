@@ -76,7 +76,6 @@ export default function ForgotPasswordScreen() {
         params: { email: email.trim() },
       });
     } catch (error: any) {
-      console.log("Password Reset Error:", error?.response?.data);
       
       // Handle different error scenarios with user-friendly messages
       let errorMessage = "Failed to send OTP. Please try again.";

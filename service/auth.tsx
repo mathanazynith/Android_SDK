@@ -136,7 +136,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(normalizeUser(response.data.data));
       }
     } catch (error) {
-      console.log("Auth Init Error:", error);
       await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
       await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
     } finally {
@@ -157,9 +156,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!isActive || isLoggingOut.current || !token) return;
       try {
         await registerNotificationDevice(userId, token);
-        if (__DEV__) {
-          console.info('[Notifications] FCM token registered with backend', { userId });
-        }
       } catch (error) {
         console.warn('[Notifications] Device registration failed', error);
       }
@@ -282,7 +278,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const refreshToken = await storage.getItem(storage.KEYS.REFRESH_TOKEN);
       await authAPI.logout({ refresh: refreshToken || "" });
     } catch (error) {
-      console.log("Logout Error:", error);
     } finally {
       await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
       await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
@@ -293,7 +288,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const googleLogin = async (): Promise<{ requiresSignup: boolean }> => {
     try {
-      console.log("Starting Google Login flow...");
       setIsLoading(true);
 
       if (!googleAuthService.isConfigured()) {
@@ -303,7 +297,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       const result = await googleAuthService.signInWithGoogle();
-      console.log("Google Sign-In successful:", result.user.email);
 
       const deviceMetadata = await getLoginDeviceMetadata();
       const response = await authAPI.googleLogin({
@@ -324,10 +317,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           apiResponse?.userExists === false
       );
 
-      console.log("Google Login Response:", payload);
 
       if (requiresSignup) {
-        console.log("New user - needs to complete signup");
         setGoogleSignupData({
           email: result.user.email,
           first_name: result.user.given_name || "",
