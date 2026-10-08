@@ -15,6 +15,11 @@ export async function requestFcmPermission() {
   });
 
   if (Platform.Version >= 33) {
+    const isGranted = await PermissionsAndroid.check(
+      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+    );
+    if (isGranted) return true;
+
     const result = await PermissionsAndroid.request(
       PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
     );

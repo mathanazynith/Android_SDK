@@ -2,21 +2,14 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  // SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
-} from 'react-native';
+import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import ActivitySplitsModal from '../../../components/ActivitySplitsModal';
 import { useTheme } from '../../../contexts/ThemeContext';
+import MotionEntrance from '../../../components/MotionEntrance';
 import { getBackendErrorMessage } from '../../../service/api';
 import { activityAPI, BackendActivity, normalizeActivitySplits } from '../../../src/services/activityApi';
 import { ActivityExtraSplits, ActivitySegmentSplits } from '../../../src/types/activity';
@@ -220,62 +213,64 @@ export default function ActivityDetailScreen() {
           </TouchableOpacity>
         </View>
       ) : activity ? (
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <Text style={[styles.activityType, { color: colors.text }]}>{activity.activity_type.toUpperCase() === 'WALK' ? 'Walk' : 'Run'}</Text>
-          <Text style={[styles.date, { color: colors.textSecondary }]}>
-            {new Date(activity.start_time).toLocaleString(undefined, {
-              weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
-            })}
-          </Text>
+        <MotionEntrance>
+          <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+            <Text style={[styles.activityType, { color: colors.text }]}>{activity.activity_type.toUpperCase() === 'WALK' ? 'Walk' : 'Run'}</Text>
+            <Text style={[styles.date, { color: colors.textSecondary }]}>
+              {new Date(activity.start_time).toLocaleString(undefined, {
+                weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+              })}
+            </Text>
 
-          <View style={[styles.heroCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={[styles.heroLabel, { color: colors.textSecondary }]}>Distance</Text>
-            <Text style={[styles.distance, { color: colors.primary }]}>{formatDistance(activity.distance)}</Text>
-            <Text style={[styles.status, { color: colors.textTertiary }]}>{activity.processing_status.toLowerCase()}</Text>
-          </View>
+            <View style={[styles.heroCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.heroLabel, { color: colors.textSecondary }]}>Distance</Text>
+              <Text style={[styles.distance, { color: colors.primary }]}>{formatDistance(activity.distance)}</Text>
+              <Text style={[styles.status, { color: colors.textTertiary }]}>{activity.processing_status.toLowerCase()}</Text>
+            </View>
 
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Route</Text>
-          <ActivityRouteMap
-            encodedPolyline={activity.encoded_polyline}
-            plannedEncodedPolyline={activity.planned_encoded_polyline}
-            extraEncodedPolyline={activity.extra_encoded_polyline}
-            savedGpsPoints={activity.route?.points ?? activity.gps_points}
-            runningRoutes={activity.route?.running_routes}
-            pauseRoutes={activity.route?.pause_routes}
-            pauseEvents={activity.pause_events ?? activity.route?.pause_events}
-            pausePoints={activity.route?.pause_points}
-            cropStartIndex={Number.isFinite(cropStartIndex) ? cropStartIndex : undefined}
-            cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
-          />
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Route</Text>
+            <ActivityRouteMap
+              encodedPolyline={activity.encoded_polyline}
+              plannedEncodedPolyline={activity.planned_encoded_polyline}
+              extraEncodedPolyline={activity.extra_encoded_polyline}
+              savedGpsPoints={activity.route?.points ?? activity.gps_points}
+              runningRoutes={activity.route?.running_routes}
+              pauseRoutes={activity.route?.pause_routes}
+              pauseEvents={activity.pause_events ?? activity.route?.pause_events}
+              pausePoints={activity.route?.pause_points}
+              cropStartIndex={Number.isFinite(cropStartIndex) ? cropStartIndex : undefined}
+              cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
+            />
 
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Performance</Text>
-          <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <DetailMetric label="Moving time" value={formatDuration(activity.moving_time)} />
-            <DetailMetric label="Elapsed time" value={formatDuration(activity.elapsed_time)} />
-            <DetailMetric label="Average pace" value={formatPace(activity.avg_pace)} />
-            <DetailMetric label="Average speed" value={formatSpeed(activity.avg_speed)} />
-            <DetailMetric label="Max speed" value={formatSpeed(activity.max_speed)} />
-            <DetailMetric label="Calories" value={`${Math.round(activity.calories)} kcal`} />
-          </View>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Performance</Text>
+            <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <DetailMetric label="Moving time" value={formatDuration(activity.moving_time)} />
+              <DetailMetric label="Elapsed time" value={formatDuration(activity.elapsed_time)} />
+              <DetailMetric label="Average pace" value={formatPace(activity.avg_pace)} />
+              <DetailMetric label="Average speed" value={formatSpeed(activity.avg_speed)} />
+              <DetailMetric label="Max speed" value={formatSpeed(activity.max_speed)} />
+              <DetailMetric label="Calories" value={`${Math.round(activity.calories)} kcal`} />
+            </View>
 
-          {(activity.planned_distance_km !== null && activity.planned_distance_km !== undefined)
-            || (activity.extra_distance_km !== null && activity.extra_distance_km !== undefined) ? (
-            <>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Distance breakdown</Text>
-              <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <DetailMetric label="Planned distance" value={formatDistance(Number(activity.planned_distance ?? (activity.planned_distance_km ?? 0) * 1000))} />
-                <DetailMetric label="Extra distance" value={formatDistance(Number(activity.extra_distance ?? (activity.extra_distance_km ?? 0) * 1000))} />
-              </View>
-            </>
-          ) : null}
+            {(activity.planned_distance_km !== null && activity.planned_distance_km !== undefined)
+              || (activity.extra_distance_km !== null && activity.extra_distance_km !== undefined) ? (
+              <>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Distance breakdown</Text>
+                <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <DetailMetric label="Planned distance" value={formatDistance(Number(activity.planned_distance ?? (activity.planned_distance_km ?? 0) * 1000))} />
+                  <DetailMetric label="Extra distance" value={formatDistance(Number(activity.extra_distance ?? (activity.extra_distance_km ?? 0) * 1000))} />
+                </View>
+              </>
+            ) : null}
 
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Route data</Text>
-          <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <DetailMetric label="Elevation gain" value={`${Math.round(activity.elevation_gain)} m`} />
-            <DetailMetric label="Elevation loss" value={`${Math.round(activity.elevation_loss)} m`} />
-            <DetailMetric label="Route processed" value={activity.is_processed ? 'Yes' : 'No'} />
-          </View>
-        </ScrollView>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Route data</Text>
+            <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <DetailMetric label="Elevation gain" value={`${Math.round(activity.elevation_gain)} m`} />
+              <DetailMetric label="Elevation loss" value={`${Math.round(activity.elevation_loss)} m`} />
+              <DetailMetric label="Route processed" value={activity.is_processed ? 'Yes' : 'No'} />
+            </View>
+          </ScrollView>
+        </MotionEntrance>
       ) : null}
       <ActivitySplitsModal
         visible={splitsVisible}

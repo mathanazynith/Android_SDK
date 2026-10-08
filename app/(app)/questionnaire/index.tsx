@@ -28,6 +28,7 @@ import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import { calculatePace, timeToSeconds } from "../../../utils/validators";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
+import MotionEntrance from "../../../components/MotionEntrance";
 
 // Helper to get numeric ID
 const getNumericId = (id: number | string): number => {
@@ -1074,7 +1075,7 @@ export default function QuestionnaireScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContainer} nestedScrollEnabled={true}>
-        <View style={styles.pageContainer}>
+        <MotionEntrance key={stepInfo.current} style={styles.pageContainer}>
           {(error || validationErrorQuestionId || daySelectionError) && (
             <View style={styles.validationBanner}>
               <Text style={styles.validationBannerText}>{error || daySelectionError || "This answer does not meet the configured validation rules."}</Text>
@@ -1234,7 +1235,7 @@ export default function QuestionnaireScreen() {
                 </View>
               );
             })}
-        </View>
+        </MotionEntrance>
       </ScrollView>
 
       <View style={[styles.buttonContainer, { paddingBottom: 12 + insets.bottom, backgroundColor: colors.background }]}>
