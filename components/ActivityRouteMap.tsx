@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useTheme } from '../contexts/ThemeContext';
+import { buildActivityRouteGroups } from '../src/utils/activityRouteGroups';
 import { createCatmullRomPolyline } from '../src/utils/catmullRom';
 import { decodePolyline } from '../src/utils/polylineDecoder';
 
@@ -376,4 +377,3 @@ const styles = StyleSheet.create({
   emptyRoute: { minHeight: 120, borderRadius: 22, borderWidth: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
   emptyRouteText: { fontSize: 15, textAlign: 'center' },
 });
-
