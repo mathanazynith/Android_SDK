@@ -15,6 +15,11 @@ export async function requestFcmPermission() {
   });
 
   if (Platform.Version >= 33) {
+    const isGranted = await PermissionsAndroid.check(
+      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+    );
+    if (isGranted) return true;
+
     const result = await PermissionsAndroid.request(
       PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
     );
@@ -30,14 +35,10 @@ export async function getFcmToken() {
     const permissionGranted = await requestFcmPermission();
 
     if (!permissionGranted) {
-      console.log('[FCM] Notification permission not granted');
       return null;
     }
 
     const token = await getToken(getMessaging());
-    if (__DEV__) {
-      console.info('[FCM] Device token acquired');
-    }
     return token;
   } catch (error) {
     console.error('[FCM] Failed to get FCM token:', error);

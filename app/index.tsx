@@ -1,33 +1,25 @@
-import { router, useRootNavigationState } from 'expo-router';
-import { useEffect, useRef } from 'react';
+import { Redirect, useRootNavigationState } from 'expo-router';
 import { Image, StyleSheet, View } from 'react-native';
 import { useAuth } from '../service/auth';
 
 export default function SplashScreen() {
   const { user, isLoading } = useAuth();
   const rootNavigationState = useRootNavigationState();
-  const hasRedirectedRef = useRef(false);
 
-  useEffect(() => {
-    if (isLoading || !rootNavigationState?.key || hasRedirectedRef.current) {
-      return;
-    }
+  if (isLoading || !rootNavigationState?.key) {
+    return (
+      <View style={styles.container}>
+        <Image
+          source={require('../assets/Loading_image_app.png')}
+          style={styles.loadingImage}
+          resizeMode="cover"
+          accessibilityLabel="Zy-Run loading"
+        />
+      </View>
+    );
+  }
 
-    hasRedirectedRef.current = true;
-    const targetRoute = user ? '/(app)/dashboard' : '/(auth)/login';
-    router.replace(targetRoute);
-  }, [isLoading, user, rootNavigationState?.key]);
-
-  return (
-    <View style={styles.container}>
-      <Image
-        source={require('../assets/Loading_image_app.png')}
-        style={styles.loadingImage}
-        resizeMode="cover"
-        accessibilityLabel="Zy-Run loading"
-      />
-    </View>
-  );
+  return <Redirect href={user ? '/(app)/dashboard' : '/(auth)/login'} />;
 }
 
 const styles = StyleSheet.create({

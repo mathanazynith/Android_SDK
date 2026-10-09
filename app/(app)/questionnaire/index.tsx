@@ -28,6 +28,7 @@ import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import { calculatePace, timeToSeconds } from "../../../utils/validators";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
+import MotionEntrance from "../../../components/MotionEntrance";
 
 // Helper to get numeric ID
 const getNumericId = (id: number | string): number => {
@@ -155,14 +156,6 @@ const QuestionField = ({
 
   const resolvedValue = resolveComputedValue();
 
-  console.log("[QuestionField] rendering question", {
-    id,
-    type,
-    questionText,
-    value,
-    unit,
-    customValues,
-  });
 
   // Page 5 uses ordinary backend question types, so route only its two
   // identified questions through the same Page 2 primitives.
@@ -754,7 +747,7 @@ export default function QuestionnaireScreen() {
     setIsSubmitting(true);
     try {
       await goToNext();
-    } catch (err) {
+    } catch {
       // error is already set in context
     } finally {
       setIsSubmitting(false);
@@ -1074,7 +1067,7 @@ export default function QuestionnaireScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContainer} nestedScrollEnabled={true}>
-        <View style={styles.pageContainer}>
+        <MotionEntrance key={stepInfo.current} style={styles.pageContainer}>
           {(error || validationErrorQuestionId || daySelectionError) && (
             <View style={styles.validationBanner}>
               <Text style={styles.validationBannerText}>{error || daySelectionError || "This answer does not meet the configured validation rules."}</Text>
@@ -1234,7 +1227,7 @@ export default function QuestionnaireScreen() {
                 </View>
               );
             })}
-        </View>
+        </MotionEntrance>
       </ScrollView>
 
       <View style={[styles.buttonContainer, { paddingBottom: 12 + insets.bottom, backgroundColor: colors.background }]}>

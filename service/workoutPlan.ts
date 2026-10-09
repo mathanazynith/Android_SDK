@@ -110,7 +110,6 @@ export const workoutPlanService = {
       // 1. Direct PATCH if workoutDbId is provided
       if (identifier.workoutDbId) {
         try {
-          console.log(`[workoutPlanService] Direct PATCH is_benchmark=${isBenchmark} on workout id=${identifier.workoutDbId}`);
           const res = await customWorkoutAPI.setBenchmark(identifier.workoutDbId, isBenchmark);
           if (res?.data) {
             return res.data;
@@ -122,7 +121,6 @@ export const workoutPlanService = {
             detail
           );
           if (typeof detail === "string" && detail.includes("Generated workouts cannot be edited")) {
-            console.info("[workoutPlanService] Backend restricts direct editing of generated workouts; preserving local benchmark state.");
             return {
               id: identifier.workoutDbId,
               plan: null,
@@ -211,7 +209,6 @@ export const workoutPlanService = {
       });
 
       if (match) {
-        console.log(`[workoutPlanService] Found matching database workout id=${match.id}, patching is_benchmark=${isBenchmark}`);
         try {
           const res = await customWorkoutAPI.setBenchmark(match.id, isBenchmark);
           return res.data;
@@ -227,7 +224,6 @@ export const workoutPlanService = {
       // 3. Fallback: If no existing plan workout was found in database workouts table, create it with is_custom: false
       if (identifier.title) {
         try {
-          console.log(`[workoutPlanService] Creating plan workout in /workouts/ with is_custom=false, is_benchmark=${isBenchmark}`);
           const createRes = await customWorkoutAPI.create({
             title: identifier.title,
             workout_type: identifier.workoutType || "Run",

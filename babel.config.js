@@ -1,14 +1,10 @@
-// babel.config.js
 module.exports = function (api) {
   api.cache(true);
+  const isProduction = process.env.NODE_ENV === 'production';
   return {
     presets: ['babel-preset-expo'],
     plugins: [
-      // Remove or comment out react-native-dotenv for now
-      // ['module:react-native-dotenv', {
-      //   moduleName: '@env',
-      //   path: '.env',
-      // }],
+      ...(isProduction ? [['transform-remove-console', { exclude: ['error', 'warn'] }]] : []),
     ],
   };
 };

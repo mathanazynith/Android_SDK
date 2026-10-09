@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ActivityIndicator,
   TouchableOpacity,
-  Alert,
   Platform,
 } from 'react-native';
 import MapScreen from '../app/(app)/screens/map';
@@ -29,11 +28,9 @@ export default function SafeMapScreen() {
       setLoading(true);
       setError(null);
 
-      console.log('🔍 Initializing SafeMapScreen...');
       
       // Step 1: Check API Key
       const apiKey = ENV.GOOGLE_MAPS_API_KEY;
-      console.log('📏 API Key length:', apiKey?.length);
       
       if (!apiKey || apiKey.length < 20) {
         setError('Google Maps API Key is invalid or missing.');
@@ -43,7 +40,6 @@ export default function SafeMapScreen() {
 
       // Step 2: Check Location Permissions
       const { status } = await Location.requestForegroundPermissionsAsync();
-      console.log('📍 Location permission status:', status);
       
       if (status !== 'granted') {
         setError('Location permission is required for the map to work.');
@@ -56,10 +52,9 @@ export default function SafeMapScreen() {
 
       // Step 3: Try to get current location
       try {
-        const location = await Location.getCurrentPositionAsync({
+        await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Highest,
         });
-        console.log('🌍 Location obtained:', location.coords);
         setLocationStatus('Location obtained ✓');
       } catch (locError) {
         console.warn('⚠️ Could not get initial location:', locError);
@@ -68,7 +63,6 @@ export default function SafeMapScreen() {
       }
 
       // Step 4: Everything is ready
-      console.log('✅ Map is ready to render');
       setIsReady(true);
       setLoading(false);
 

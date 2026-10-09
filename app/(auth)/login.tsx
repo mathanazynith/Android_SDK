@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AuthModeTabs from '../../components/auth/AuthModeTabs';
 import { AppInput } from '../../components/common/AppInput';
 import { PrimaryButton } from '../../components/common/PrimaryButton';
 import GoogleLoginButton from '../../components/GoogleLoginButton';
@@ -178,12 +179,10 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.authCard}>
-          <View style={[styles.segmentedControl, { backgroundColor: colors.surfaceRaised }]}>
-            <View style={[styles.segment, { backgroundColor: BRAND_GREEN }]}><Text style={styles.activeSegmentText}>Sign in</Text></View>
-            <TouchableOpacity style={styles.segment} onPress={() => router.push('/(auth)/signup')}>
-              <Text style={styles.segmentText}>Sign up</Text>
-            </TouchableOpacity>
-          </View>
+          <AuthModeTabs
+            mode="login"
+            onChange={() => router.push({ pathname: '/(auth)/signup', params: { fromAuthTab: '1' } })}
+          />
 
           <View style={styles.runnerBadge}>
             <Ionicons name="walk" size={34} color={Colors.background} />
@@ -244,7 +243,7 @@ export default function LoginScreen() {
 
         <View style={styles.signupContainer}>
           <Text style={styles.signupText}>New here? </Text>
-          <TouchableOpacity onPress={() => router.push('/(auth)/signup')}>
+          <TouchableOpacity onPress={() => router.push({ pathname: '/(auth)/signup', params: { fromAuthTab: '1' } })}>
             <Text style={styles.signupLink}>Create account</Text>
           </TouchableOpacity>
         </View>
@@ -330,10 +329,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   authCard: { width: '100%', maxWidth: 520, alignSelf: 'center' },
-  segmentedControl: { flexDirection: 'row', backgroundColor: '#202124', borderRadius: 10, padding: 3, marginBottom: 14 },
-  segment: { flex: 1, minHeight: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
-  activeSegment: { backgroundColor: '#63C438' },
-  segmentText: { color: Colors.textSecondary, fontSize: 11, fontWeight: '600' },
-  activeSegmentText: { color: '#101510', fontSize: 11, fontWeight: '700' },
   runnerBadge: { width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center', backgroundColor: '#63C438', alignSelf: 'center', marginBottom: 16 },
 });

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import ActivityRouteMap from "../../../components/ActivityRouteMap";
+import MotionEntrance from "../../../components/MotionEntrance";
 import { getBackendErrorMessage } from "../../../service/api";
 import { cacheAssignedRoute, customWorkoutAPI, type SuggestedRoute } from "../../../service/customWorkout";
 
@@ -53,14 +54,9 @@ export default function SuggestedRoutesScreen() {
     if (!workoutId) return;
     setAssigningId(route.id);
     try {
-      const response = await customWorkoutAPI.assignRoute(Number(workoutId), route.id);
+      await customWorkoutAPI.assignRoute(Number(workoutId), route.id);
       cacheAssignedRoute(Number(workoutId), route);
       setAssignedId(route.id);
-      console.log("[CustomWorkout] Route assigned", {
-        workoutId: Number(workoutId),
-        routeId: route.id,
-        response: response.data,
-      });
       Alert.alert("Route assigned", "This route will be used when you start this workout.", [
         { text: "OK", onPress: () => router.back() },
       ]);
@@ -92,16 +88,17 @@ export default function SuggestedRoutesScreen() {
             <Text style={styles.emptyText}>There are no saved routes close to this workout distance.</Text>
           </View>
         ) : routes.map((route, index) => (
-          <RouteCard
-            key={route.id}
-            route={route}
-            isBestMatch={index === 0}
-            assigning={assigningId === route.id}
-            disabled={assigningId !== null}
-            onView={() => router.push({ pathname: "/custom-workout/route-detail", params: { route: JSON.stringify(route) } })}
-            assigned={assignedId === route.id}
-            onUse={() => void assignRoute(route)}
-          />
+          <MotionEntrance key={route.id} delay={Math.min(index, 5) * 40}>
+            <RouteCard
+              route={route}
+              isBestMatch={index === 0}
+              assigning={assigningId === route.id}
+              disabled={assigningId !== null}
+              onView={() => router.push({ pathname: "/custom-workout/route-detail", params: { route: JSON.stringify(route) } })}
+              assigned={assignedId === route.id}
+              onUse={() => void assignRoute(route)}
+            />
+          </MotionEntrance>
         ))}
       </ScrollView>
     </SafeAreaView>

@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
+import MotionEntrance from '../../../components/MotionEntrance';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function RunningPlanScreen() {
@@ -49,17 +50,25 @@ export default function RunningPlanScreen() {
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: 118 + insets.bottom }]}
       >
+    <MotionEntrance>
     <View style={styles.topSection}><View style={styles.checkBadge}><Text style={styles.check}>✓</Text></View><Text style={styles.planTitle}>{planName}</Text></View>
+    </MotionEntrance>
+    <MotionEntrance delay={50}>
     <View style={styles.valuesRow}>
       <ValueCard label="Readiness" value={recommendation?.readiness_level || ''} />
       <ValueCard label="Risk Level" value={recommendation?.risk_level || ''} />
       <ValueCard label="Duration" value={duration} />
     </View>
+    </MotionEntrance>
+    <MotionEntrance delay={100}>
     {recommendation?.reason ? <View style={styles.reasonCard}><Text style={styles.reasonTitle}>Why this plan</Text><Text style={styles.reasonText}>{recommendation.reason}</Text></View> : null}
+    </MotionEntrance>
+    <MotionEntrance delay={140}>
     <View style={styles.buttonArea}>
       <TouchableOpacity style={styles.calendarButton} onPress={() => router.push('/(app)/calendar')}><Text style={styles.calendarButtonText}>View Training Calendar</Text></TouchableOpacity>
       <TouchableOpacity style={[styles.endPlanButton, isEndingPlan && styles.endPlanButtonDisabled]} onPress={handleEndPlan} disabled={isEndingPlan}><Text style={styles.endPlanButtonText}>{isEndingPlan ? 'Ending Plan...' : 'End Plan'}</Text></TouchableOpacity>
     </View>
+    </MotionEntrance>
       </ScrollView>
     </View>
   );

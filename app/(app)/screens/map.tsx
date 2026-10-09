@@ -270,11 +270,6 @@ export default function MapScreen() {
   const [distance, setDistance] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [accuracy, setAccuracy] = useState<number | null>(null);
-  const [optimizedStats, setOptimizedStats] = useState({
-    rawPointCount: 0,
-    optimizedPointCount: 0,
-    reductionPercent: 0,
-  });
   const [isPaused, setIsPaused] = useState(false);
   const [pace, setPace] = useState(0); // pace in minutes per km
   const [isPlannedWorkout, setIsPlannedWorkout] = useState(false);
@@ -440,7 +435,6 @@ export default function MapScreen() {
         { center: { latitude: midLat, longitude: midLon }, zoom: 20 },
         { duration: 350 }
       );
-      console.log('[WorkoutMapView] Short route kept at close indoor zoom (20)');
       return;
     }
 
@@ -546,9 +540,6 @@ export default function MapScreen() {
       setPermissionGranted(true);
 
       const currentLocation = await LocationService.getCurrentLocation();
-      console.log(
-        `[LocationManager] incoming sample acc:${currentLocation.accuracy ?? 0}m age:0.0s speed:${currentLocation.speed ?? 0} hasLast:false`
-      );
 
       const timestamp = typeof currentLocation.timestamp === 'number'
         ? currentLocation.timestamp
@@ -723,13 +714,6 @@ export default function MapScreen() {
 
       uploadInProgressRef.current = true;
 
-      const uploadPayload = {
-        run_id: runIdRef.current,
-        points: batch,
-      };
-
-      console.log('[Upload Payload JSON]', JSON.stringify(uploadPayload, null, 2));
-
       try {
         addLog(`?? Uploading ${batch.length} points`);
         await apiClientRef.current.uploadBatch(runIdRef.current, batch);
@@ -797,8 +781,6 @@ export default function MapScreen() {
       const hasMovementObservation = hasGoodAccuracy
         && hasMovementMagnitude
         && (hasMotionEvidence || hasExplicitResumeMovement);
-      const movementStateBefore = movementStateRef.current;
-
       if (hasMovementObservation) {
         consecutiveMovementRef.current += 1;
         consecutiveStationaryRef.current = 0;
@@ -834,18 +816,6 @@ export default function MapScreen() {
 
       const movementState = movementStateRef.current;
       const shouldProcessRoute = movementState === 'MOVING';
-      if (__DEV__) {
-        console.log(
-          `[MovementGate] timestamp=${timestamp} lat=${rawGps.latitude} lon=${rawGps.longitude} `
-          + `accuracy=${accuracy.toFixed(1)}m speed=${speed.toFixed(2)}m/s `
-          + `distance=${previousPointDistance.toFixed(1)}m activity=${detectedActivity} `
-          + `steps=${hasRecentStepEvidence} state=${movementStateBefore}->${movementState} `
-          + `movementCount=${consecutiveMovementRef.current} stationaryCount=${consecutiveStationaryRef.current} `
-          + `decision=${shouldProcessRoute ? 'ACCEPT' : 'REJECT'} `
-          + `reason=${!hasGoodAccuracy ? 'poor-accuracy' : !hasMotionEvidence ? 'no-motion-evidence' : !hasMovementMagnitude ? 'no-movement-magnitude' : 'movement-gate'}`
-        );
-      }
-
       previousLocationRef.current = rawGps;
       if (!shouldProcessRoute) {
         previousWorkoutPointRef.current = null;
@@ -885,12 +855,6 @@ export default function MapScreen() {
 
         }
         if (__DEV__) {
-          console.log(`[WorkoutMapView] 📌 Polyline updated: ${processor.getRawPoints().length} live raw points`);
-          console.log(
-            `[WorkoutMapView] Polyline ${displayPointWasAdded ? 'extended' : 'waiting'}: `
-            + `${processor.getDisplayPoints().length} accepted route points`
-          );
-          console.log(`[LocationManager] Tiers -> raw:${processor.getRawPoints().length} display:${processor.getDisplayPoints().length}`);
           addLog(`📌 Live polyline: ${processor.getRawPoints().length} points`);
         }
 
@@ -916,19 +880,6 @@ export default function MapScreen() {
                 previousWorkoutPointRef.current = latestDisplayPoint;
                 const snapshot = workoutEngine.getSnapshot();
                 setWorkoutSnapshot(snapshot);
-                if (__DEV__) {
-                  console.log(
-                    `[Workout] Accepted +${movementDistance.toFixed(2)}m; `
-                    + `SDK total=${nextDistance.toFixed(2)}m; `
-                    + `segment=${snapshot.currentLap?.distanceMeters.toFixed(2) ?? 'completed'}m`
-                  );
-                }
-              } else {
-                if (__DEV__) {
-                  console.log(
-                    `[Workout] Accepted +${movementDistance.toFixed(2)}m; SDK total=${nextDistance.toFixed(2)}m`
-                  );
-                }
               }
             } else if (workoutEngine && (workoutEngine.getSnapshot().state === 'waiting' || workoutEngine.getSnapshot().state === 'completed')) {
               extraDistanceRef.current += movementDistance;
@@ -938,13 +889,6 @@ export default function MapScreen() {
               completedSplits.forEach((split) => {
                 void workoutVoiceRef.current?.splitCompleted(split.splitNumber * SPLIT_DISTANCE_METERS);
               });
-              if (__DEV__) {
-                console.log(
-                  `[Workout] Extra activity accepted: +${movementDistance.toFixed(1)}m `
-                  + `(total extra ${extraDistanceRef.current.toFixed(1)}m; `
-                  + `SDK total ${totalDistance.toFixed(1)}m)`
-                );
-              }
             }
           }
         }
@@ -960,14 +904,10 @@ export default function MapScreen() {
         // simplified, and uploaded once only when the user saves the workout.
       } else {
         if (__DEV__) {
-          console.log('[LocationManager] Rejected: GPS sample did not pass live validation');
           addLog('? GPS point rejected');
         }
       }
 
-      if (__DEV__) {
-        console.log(`[WorkoutMapView] Current location: lat=${rawGps.latitude} lon=${rawGps.longitude}`);
-      }
       moveMapToLocation(rawGps.latitude, rawGps.longitude);
     },
     [addLog, appendRoutePoint, fitMapToRoute, moveMapToLocation, uploadBatch]
@@ -1129,7 +1069,7 @@ export default function MapScreen() {
 
       const activityDetection = new ActivityDetectionService();
       activityDetectionRef.current = activityDetection;
-      void activityDetection.start(startTimeRef.current).catch((error) => {
+      void activityDetection.start().catch((error) => {
         console.warn('[MapScreen] Restored activity monitoring unavailable', error);
       });
       const stepDetection = new StepDetectionService();
@@ -1164,7 +1104,6 @@ export default function MapScreen() {
 
   const startRun = async () => {
     if (isStartingRef.current || isRunningRef.current) {
-      console.log('[RecordView] Start request ignored: a run is already starting or active');
       return;
     }
 
@@ -1227,7 +1166,6 @@ export default function MapScreen() {
       resumeMovementPendingRef.current = false;
       setPace(0);
       setIsPaused(false);
-      setOptimizedStats({ rawPointCount: 0, optimizedPointCount: 0, reductionPercent: 0 });
       logsRef.current = [];
       previousLocationRef.current = null;
       lastRetainedCoordinateRef.current = null;
@@ -1271,37 +1209,7 @@ export default function MapScreen() {
         pauseEvents: pauseEventsRef.current,
       });
 
-      // ============================================================
-      // 🏃 RUN STARTED - Enhanced Logging
-      // ============================================================
-      console.log('\n========== 🏃 RUN STARTED ==========');
-      console.log(`[RUN] Run ID: ${runId}`);
-      console.log(`[RUN] Start Time: ${startedAt}`);
-      console.log(`[RUN] User ID: ${userId}`);
-      console.log(`[RUN] GPS Tracking: ACTIVE`);
-      console.log(`[RUN] Expected GPS Sample Interval: 1 second (0 distance)`);
-      console.log(`[RUN] Raw GPS points will be collected and logged`);
-      console.log('======================================\n');
-
-      const startPayload = {
-        user_id: userId,
-        started_at: startedAt,
-        run_id: runId,
-      };
-
-      console.log('[Start Run Payload JSON]', JSON.stringify(startPayload, null, 2));
-
       const currentLocation = await LocationService.getCurrentLocation();
-      console.log(
-        `[LocationManager] First strict point recorded: lat:${currentLocation.latitude}, lon:${currentLocation.longitude}, acc:${currentLocation.accuracy ?? 0}m`
-      );
-      console.log(`[GPS RAW #001]`);
-      console.log(`  latitude: ${currentLocation.latitude}`);
-      console.log(`  longitude: ${currentLocation.longitude}`);
-      console.log(`  accuracy: ${currentLocation.accuracy ?? 0}m`);
-      console.log(`  speed: ${currentLocation.speed ?? 0}m/s`);
-      console.log(`  heading: ${currentLocation.heading ?? 0}°`);
-      console.log(`  timestamp: ${startedAt}`);
 
       const startingPoint: Coordinate = {
         latitude: currentLocation.latitude,
@@ -1322,10 +1230,6 @@ export default function MapScreen() {
         let engine: WorkoutEngine;
         engine = new WorkoutEngine({
           onSegmentStarted: (segment) => {
-            console.log(
-              `[Workout] Segment started: ${segment.segmentType} `
-              + `${segment.repeatNumber}/${segment.totalRepeats}`
-            );
             voice.segmentStarted(segment);
             const stepIndex = segment.segmentOrder - 1;
             if (stepIndex >= 0 && stepIndex < executionPlanRef.current.length) {
@@ -1342,17 +1246,11 @@ export default function MapScreen() {
             setWorkoutSnapshot(engine.getSnapshot());
           },
           onSegmentCompleted: (lap) => {
-            console.log(
-              `[Workout] Segment completed: ${lap.segmentType} `
-              + `${lap.repeatNumber}/${lap.totalRepeats} `
-              + `distance=${lap.distanceMeters.toFixed(1)}m duration=${lap.elapsedSeconds.toFixed(1)}s`
-            );
             void voice.segmentCompleted(lap).then(() => {
               if (!isRunningRef.current) return;
               const state = engine.getSnapshot().state;
               if (state !== 'completed') {
                 // Planned segments continue without interrupting the runner.
-                console.log(`[Workout] Planned ${lap.segmentType} complete; continuing to next segment`);
                 engine.continue();
                 setWorkoutSnapshot(engine.getSnapshot());
                 return;
@@ -1360,7 +1258,6 @@ export default function MapScreen() {
 
               if (workoutCompletionPromptShownRef.current) return;
               workoutCompletionPromptShownRef.current = true;
-              console.log('[Workout] All planned segments complete; showing Continue/Stop popup');
               setCompletionPromptVisible(true);
             });
             setWorkoutSnapshot(engine.getSnapshot());
@@ -1371,7 +1268,6 @@ export default function MapScreen() {
               return;
             }
             workoutCompletionPromptShownRef.current = true;
-            console.log('[Workout] All backend workout segments completed');
             setCompletionPromptVisible(true);
             setWorkoutSnapshot(engine.getSnapshot());
           },
@@ -1379,10 +1275,6 @@ export default function MapScreen() {
         workoutVoiceRef.current = voice;
         workoutEngineRef.current = engine;
         engine.loadWorkout(structuredWorkout);
-        console.log(
-          `[Workout] Structured workout loaded: "${structuredWorkout.title}" `
-          + `${engine.getSnapshot().totalLaps} planned segments`
-        );
         voice.workoutStarted(structuredWorkout);
         engine.start(startRoutePoint);
         previousWorkoutPointRef.current = startRoutePoint;
@@ -1397,11 +1289,7 @@ export default function MapScreen() {
       const queue = new LocationQueue();
       queueRef.current = queue;
 
-      console.log('[Run Start Coordinate]', JSON.stringify([startingPoint], null, 2));
-      console.log('[Run Start Payload]', JSON.stringify({ user_id: userId, started_at: startedAt, run_id: runId }, null, 2));
 
-      console.log('[LocationManager] RUN STARTED');
-      console.log(`[RecordView] Recording started at ${startedAt}`);
       isRunningRef.current = true;
       setIsRunning(true);
 
@@ -1438,14 +1326,13 @@ export default function MapScreen() {
           } catch (notificationError) {
             console.warn('[LiveTrackingNotification] Unable to start live notification', notificationError);
           }
-          console.log('RUN STARTED:', runId);
         })
         .catch((error) => {
           console.error('[LocationManager] GPS watcher failed to start', error);
           addLog('GPS watcher failed to start');
         });
 
-      void activityDetection.start(startTimeRef.current).catch((error) => {
+      void activityDetection.start().catch((error) => {
         console.warn('[LocationManager] Activity monitoring startup failed; GPS recording continues', error);
       });
       void stepDetection.start((steps) => {
@@ -1475,13 +1362,11 @@ export default function MapScreen() {
 
   const pauseRun = useCallback(async () => {
     if (isPausingRef.current || !isRunningRef.current || isPausedRef.current) {
-      console.log('[RecordView] Pause request ignored: run not active or already paused');
       return;
     }
 
     isPausingRef.current = true;
     try {
-      console.log('[RecordView] Pausing run...');
 
       // Keep the single GPS watcher active. This movement is displayed in a
       // light colour but is excluded from the active lap's distance.
@@ -1529,7 +1414,6 @@ export default function MapScreen() {
         pauseEvents: pauseEventsRef.current,
       });
 
-      console.log('[RecordView] Run paused - GPS continues as light trace');
       addLog('⏸ Run paused - tracking stopped');
     } catch (error) {
       console.error('Pause run error:', error);
@@ -1541,12 +1425,10 @@ export default function MapScreen() {
 
   const resumeRun = useCallback(async () => {
     if (!isPausedRef.current || !isRunningRef.current) {
-      console.log('[RecordView] Resume request ignored: run not paused');
       return;
     }
 
     try {
-      console.log('[RecordView] Resuming run...');
 
       const resumedAt = Date.now();
       const resumeLocation = location
@@ -1595,7 +1477,6 @@ export default function MapScreen() {
       workoutEngineRef.current?.resume();
       setWorkoutSnapshot(workoutEngineRef.current?.getSnapshot() ?? null);
 
-      console.log('[RecordView] Run resumed - tracking restarted');
       addLog('▶ Run resumed - tracking restarted');
     } catch (error) {
       console.error('Resume run error:', error);
@@ -1605,7 +1486,6 @@ export default function MapScreen() {
 
   const stopRun = async () => {
     if (isStoppingRef.current) {
-      console.log('[RecordView] Stop request ignored: finalization already in progress');
       return;
     }
 
@@ -1650,8 +1530,6 @@ export default function MapScreen() {
       const movingTimeSeconds = Number(Math.max(0, elapsedTimeSeconds - pausedTimeSeconds).toFixed(3));
       const movingTimePayloadSeconds = Math.round(movingTimeSeconds);
       const elapsedTimePayloadSeconds = Math.round(elapsedTimeSeconds);
-      console.log(`[RecordView] Recording stopped at ${stoppedAt.toISOString()}`);
-      console.log('[RecordView] Stop finalization started');
       isRunningRef.current = false;
       setIsRunning(false);
       setCompletionPromptVisible(false);
@@ -1686,23 +1564,13 @@ export default function MapScreen() {
       stepDetectionRef.current = null;
 
       const processor = pathProcessorRef.current;
-      console.log(
-        `[RecordView] Stop & Save data: rawPoints=${processor?.getRawPoints().length ?? 0} `
-        + `workoutDistance=${distanceRef.current.toFixed(2)}m `
-        + `additionalDistance=${extraDistanceRef.current.toFixed(2)}m`
-      );
 
       if (stationarySession) {
-        console.log(
-          `[LocationManager] Stationary session discarded: activity=${detectedActivity ?? 'unknown'}, steps=${stepCountRef.current}; no route or activity upload`
-        );
         distanceRef.current = 0;
         setDistance(0);
-        setOptimizedStats({ rawPointCount: 0, optimizedPointCount: 0, reductionPercent: 0 });
         addLog('No movement detected — route was not saved');
 
         if (apiClientRef.current && runIdRef.current) {
-          console.log('[RecordView] Stopping stationary run without activity upload');
           await apiClientRef.current.stopRun({
             run_id: runIdRef.current,
             ended_at: stoppedAt.toISOString(),
@@ -1710,72 +1578,17 @@ export default function MapScreen() {
           });
         }
       } else if (processor) {
-        console.log('\n========== STOP & SAVE: FILTERING & OPTIMIZATION START ==========');
-        console.log('[RecordView] Stop & Save: starting filter and optimization');
-        console.log('[LocationManager] Raw points collected:', processor.getRawPoints().length);
         
-        // This will log individual point acceptances/rejections
-        console.log('[LocationManager] Filtering started');
         const filteredPoints = processor.filterRawPoints();
-        console.log(`[LocationManager] Filtered points: ${filteredPoints.length}`);
 
-        console.log('[LocationManager] RDP optimization started');
         const finalOptimized = processor.simplifyFinal(filteredPoints);
-        const rawPointCount = processor.getRawPoints().length;
-        const optimizedCount = finalOptimized.length;
-        const reductionPercent = rawPointCount > 0 ? Math.round(((rawPointCount - optimizedCount) / rawPointCount) * 100) : 0;
-
-        console.log(`[LocationManager] Optimized points: ${optimizedCount}`);
-        console.log(`[LocationManager] Reduction: ${reductionPercent}%`);
-        console.log('\n========== FILTERING & OPTIMIZATION SUMMARY ==========');
-        console.log(`📊 Raw Points: ${rawPointCount}`);
-        console.log(`📊 After Filtering: ${filteredPoints.length}`);
-        console.log(`📊 After Optimization: ${optimizedCount}`);
-        console.log(`📊 Reduction Rate: ${reductionPercent}%`);
-        console.log(
-          `[WorkoutHistory] Optimized polyline prepared for history only: `
-          + `raw=${rawPointCount}, filtered=${filteredPoints.length}, optimized=${optimizedCount}`
-        );
-
-        // ============================================================
-        // DISTANCE VALIDATION: Calculate distance from each stage
-        // ============================================================
-        const rawDistance = calculateRouteDistance(processor.getRawPoints());
-        const filteredDistance = calculateRouteDistance(filteredPoints);
-        const optimizedDistance = calculateRouteDistance(finalOptimized);
-
-        console.log('\n========== DISTANCE VALIDATION (from real GPS coordinates) ==========');
-        console.log(`📏 Raw Points Distance: ${rawDistance.toFixed(2)}m`);
-        console.log(`📏 Filtered Points Distance: ${filteredDistance.toFixed(2)}m`);
-        console.log(`📏 Optimized Points Distance: ${optimizedDistance.toFixed(2)}m`);
-        
-        // Calculate loss at each stage
-        const filteringLoss = Math.abs(rawDistance - filteredDistance);
-        const optimizationLoss = Math.abs(filteredDistance - optimizedDistance);
-        const totalLoss = Math.abs(rawDistance - optimizedDistance);
-
-        console.log('\n========== DISTANCE PRESERVATION ANALYSIS ==========');
-        console.log(`📉 Loss during filtering: ${filteringLoss.toFixed(2)}m (${((filteringLoss/rawDistance)*100).toFixed(1)}%)`);
-        console.log(`📉 Loss during optimization: ${optimizationLoss.toFixed(2)}m (${((optimizationLoss/filteredDistance)*100).toFixed(1)}%)`);
-        console.log(`📉 Total loss (raw → optimized): ${totalLoss.toFixed(2)}m (${((totalLoss/rawDistance)*100).toFixed(1)}%)`);
-        console.log(`✅ Distance Accuracy: ${(100 - ((totalLoss/rawDistance)*100)).toFixed(1)}%`);
-
         // The Activity page must receive the very same route used by the live
-        // SDK polyline and distance counter. Optimization is still calculated
-        // above for diagnostics, but must not replace this authoritative route
-        // with a different set of points before upload.
+        // SDK polyline and distance counter. Optimization must not replace this
+        // authoritative route with a different set of points before upload.
         const uploadRoutePoints: RunningGpsPoint[] = processor.getDisplayPoints();
         const extraRouteCoordinates = routeSegmentsRef.current
           .filter((segment) => segment.traceType === 'extra')
           .flatMap((segment) => segment.coordinates);
-        console.log(
-          `[LocationManager] Stop & Save route source: live accepted points `
-          + `(${uploadRoutePoints.length} points uploaded)`
-        );
-        console.log(
-          `[WorkoutHistory] Uploading ${uploadRoutePoints.length} live SDK route points; `
-          + 'Activity distance and polyline now use the same source'
-        );
 
         // These coordinates are both the route visible in the SDK and the
         // final backend submission.
@@ -1806,24 +1619,10 @@ export default function MapScreen() {
           setRouteSegments([renderedSegment]);
         }
         fitMapToRoute(smoothedDisplayCoordinates.length > 0 ? smoothedDisplayCoordinates : displayedRouteCoordinates);
-        console.log(
-          `[WorkoutMapView] Render route prepared: ${smoothedDisplayCoordinates.length} Catmull-Rom points `
-          + `from ${finalOptimized.length} RDP points; upload route unchanged at ${displayedRouteCoordinates.length} points`
-        );
 
-        console.log('[Route Saved]', JSON.stringify(finalCoordinates, null, 2));
-        console.log(`[Route Saved] ${finalCoordinates.length} coordinate points finalized`);
-
-        const snapshot = processor.getSnapshot();
-        setOptimizedStats({
-          rawPointCount: snapshot.rawPointCount,
-          optimizedPointCount: snapshot.optimizedPointCount,
-          reductionPercent: snapshot.reductionPercent,
-        });
 
         addLog(`✅ Final optimization: ${finalOptimized.length} points`);
 
-        const uploadedRouteDistance = calculateRouteDistance(uploadRoutePoints);
         const trackedDistance = distanceRef.current + extraDistanceRef.current;
         // The SDK counter is the canonical total: it already applies movement,
         // segment, pause, and extra-activity rules. Route geometry is retained
@@ -1834,59 +1633,6 @@ export default function MapScreen() {
         const paceSecondsPerKm = totalDistance > 0
           ? elapsedSeconds / (totalDistance / 1000)
           : 0;
-        console.log(
-          `[LocationManager] Final distance source: live SDK total `
-          + `${trackedDistance.toFixed(2)}m (route geometry ${uploadedRouteDistance.toFixed(2)}m)`
-        );
-        const distanceSummary = {
-          workout_distance_meters: Number(distanceRef.current.toFixed(2)),
-          additional_distance_meters: Number(extraDistanceRef.current.toFixed(2)),
-          total_distance_meters: Number(totalDistance.toFixed(2)),
-          total_distance_kilometers: Number((totalDistance / 1000).toFixed(3)),
-        };
-        const routePayload = {
-          workout_type: workoutType,
-          start_time: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : new Date().toISOString(),
-          end_time: new Date().toISOString(),
-          coordinates: finalCoordinates,
-          distance: totalDistance,
-          duration: elapsedSeconds,
-          route_points: finalCoordinates.length,
-        };
-
-        console.log(`[LocationManager] 📏 DISTANCE BREAKDOWN: extra=${extraDistanceRef.current.toFixed(2)}m | total=${totalDistance.toFixed(2)}m`);
-        
-        console.log('\n========== ROUTE FINALIZATION SUMMARY ==========');
-        console.log(`📍 Upload Route Points: ${uploadRoutePoints.length}`);
-        console.log(`📍 Final Coordinates: ${finalCoordinates.length}`);
-        console.log(`📍 Route Geometry Distance: ${uploadedRouteDistance.toFixed(2)}m`);
-        
-        console.log('\n========== DISTANCE CALCULATIONS ==========');
-        console.log(`✅ Workout Distance: ${distanceRef.current.toFixed(2)}m`);
-        console.log(`➕ Extra Distance: ${extraDistanceRef.current.toFixed(2)}m`);
-        console.log(`📊 Total Distance: ${totalDistance.toFixed(2)}m (${(totalDistance/1000).toFixed(3)}km)`);
-        console.log(`⏱️  Duration: ${elapsedSeconds}s (${Math.floor(elapsedSeconds/60)}m ${elapsedSeconds%60}s)`);
-        
-        console.log('[LocationManager] FINAL BACKEND PAYLOAD:');
-        console.log(JSON.stringify(routePayload, null, 2));
-        console.log('[LocationManager] DISTANCE SUMMARY (workout + additional):');
-        console.log(JSON.stringify(distanceSummary, null, 2));
-        console.log(
-          `[Workout] Saving complete route: ${uploadRoutePoints.length} GPS points `
-          + `(${workoutEngineRef.current?.getSnapshot().completedLaps.length ?? 0} planned laps; extra points included)`
-        );
-        const extraRoutePointCount = routeSegmentsRef.current
-          .filter((segment) => segment.traceType === 'extra')
-          .reduce((count, segment) => count + segment.coordinates.length, 0);
-        console.log(`[Workout] Extra gray route points included: ${extraRoutePointCount}`);
-        console.log(
-          `[Workout] Distance summary: planned=${distanceRef.current.toFixed(1)}m `
-          + `extra=${extraDistanceRef.current.toFixed(1)}m total=${totalDistance.toFixed(1)}m`
-        );
-
-        // Keep a console payload equivalent to the iOS Activity Payload log.
-        // It contains only the points that survived the save-time filtering and
-        // optimization, never the unfiltered live-display samples.
         const completedLaps = workoutEngineRef.current?.getSnapshot().completedLaps ?? [];
         const pauseIntervals = pauseEventsRef.current
           .map((event, index) => ({
@@ -2083,20 +1829,7 @@ export default function MapScreen() {
           pause_count: pauseEventPayload.length,
           paused_time_s: Math.round((pausedTimeRef.current ?? 0) / 1000),
         };
-        const backendPayloadLog = {
-          ...iosStyleActivityPayload,
-          route_points: uploadRoutePoints.length,
-        };
-        console.log('[LocationManager] BACKEND PAYLOAD JSON (optimized route + distance):');
-        console.log(JSON.stringify(backendPayloadLog, null, 2));
-        console.log('📤 ACTIVITY PAYLOAD (to backend):');
-        console.log(JSON.stringify(iosStyleActivityPayload, null, 2));
-
         if (apiClientRef.current) {
-          console.log(
-            `[RecordView] Stop & Save: submitting ${iosStyleActivityPayload.gps_points.length} `
-            + 'optimized GPS points to backend'
-          );
           // Submit the actual final payload in the iOS-compatible shape.
           const activitySubmission = await apiClientRef.current.submitActivity(iosStyleActivityPayload);
           const activitySubmitted = activitySubmission.success;
@@ -2112,14 +1845,8 @@ export default function MapScreen() {
                 pause_count: pauseEventsRef.current.length,
               });
             } catch (overrideError) {
-              console.log('[ActivityDistance] Local distance override could not be saved; upload succeeded', overrideError);
             }
-            console.log(
-              `[ActivityDistance] Saved SDK total ${totalDistance.toFixed(2)}m for activity ${activitySubmission.activityId}; `
-              + 'Activity card/detail will not use the backend GPS-jitter total'
-            );
           }
-          console.log(`[RecordView] Activity upload result: ${activitySubmitted ? 'success' : 'failed'}`);
 
           const stopSucceeded = runIdRef.current
             ? await apiClientRef.current.stopRun({
@@ -2128,7 +1855,6 @@ export default function MapScreen() {
               final_sequence: uploadRoutePoints.length,
             })
             : true;
-          console.log(`[RecordView] Run stop result: ${stopSucceeded ? 'success' : 'failed'}`);
 
           if (activitySubmitted && stopSucceeded) {
             summaryMetrics = {
@@ -2139,17 +1865,6 @@ export default function MapScreen() {
               startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
             };
             shouldPublishSummary = true;
-            console.log('Activity submitted successfully');
-            console.log('Response:', JSON.stringify({
-              success: true,
-              run_id: runIdRef.current ?? null,
-              route_points: uploadRoutePoints.length,
-              distance: totalDistance,
-              workout_distance: distanceRef.current,
-              additional_distance: extraDistanceRef.current,
-              duration: elapsedSeconds,
-            }, null, 2));
-            console.log('\n========== STOP & SAVE: COMPLETE ✅ ==========\n');
           }
 
           addLog(`Run ${runIdRef.current ?? 'activity'} completed`);
@@ -2200,11 +1915,6 @@ export default function MapScreen() {
         : backendData?.message
           ?? backendData?.detail
           ?? (backendData && typeof backendData === 'object' ? JSON.stringify(backendData) : null);
-      console.log('[RecordView] Stop & Save failed', {
-        status: error?.response?.status,
-        response: backendData,
-        message: error?.message,
-      });
       setIsRunning(true);
       isRunningRef.current = true;
       await persistBackgroundLocationSession({
@@ -2239,7 +1949,6 @@ export default function MapScreen() {
       } else {
         await stopLiveTrackingNotification();
       }
-      console.log('[RecordView] Stop & Save finalization finished');
       isStoppingRef.current = false;
     }
   };
@@ -2284,12 +1993,10 @@ export default function MapScreen() {
   // This exposes a React/Fast Refresh state reset immediately in the Metro log.
   // The recorder ref remains the authoritative source for the button action.
   useEffect(() => {
-    console.log(`[RecordView] UI recording state -> ${isRunning ? 'LIVE' : 'READY'}; recorder ref -> ${isRunningRef.current ? 'LIVE' : 'READY'}`);
   }, [isRunning]);
 
   const handleRunAction = () => {
     const recorderIsActive = isRunningRef.current || pathProcessorRef.current !== null;
-    console.log(`[RecordView] Primary run action pressed; recorder active: ${recorderIsActive}`);
 
     if (recorderIsActive) {
       void stopRun();
@@ -2306,7 +2013,6 @@ export default function MapScreen() {
         Alert.alert('Workout in progress', 'Use Pause to stop counting temporarily. The activity is saved after the final segment.');
         return true;
       }
-      console.log('[RecordView] Hardware Back pressed; saving active run');
       requestFinish();
       return true;
     });
@@ -2377,7 +2083,6 @@ export default function MapScreen() {
                 },
                 { duration: 0 }
               );
-              console.log('[WorkoutMapView] Camera initialized at close tracking zoom (20)');
             }
           }}
           minZoomLevel={10}
