@@ -4,11 +4,7 @@ import { Modal, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'reac
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
-import type {
-  BackendGpsPoint,
-  BackendPauseEvent,
-  BackendPolylineRoute,
-} from '../src/services/activityApi';
+import type { BackendGpsPoint, BackendPauseEvent, BackendPolylineRoute } from '../src/services/activityApi';
 import { buildActivityRouteGroups } from '../src/utils/activityRouteGroups';
 import { createCatmullRomPolyline } from '../src/utils/catmullRom';
 import { decodePolyline } from '../src/utils/polylineDecoder';

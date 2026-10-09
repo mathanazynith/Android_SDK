@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
+  Easing,
   Modal,
   Pressable,
   RefreshControl,
@@ -17,8 +18,20 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Reanimated, {
+  cancelAnimation,
+  Easing as ReanimatedEasing,
+  interpolate,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 
 import BenchmarkBadgeIcon from '../../components/BenchmarkBadgeIcon';
+import MotionEntrance from '../../components/MotionEntrance';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { customWorkoutAPI, type UserWorkoutResponse } from '../../service/customWorkout';
@@ -51,6 +64,191 @@ import {
 } from '../../src/utils/workoutPlanBuilder';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
+const CHART_BAR_MAX_HEIGHT = 125;
+
+interface ChartMorph {
+  sourceData: ChartBarPoint[];
+  targetData: ChartBarPoint[];
+  sourceMax: number;
+  targetMax: number;
+  sourcePeriod: PeriodFilter;
+  targetPeriod: PeriodFilter;
+}
+
+interface PeriodStatsCache {
+  activities: UnifiedActivity[];
+  period: PeriodFilter;
+  year: number;
+  month: number;
+  weekDate: number;
+  stats: AggregatedStats;
+}
+
+interface ChartPointRange {
+  start: number;
+  end: number;
+  center: number;
+}
+
+interface MorphBarProps {
+  styles: ReturnType<typeof getThemeStyles>;
+  progress: SharedValue<number>;
+  left: number;
+  width: number;
+  height: number;
+  translateX: [number, number];
+  translateY?: [number, number];
+  scaleX: [number, number];
+  scaleY: [number, number];
+  opacity: [number, number];
+  color: string;
+}
+
+function MorphBar({
+  styles,
+  progress,
+  left,
+  width,
+  height,
+  translateX,
+  translateY = [0, 0],
+  scaleX,
+  scaleY,
+  opacity,
+  color,
+}: MorphBarProps) {
+  const animatedStyle = useAnimatedStyle(() => {
+    const value = progress.value;
+    return {
+      opacity: interpolate(value, [0, 1], opacity),
+      transform: [
+        { translateX: interpolate(value, [0, 1], translateX) },
+        { translateY: interpolate(value, [0, 1], translateY) },
+        { scaleX: interpolate(value, [0, 1], scaleX) },
+        { scaleY: interpolate(value, [0, 1], scaleY) },
+      ],
+    };
+  }, [opacity, scaleX, scaleY, translateX, translateY]);
+
+  return (
+    <Reanimated.View
+      style={[
+        styles.chartMorphBar,
+        { left, width, height, backgroundColor: color },
+        animatedStyle,
+      ]}
+    />
+  );
+}
+
+interface MorphTrackProps {
+  styles: ReturnType<typeof getThemeStyles>;
+  progress: SharedValue<number>;
+  left: number;
+  width: number;
+  color: string;
+  opacity: [number, number];
+}
+
+function MorphTrack({ styles, progress, left, width, color, opacity }: MorphTrackProps) {
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0, 1], opacity),
+  }), [opacity]);
+
+  return (
+    <Reanimated.View
+      style={[
+        styles.chartMorphTrack,
+        { left, width, backgroundColor: color },
+        animatedStyle,
+      ]}
+    />
+  );
+}
+
+interface MorphLabelProps {
+  styles: ReturnType<typeof getThemeStyles>;
+  progress: SharedValue<number>;
+  left: number;
+  width: number;
+  label: string;
+  opacity: [number, number];
+}
+
+function MorphLabel({ styles, progress, left, width, label, opacity }: MorphLabelProps) {
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0, 1], opacity),
+  }), [opacity]);
+
+  return (
+    <Reanimated.Text
+      style={[
+        styles.barLabel,
+        styles.chartMorphLabel,
+        { left, width },
+        animatedStyle,
+      ]}
+    >
+      {label}
+    </Reanimated.Text>
+  );
+}
+
+function getChartPointRange(period: PeriodFilter, point: ChartBarPoint): ChartPointRange | null {
+  if (!point.targetDate) return null;
+
+  const date = point.targetDate;
+  const startDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  let endDate: Date;
+
+  if (period === 'week') {
+    endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + 1);
+  } else if (period === 'month') {
+    const daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+    endDate = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      Math.min(startDate.getDate() + 7, daysInMonth + 1)
+    );
+  } else {
+    endDate = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+  }
+
+  const start = startDate.getTime();
+  const end = endDate.getTime();
+  return { start, end, center: start + (end - start) / 2 };
+}
+
+function findMorphTargetIndex(
+  sourcePeriod: PeriodFilter,
+  sourcePoint: ChartBarPoint,
+  targetPeriod: PeriodFilter,
+  targetData: ChartBarPoint[]
+): number {
+  if (targetData.length === 0) return -1;
+
+  const sourceRange = getChartPointRange(sourcePeriod, sourcePoint);
+  if (!sourceRange) return 0;
+
+  const targetRanges = targetData.map((point) => getChartPointRange(targetPeriod, point));
+  const containingIndex = targetRanges.findIndex(
+    (range) => range && sourceRange.center >= range.start && sourceRange.center < range.end
+  );
+  if (containingIndex >= 0) return containingIndex;
+
+  let closestIndex = 0;
+  let closestDistance = Number.POSITIVE_INFINITY;
+  targetRanges.forEach((range, index) => {
+    if (!range || sourceRange.start >= range.end || sourceRange.end <= range.start) return;
+    const distance = Math.abs(range.center - sourceRange.center);
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestIndex = index;
+    }
+  });
+  return Number.isFinite(closestDistance) ? closestIndex : -1;
+}
 
 export default function StatsScreen() {
   const { workoutPlan, fetchWorkoutPlan } = useQuestionnaire();
@@ -74,6 +272,7 @@ export default function StatsScreen() {
   );
 
   const { isDark } = useTheme();
+  const reduceMotion = useReducedMotion();
   const styles = getThemeStyles(isDark);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -83,12 +282,34 @@ export default function StatsScreen() {
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedWeekDate, setSelectedWeekDate] = useState<Date>(new Date());
-  const fadeAnim = useRef(new Animated.Value(1)).current;
-  const barAnim = useRef(new Animated.Value(1)).current;
+  const chartValueHighlight = useMemo(() => new Animated.Value(1), []);
+  const periodIndicatorPosition = useMemo(() => new Animated.Value(0), []);
+  const [periodTabsWidth, setPeriodTabsWidth] = useState(0);
+  const [chartWidth, setChartWidth] = useState(0);
+  const [chartMorph, setChartMorph] = useState<ChartMorph | null>(null);
+  const chartMorphProgress = useSharedValue(0);
+  const chartMorphFinalValues = useRef<Record<string, number>>({});
+  const [periodStatsCache, setPeriodStatsCache] = useState<PeriodStatsCache | null>(null);
+  const [barHeightValues, setBarHeightValues] = useState<Record<string, Animated.Value>>({});
+  const barHeightAnims = useRef(new Map<string, Animated.Value>());
+  const hasRenderedChart = useRef(false);
+  const distributionAnim = useMemo(() => new Animated.Value(0), []);
   const [showYearModal, setShowYearModal] = useState(false);
   const [showBenchmarkModal, setShowBenchmarkModal] = useState(false);
   const [startingWorkoutId, setStartingWorkoutId] = useState<number | null>(null);
   const [startingPlanKey, setStartingPlanKey] = useState<string | null>(null);
+
+  const finishChartMorph = useCallback(() => {
+    const finalHeights = new Map<string, Animated.Value>();
+    Object.entries(chartMorphFinalValues.current).forEach(([key, value]) => {
+      finalHeights.set(key, new Animated.Value(value));
+    });
+    barHeightAnims.current.forEach((height) => height.stopAnimation());
+    barHeightAnims.current.clear();
+    finalHeights.forEach((height, key) => barHeightAnims.current.set(key, height));
+    setBarHeightValues(Object.fromEntries(finalHeights));
+    setChartMorph(null);
+  }, []);
 
   useEffect(() => {
     fetchWorkoutPlan().catch(() => {});
@@ -281,29 +502,24 @@ export default function StatsScreen() {
     loadActivities();
   }, [loadActivities]);
 
-  // Smooth fade in / fade out and upward bar fill transition helper
+  // Update data immediately; animate only the value emphasis and chart marks.
   const triggerTransition = useCallback((updateFn: () => void) => {
-    Animated.timing(fadeAnim, {
-      toValue: 0.15,
-      duration: 120,
+    updateFn();
+    chartValueHighlight.stopAnimation();
+
+    if (reduceMotion) {
+      chartValueHighlight.setValue(1);
+      return;
+    }
+
+    chartValueHighlight.setValue(0.82);
+    Animated.timing(chartValueHighlight, {
+      toValue: 1,
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
-    }).start(() => {
-      updateFn();
-      barAnim.setValue(0);
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 220,
-          useNativeDriver: true,
-        }),
-        Animated.timing(barAnim, {
-          toValue: 1,
-          duration: 320,
-          useNativeDriver: false,
-        }),
-      ]).start();
-    });
-  }, [fadeAnim, barAnim]);
+    }).start();
+  }, [chartValueHighlight, reduceMotion]);
 
   const selectedWeekMonday = useMemo(() => {
     const base = new Date(selectedWeekDate);
@@ -315,8 +531,71 @@ export default function StatsScreen() {
 
   // Aggregate stats based on active period, year, month, and week
   const stats: AggregatedStats = useMemo(() => {
+    const cached = periodStatsCache;
+    if (
+      cached &&
+      cached.activities === activities &&
+      cached.period === period &&
+      cached.year === selectedYear &&
+      cached.month === selectedMonth &&
+      cached.weekDate === selectedWeekMonday.getTime()
+    ) {
+      return cached.stats;
+    }
     return calculatePeriodStats(activities, period, selectedYear, selectedMonth, selectedWeekMonday);
-  }, [activities, period, selectedYear, selectedMonth, selectedWeekMonday]);
+  }, [activities, period, selectedYear, selectedMonth, selectedWeekMonday, periodStatsCache]);
+
+  useEffect(() => {
+    if (chartMorph) return;
+
+    const activeKeys = new Set<string>();
+    stats.chartData.forEach((bar, index) => {
+      const animationKey = String(index);
+      const ratio = stats.chartMax > 0 ? bar.value / stats.chartMax : 0;
+      const targetHeight = bar.value > 0 ? Math.max(8, Math.round(ratio * CHART_BAR_MAX_HEIGHT)) : 4;
+      activeKeys.add(animationKey);
+      let height = barHeightAnims.current.get(animationKey);
+      if (!height) {
+        height = new Animated.Value(hasRenderedChart.current ? 4 : targetHeight);
+        barHeightAnims.current.set(animationKey, height);
+      }
+
+      height.stopAnimation();
+      if (reduceMotion || !hasRenderedChart.current) {
+        height.setValue(targetHeight);
+      } else {
+        Animated.timing(height, {
+          toValue: targetHeight,
+          duration: 300,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        }).start();
+      }
+    });
+
+    barHeightAnims.current.forEach((height, key) => {
+      if (!activeKeys.has(key)) {
+        height.stopAnimation();
+        barHeightAnims.current.delete(key);
+      }
+    });
+    hasRenderedChart.current = true;
+    setBarHeightValues(Object.fromEntries(barHeightAnims.current));
+  }, [stats.chartData, stats.chartMax, reduceMotion, chartMorph]);
+
+  useEffect(() => {
+    if (reduceMotion) {
+      distributionAnim.setValue(1);
+      return;
+    }
+
+    distributionAnim.setValue(0);
+    Animated.timing(distributionAnim, {
+      toValue: 1,
+      duration: 420,
+      useNativeDriver: false,
+    }).start();
+  }, [distributionAnim, reduceMotion, stats.runCount, stats.walkCount]);
 
   const weekCompletion = useMemo(() => {
     const weeklyStats = calculatePeriodStats(activities, 'week', selectedYear, selectedMonth, selectedWeekMonday);
@@ -348,6 +627,7 @@ export default function StatsScreen() {
     const lastActive = [...stats.chartData].reverse().find((p) => p.value > 0);
     return lastActive || stats.chartData[0];
   }, [stats.chartData, selectedPointKey]);
+  const hasAnimatedBarValues = Object.keys(barHeightValues).length > 0;
 
   // Dynamic distance and label for the hero card (bold KM updates dynamically on selection)
   const displayedDistance = useMemo(() => {
@@ -562,6 +842,75 @@ export default function StatsScreen() {
     { id: 'year', label: 'Year' },
     { id: 'all', label: 'All Time' },
   ];
+  const handlePeriodChange = (nextPeriod: PeriodFilter) => {
+    if (nextPeriod === period) return;
+
+    const nextPeriodIndex = periodLabels.findIndex((tab) => tab.id === nextPeriod);
+    const periodSlotWidth = periodTabsWidth / periodLabels.length;
+    periodIndicatorPosition.stopAnimation();
+    if (reduceMotion) {
+      periodIndicatorPosition.setValue(nextPeriodIndex * periodSlotWidth);
+    } else {
+      Animated.timing(periodIndicatorPosition, {
+        toValue: nextPeriodIndex * periodSlotWidth,
+        duration: 135,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    }
+
+    cancelAnimation(chartMorphProgress);
+    if (!reduceMotion && chartWidth > 0 && stats.chartData.length > 0) {
+      const nextStats = calculatePeriodStats(
+        activities,
+        nextPeriod,
+        selectedYear,
+        selectedMonth,
+        selectedWeekMonday
+      );
+      setPeriodStatsCache({
+        activities,
+        period: nextPeriod,
+        year: selectedYear,
+        month: selectedMonth,
+        weekDate: selectedWeekMonday.getTime(),
+        stats: nextStats,
+      });
+      setChartMorph({
+        sourceData: stats.chartData,
+        targetData: nextStats.chartData,
+        sourceMax: stats.chartMax,
+        targetMax: nextStats.chartMax,
+        sourcePeriod: period,
+        targetPeriod: nextPeriod,
+      });
+      chartMorphFinalValues.current = Object.fromEntries(
+        nextStats.chartData.map((bar, index) => [
+          String(index),
+          bar.value > 0
+            ? Math.max(8, Math.round((bar.value / nextStats.chartMax) * CHART_BAR_MAX_HEIGHT))
+            : 4,
+        ])
+      );
+      chartMorphProgress.value = 0;
+      setPeriod(nextPeriod);
+      setSelectedPointKey(null);
+
+      chartMorphProgress.value = withTiming(1, {
+        duration: 300,
+        easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+      }, (finished) => {
+        if (finished) scheduleOnRN(finishChartMorph);
+      });
+      return;
+    }
+
+    setChartMorph(null);
+    triggerTransition(() => {
+      setPeriod(nextPeriod);
+      setSelectedPointKey(null);
+    });
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -643,26 +992,46 @@ export default function StatsScreen() {
 
 
         {/* Section Header: Trends & Detailed Visualizations */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>Performance Trends & Charts</Text>
-        </View>
+        <MotionEntrance delay={70}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Performance Trends & Charts</Text>
+          </View>
+        </MotionEntrance>
 
         {/* Period Selector Tabs */}
-        <View style={styles.periodTabsContainer}>
+        <MotionEntrance delay={115}>
+        <View
+          style={styles.periodTabsContainer}
+          onLayout={(event) => {
+            const width = Math.max(0, event.nativeEvent.layout.width - 8);
+            setPeriodTabsWidth((previous) => previous === width ? previous : width);
+            if (periodTabsWidth === 0) {
+              const selectedIndex = periodLabels.findIndex((tab) => tab.id === period);
+              periodIndicatorPosition.setValue(selectedIndex * (width / periodLabels.length));
+            }
+          }}
+        >
+          {periodTabsWidth > 0 && (
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.periodTabIndicator,
+                {
+                  width: periodTabsWidth / periodLabels.length,
+                  transform: [{ translateX: periodIndicatorPosition }],
+                },
+              ]}
+            />
+          )}
           {periodLabels.map((tab) => {
             const active = period === tab.id;
             return (
               <TouchableOpacity
                 key={tab.id}
-                style={[styles.periodTab, active && styles.periodTabActive]}
-                onPress={() => {
-                  if (period !== tab.id) {
-                    triggerTransition(() => {
-                      setPeriod(tab.id);
-                      setSelectedPointKey(null);
-                    });
-                  }
-                }}
+                style={styles.periodTab}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                onPress={() => handlePeriodChange(tab.id)}
                 activeOpacity={0.8}
               >
                 <Text style={[styles.periodTabText, active && styles.periodTabTextActive]}>
@@ -672,19 +1041,21 @@ export default function StatsScreen() {
             );
           })}
         </View>
+        </MotionEntrance>
 
         {/* Sub-Navigation Bar for Week / Month / Year navigation & drill up */}
 
 
-        {/* Hero Interactive Distance & Bar Chart Card with Smooth Fade In/Out */}
-        <Animated.View style={[styles.heroCard, { opacity: fadeAnim }]}>
+        {/* Hero interactive distance and chart card; data changes in place. */}
+        <MotionEntrance delay={160}>
+        <View style={styles.heroCard}>
           <View style={styles.heroHeader}>
             <View>
               <Text style={styles.heroLabel}>{displayedLabel}</Text>
               <View style={styles.heroValueRow}>
-                <Text style={styles.heroValue}>
+                <Animated.Text style={[styles.heroValue, { opacity: chartValueHighlight }]}>
                   {displayedDistance}
-                </Text>
+                </Animated.Text>
                 <Text style={styles.heroUnit}>km</Text>
               </View>
               {selectedPointKey && (
@@ -736,74 +1107,230 @@ export default function StatsScreen() {
 
           {/* Interactive Native Bar Chart with Fluid Upward Fill */}
           <View style={styles.chartArea}>
-            <View style={styles.barsRow}>
-              {stats.chartData.map((bar) => {
-                const isSelected = activePoint?.key === bar.key;
-                const ratio = stats.chartMax > 0 ? bar.value / stats.chartMax : 0;
-                const barHeight = bar.value > 0 ? Math.max(8, Math.round(ratio * 125)) : 4;
-                const animatedBarHeight = barAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [4, barHeight],
-                });
+            <View
+              style={styles.barsRow}
+              onLayout={(event) => {
+                const width = event.nativeEvent.layout.width;
+                setChartWidth((previous) => previous === width ? previous : width);
+              }}
+            >
+              {chartMorph && chartWidth > 0 ? (
+                (() => {
+                  const sourceCount = chartMorph.sourceData.length;
+                  const targetCount = chartMorph.targetData.length;
+                  const sourceSlotWidth = chartWidth / Math.max(sourceCount, 1);
+                  const targetSlotWidth = chartWidth / Math.max(targetCount, 1);
+                  const barWidthForSlot = (slotWidth: number) => Math.min(24, slotWidth * 0.55);
+                  const sourcePositions = chartMorph.sourceData.map((bar, index) => {
+                    const sourceCenter = sourceSlotWidth * (index + 0.5);
+                    const targetIndex = findMorphTargetIndex(
+                      chartMorph.sourcePeriod,
+                      bar,
+                      chartMorph.targetPeriod,
+                      chartMorph.targetData
+                    );
 
-                return (
-                  <TouchableOpacity
-                    key={bar.key}
-                    style={styles.barColumn}
-                    onPress={() => handleBarPress(bar.key)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.barTrack}>
-                      <Animated.View
+                    return {
+                      bar,
+                      index,
+                      sourceCenter,
+                      targetIndex,
+                      targetCenter: targetIndex >= 0
+                        ? targetSlotWidth * (targetIndex + 0.5)
+                        : sourceCenter,
+                    };
+                  });
+
+                  const targetMorphs = chartMorph.targetData.map((bar, index) => {
+                    const donors = sourcePositions.filter((source) => source.targetIndex === index);
+                    const contribution = donors.reduce((sum, source) => sum + source.bar.value, 0);
+                    const sourceCenter = donors.length > 0
+                      ? donors.reduce((sum, source) => sum + source.sourceCenter, 0) / donors.length
+                      : targetSlotWidth * (index + 0.5);
+                    const initialHeight = chartMorph.sourceMax > 0 && contribution > 0
+                      ? Math.max(8, (contribution / chartMorph.sourceMax) * CHART_BAR_MAX_HEIGHT)
+                      : 4;
+                    const finalHeight = chartMorph.targetMax > 0 && bar.value > 0
+                      ? Math.max(8, (bar.value / chartMorph.targetMax) * CHART_BAR_MAX_HEIGHT)
+                      : 4;
+
+                    return {
+                      bar,
+                      index,
+                      sourceCenter,
+                      targetCenter: targetSlotWidth * (index + 0.5),
+                      initialHeight,
+                      finalHeight,
+                      initialWidth: donors.length > 0
+                        ? Math.min(barWidthForSlot(targetSlotWidth), Math.max(8, donors.length * 4))
+                        : 4,
+                    };
+                  });
+                  const trackColor = isDark ? '#1E1E22' : '#D9DADD';
+
+                  return (
+                    <View style={styles.chartMorphCanvas} pointerEvents="none">
+                      {sourcePositions.map(({ bar, index, sourceCenter }) => {
+                        const trackWidth = barWidthForSlot(sourceSlotWidth);
+                        return (
+                          <MorphTrack
+                            key={`source-track-${bar.key}-${index}`}
+                            styles={styles}
+                            progress={chartMorphProgress}
+                            left={sourceCenter - trackWidth / 2}
+                            width={trackWidth}
+                            color={trackColor}
+                            opacity={[1, 0]}
+                          />
+                        );
+                      })}
+                      {chartMorph.targetData.map((bar, index) => {
+                        const center = targetSlotWidth * (index + 0.5);
+                        const trackWidth = barWidthForSlot(targetSlotWidth);
+                        return (
+                          <MorphTrack
+                            key={`target-track-${bar.key}`}
+                            styles={styles}
+                            progress={chartMorphProgress}
+                            left={center - trackWidth / 2}
+                            width={trackWidth}
+                            color={trackColor}
+                            opacity={[0, 1]}
+                          />
+                        );
+                      })}
+                      {sourcePositions.map(({ bar, index, sourceCenter, targetCenter }) => {
+                        const sourceHeight = chartMorph.sourceMax > 0 && bar.value > 0
+                          ? Math.max(8, (bar.value / chartMorph.sourceMax) * CHART_BAR_MAX_HEIGHT)
+                          : 4;
+                        const sourceWidth = barWidthForSlot(sourceSlotWidth);
+                        return (
+                          <View key={`source-${bar.key}-${index}`} style={styles.chartMorphItem}>
+                            <MorphBar
+                              styles={styles}
+                              progress={chartMorphProgress}
+                              left={sourceCenter - sourceWidth / 2}
+                              width={sourceWidth}
+                              height={sourceHeight}
+                              translateX={[0, targetCenter - sourceCenter]}
+                              scaleX={[1, 0.15]}
+                              scaleY={[1, 0.15]}
+                              opacity={[1, 0]}
+                              color={bar.value > 0 ? '#0A84FF' : '#2A2A2E'}
+                            />
+                            <MorphLabel
+                              styles={styles}
+                              progress={chartMorphProgress}
+                              left={sourceSlotWidth * index}
+                              width={sourceSlotWidth}
+                              label={bar.label}
+                              opacity={[1, 0]}
+                            />
+                          </View>
+                        );
+                      })}
+
+                      {targetMorphs.map((target) => {
+                        const finalWidth = barWidthForSlot(targetSlotWidth);
+                        return (
+                          <View key={`target-${target.bar.key}`} style={styles.chartMorphItem}>
+                            <MorphBar
+                              styles={styles}
+                              progress={chartMorphProgress}
+                              left={target.targetCenter - finalWidth / 2}
+                              width={finalWidth}
+                              height={target.finalHeight}
+                              translateX={[target.sourceCenter - target.targetCenter, 0]}
+                              translateY={[(target.finalHeight - target.initialHeight) / 2, 0]}
+                              scaleX={[target.initialWidth / finalWidth, 1]}
+                              scaleY={[target.initialHeight / target.finalHeight, 1]}
+                              opacity={[0, 1]}
+                              color={target.bar.value > 0 ? '#0A84FF' : '#2A2A2E'}
+                            />
+                            <MorphLabel
+                              styles={styles}
+                              progress={chartMorphProgress}
+                              left={targetSlotWidth * target.index}
+                              width={targetSlotWidth}
+                              label={target.bar.label}
+                              opacity={[0, 1]}
+                            />
+                          </View>
+                        );
+                      })}
+                    </View>
+                  );
+                })()
+              ) : (
+                stats.chartData.map((bar, index) => {
+                  const isSelected = activePoint?.key === bar.key;
+                  const ratio = stats.chartMax > 0 ? bar.value / stats.chartMax : 0;
+                  const barHeight = bar.value > 0 ? Math.max(8, Math.round(ratio * CHART_BAR_MAX_HEIGHT)) : 4;
+                  const animatedBarHeight = barHeightValues[String(index)];
+
+                  return (
+                    <TouchableOpacity
+                      key={bar.key}
+                      style={styles.barColumn}
+                      onPress={() => handleBarPress(bar.key)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.barTrack}>
+                        <Animated.View
+                          style={[
+                            styles.barFill,
+                            {
+                              height: animatedBarHeight || (hasAnimatedBarValues ? 4 : barHeight),
+                              backgroundColor: isSelected
+                                ? '#30D158'
+                                : bar.value > 0
+                                ? '#0A84FF'
+                                : '#2A2A2E',
+                              opacity: bar.value === 0 ? 0.35 : 1,
+                            },
+                          ]}
+                        >
+                          {bar.value > 0 && (
+                            <LinearGradient
+                              colors={
+                                isSelected
+                                  ? ['#30D158', '#28CD41']
+                                  : ['#388BFF', '#0A84FF']
+                              }
+                              style={StyleSheet.absoluteFill}
+                            />
+                          )}
+                        </Animated.View>
+                      </View>
+                      <Text
                         style={[
-                          styles.barFill,
-                          {
-                            height: animatedBarHeight,
-                            backgroundColor: isSelected
-                              ? '#30D158'
-                              : bar.value > 0
-                              ? '#0A84FF'
-                              : '#2A2A2E',
-                            opacity: bar.value === 0 ? 0.35 : 1,
-                          },
+                          styles.barLabel,
+                          bar.isCurrent && styles.barLabelCurrent,
+                          isSelected && styles.barLabelSelected,
                         ]}
                       >
-                        {bar.value > 0 && (
-                          <LinearGradient
-                            colors={
-                              isSelected
-                                ? ['#30D158', '#28CD41']
-                                : ['#388BFF', '#0A84FF']
-                            }
-                            style={StyleSheet.absoluteFill}
-                          />
-                        )}
-                      </Animated.View>
-                    </View>
-                    <Text
-                      style={[
-                        styles.barLabel,
-                        bar.isCurrent && styles.barLabelCurrent,
-                        isSelected && styles.barLabelSelected,
-                      ]}
-                    >
-                      {bar.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+                        {bar.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
             </View>
           </View>
-        </Animated.View>
+        </View>
+        </MotionEntrance>
 
         {/* Dynamic Key Running Metrics Grid (2 x 3) */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>{activeMetrics.title}</Text>
-          <Text style={styles.sectionSubBadge}>
-            {activeMetrics.totalWorkouts > 0 ? `${activeMetrics.totalWorkouts} activities` : '0 activities'}
-          </Text>
-        </View>
+        <MotionEntrance delay={210}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>{activeMetrics.title}</Text>
+            <Text style={styles.sectionSubBadge}>
+              {activeMetrics.totalWorkouts > 0 ? `${activeMetrics.totalWorkouts} activities` : '0 activities'}
+            </Text>
+          </View>
+        </MotionEntrance>
 
+        <MotionEntrance delay={250}>
         <View style={styles.metricsGrid}>
           {/* 1. Runs */}
           <View style={styles.metricCard}>
@@ -867,9 +1394,11 @@ export default function StatsScreen() {
             <Text style={styles.metricCardLabel}>Workouts</Text>
           </View>
         </View>
+        </MotionEntrance>
 
         {/* Activity Distribution: Runs vs Walks */}
         {stats.totalWorkouts > 0 && (
+          <MotionEntrance delay={300}>
           <View style={styles.cardContainer}>
             <View style={styles.splitHeader}>
               <Text style={styles.cardTitle}>Activity Breakdown</Text>
@@ -879,20 +1408,26 @@ export default function StatsScreen() {
             </View>
 
             <View style={styles.splitBarTrack}>
-              <View
+              <Animated.View
                 style={[
                   styles.splitBarFill,
                   {
-                    flex: Math.max(stats.runCount, 0.05),
+                    flex: distributionAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, Math.max(stats.runCount, 0.05)],
+                    }),
                     backgroundColor: '#0A84FF',
                   },
                 ]}
               />
-              <View
+              <Animated.View
                 style={[
                   styles.splitBarFill,
                   {
-                    flex: Math.max(stats.walkCount, 0.05),
+                    flex: distributionAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, Math.max(stats.walkCount, 0.05)],
+                    }),
                     backgroundColor: '#30D158',
                   },
                 ]}
@@ -915,6 +1450,7 @@ export default function StatsScreen() {
               </View>
             </View>
           </View>
+          </MotionEntrance>
         )}
 
         {/* Personal Bests & Milestones */}
@@ -1398,15 +1934,21 @@ const baseStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'white',
   },
+  periodTabIndicator: {
+    position: 'absolute',
+    top: 3,
+    bottom: 3,
+    left: 3,
+    borderRadius: 9,
+    backgroundColor: '#30D158',
+  },
   periodTab: {
     flex: 1,
     paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 9,
-  },
-  periodTabActive: {
-    backgroundColor: '#30D158',
+    zIndex: 1,
   },
   periodTabText: {
     color: 'white',
@@ -1618,6 +2160,39 @@ const baseStyles = StyleSheet.create({
     alignItems: 'flex-end',
     justifyContent: 'space-between',
     height: 150,
+    position: 'relative',
+  },
+  chartMorphCanvas: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  chartMorphItem: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  chartMorphBar: {
+    position: 'absolute',
+    bottom: 22,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  chartMorphTrack: {
+    position: 'absolute',
+    bottom: 22,
+    height: 125,
+    borderRadius: 6,
+  },
+  chartMorphLabel: {
+    position: 'absolute',
+    bottom: 0,
+    marginTop: 0,
+    textAlign: 'center',
   },
   barColumn: {
     flex: 1,
@@ -2255,9 +2830,6 @@ const lightStyles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 6,
     elevation: 1,
-  },
-  periodTabActive: {
-    backgroundColor: '#30D158',
   },
   periodTabText: {
     color: '#55575B',

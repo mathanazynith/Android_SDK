@@ -1,7 +1,7 @@
 import axios from "axios";
 import { storage } from "./storage";
 
-const envApiUrl = (process.env.EXPO_PUBLIC_API_URL || "https://zyrun.in").trim();
+const envApiUrl = (process.env.EXPO_PUBLIC_API_URL || "https://zyrun.in/").trim();
 const normalizedApiBase = envApiUrl.endsWith("/api/v1")
   ? envApiUrl.replace(/\/+$/, "")
   : `${envApiUrl.replace(/\/+$/, "")}/api/v1`;
