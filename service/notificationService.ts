@@ -197,7 +197,6 @@ const getDeviceId = async (): Promise<string> => {
       throw error;
     });
   }
-
   return deviceIdRequest;
 };
 
