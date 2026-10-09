@@ -121,6 +121,13 @@ export const customWorkoutAPI = {
   patch: (id: number, data: Partial<CustomWorkoutWritePayload>) => api.patch<UserWorkoutResponse>(`/workouts/${id}/`, data),
   setBenchmark: (id: number, is_benchmark: boolean) => api.patch<UserWorkoutResponse>(`/workouts/${id}/`, { is_benchmark }),
   delete: (id: number) => api.delete(`/workouts/${id}/`),
+  bulkDelete: (ids: number[]) =>
+    api.delete("/workouts/bulk-delete/", {
+      data: {
+        ids,
+        workout_ids: ids,
+      },
+    }),
   duplicate: (id: number) => api.post<UserWorkoutResponse>(`/workouts/${id}/duplicate/`),
   schedule: (id: number, workout_date: string) => api.post<UserWorkoutResponse>(`/workouts/${id}/schedule/`, { workout_date }),
   unschedule: (id: number) => api.post<UserWorkoutResponse>(`/workouts/${id}/unschedule/`),

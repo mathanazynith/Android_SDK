@@ -97,10 +97,10 @@ const isTabActive = (pathname: string, route: Tab['route']) => {
   return false;
 };
 
-export default function GlobalBottomNav({ blurTarget }: { blurTarget: RefObject<View | null> }) {
+export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject<View | null> }) {
   const pathname = usePathname();
   const { isDark } = useTheme();
-  const isLegacyAndroidBlur = Platform.OS === 'android' && Number(Platform.Version) < 31;
+  const isAndroid = Platform.OS === 'android';
   const { workoutPlan, isWorkoutPlanLoaded, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
   const [rowWidth, setRowWidth] = useState(0);
   const activeIndex = tabs.findIndex((tab) => isTabActive(pathname, tab.route));
@@ -142,25 +142,8 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget: RefObject<
 
   if (!isPrimaryTabPath(pathname)) return null;
 
-  return (
-    <BlurView
-      intensity={isLegacyAndroidBlur ? 0 : isDark ? 85 : 80}
-      tint={isDark ? 'dark' : 'light'}
-      blurMethod="dimezisBlurViewSdk31Plus"
-      blurTarget={blurTarget}
-      style={[
-        styles.container,
-        {
-          backgroundColor: isLegacyAndroidBlur
-            ? isDark ? 'rgba(28, 28, 30, 0.88)' : 'rgba(255, 255, 255, 0.88)'
-            : isDark ? 'rgba(18, 18, 22, 0.55)' : 'rgba(255, 255, 255, 0.70)',
-          borderColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(226, 226, 226, 0.75)',
-          borderWidth: isDark ? 1.2 : 1.5,
-          shadowColor: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(0, 0, 0, 0.08)',
-          elevation: isDark ? 12 : 8,
-        },
-      ]}
-    >
+  const navContent = (
+    <>
       <View pointerEvents="none" style={[styles.glassSheen, { borderColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.10)' }]} />
       <LinearGradient
         pointerEvents="none"
@@ -195,6 +178,45 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget: RefObject<
           );
         })}
       </View>
+    </>
+  );
+
+  if (isAndroid) {
+    return (
+      <View
+        style={[
+          styles.container,
+          {
+            backgroundColor: isDark ? 'rgba(20, 20, 24, 0.94)' : 'rgba(255, 255, 255, 0.96)',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(226, 226, 226, 0.85)',
+            borderWidth: isDark ? 1.2 : 1.5,
+            shadowColor: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(0, 0, 0, 0.08)',
+            elevation: isDark ? 12 : 8,
+          },
+        ]}
+      >
+        {navContent}
+      </View>
+    );
+  }
+
+  return (
+    <BlurView
+      intensity={isDark ? 85 : 80}
+      tint={isDark ? 'dark' : 'light'}
+      blurTarget={blurTarget}
+      style={[
+        styles.container,
+        {
+          backgroundColor: isDark ? 'rgba(18, 18, 22, 0.55)' : 'rgba(255, 255, 255, 0.70)',
+          borderColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(226, 226, 226, 0.75)',
+          borderWidth: isDark ? 1.2 : 1.5,
+          shadowColor: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(0, 0, 0, 0.08)',
+          elevation: isDark ? 12 : 8,
+        },
+      ]}
+    >
+      {navContent}
     </BlurView>
   );
 }

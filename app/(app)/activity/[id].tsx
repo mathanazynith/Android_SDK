@@ -213,14 +213,14 @@ export default function ActivityDetailScreen() {
           </TouchableOpacity>
         </View>
       ) : activity ? (
-        <MotionEntrance>
-          <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <MotionEntrance>
             <Text style={[styles.activityType, { color: colors.text }]}>{activity.activity_type.toUpperCase() === 'WALK' ? 'Walk' : 'Run'}</Text>
-            <Text style={[styles.date, { color: colors.textSecondary }]}>
-              {new Date(activity.start_time).toLocaleString(undefined, {
-                weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
-              })}
-            </Text>
+          <Text style={[styles.date, { color: colors.textSecondary }]}>
+            {new Date(activity.start_time).toLocaleString(undefined, {
+              weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+            })}
+          </Text>
 
             <View style={[styles.heroCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <Text style={[styles.heroLabel, { color: colors.textSecondary }]}>Distance</Text>
@@ -228,19 +228,27 @@ export default function ActivityDetailScreen() {
               <Text style={[styles.status, { color: colors.textTertiary }]}>{activity.processing_status.toLowerCase()}</Text>
             </View>
 
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Route</Text>
-            <ActivityRouteMap
-              encodedPolyline={activity.encoded_polyline}
-              plannedEncodedPolyline={activity.planned_encoded_polyline}
-              extraEncodedPolyline={activity.extra_encoded_polyline}
-              savedGpsPoints={activity.route?.points ?? activity.gps_points}
-              runningRoutes={activity.route?.running_routes}
-              pauseRoutes={activity.route?.pause_routes}
-              pauseEvents={activity.pause_events ?? activity.route?.pause_events}
-              pausePoints={activity.route?.pause_points}
-              cropStartIndex={Number.isFinite(cropStartIndex) ? cropStartIndex : undefined}
-              cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
-            />
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Route</Text>
+          <ActivityRouteMap
+            encodedPolyline={activity.encoded_polyline}
+            plannedEncodedPolyline={activity.planned_encoded_polyline}
+            extraEncodedPolyline={activity.extra_encoded_polyline}
+            savedGpsPoints={activity.route?.points ?? activity.gps_points}
+            runningRoutes={activity.route?.running_routes}
+            pauseRoutes={activity.route?.pause_routes}
+            pauseEvents={activity.pause_events ?? activity.route?.pause_events}
+            pausePoints={activity.route?.pause_points}
+            cropStartIndex={Number.isFinite(cropStartIndex) ? cropStartIndex : undefined}
+            cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
+            enableFullScreen
+            activityStats={{
+              distance: activity.distance,
+              duration: activity.moving_time || activity.elapsed_time,
+              pace: activity.avg_pace,
+              elevationGain: activity.elevation_gain,
+              activityType: activity.activity_type,
+            }}
+          />
 
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Performance</Text>
             <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -269,8 +277,8 @@ export default function ActivityDetailScreen() {
               <DetailMetric label="Elevation loss" value={`${Math.round(activity.elevation_loss)} m`} />
               <DetailMetric label="Route processed" value={activity.is_processed ? 'Yes' : 'No'} />
             </View>
-          </ScrollView>
-        </MotionEntrance>
+          </MotionEntrance>
+        </ScrollView>
       ) : null}
       <ActivitySplitsModal
         visible={splitsVisible}
@@ -316,4 +324,3 @@ const styles = StyleSheet.create({
   retryButton: { borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, marginTop: 18 },
   retryText: { fontSize: 16, fontWeight: '700' },
 });
-

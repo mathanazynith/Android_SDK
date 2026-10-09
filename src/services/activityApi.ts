@@ -26,8 +26,8 @@ export interface BackendPauseEvent {
   paused_at?: string;
   resumed_at?: string | null;
   duration_s?: number | null;
-  pause_location?: BackendGpsPoint | null;
-  resume_location?: BackendGpsPoint | null;
+  pause_location?: BackendGpsPoint | { latitude?: number; longitude?: number } | null;
+  resume_location?: BackendGpsPoint | { latitude?: number; longitude?: number } | null;
 }
 
 const getPointTimestamp = (point: BackendGpsPoint): number | null => {
