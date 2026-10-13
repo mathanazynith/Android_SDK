@@ -3,10 +3,12 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
+import { useTheme } from '../../../contexts/ThemeContext';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function RunningPlanScreen() {
+  const { colors } = useTheme();
   const { assessmentResult, isAssessmentResultLoading, fetchAssessmentResult, workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan, endWorkoutPlan } = useQuestionnaire();
   const [isEndingPlan, setIsEndingPlan] = useState(false);
   const insets = useSafeAreaInsets();
@@ -17,8 +19,8 @@ export default function RunningPlanScreen() {
   const duration = workoutPlan?.weeks.length ? `${workoutPlan.weeks.length} weeks` : '';
   const loading = (isAssessmentResultLoading || isWorkoutPlanLoading) && !workoutPlan;
 
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#2BD64F" /><Text style={styles.loadingText}>Loading your running plan...</Text></View>;
-  if (!workoutPlan) return <View style={styles.center}><Text style={styles.error}>{workoutPlanError || 'No training plan is available.'}</Text><TouchableOpacity style={styles.retry} onPress={() => fetchWorkoutPlan(true)}><Text style={styles.retryText}>Retry</Text></TouchableOpacity></View>;
+  if (loading) return <View style={[styles.center, { backgroundColor: colors.background }]}><ActivityIndicator size="large" color={colors.primary} /><Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading your running plan...</Text></View>;
+  if (!workoutPlan) return <View style={[styles.center, { backgroundColor: colors.background }]}><Text style={[styles.error, { color: colors.text }]}>{workoutPlanError || 'No training plan is available.'}</Text><TouchableOpacity style={[styles.retry, { backgroundColor: colors.primary }]} onPress={() => fetchWorkoutPlan(true)}><Text style={[styles.retryText, { color: colors.primaryText }]}>Retry</Text></TouchableOpacity></View>;
 
   const handleEndPlan = () => {
     Alert.alert(
@@ -46,12 +48,12 @@ export default function RunningPlanScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: 118 + insets.bottom }]}
       >
     <MotionEntrance>
-    <View style={styles.topSection}><View style={styles.checkBadge}><Text style={styles.check}>✓</Text></View><Text style={styles.planTitle}>{planName}</Text></View>
+    <View style={styles.topSection}><View style={[styles.checkBadge, { backgroundColor: colors.selected }]}><Text style={[styles.check, { color: colors.primary }]}>✓</Text></View><Text style={[styles.planTitle, { color: colors.text }]}>{planName}</Text></View>
     </MotionEntrance>
     <MotionEntrance delay={50}>
     <View style={styles.valuesRow}>
@@ -61,11 +63,11 @@ export default function RunningPlanScreen() {
     </View>
     </MotionEntrance>
     <MotionEntrance delay={100}>
-    {recommendation?.reason ? <View style={styles.reasonCard}><Text style={styles.reasonTitle}>Why this plan</Text><Text style={styles.reasonText}>{recommendation.reason}</Text></View> : null}
+    {recommendation?.reason ? <View style={[styles.reasonCard, { backgroundColor: colors.surface, borderColor: colors.border }]}><Text style={[styles.reasonTitle, { color: colors.text }]}>Why this plan</Text><Text style={[styles.reasonText, { color: colors.textSecondary }]}>{recommendation.reason}</Text></View> : null}
     </MotionEntrance>
     <MotionEntrance delay={140}>
     <View style={styles.buttonArea}>
-      <TouchableOpacity style={styles.calendarButton} onPress={() => router.push('/(app)/calendar')}><Text style={styles.calendarButtonText}>View Training Calendar</Text></TouchableOpacity>
+      <TouchableOpacity style={[styles.calendarButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => router.push('/(app)/calendar')}><Text style={[styles.calendarButtonText, { color: colors.primary }]}>View Training Calendar</Text></TouchableOpacity>
       <TouchableOpacity style={[styles.endPlanButton, isEndingPlan && styles.endPlanButtonDisabled]} onPress={handleEndPlan} disabled={isEndingPlan}><Text style={styles.endPlanButtonText}>{isEndingPlan ? 'Ending Plan...' : 'End Plan'}</Text></TouchableOpacity>
     </View>
     </MotionEntrance>
@@ -75,9 +77,10 @@ export default function RunningPlanScreen() {
 }
 
 function ValueCard({ label, value }: { label: string; value: string }) {
-  return <View style={styles.valueCard}><Text style={styles.valueLabel}>{label}</Text><Text style={styles.valueText}>{value || '—'}</Text></View>;
+  const { colors } = useTheme();
+  return <View style={[styles.valueCard, { backgroundColor: colors.surface, borderColor: colors.border }]}><Text style={[styles.valueLabel, { color: colors.textSecondary }]}>{label}</Text><Text style={[styles.valueText, { color: colors.text }]}>{value || '—'}</Text></View>;
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#06090B' }, content: { paddingBottom: 24 }, center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#06090B' }, loadingText: { marginTop: 12, color: '#fff', fontSize: 14 }, error: { color: '#fff', fontSize: 14, marginBottom: 12, textAlign: 'center' }, retry: { backgroundColor: '#2BD64F', borderRadius: 12, paddingHorizontal: 18, paddingVertical: 10 }, retryText: { color: '#091200', fontWeight: '700' }, topSection: { alignItems: 'center', paddingTop: 22, paddingBottom: 10 }, checkBadge: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#2BD64F', justifyContent: 'center', alignItems: 'center', marginBottom: 10 }, check: { fontSize: 32, color: '#fff' }, planTitle: { color: '#fff', fontSize: 24, fontWeight: '700', marginBottom: 5 }, valuesRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, marginTop: 6 }, valueCard: { flex: 1, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 12, padding: 10, marginHorizontal: 5, borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' }, valueLabel: { color: '#AEB0B2', fontSize: 12, marginBottom: 5 }, valueText: { color: '#fff', fontSize: 14, fontWeight: '700' }, reasonCard: { marginTop: 10, marginHorizontal: 16, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' }, reasonTitle: { color: '#fff', fontWeight: '700', marginBottom: 6 }, reasonText: { color: '#AEB0B2', fontSize: 13 }, buttonArea: { paddingHorizontal: 16, marginTop: 7 }, calendarButton: { backgroundColor: '#0B0D0E', borderRadius: 12, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }, calendarButtonText: { color: '#2BD64F', fontWeight: '700', fontSize: 14 }, endPlanButton: { marginTop: 10, backgroundColor: '#D32F2F', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }, endPlanButtonDisabled: { opacity: 0.6 }, endPlanButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  container: { flex: 1 }, content: { paddingBottom: 24 }, center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }, loadingText: { marginTop: 12, fontSize: 14 }, error: { fontSize: 14, marginBottom: 12, textAlign: 'center' }, retry: { borderRadius: 12, paddingHorizontal: 18, paddingVertical: 10 }, retryText: { fontWeight: '700' }, topSection: { alignItems: 'center', paddingTop: 22, paddingBottom: 10 }, checkBadge: { width: 64, height: 64, borderRadius: 32, justifyContent: 'center', alignItems: 'center', marginBottom: 10 }, check: { fontSize: 32 }, planTitle: { fontSize: 24, fontWeight: '700', marginBottom: 5 }, valuesRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, marginTop: 6 }, valueCard: { flex: 1, borderRadius: 12, padding: 10, marginHorizontal: 5, borderWidth: 1 }, valueLabel: { fontSize: 12, marginBottom: 5 }, valueText: { fontSize: 14, fontWeight: '700' }, reasonCard: { marginTop: 10, marginHorizontal: 16, borderRadius: 12, padding: 12, borderWidth: 1 }, reasonTitle: { fontWeight: '700', marginBottom: 6 }, reasonText: { fontSize: 13 }, buttonArea: { paddingHorizontal: 16, marginTop: 7 }, calendarButton: { borderRadius: 12, paddingVertical: 12, alignItems: 'center', borderWidth: 1 }, calendarButtonText: { fontWeight: '700', fontSize: 14 }, endPlanButton: { marginTop: 10, backgroundColor: '#D32F2F', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }, endPlanButtonDisabled: { opacity: 0.6 }, endPlanButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
 });

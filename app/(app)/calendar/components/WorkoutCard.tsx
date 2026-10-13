@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import BenchmarkBadgeIcon from '../../../../components/BenchmarkBadgeIcon';
 import { useTheme } from '../../../../contexts/ThemeContext';
+import { useReducedMotion } from 'react-native-reanimated';
 import WorkoutIcon from './WorkoutIcon';
 import { WorkoutDetail } from './types';
 
@@ -14,10 +15,23 @@ interface WorkoutCardProps {
 
 export default function WorkoutCard({ workout, onPress, onSwap }: WorkoutCardProps) {
   const { colors, isDark } = useTheme();
+  const reduceMotion = useReducedMotion();
   const isActiveWorkout = !workout.isRest;
-  const secondaryText = isDark ? '#9CA3AF' : '#64748B';
+  const activeBackground = isDark ? '#16803C' : '#DCFCE7';
+  const activeText = isDark ? '#FFFFFF' : colors.text;
   const [scale] = useState(() => new Animated.Value(1));
-  const animate = (toValue: number) => Animated.spring(scale, { toValue, useNativeDriver: true, damping: 16, stiffness: 220 }).start();
+  const animate = (toValue: number) => {
+    if (reduceMotion) {
+      scale.setValue(toValue);
+      return;
+    }
+    Animated.spring(scale, {
+      toValue,
+      useNativeDriver: true,
+      damping: 16,
+      stiffness: 220,
+    }).start();
+  };
 
   return (
     <Animated.View style={{ transform: [{ scale }] }}>
@@ -28,18 +42,18 @@ export default function WorkoutCard({ workout, onPress, onSwap }: WorkoutCardPro
         onPressOut={() => animate(1)}
         style={[styles.card, isActiveWorkout
           ? {
-              backgroundColor: '#22C55ECC',
-              borderColor: workout.isBenchmark ? '#F59E0B' : 'rgba(255,255,255,0.25)',
+              backgroundColor: activeBackground,
+              borderColor: workout.isBenchmark ? '#F59E0B' : colors.primary,
               borderWidth: workout.isBenchmark ? 1.5 : 1,
             }
-          : { backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF', borderColor: isDark ? '#334155' : '#E2E8F0' }]}
+          : { backgroundColor: colors.surface, borderColor: colors.border }]}
       >
         <View style={styles.iconBox}>
-          {workout.isRest ? <View style={styles.sleepIcon}><WorkoutIcon name="moon-outline" backgroundColor="transparent" color="#22C55E" size={30} /><Text style={styles.sleepZ}>Z</Text></View> : <WorkoutIcon name={workout.iconName} backgroundColor="transparent" color="#FFFFFF" size={30} />}
+          {workout.isRest ? <View style={styles.sleepIcon}><WorkoutIcon name="moon-outline" backgroundColor="transparent" color={colors.primary} size={30} /><Text style={[styles.sleepZ, { color: colors.primary }]}>Z</Text></View> : <WorkoutIcon name={workout.iconName} backgroundColor="transparent" color={isActiveWorkout ? activeText : colors.primary} size={30} />}
         </View>
         <View style={styles.detailBlock}>
           <View style={styles.headerRow}>
-            <Text style={[styles.dayText, { color: isActiveWorkout ? '#FFFFFF' : secondaryText }]}>{workout.day}, {workout.date}</Text>
+            <Text style={[styles.dayText, { color: isActiveWorkout ? activeText : colors.textSecondary }]}>{workout.day}, {workout.date}</Text>
             {workout.isBenchmark && (
               <View style={styles.benchmarkBadge}>
                 <BenchmarkBadgeIcon size={14} color="#F59E0B" />
@@ -47,17 +61,17 @@ export default function WorkoutCard({ workout, onPress, onSwap }: WorkoutCardPro
               </View>
             )}
           </View>
-          <Text style={[styles.titleText, { color: isActiveWorkout ? '#FFFFFF' : colors.textPrimary }]}>{workout.title}</Text>
-          <Text style={[styles.subtitleText, { color: isActiveWorkout ? '#FFFFFF' : secondaryText }]}>{workout.workoutType}</Text>
+          <Text style={[styles.titleText, { color: isActiveWorkout ? activeText : colors.textPrimary }]}>{workout.title}</Text>
+          <Text style={[styles.subtitleText, { color: isActiveWorkout ? activeText : colors.textSecondary }]}>{workout.workoutType}</Text>
           {!workout.isRest && (
             <View style={styles.metricsRow}>
-              {workout.distance ? <Metric icon="navigate-outline" value={workout.distance} color={isActiveWorkout ? '#FFFFFF' : colors.textPrimary} /> : null}
-              {workout.estimatedDuration ? <Metric icon="time-outline" value={workout.estimatedDuration} color={isActiveWorkout ? '#FFFFFF' : colors.textPrimary} /> : null}
-              {workout.targetPace ? <Metric icon="speedometer-outline" value={workout.targetPace} color={isActiveWorkout ? '#FFFFFF' : colors.textPrimary} /> : null}
-              {workout.heartRateZone ? <Metric icon="pulse-outline" value={workout.heartRateZone} color={isActiveWorkout ? '#FFFFFF' : colors.textPrimary} /> : null}
+              {workout.distance ? <Metric icon="navigate-outline" value={workout.distance} color={isActiveWorkout ? activeText : colors.textPrimary} /> : null}
+              {workout.estimatedDuration ? <Metric icon="time-outline" value={workout.estimatedDuration} color={isActiveWorkout ? activeText : colors.textPrimary} /> : null}
+              {workout.targetPace ? <Metric icon="speedometer-outline" value={workout.targetPace} color={isActiveWorkout ? activeText : colors.textPrimary} /> : null}
+              {workout.heartRateZone ? <Metric icon="pulse-outline" value={workout.heartRateZone} color={isActiveWorkout ? activeText : colors.textPrimary} /> : null}
             </View>
           )}
-          <Text style={[styles.descriptionText, { color: isActiveWorkout ? '#FFFFFF' : secondaryText }]} numberOfLines={2}>{workout.description}</Text>
+          <Text style={[styles.descriptionText, { color: isActiveWorkout ? activeText : colors.textSecondary }]} numberOfLines={2}>{workout.description}</Text>
         </View>
         {onSwap ? (
           <TouchableOpacity
@@ -69,7 +83,7 @@ export default function WorkoutCard({ workout, onPress, onSwap }: WorkoutCardPro
             accessibilityLabel="Swap workout"
             accessibilityRole="button"
           >
-            <Ionicons name="swap-horizontal-outline" size={20} color={isActiveWorkout ? '#FFFFFF' : '#22C55E'} />
+            <Ionicons name="swap-horizontal-outline" size={20} color={isActiveWorkout ? activeText : colors.primary} />
           </TouchableOpacity>
         ) : null}
       </Pressable>
@@ -89,8 +103,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
-    backgroundColor: '#1E1E1E',
   },
   iconBox: {
     width: 48,
@@ -106,7 +118,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -2,
     right: 0,
-    color: '#22C55E',
     fontSize: 15,
     fontWeight: '800',
   },
@@ -115,18 +126,15 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   dayText: {
-    color: '#8EA8DE',
     fontSize: 15,
     lineHeight: 20,
   },
   titleText: {
-    color: '#FFF',
     fontSize: 20,
     fontWeight: '600',
     marginTop: 4,
   },
   subtitleText: {
-    color: 'rgba(255,255,255,0.72)',
     fontSize: 13,
     marginTop: 4,
   },
@@ -142,11 +150,9 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   metricText: {
-    color: 'rgba(255,255,255,0.66)',
     fontSize: 12,
   },
   descriptionText: {
-    color: 'rgba(255,255,255,0.58)',
     fontSize: 13,
     lineHeight: 18,
     marginTop: 7,
@@ -155,7 +161,6 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: 'rgba(99,199,43,0.14)',
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 10,

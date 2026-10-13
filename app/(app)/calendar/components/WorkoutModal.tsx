@@ -2,11 +2,12 @@ import { Alert } from '@/components/ThemedAlert';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import BenchmarkBadgeIcon from '../../../../components/BenchmarkBadgeIcon';
 import { cacheAssignedRoute, customWorkoutAPI, getCachedAssignedRoute, type SuggestedRoute } from '../../../../service/customWorkout';
 import { workoutPlanService } from '../../../../service/workoutPlan';
+import { useReducedMotion } from 'react-native-reanimated';
 import {
     PlanBenchmarkAssignment,
     PlanBenchmarkStore,
@@ -56,16 +57,28 @@ export default function WorkoutModal({
   onClose,
   onUpdateBenchmark,
 }: WorkoutModalProps) {
+  const reduceMotion = useReducedMotion();
   const [rendered, setRendered] = useState(visible);
+  const renderedRef = useRef(visible);
   const [activeWorkout, setActiveWorkout] = useState<WorkoutDetail | null>(workout);
   const [assignedRoute, setAssignedRoute] = useState<SuggestedRoute | null>(null);
   const [opacity] = useState(() => new Animated.Value(0));
   const [translateY] = useState(() => new Animated.Value(30));
 
+  if (workout && activeWorkout?.id !== workout.id) {
+    setActiveWorkout(workout);
+  }
+
   useEffect(() => {
     if (visible && workout) {
-      setActiveWorkout(workout);
-      setRendered(true);
+      opacity.stopAnimation();
+      translateY.stopAnimation();
+      renderedRef.current = true;
+      if (reduceMotion) {
+        opacity.setValue(1);
+        translateY.setValue(0);
+        return;
+      }
       Animated.parallel([
         Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }),
         Animated.spring(translateY, {
@@ -78,22 +91,23 @@ export default function WorkoutModal({
       return;
     }
 
-    if (rendered) {
+    if (renderedRef.current) {
+      if (reduceMotion) {
+        opacity.setValue(0);
+        translateY.setValue(30);
+        renderedRef.current = false;
+        return;
+      }
       Animated.parallel([
         Animated.timing(opacity, { toValue: 0, duration: 160, useNativeDriver: true }),
         Animated.timing(translateY, { toValue: 30, duration: 160, useNativeDriver: true }),
-      ]).start(() => {
+      ]).start(({ finished }) => {
+        if (!finished) return;
+        renderedRef.current = false;
         setRendered(false);
       });
     }
-  }, [visible, workout]);
-
-  // Keep activeWorkout synced if parent passes updated workout
-  useEffect(() => {
-    if (workout) {
-      setActiveWorkout(workout);
-    }
-  }, [workout]);
+  }, [opacity, reduceMotion, translateY, visible, workout]);
 
   useFocusEffect(
     useCallback(() => {
@@ -119,7 +133,7 @@ export default function WorkoutModal({
     }, [activeWorkout?.workoutDbId, visible]),
   );
 
-  if (!rendered || !activeWorkout) return null;
+  if ((!rendered && !visible) || !activeWorkout) return null;
 
   const handleToggleBenchmark = async () => {
     if (!activeWorkout || activeWorkout.isRest) return;
@@ -415,7 +429,12 @@ export default function WorkoutModal({
   );
 
   return (
-    <Modal transparent visible={rendered} animationType="none" onRequestClose={onClose}>
+    <Modal
+      transparent
+      visible={visible || (rendered && !reduceMotion)}
+      animationType="none"
+      onRequestClose={onClose}
+    >
       <Animated.View style={[styles.overlay, { opacity }]}>
         <BlurView intensity={90} tint="light" style={StyleSheet.absoluteFill} />
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />

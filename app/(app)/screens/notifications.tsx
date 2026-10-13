@@ -341,9 +341,9 @@ export default function NotificationsScreen() {
                         style={({ pressed }) => [
                           styles.notificationRow,
                           {
-                            backgroundColor: colors.surface,
-                            borderBottomColor: colors.border,
-                            opacity: pressed ? 0.72 : 1,
+                            backgroundColor: notification.is_read ? colors.surface : colors.selected,
+                            borderColor: notification.is_read ? colors.border : colors.primary,
+                            opacity: pressed ? 0.78 : 1,
                           },
                         ]}
                       >
@@ -405,13 +405,13 @@ const styles = StyleSheet.create({
     headingBlock: { flex: 1 },
     heading: { fontSize: 22, fontWeight: '700' },
     unreadSummary: { fontSize: 12, marginTop: 2 },
-    markAllButton: { paddingVertical: 10, paddingLeft: 8 },
+    markAllButton: { paddingVertical: 9, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: `${BRAND_GREEN}66`, backgroundColor: `${BRAND_GREEN}14` },
     markAllText: { fontSize: 13, fontWeight: '700' },
     headerSpacer: { width: 70 },
     actionError: { fontSize: 13, paddingHorizontal: 18, paddingTop: 12 },
-    listContent: { paddingHorizontal: 18, paddingBottom: 36 },
+    listContent: { paddingHorizontal: 18, paddingTop: 4, paddingBottom: 36 },
     sectionHeading: { marginTop: 22, marginBottom: 7, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
-    notificationRow: { minHeight: 82, flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth, gap: 12 },
+    notificationRow: { minHeight: 82, flexDirection: 'row', alignItems: 'flex-start', padding: 14, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, marginBottom: 10, gap: 12 },
     dismissAction: { width: 88, minHeight: 82, alignItems: 'center', justifyContent: 'center', backgroundColor: '#D9534F', gap: 4 },
     dismissActionText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
     eventIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
