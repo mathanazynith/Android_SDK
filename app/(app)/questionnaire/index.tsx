@@ -499,6 +499,7 @@ export default function QuestionnaireScreen() {
   } = useQuestionnaire();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
+  const [pageTransitionDirection, setPageTransitionDirection] = useState<'forward' | 'backward'>('forward');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrorQuestionId, setValidationErrorQuestionId] = useState<string | null>(null);
@@ -746,12 +747,18 @@ export default function QuestionnaireScreen() {
 
     setIsSubmitting(true);
     try {
+      setPageTransitionDirection('forward');
       await goToNext();
     } catch {
       // error is already set in context
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handlePrevious = () => {
+    setPageTransitionDirection('backward');
+    goToPrevious();
   };
 
   const stepInfo = {
@@ -1067,7 +1074,11 @@ export default function QuestionnaireScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContainer} nestedScrollEnabled={true}>
-        <MotionEntrance key={stepInfo.current} style={styles.pageContainer}>
+        <MotionEntrance
+          key={stepInfo.current}
+          direction={pageTransitionDirection === 'forward' ? 'right' : 'left'}
+          style={styles.pageContainer}
+        >
           {(error || validationErrorQuestionId || daySelectionError) && (
             <View style={styles.validationBanner}>
               <Text style={styles.validationBannerText}>{error || daySelectionError || "This answer does not meet the configured validation rules."}</Text>
@@ -1234,7 +1245,7 @@ export default function QuestionnaireScreen() {
         {!isFirstAssessmentPage && (
           <TouchableOpacity
             style={[styles.button, styles.prevButton]}
-            onPress={goToPrevious}
+            onPress={handlePrevious}
             disabled={!canGoBack || isLoading}
           >
             <Feather name="arrow-left" size={18} color={BRAND_GREEN} />

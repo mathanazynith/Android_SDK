@@ -240,6 +240,7 @@ export interface BackendActivity {
   id: string | number;
   activity_id?: string | number;
   activity_type: 'RUN' | 'WALK' | string;
+  thumbnail_url?: string | null;
   start_time: string;
   end_time: string;
   moving_time: number;
@@ -289,7 +290,7 @@ export interface BackendActivity {
 const ACTIVITY_HISTORY_PATH = (
   process.env.EXPO_PUBLIC_ACTIVITY_HISTORY_PATH || '/rundata/activities/'
 ).trim();
-const ACTIVITY_HISTORY_CACHE_KEY = 'activity_history_first_page_v2';
+const ACTIVITY_HISTORY_CACHE_KEY = 'activity_history_first_page_v3';
 
 export interface ActivityHistoryPage {
   activities: BackendActivity[];
@@ -495,6 +496,7 @@ export const normalizeHistoryPage = async (
 const toCachedActivity = (activity: BackendActivity): BackendActivity => ({
   id: activity.id,
   activity_type: activity.activity_type,
+  thumbnail_url: activity.thumbnail_url ?? null,
   start_time: activity.start_time,
   end_time: activity.end_time,
   moving_time: activity.moving_time,
