@@ -10,7 +10,9 @@ import { getBackendErrorMessage } from '../../../service/api';
 import { useAuth } from '../../../service/auth';
 import { subscriptionAPI, type SubscriptionPlan, type SubscriptionPricing, type UserSubscription } from '../../../src/services/subscriptionApi';
 
-const ACTIVE_STATUSES = new Set(['active', 'trialing']);
+// The backend blocks a new purchase while a mandate is authorized, even
+// before its first payment changes the status to active/trialing.
+const ACTIVE_STATUSES = new Set(['active', 'trialing', 'authenticated']);
 const intervalLabel = (count: number, unit: string) => `/${count > 1 ? `${count} ` : ''}${unit}${count > 1 ? 's' : ''}`;
 const formatDate = (value?: string | null) => value ? new Date(value).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : null;
 const formatPrice = (price: Pick<SubscriptionPricing, 'amount' | 'currency'>) => {
@@ -25,7 +27,6 @@ export default function SubscriptionScreen() {
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [current, setCurrent] = useState<UserSubscription | null>(null);
   const [selectedPricing, setSelectedPricing] = useState<Record<number, number>>({});
-  const [autopay] = useState<Record<number, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +75,13 @@ export default function SubscriptionScreen() {
     }
     setBusy(true);
     try {
-      const created = (await subscriptionAPI.create(plan.id, pricingId, Boolean(autopay[plan.id]))).data;
+      const created = (await subscriptionAPI.create(plan.id, pricingId)).data;
+      const recurringSubscriptionId = created.checkout.mode === 'subscription'
+        ? created.checkout.subscription_id || created.checkout.subscription?.id
+        : undefined;
+      if (created.checkout.mode === 'subscription' && !recurringSubscriptionId) {
+        throw new Error('The backend did not return a Razorpay subscription ID.');
+      }
       const price = plan.pricing.find(item => item.id === pricingId);
       const prefill = {
         name: user?.username || '',
@@ -97,7 +104,7 @@ export default function SubscriptionScreen() {
           })
         : await RazorpayCheckout.open({
             ...common,
-            subscription_id: created.checkout.subscription.id,
+            subscription_id: recurringSubscriptionId!,
           });
 
       const signature = checkoutResult.razorpay_signature;
@@ -111,16 +118,18 @@ export default function SubscriptionScreen() {
         });
       } else {
         await subscriptionAPI.verify({
-          razorpay_subscription_id: created.checkout.subscription.id,
+          razorpay_subscription_id: recurringSubscriptionId!,
           razorpay_payment_id: paymentId,
           razorpay_signature: signature,
         });
       }
       await loadData(false);
       Alert.alert('Payment verified', 'Your subscription status has been updated.');
-    } catch {
+    } catch (purchaseError) {
       await loadData(false);
-      Alert.alert('Process Failed', 'Payment Method Failed');
+      const razorpayMessage = (purchaseError as { description?: string; reason?: string })?.description
+        || (purchaseError as { reason?: string })?.reason;
+      Alert.alert('Subscription failed', razorpayMessage || getBackendErrorMessage(purchaseError, 'Payment could not be completed. Please try again.'));
     } finally {
       setBusy(false);
     }
@@ -201,14 +210,13 @@ export default function SubscriptionScreen() {
 
           <View style={styles.sectionHeading}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>{currentIsActive ? 'Available plans' : 'Choose your plan'}</Text>
-            <Text style={[styles.sectionSubtitle, { color: colors.textSecondary }]}>Plans and prices are loaded from ZYRun.</Text>
+            <Text style={[styles.sectionSubtitle, { color: colors.textSecondary }]}>Plans and prices are loaded from ZYRun. Recurring billing is determined by each plan.</Text>
           </View>
           {plans.length === 0 && !error ? <View style={[styles.emptyCard, surface]}><Feather name="package" size={26} color={colors.textTertiary} /><Text style={[styles.emptyTitle, { color: colors.text }]}>No plans available</Text><Text style={[styles.muted, { color: colors.textSecondary }]}>Please check back later.</Text></View> : null}
           {plans.map(plan => {
             const pricing = plan.pricing;
             const selected = pricing.find(item => item.id === selectedPricing[plan.id]);
             const hasMultiplePrices = pricing.length > 1;
-            const selectedAutopay = Boolean(autopay[plan.id]);
             return (
               <View key={plan.id} style={[styles.planCard, surface]}>
                 <View style={styles.planTop}>
@@ -229,9 +237,13 @@ export default function SubscriptionScreen() {
                 })}</View> : null}
 
                 {plan.features.length ? <View style={styles.features}>{plan.features.map(feature => <View key={feature.id} style={styles.featureRow}><Feather name="check-circle" size={15} color={colors.primary} /><Text style={[styles.featureText, { color: colors.textSecondary }]}>{feature.text}</Text></View>)}</View> : null}
-                {plan.trial_days > 0 ? <Text style={[styles.terms, { color: colors.textTertiary }]}>{selectedAutopay ? `Your ${plan.trial_days}-day trial delays the first recurring debit; checkout may ask you to authorize recurring payments.` : `The one-time option charges the selected price at checkout. Trial days affect the subscription status but do not defer that payment.`}</Text> : null}
+                {plan.is_recurring
+                  ? <Text style={[styles.terms, { color: colors.textTertiary }]}>{plan.trial_days > 0
+                      ? `This recurring plan starts with a ${plan.trial_days}-day trial. Checkout will ask you to authorize future recurring payments; the first debit is scheduled after the trial.`
+                      : 'This plan renews automatically at the displayed interval. Checkout will ask you to authorize recurring payments.'}</Text>
+                  : <Text style={[styles.terms, { color: colors.textTertiary }]}>This plan is charged once at checkout.</Text>}
                 <TouchableOpacity disabled={!selected || busy || currentIsActive} onPress={() => void purchase(plan)} style={[styles.primaryButton, { backgroundColor: colors.primary, opacity: !selected || busy || currentIsActive ? 0.55 : 1 }]}>
-                  {busy ? <ActivityIndicator size="small" color={colors.primaryText} /> : <><Text style={[styles.primaryText, { color: colors.primaryText }]}>{currentIsActive ? 'Cancel current plan to switch' : 'Start Free Trial'}</Text><Feather name="arrow-up-right" size={18} color={colors.primaryText} /></>}
+                  {busy ? <ActivityIndicator size="small" color={colors.primaryText} /> : <><Text style={[styles.primaryText, { color: colors.primaryText }]}>{currentIsActive ? 'Cancel current plan to switch' : plan.trial_days > 0 ? `Start ${plan.trial_days}-day free trial` : plan.is_recurring ? 'Subscribe' : 'Buy plan'}</Text><Feather name="arrow-up-right" size={18} color={colors.primaryText} /></>}
                 </TouchableOpacity>
               </View>
             );
