@@ -50,7 +50,6 @@ export default function CropActivityScreen() {
       setLoading(true);
       const activityId = typeof id === 'string' ? parseInt(id) : id;
       const activityData = await activityAPI.get(activityId);
-      console.log('[CropActivity] Backend activity:', activityData);
 
       setActivity(activityData);
       const savedPauseEvents = activityData.pauses
@@ -83,7 +82,6 @@ export default function CropActivityScreen() {
           activityData.start_time,
           activityData.end_time,
         );
-        console.log('[CropActivity] Decoded backend GPS points:', decodedPoints.length);
         setGpsPoints(decodedPoints);
 
         if (decodedPoints.length > 0) {
@@ -165,7 +163,6 @@ export default function CropActivityScreen() {
 
     setIsSaving(true);
     try {
-      console.log('[CropActivity] Saving crop selection:', { startTime, endTime });
       const cropMetrics = calculateActivityCropMetrics(gpsPoints, startIndex, endIndex, pauseEvents);
       const timingFallback = {
         elapsed_time: cropMetrics.elapsedSeconds,

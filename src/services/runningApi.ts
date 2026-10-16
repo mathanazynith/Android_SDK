@@ -19,7 +19,6 @@ export class RunningApiClient {
       run_id: runId,
     };
 
-    console.log('[RunningApiClient] POST /runs/start', JSON.stringify(payload, null, 2));
 
     return {
       success: true,
@@ -33,13 +32,10 @@ export class RunningApiClient {
       points,
     };
 
-    console.log('[RunningApiClient] POST /runs/upload', JSON.stringify(payload, null, 2));
-    console.log('[RunningApiClient] Upload request body', JSON.stringify(payload, null, 2));
     return true;
   }
 
   public async stopRun(payload: RunStopPayload): Promise<boolean> {
-    console.log('[RunningApiClient] POST /runs/stop', JSON.stringify(payload, null, 2));
     return true;
   }
 
@@ -64,13 +60,8 @@ export class RunningApiClient {
       `[WORKOUT_PAUSE_PAYLOAD] ${payload.moving_time_s} + ${payload.paused_time_s ?? 0} = ${payload.elapsed_time_s}`
     );
     console.warn('[WORKOUT_PAUSE_PAYLOAD] ==============================');
-    console.log(
-      `[Activity] Distance sent to backend: ${payload.distance.toFixed(2)}m; `
-      + `Pace sent to backend: ${payload.pace_seconds_per_km.toFixed(2)}s/km`
-    );
     console.warn('[BACKEND PAYLOAD]');
     console.warn(JSON.stringify(payload, null, 2));
-    console.log(`[RunningApiClient] POST ${ACTIVITY_UPLOAD_PATH}`, JSON.stringify(payload, null, 2));
 
     let response;
     try {
@@ -79,14 +70,9 @@ export class RunningApiClient {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (error: any) {
-      console.log('[RunningApiClient] Activity upload failed', {
-        status: error?.response?.status,
-        data: error?.response?.data,
-      });
       throw error;
     }
 
-    console.log('[RunningApiClient] Activity upload response', JSON.stringify(response.data, null, 2));
     console.warn('[BACKEND RESPONSE]');
     console.warn(JSON.stringify(response.data, null, 2));
     const data = response.data?.data ?? response.data;

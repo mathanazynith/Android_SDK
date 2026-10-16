@@ -1,23 +1,29 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { Image as ExpoImage } from 'expo-image';
+import { Directory, File, Paths } from 'expo-file-system';
 import { router, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo,  Animated, Easing,  LayoutAnimation,  Platform,    TouchableOpacity, UIManager, Vibration } from 'react-native';
 import {
+    AccessibilityInfo,
+    Animated,
     ActivityIndicator,
-    
+    Easing,
     FlatList,
+    LayoutAnimation,
     Modal,
-    RefreshControl,
+    Platform,
+    ScrollView,
     StatusBar,
     StyleSheet,
     Text,
-    TextInput,
-    
+    TouchableOpacity,
+    Vibration,
     View,
+    type ViewToken,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Reanimated, {
@@ -28,10 +34,11 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
+import MotionEntrance from '../../../components/MotionEntrance';
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { getBackendErrorMessage } from '../../../service/api';
-import { activityAPI, BackendActivity, BackendPolylineRoute } from '../../../src/services/activityApi';
+import { getBackendErrorMessage, resolveApiUrl } from '../../../service/api';
+import { activityAPI, BackendActivity } from '../../../src/services/activityApi';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
 
@@ -50,6 +57,22 @@ const formatPace = (secondsPerKm: number) => {
 const formatActivityType = (activityType: string) =>
   activityType.toLowerCase() === 'walk' ? 'Walk' : 'Run';
 
+const activityThumbnailDirectory = new Directory(Paths.document, 'activity-map-thumbnails');
+const activityDetailRequests = new Map<string, Promise<BackendActivity>>();
+const activityDetails = new Map<string, BackendActivity>();
+const cacheActivityDetail = (key: string, detail: BackendActivity) => {
+  activityDetails.delete(key);
+  activityDetails.set(key, detail);
+  if (activityDetails.size > 6) {
+    const oldestKey = activityDetails.keys().next().value;
+    if (oldestKey !== undefined) activityDetails.delete(oldestKey);
+  }
+};
+const getActivityThumbnailFile = (activityId: BackendActivity['id']) => {
+  const safeId = encodeURIComponent(String(activityId)).replace(/%/g, '_');
+  return new File(activityThumbnailDirectory, `${safeId}.jpg`);
+};
+
 const getNormalizedActivityType = (activityType: string): 'run' | 'walk' =>
   activityType.toLowerCase() === 'walk' ? 'walk' : 'run';
 
@@ -62,6 +85,7 @@ type ActivityGroupMode = 'month' | 'week';
 
 type ActivityListRow =
   | { type: 'section'; key: string; title: string; activities: BackendActivity[] }
+  | { type: 'day'; key: string; title: string; count: number }
   | { type: 'activity'; key: string; activity: BackendActivity };
 
 const activityTypeOptions: { label: string; value: ActivityTypeFilter }[] = [
@@ -95,10 +119,6 @@ const activitySortOptions: { label: string; value: ActivitySortFilter }[] = [
   { label: 'Longest', value: 'longest' },
   { label: 'Fastest', value: 'fastest' },
 ];
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 const formatDateLabel = (value: Date | null) => {
   if (!value) return 'Select date';
@@ -212,6 +232,35 @@ const getActivityGroup = (activity: BackendActivity, mode: ActivityGroupMode) =>
   };
 };
 
+const getActivityDay = (activity: BackendActivity) => {
+  const date = new Date(activity.start_time);
+  if (!Number.isFinite(date.getTime())) {
+    return { key: 'unknown-date', title: 'Date unavailable', timestamp: Number.NEGATIVE_INFINITY };
+  }
+
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const title = day.getTime() === today.getTime()
+    ? 'Today'
+    : day.getTime() === yesterday.getTime()
+      ? 'Yesterday'
+      : new Intl.DateTimeFormat(undefined, {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        ...(date.getFullYear() !== today.getFullYear() ? { year: 'numeric' as const } : {}),
+      }).format(date);
+
+  return {
+    key: `day-${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`,
+    title,
+    timestamp: day.getTime(),
+  };
+};
+
 const buildActivityRows = (
   activities: BackendActivity[],
   groupMode: ActivityGroupMode,
@@ -239,25 +288,50 @@ const buildActivityRows = (
         ? first.timestamp - second.timestamp
         : second.timestamp - first.timestamp;
     })
-    .flatMap(([key, group]) => [
-      { type: 'section' as const, key: `section:${key}`, title: group.title, activities: group.activities },
-      ...sortActivities(group.activities, sortBy).map((activity) => ({
-        type: 'activity' as const,
-        key: `activity:${activity.id}`,
-        activity,
-      })),
-    ]);
+    .flatMap(([key, group]) => {
+      const dayGroups = new Map<string, { title: string; timestamp: number; activities: BackendActivity[] }>();
+      group.activities.forEach((activity) => {
+        const day = getActivityDay(activity);
+        const dayGroup = dayGroups.get(day.key);
+        if (dayGroup) {
+          dayGroup.activities.push(activity);
+        } else {
+          dayGroups.set(day.key, { title: day.title, timestamp: day.timestamp, activities: [activity] });
+        }
+      });
+
+      const orderedDays = [...dayGroups.entries()].sort(([, first], [, second]) => {
+        if (!Number.isFinite(first.timestamp)) return Number.isFinite(second.timestamp) ? 1 : 0;
+        if (!Number.isFinite(second.timestamp)) return -1;
+        return sortBy === 'oldest'
+          ? first.timestamp - second.timestamp
+          : second.timestamp - first.timestamp;
+      });
+
+      return [
+        { type: 'section' as const, key: `section:${key}`, title: group.title, activities: group.activities },
+        ...orderedDays.flatMap(([dayKey, day]) => [
+          { type: 'day' as const, key: `day:${key}:${dayKey}`, title: day.title, count: day.activities.length },
+          ...sortActivities(day.activities, sortBy).map((activity) => ({
+            type: 'activity' as const,
+            key: `activity:${activity.id}`,
+            activity,
+          })),
+        ]),
+      ];
+    });
 };
 
 interface ActivityCardProps {
   activity: BackendActivity;
-  onPress: () => void;
+  onPress: (activityId: BackendActivity['id']) => void;
   onStartSelection: (activityId: BackendActivity['id']) => void;
   reduceMotion: boolean;
   selectionMode: boolean;
   selected: boolean;
   deleting: boolean;
   busy: boolean;
+  isVisible: boolean;
 }
 
 const ActivityCard = memo(function ActivityCard({
@@ -269,25 +343,18 @@ const ActivityCard = memo(function ActivityCard({
   selected,
   deleting,
   busy,
+  isVisible,
 }: ActivityCardProps) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const activityName = formatActivityType(activity.activity_type);
   const activityId = activity.id;
   const duration = activity.moving_time || activity.elapsed_time;
-  const [routeData, setRouteData] = useState({
-    encodedPolyline: activity.encoded_polyline,
-    plannedEncodedPolyline: activity.planned_encoded_polyline,
-    extraEncodedPolyline: activity.extra_encoded_polyline,
-    savedGpsPoints: activity.route?.points ?? activity.gps_points ?? [],
-    runningRoutes: activity.route?.running_routes ?? [] as BackendPolylineRoute[],
-    pauseRoutes: activity.route?.pause_routes ?? [] as BackendPolylineRoute[],
-    pauseEvents: activity.pause_events ?? activity.route?.pause_events ?? [],
-    pausePoints: activity.route?.pause_points ?? [],
-    loaded: Array.isArray(activity.route?.running_routes),
-  });
+  const thumbnailUri = resolveApiUrl(activity.thumbnail_url);
+  const [savedThumbnailUri, setSavedThumbnailUri] = useState<string | null>(null);
+  const [routeActivity, setRouteActivity] = useState<BackendActivity | null>(null);
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const longPressHandledRef = useRef(false);
   const [selectionScale] = useState(() => new Animated.Value(1));
-  const [cardEntrance] = useState(() => new Animated.Value(0));
   const holdProgress = useSharedValue(0);
   const holdProgressStyle = useAnimatedStyle(() => ({
     width: `${holdProgress.value * 100}%`,
@@ -304,20 +371,63 @@ const ActivityCard = memo(function ActivityCard({
   }, [selected, selectionScale]);
 
   useEffect(() => {
-    Animated.timing(cardEntrance, {
-      toValue: 1,
-      duration: 180,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [cardEntrance]);
+    setThumbnailFailed(false);
+  }, [thumbnailUri]);
+
+  useEffect(() => {
+    if (!isVisible || (thumbnailUri && !thumbnailFailed)) return;
+    let cancelled = false;
+    const thumbnailFile = getActivityThumbnailFile(activityId);
+    const loadRoute = async () => {
+      try {
+        await activityThumbnailDirectory.create({ idempotent: true, intermediates: true });
+        if (thumbnailFile.exists) {
+          if (!cancelled) setSavedThumbnailUri(thumbnailFile.uri);
+          return;
+        }
+        const key = String(activityId);
+        const cachedDetail = activityDetails.get(key);
+        if (cachedDetail) {
+          if (!cancelled) setRouteActivity(cachedDetail);
+          return;
+        }
+        let detailRequest = activityDetailRequests.get(key);
+        if (!detailRequest) {
+          detailRequest = activityAPI.get(activityId);
+          activityDetailRequests.set(key, detailRequest);
+        }
+        const detail = await detailRequest;
+        cacheActivityDetail(key, detail);
+        if (!cancelled) setRouteActivity(detail);
+      } catch (error) {
+        console.warn('[ActivityHistory] Could not load route thumbnail', error);
+      } finally {
+        activityDetailRequests.delete(String(activityId));
+      }
+    };
+    const cachedDetail = activityDetails.get(String(activityId));
+    if (cachedDetail) setRouteActivity(cachedDetail);
+    void loadRoute();
+    return () => { cancelled = true; };
+  }, [activityId, isVisible, thumbnailFailed, thumbnailUri]);
+
+  const saveRouteThumbnail = useCallback(async (snapshotUri: string) => {
+    try {
+      await activityThumbnailDirectory.create({ idempotent: true, intermediates: true });
+      const destination = getActivityThumbnailFile(activityId);
+      await new File(snapshotUri).copy(destination, { overwrite: true });
+      setSavedThumbnailUri(destination.uri);
+    } catch (error) {
+      console.warn('[ActivityHistory] Could not save route thumbnail', error);
+    }
+  }, [activityId]);
 
   const handleCardPress = () => {
     if (longPressHandledRef.current) {
       longPressHandledRef.current = false;
       return;
     }
-    onPress();
+    onPress(activityId);
   };
 
   const handleStartSelection = useCallback(() => {
@@ -349,48 +459,19 @@ const ActivityCard = memo(function ActivityCard({
       }), [busy, handleStartSelection, holdProgress, reduceMotion]);
   /* eslint-enable react-hooks/immutability, react-hooks/refs */
 
-  useEffect(() => {
-    if (routeData.loaded) return;
-
-    let isMounted = true;
-    void activityAPI.get(activity.id)
-      .then((detail) => {
-        if (isMounted) {
-          setRouteData({
-            encodedPolyline: detail.encoded_polyline,
-            plannedEncodedPolyline: detail.planned_encoded_polyline,
-            extraEncodedPolyline: detail.extra_encoded_polyline,
-            savedGpsPoints: detail.route?.points ?? detail.gps_points ?? [],
-            runningRoutes: detail.route?.running_routes ?? [],
-            pauseRoutes: detail.route?.pause_routes ?? [],
-            pauseEvents: detail.pause_events ?? detail.route?.pause_events ?? [],
-            pausePoints: detail.route?.pause_points ?? [],
-            loaded: true,
-          });
-        }
-      })
-      .catch(() => {
-        if (isMounted) setRouteData((current) => ({ ...current, loaded: true }));
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [activity.id, routeData.loaded]);
-
   return (
     <GestureDetector gesture={selectionGesture}>
       <Reanimated.View>
       <Animated.View
         style={[
           styles.card,
-          { backgroundColor: colors.surface, borderColor: selected ? '#35C72B' : colors.border },
           {
-            opacity: cardEntrance,
-            transform: [
-              { scale: selectionScale },
-              { translateY: cardEntrance.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) },
-            ],
+            backgroundColor: selected ? (isDark ? '#351F20' : '#FEF2F2') : colors.surface,
+            borderColor: selected ? '#DC2626' : colors.border,
+            borderWidth: selected ? 2 : 1,
+          },
+          {
+            transform: [{ scale: selectionScale }],
           },
         ]}
       >
@@ -398,7 +479,7 @@ const ActivityCard = memo(function ActivityCard({
         style={styles.cardContent}
         accessibilityRole="button"
         accessibilityLabel={`${activityName} activity, ${formatDistance(activity.distance)}, ${formatDuration(duration)}`}
-        accessibilityHint={selectionMode ? 'Tap to toggle selection. Long press to select this activity.' : 'Open activity details, or long press to select this activity.'}
+        accessibilityHint={selectionMode ? 'Tap to select or deselect this activity for deletion.' : 'Open activity details, or long press to select this activity for deletion.'}
         onPress={handleCardPress}
         onPressIn={() => { longPressHandledRef.current = false; }}
         activeOpacity={0.82}
@@ -436,19 +517,45 @@ const ActivityCard = memo(function ActivityCard({
         </View>
 
         <View pointerEvents="none" style={styles.mapThumbnailContainer}>
-          <ActivityRouteMap
-            encodedPolyline={routeData.encodedPolyline}
-            plannedEncodedPolyline={routeData.plannedEncodedPolyline}
-            extraEncodedPolyline={routeData.extraEncodedPolyline}
-            savedGpsPoints={routeData.savedGpsPoints}
-            runningRoutes={routeData.runningRoutes}
-            pauseRoutes={routeData.pauseRoutes}
-            pauseEvents={routeData.pauseEvents}
-            pausePoints={routeData.pausePoints}
-            variant="preview"
-          />
+          {thumbnailUri && !thumbnailFailed ? (
+            <ExpoImage
+              source={{ uri: thumbnailUri }}
+              style={styles.mapThumbnailImage}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={reduceMotion ? 0 : 120}
+              accessibilityLabel={`${activityName} route map`}
+              onError={() => setThumbnailFailed(true)}
+            />
+          ) : savedThumbnailUri ? (
+            <ExpoImage
+              source={{ uri: savedThumbnailUri }}
+              style={styles.mapThumbnailImage}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              accessibilityLabel={`${activityName} route map`}
+            />
+          ) : routeActivity ? (
+            <ActivityRouteMap
+              variant="preview"
+              enableFullScreen={false}
+              encodedPolyline={routeActivity.encoded_polyline}
+              plannedEncodedPolyline={routeActivity.planned_encoded_polyline}
+              extraEncodedPolyline={routeActivity.extra_encoded_polyline}
+              savedGpsPoints={routeActivity.gps_points ?? routeActivity.points ?? routeActivity.coordinates}
+              runningRoutes={routeActivity.route?.running_routes}
+              pauseRoutes={routeActivity.route?.pause_routes}
+              pauseEvents={routeActivity.pause_events ?? routeActivity.pauses ?? routeActivity.route?.pause_events ?? routeActivity.route?.pauses}
+              pausePoints={routeActivity.route?.pause_points}
+              onPreviewSnapshot={saveRouteThumbnail}
+            />
+          ) : (
+            <View style={styles.mapPreviewPlaceholder}>
+              <Feather name="map" size={20} color="#6B7280" />
+            </View>
+          )}
 
-          <View style={styles.mapOverlayTop}>
+          <View pointerEvents="none" style={styles.mapOverlayTop}>
             <View style={styles.mapBadge}>
               <MaterialCommunityIcons
                 name={activityName === 'Walk' ? 'walk' : 'run-fast'}
@@ -470,14 +577,20 @@ const ActivityCard = memo(function ActivityCard({
         <TouchableOpacity
           accessibilityRole="checkbox"
           accessibilityState={{ checked: selected, disabled: busy }}
-          accessibilityLabel={`${selected ? 'Deselect' : 'Select'} ${activityName.toLowerCase()}`}
+          accessibilityLabel={`${selected ? 'Deselect' : 'Select'} ${activityName.toLowerCase()} activity for deletion`}
           disabled={busy}
-          onPress={onPress}
-          style={[styles.cardCheckbox, selected && styles.cardCheckboxSelected]}
+          onPress={() => onPress(activityId)}
+          style={[
+            styles.cardCheckbox,
+            { backgroundColor: selected ? '#DC2626' : isDark ? '#111827' : '#FFFFFF' },
+            { borderColor: selected ? '#FFFFFF' : colors.border },
+          ]}
         >
           {deleting
             ? <ActivityIndicator size="small" color="#FF6B6B" />
-            : <Feather name={selected ? 'check-square' : 'square'} size={20} color={selected ? '#35C72B' : '#FFFFFF'} />}
+            : selected
+              ? <Feather name="check" size={21} color="#FFFFFF" />
+              : <Feather name="square" size={20} color={colors.textSecondary} />}
         </TouchableOpacity>
       )}
       </Animated.View>
@@ -534,6 +647,7 @@ export default function ActivityScreen() {
   const { colors } = useTheme();
   const reduceMotion = useReducedMotion();
   const [activities, setActivities] = useState<BackendActivity[]>([]);
+  const [visibleActivityIds, setVisibleActivityIds] = useState<Set<string>>(() => new Set());
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedActivityIds, setSelectedActivityIds] = useState<Set<string>>(() => new Set());
   const [groupMode, setGroupMode] = useState<ActivityGroupMode>('month');
@@ -545,6 +659,7 @@ export default function ActivityScreen() {
   const [selectedDateRange, setSelectedDateRange] = useState<ActivityDateFilter>('all');
   const [selectedDistanceRange, setSelectedDistanceRange] = useState<ActivityDistanceFilter>('all');
   const [sortBy, setSortBy] = useState<ActivitySortFilter>('newest');
+  const [showTypeSheet, setShowTypeSheet] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showDistanceSheet, setShowDistanceSheet] = useState(false);
   const [showSortSheet, setShowSortSheet] = useState(false);
@@ -554,7 +669,6 @@ export default function ActivityScreen() {
   const [rangeStartDate, setRangeStartDate] = useState<Date | null>(null);
   const [rangeEndDate, setRangeEndDate] = useState<Date | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -564,13 +678,16 @@ export default function ActivityScreen() {
   const loadingFirstPageRef = useRef(false);
   const hasLoadedHistoryRef = useRef(false);
   const requestIdRef = useRef(0);
+  const activityViewabilityConfig = useMemo(() => ({ itemVisiblePercentThreshold: 10, minimumViewTime: 80 }), []);
   const selectionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deleteSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [deleteButtonStateProgress] = useState(() => new Animated.Value(0));
   const [deleteTrayOpacity] = useState(() => new Animated.Value(0));
   const [deleteTrayTranslateY] = useState(() => new Animated.Value(24));
   const [deleteSuccessScale] = useState(() => new Animated.Value(0.65));
-  const [refreshRotation] = useState(() => new Animated.Value(0));
+  const [selectionToolbarOpacity] = useState(() => new Animated.Value(0));
+  const [selectionToolbarTranslateY] = useState(() => new Animated.Value(8));
+  const [selectionFiltersProgress] = useState(() => new Animated.Value(1));
 
   const showSelectionToast = useCallback((message: string) => {
     if (selectionToastTimerRef.current) clearTimeout(selectionToastTimerRef.current);
@@ -586,6 +703,15 @@ export default function ActivityScreen() {
     if (deleteSuccessTimerRef.current) clearTimeout(deleteSuccessTimerRef.current);
   }, []);
 
+  const handleViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    const nextVisibleIds = new Set(viewableItems.flatMap(({ item }) => {
+      const row = item as ActivityListRow;
+      return row.type === 'activity' ? [String(row.activity.id)] : [];
+    }));
+    setVisibleActivityIds((current) => current.size === nextVisibleIds.size
+      && [...current].every((id) => nextVisibleIds.has(id)) ? current : nextVisibleIds);
+  }, []);
+
   useEffect(() => {
     const enabled = selectedActivityIds.size > 0 || deleteSuccess;
     const targetState = deleteSuccess ? 0.55 : enabled ? 0.55 : 0;
@@ -599,6 +725,35 @@ export default function ActivityScreen() {
 
   useEffect(() => {
     if (selectionMode) {
+      if (reduceMotion) {
+        selectionToolbarOpacity.setValue(1);
+        selectionToolbarTranslateY.setValue(0);
+        selectionFiltersProgress.setValue(1);
+      } else {
+        selectionToolbarOpacity.setValue(0);
+        selectionToolbarTranslateY.setValue(8);
+        selectionFiltersProgress.setValue(0);
+        Animated.parallel([
+          Animated.timing(selectionToolbarOpacity, {
+            toValue: 1,
+            duration: 220,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.spring(selectionToolbarTranslateY, {
+            toValue: 0,
+            damping: 18,
+            stiffness: 190,
+            useNativeDriver: true,
+          }),
+          Animated.timing(selectionFiltersProgress, {
+            toValue: 1,
+            duration: 240,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
       deleteTrayOpacity.setValue(0);
       deleteTrayTranslateY.setValue(24);
       Animated.parallel([
@@ -618,6 +773,9 @@ export default function ActivityScreen() {
       return;
     }
 
+    selectionToolbarOpacity.setValue(0);
+    selectionToolbarTranslateY.setValue(8);
+    selectionFiltersProgress.setValue(1);
     Animated.parallel([
       Animated.timing(deleteTrayOpacity, {
         toValue: 0,
@@ -632,7 +790,15 @@ export default function ActivityScreen() {
         useNativeDriver: false,
       }),
     ]).start();
-  }, [deleteTrayOpacity, deleteTrayTranslateY, selectionMode]);
+  }, [
+    deleteTrayOpacity,
+    deleteTrayTranslateY,
+    reduceMotion,
+    selectionFiltersProgress,
+    selectionMode,
+    selectionToolbarOpacity,
+    selectionToolbarTranslateY,
+  ]);
 
   useEffect(() => {
     Animated.spring(deleteSuccessScale, {
@@ -643,31 +809,13 @@ export default function ActivityScreen() {
     }).start();
   }, [deleteSuccess, deleteSuccessScale]);
 
-  useEffect(() => {
-    if (!refreshing) {
-      refreshRotation.setValue(0);
-      return;
-    }
-
-    refreshRotation.setValue(0);
-    const animation = Animated.loop(Animated.timing(refreshRotation, {
-      toValue: 1,
-      duration: 850,
-      easing: Easing.linear,
-      useNativeDriver: true,
-    }));
-    animation.start();
-    return () => animation.stop();
-  }, [refreshing, refreshRotation]);
-
-  const loadFirstPage = useCallback(async (isRefresh = false) => {
+  const loadFirstPage = useCallback(async () => {
     const requestId = ++requestIdRef.current;
     let hasUsableHistory = hasLoadedHistoryRef.current;
     cursorRef.current = null;
     loadingFirstPageRef.current = true;
     setHasMore(true);
-    if (isRefresh) setRefreshing(true);
-    else if (!hasUsableHistory) setLoading(true);
+    if (!hasUsableHistory) setLoading(true);
 
     try {
       setError(null);
@@ -702,27 +850,12 @@ export default function ActivityScreen() {
       if (requestId === requestIdRef.current) {
         loadingFirstPageRef.current = false;
         setLoading(false);
-        setRefreshing(false);
       }
     }
   }, [showSelectionToast]);
 
-  const refreshHistory = useCallback(() => {
-    if (refreshing || loading || loadingMore || selectionMode || isDeletingActivities || loadingFirstPageRef.current) return;
-    void loadFirstPage(true);
-  }, [isDeletingActivities, loadFirstPage, loading, loadingMore, refreshing, selectionMode]);
-
   const loadMore = useCallback(async () => {
-    if (__DEV__) {
-      console.log('[ActivityHistory] onEndReached', {
-        cursor: cursorRef.current,
-        hasMore,
-        loadingMore,
-        loading,
-        refreshing,
-      });
-    }
-    if (loadingMore || !hasMore || loadingMoreRef.current || loadingFirstPageRef.current || loading || refreshing) return;
+    if (loadingMore || !hasMore || loadingMoreRef.current || loadingFirstPageRef.current || loading) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
     const cursor = cursorRef.current;
@@ -748,7 +881,7 @@ export default function ActivityScreen() {
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [hasMore, loading, loadingMore, refreshing]);
+  }, [hasMore, loading, loadingMore]);
 
   useFocusEffect(
     useCallback(() => {
@@ -847,16 +980,19 @@ export default function ActivityScreen() {
   }, []);
 
   const startActivitySelection = useCallback((activityId: BackendActivity['id']) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (!reduceMotion) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    selectionToolbarOpacity.setValue(reduceMotion ? 1 : 0);
+    selectionToolbarTranslateY.setValue(reduceMotion ? 0 : 8);
+    selectionFiltersProgress.setValue(reduceMotion ? 1 : 0);
     setSelectionMode(true);
     setSelectedActivityIds((current) => new Set(current).add(String(activityId)));
-  }, []);
+  }, [reduceMotion, selectionFiltersProgress, selectionToolbarOpacity, selectionToolbarTranslateY]);
 
   const cancelActivitySelection = useCallback(() => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (!reduceMotion) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setSelectionMode(false);
     setSelectedActivityIds(new Set());
-  }, []);
+  }, [reduceMotion]);
 
   const toggleGroupSelection = useCallback((groupActivities: BackendActivity[]) => {
     const groupIds = groupActivities.map((activity) => String(activity.id));
@@ -998,6 +1134,14 @@ export default function ActivityScreen() {
     confirmDeleteActivities(selectedActivities);
   }, [confirmDeleteActivities, selectedActivities]);
 
+  const handleActivityPress = useCallback((activityId: BackendActivity['id']) => {
+    if (selectionMode) {
+      toggleActivitySelection(activityId);
+      return;
+    }
+    router.push(`/(app)/activity/${activityId}` as any);
+  }, [selectionMode, toggleActivitySelection]);
+
   const renderActivityRow = useCallback(({ item }: { item: ActivityListRow }) => {
     if (item.type === 'section') {
       const selectedCount = item.activities.filter((activity) => selectedActivityIds.has(String(activity.id))).length;
@@ -1024,16 +1168,23 @@ export default function ActivityScreen() {
         </TouchableOpacity>
       );
     }
+    if (item.type === 'day') {
+      return (
+        <View style={styles.dayHeader}>
+          <Text style={[styles.dayTitle, { color: colors.textSecondary }]}>{item.title}</Text>
+          <Text style={[styles.dayCount, { color: colors.textTertiary }]}>{item.count}</Text>
+        </View>
+      );
+    }
 
     const activity = item.activity;
     return (
       <ActivityCard
         activity={activity}
-        onPress={() => selectionMode
-          ? toggleActivitySelection(activity.id)
-          : router.push(`/(app)/activity/${activity.id}` as any)}
+        onPress={handleActivityPress}
         onStartSelection={startActivitySelection}
         reduceMotion={reduceMotion}
+        isVisible={visibleActivityIds.has(String(activity.id))}
         selectionMode={selectionMode}
         selected={selectedActivityIds.has(String(activity.id))}
         deleting={deletingActivityIds.has(String(activity.id))}
@@ -1043,13 +1194,15 @@ export default function ActivityScreen() {
   }, [
     colors.text,
     colors.textSecondary,
+    colors.textTertiary,
     deletingActivityIds,
     isDeletingActivities,
+    handleActivityPress,
     reduceMotion,
+    visibleActivityIds,
     selectedActivityIds,
     selectionMode,
     startActivitySelection,
-    toggleActivitySelection,
     toggleGroupSelection,
   ]);
 
@@ -1073,46 +1226,61 @@ export default function ActivityScreen() {
       <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} />
       {selectionMode ? (
         <Animated.View
-          style={styles.selectionToolbar}
+          style={[
+            styles.selectionToolbar,
+            {
+              opacity: selectionToolbarOpacity,
+              transform: [{ translateY: selectionToolbarTranslateY }],
+            },
+          ]}
         >
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="Cancel workout selection"
-            disabled={isDeletingActivities}
-            onPress={cancelActivitySelection}
-            style={[styles.selectionToolbarButton, styles.cancelSelectionButton, { borderColor: colors.border }]}
-          >
-            <Feather name="x" size={19} color="#E53935" />
-          </TouchableOpacity>
-          <Text style={[styles.selectionCount, { color: colors.text }]}>{selectedActivities.length} selected</Text>
-          <View style={styles.groupModeSwitch}>
-            {(['month', 'week'] as const).map((mode) => (
-              <TouchableOpacity
-                key={mode}
-                accessibilityRole="button"
-                accessibilityState={{ selected: groupMode === mode }}
-                disabled={isDeletingActivities}
-                onPress={() => setGroupMode(mode)}
-                style={[styles.groupModeButton, groupMode === mode && styles.groupModeButtonSelected]}
-              >
-                <Text style={[styles.groupModeText, { color: groupMode === mode ? '#08110A' : '#111827' }]}>
-                  {mode === 'month' ? 'Month' : 'Week'}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          <View style={styles.selectionToolbarHeader}>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Cancel workout selection"
+              disabled={isDeletingActivities}
+              onPress={cancelActivitySelection}
+              style={[styles.selectionToolbarButton, styles.cancelSelectionButton, { borderColor: colors.border }]}
+            >
+              <Feather name="x" size={19} color="#E53935" />
+            </TouchableOpacity>
+            <View style={styles.selectionTitleGroup}>
+              <Text style={[styles.selectionTitle, { color: colors.text }]}>Select activities to delete</Text>
+              <Text style={[styles.selectionCount, { color: colors.textSecondary }]}>
+                {selectedActivities.length} selected · Tap cards to toggle
+              </Text>
+            </View>
           </View>
-          <TouchableOpacity
-            accessibilityRole="button"
-            disabled={isDeletingActivities || visibleActivities.length === 0}
-            onPress={toggleAllVisibleSelection}
-            style={[styles.selectionToolbarButton, { borderColor: colors.border, backgroundColor: colors.surface }]}
-          >
-            <Text style={[styles.selectionToolbarButtonText, { color: colors.text }]}>
-              {visibleActivities.length > 0 && visibleActivities.every((activity) => selectedActivityIds.has(String(activity.id)))
-                ? 'Deselect all'
-                : 'Select all'}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.selectionToolbarActions}>
+            <View style={styles.groupModeSwitch}>
+              {(['month', 'week'] as const).map((mode) => (
+                <TouchableOpacity
+                  key={mode}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: groupMode === mode }}
+                  disabled={isDeletingActivities}
+                  onPress={() => setGroupMode(mode)}
+                  style={[styles.groupModeButton, groupMode === mode && styles.groupModeButtonSelected]}
+                >
+                  <Text style={[styles.groupModeText, { color: groupMode === mode ? '#08110A' : '#111827' }]}>
+                    {mode === 'month' ? 'Month' : 'Week'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity
+              accessibilityRole="button"
+              disabled={isDeletingActivities || visibleActivities.length === 0}
+              onPress={toggleAllVisibleSelection}
+              style={[styles.selectionToolbarButton, { borderColor: colors.border, backgroundColor: colors.surface }]}
+            >
+              <Text style={[styles.selectionToolbarButtonText, { color: colors.text }]}>
+                {visibleActivities.length > 0 && visibleActivities.every((activity) => selectedActivityIds.has(String(activity.id)))
+                  ? 'Deselect all'
+                  : 'Select all'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </Animated.View>
       ) : (
         <View style={styles.heading}>
@@ -1121,52 +1289,20 @@ export default function ActivityScreen() {
         </View>
       )}
 
-      <View style={styles.filterHeader}>
-        <View style={styles.eventFilterRow}>
-          <View style={styles.typeChipRow}>
-            <Text style={[styles.filterLabel, { color: colors.textSecondary }]}>Event</Text>
-            {activityTypeOptions.map((option) => {
-              const active = selectedType === option.value;
-              return (
-                <TouchableOpacity
-                  key={option.value}
-                  activeOpacity={0.85}
-                  onPress={() => setSelectedType(option.value)}
-                  style={[styles.typeChip, active && styles.typeChipSelected, { backgroundColor: active ? '#35C72B' : colors.surface, borderColor: colors.border }]}
-                >
-                  <Text style={[styles.typeChipText, active && styles.typeChipTextSelected, { color: active ? '#08110A' : colors.text }]}>{option.label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel={refreshing ? 'Refreshing activity history' : 'Refresh activity history'}
-            accessibilityState={{ disabled: refreshing || loading || loadingMore || selectionMode || isDeletingActivities, busy: refreshing }}
-            disabled={refreshing || loading || loadingMore || selectionMode || isDeletingActivities}
-            onPress={refreshHistory}
-            style={[
-              styles.refreshButton,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-              (refreshing || loading || loadingMore || selectionMode || isDeletingActivities) && styles.refreshButtonDisabled,
-            ]}
-          >
-            <Animated.View
-              style={{
-                transform: [{
-                  rotate: refreshRotation.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ['0deg', '360deg'],
-                  }),
-                }],
-              }}
-            >
-              <Feather name="refresh-cw" size={17} color={colors.text} />
-            </Animated.View>
-          </TouchableOpacity>
-        </View>
-      </View>
-
+      <Animated.View
+        style={{
+          opacity: selectionFiltersProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0.92, 1],
+          }),
+          transform: [{
+            translateY: selectionFiltersProgress.interpolate({
+              inputRange: [0, 1],
+              outputRange: [-6, 0],
+            }),
+          }],
+        }}
+      >
       {hasActiveFilters && (
         <View style={styles.activeFilterSummaryRow}>
           <View style={[styles.activeFilterBadge, { backgroundColor: '#23372A', borderColor: '#2C4B38' }]}>
@@ -1180,36 +1316,62 @@ export default function ActivityScreen() {
         </View>
       )}
 
-      <View style={styles.filterRowBar}>
+      <MotionEntrance delay={45}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRowBar}
+        >
         <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={`Activity type: ${activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All'}`}
+          accessibilityHint="Choose which activity types to show"
+          activeOpacity={0.85}
+          onPress={() => setShowTypeSheet(true)}
+          style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        >
+          <Feather name="activity" size={14} color={colors.text} />
+          <Text style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
+            {activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All'}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          accessibilityRole="button"
           activeOpacity={0.85}
           onPress={() => {
             setShowDatePicker(true);
           }}
-          style={[styles.filterBarButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
         >
-          <Feather name="calendar" size={15} color={colors.text} />
-          <Text style={[styles.filterBarText, { color: colors.text }]}>{dateSummary}</Text>
+          <Feather name="calendar" size={14} color={colors.text} />
+          <Text style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
+            {selectedDateRange === 'all' ? 'Date' : dateSummary}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
+          accessibilityRole="button"
           activeOpacity={0.85}
           onPress={() => setShowDistanceSheet(true)}
-          style={[styles.filterBarButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
         >
-          <Feather name="map-pin" size={15} color={colors.text} />
-          <Text style={[styles.filterBarText, { color: colors.text }]}>{distanceSummary}</Text>
+          <Feather name="map-pin" size={14} color={colors.text} />
+          <Text style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
+            {selectedDistanceRange === 'all' ? 'Distance' : distanceSummary}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
+          accessibilityRole="button"
           activeOpacity={0.85}
           onPress={() => setShowSortSheet(true)}
-          style={[styles.filterBarButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
         >
-          <Feather name="bar-chart-2" size={15} color={colors.text} />
-          <Text style={[styles.filterBarText, { color: colors.text }]}>{sortSummary}</Text>
+          <Feather name="bar-chart-2" size={14} color={colors.text} />
+          <Text style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>{sortSummary}</Text>
         </TouchableOpacity>
-      </View>
+        </ScrollView>
+      </MotionEntrance>
 
       {hasActiveFilters && (
         <TouchableOpacity
@@ -1228,6 +1390,50 @@ export default function ActivityScreen() {
           <Text style={styles.resetButtonText}>Reset filters</Text>
         </TouchableOpacity>
       )}
+      </Animated.View>
+
+      <Modal transparent visible={showTypeSheet} animationType="slide" onRequestClose={() => setShowTypeSheet(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={styles.modalHeaderRow}>
+              <View style={styles.modalHeaderBadge}>
+                <Feather name="activity" size={14} color="#35C72B" />
+              </View>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Activity type</Text>
+            </View>
+
+            <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Show activities</Text>
+            {activityTypeOptions.map((option) => {
+              const active = selectedType === option.value;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    setSelectedType(option.value);
+                    setShowTypeSheet(false);
+                  }}
+                  style={[styles.optionRow, { backgroundColor: active ? '#35C72B' : colors.background, borderColor: active ? '#35C72B' : colors.border }]}
+                >
+                  <Text style={[styles.optionText, { color: active ? '#08110A' : colors.text }]}>{option.label}</Text>
+                  {active && <Feather name="check" size={16} color="#08110A" />}
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity
+              accessibilityRole="button"
+              activeOpacity={0.85}
+              onPress={() => {
+                setSelectedType('all');
+                setShowTypeSheet(false);
+              }}
+              style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
+            >
+              <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <Modal transparent visible={showDatePicker} animationType="slide" onRequestClose={() => setShowDatePicker(false)}>
         <View style={styles.modalBackdrop}>
@@ -1496,10 +1702,12 @@ export default function ActivityScreen() {
           keyExtractor={(item) => item.key}
           renderItem={renderActivityRow}
           initialNumToRender={10}
-          maxToRenderPerBatch={4}
-          windowSize={7}
+          maxToRenderPerBatch={6}
+          windowSize={5}
           removeClippedSubviews
           updateCellsBatchingPeriod={16}
+          viewabilityConfig={activityViewabilityConfig}
+          onViewableItemsChanged={handleViewableItemsChanged}
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
           ListFooterComponent={loadingMore
@@ -1604,8 +1812,12 @@ const styles = StyleSheet.create({
   heading: { paddingTop: 20, paddingBottom: 18 },
   title: { color: '#F7F7F7', fontSize: 31, fontWeight: '700' },
   subtitle: { color: '#A9ADAF', fontSize: 15, marginTop: 4 },
-  selectionToolbar: { minHeight: 72, paddingTop: 14, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
-  selectionCount: { minWidth: 72, flexGrow: 1, fontSize: 13, fontWeight: '700' },
+  selectionToolbar: { paddingTop: 12, paddingBottom: 12, gap: 9 },
+  selectionToolbarHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  selectionTitleGroup: { flex: 1, minWidth: 0 },
+  selectionTitle: { fontSize: 14, fontWeight: '800' },
+  selectionCount: { fontSize: 12, fontWeight: '600', marginTop: 2 },
+  selectionToolbarActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 },
   selectionToolbarButton: { minHeight: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 11, borderWidth: 1, borderRadius: 10 },
   cancelSelectionButton: { width: 40, paddingHorizontal: 0, backgroundColor: '#FFFFFF' },
   selectionToolbarButtonText: { fontSize: 12, fontWeight: '700' },
@@ -1614,24 +1826,16 @@ const styles = StyleSheet.create({
   groupModeButtonSelected: { backgroundColor: '#35C72B' },
   groupModeText: { fontSize: 11, fontWeight: '700' },
   disabledButton: { opacity: 0.45 },
-  filterHeader: { marginBottom: 12 },
-  eventFilterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  typeChipRow: { flex: 1, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
-  filterLabel: { fontSize: 12, fontWeight: '700', marginRight: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
-  refreshButton: { width: 42, height: 42, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 13, borderWidth: 1 },
-  refreshButtonDisabled: { opacity: 0.52 },
-  typeChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1 },
-  typeChipSelected: { backgroundColor: '#35C72B' },
-  typeChipText: { fontSize: 13, fontWeight: '600' },
-  typeChipTextSelected: { color: '#08110A' },
   activeFilterSummaryRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
   activeFilterBadge: { paddingHorizontal: 8, paddingVertical: 5, borderRadius: 999, borderWidth: 1 },
   activeFilterBadgeText: { color: '#D9F9DB', fontSize: 11, fontWeight: '700' },
   activeFilterPill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 5 },
   activeFilterPillText: { fontSize: 11, fontWeight: '600' },
-  filterRowBar: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  filterRowBar: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: 8, paddingRight: 2, marginBottom: 10 },
   filterBarButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, minHeight: 42 },
   filterBarText: { fontSize: 12, fontWeight: '600' },
+  compactFilterButton: { flexShrink: 0, justifyContent: 'center', gap: 6, paddingHorizontal: 10 },
+  compactFilterText: { flexShrink: 0, fontSize: 12 },
   resetButton: { alignSelf: 'flex-start', marginBottom: 12, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, backgroundColor: '#23372A' },
   resetButtonText: { color: '#EF4444', fontSize: 12, fontWeight: '700' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.42)', justifyContent: 'flex-end' },
@@ -1665,6 +1869,9 @@ const styles = StyleSheet.create({
   sectionHeader: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 12, paddingBottom: 8 },
   sectionTitle: { flex: 1, fontSize: 19, fontWeight: '700' },
   sectionCount: { fontSize: 12, fontWeight: '600' },
+  dayHeader: { minHeight: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 12, paddingRight: 4, marginTop: 2 },
+  dayTitle: { fontSize: 14, fontWeight: '700' },
+  dayCount: { fontSize: 11, fontWeight: '600' },
   toast: { position: 'absolute', alignSelf: 'center', bottom: 178, maxWidth: '90%', paddingHorizontal: 16, paddingVertical: 11, borderRadius: 22, backgroundColor: '#252A27', borderWidth: 1, borderColor: '#3C4B3F' },
   toastText: { color: '#F7F7F7', fontSize: 13, fontWeight: '600', textAlign: 'center' },
   card: { height: 150, backgroundColor: '#242627', borderRadius: 25, paddingVertical: 14, paddingHorizontal: 15, marginBottom: 5, borderWidth: 1, borderColor: '#393C3E', overflow: 'hidden' },
@@ -1674,8 +1881,7 @@ const styles = StyleSheet.create({
   deleteButtonAction: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 22, borderRadius: 27 },
   deleteButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   cardContent: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden' },
-  cardCheckbox: { position: 'absolute', top: 7, right: 7, width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(11, 14, 15, 0.78)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', zIndex: 2 },
-  cardCheckboxSelected: { backgroundColor: '#132219', borderColor: '#35C72B' },
+  cardCheckbox: { position: 'absolute', top: 7, right: 7, width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 2, zIndex: 2 },
   cardDetails: { flex: 1.05, minWidth: 0, paddingRight: 8 },
   activityType: { color: '#F7F7F7', fontSize: 18, lineHeight: 22, fontWeight: '800' },
   activityDate: { color: '#A9ADAF', fontSize: 12, lineHeight: 15, marginTop: 2 },
@@ -1687,6 +1893,8 @@ const styles = StyleSheet.create({
   metricValue: { color: '#F7F7F7', fontSize: 12, lineHeight: 15, fontWeight: '900' },
   metricLabel: { color: '#A9ADAF', fontSize: 10, lineHeight: 12, marginTop: 1,width: '100%' },
   mapThumbnailContainer: { position: 'relative', width: 132, height: 120, marginLeft: 10, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E5E7EB' },
+  mapThumbnailImage: { width: '100%', height: '100%' },
+  mapPreviewPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E5E7EB' },
   mapOverlayTop: { position: 'absolute', top: 8, left: 8, right: 8, flexDirection: 'row', justifyContent: 'flex-start' },
   mapBadge: { backgroundColor: 'rgba(11, 14, 15, 0.58)', borderRadius: 999, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 8, paddingVertical: 4 },
   mapBadgeText: { color: '#F7F7F7', fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },

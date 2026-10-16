@@ -59,16 +59,27 @@ export default function AppLayout() {
 
   return (
     <View style={[styles.container, !showBottomNav && styles.subScreenContainer]}>
-      {isIOS ? (
-        <BlurTargetView ref={blurTargetRef} style={styles.blurTarget}>
-          {stackContent}
-        </BlurTargetView>
-      ) : (
-        <View style={styles.blurTarget}>
-          {stackContent}
-        </View>
-      )}
-      {showBottomNav && <GlobalBottomNav blurTarget={isIOS ? blurTargetRef : undefined} />}
+      <BlurTargetView ref={blurTargetRef} style={styles.blurTarget}>
+        <Stack
+          screenOptions={{ headerShown: false, animation: 'none' }}
+          screenLayout={renderScreen}
+        >
+          <Stack.Screen name="dashboard" options={{ animation: 'none' }} />
+          <Stack.Screen name="stats" options={{ animation: 'none' }} />
+          <Stack.Screen name="screens/weather-details" />
+          <Stack.Screen name="home" />
+          <Stack.Screen name="history" />
+          <Stack.Screen name="run" />
+          <Stack.Screen name="questionnaire" options={{ headerShown: false }} />
+          <Stack.Screen name="training-plan" options={{ headerShown: false, animation: 'none' }} />
+          <Stack.Screen name="calendar" options={{ headerShown: false }} />
+          <Stack.Screen name="activity/index" options={{ headerShown: false, animation: 'none' }} />
+          <Stack.Screen name="profile" options={{ animation: 'none' }} />
+          <Stack.Screen name="activity/[id]" />
+          <Stack.Screen name="custom-workout" options={{ headerShown: false }} />
+        </Stack>
+      </BlurTargetView>
+      {showBottomNav && <GlobalBottomNav blurTarget={blurTargetRef} />}
     </View>
   );
 }

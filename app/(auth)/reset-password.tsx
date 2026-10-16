@@ -141,7 +141,6 @@ export default function ResetPasswordScreen() {
         ]
       );
     } catch (error: any) {
-      console.log("Reset Password Error:", error?.response?.data);
       
       // Handle different error scenarios with user-friendly messages
       let errorMessage = "Password reset failed. Please try again.";

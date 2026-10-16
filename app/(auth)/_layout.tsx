@@ -6,11 +6,13 @@ export default function AuthLayout() {
     <Stack
       screenOptions={{ headerShown: false, animation: 'none' }}
       screenLayout={({ route, children }) => (
-        <TabZoomTransition key={route.key}>{children}</TabZoomTransition>
+        route.name === 'login' || route.name === 'signup'
+          ? children
+          : <TabZoomTransition key={route.key}>{children}</TabZoomTransition>
       )}
     >
-      <Stack.Screen name="login" />
-      <Stack.Screen name="signup" />
+      <Stack.Screen name="login" options={{ animation: 'simple_push' }} />
+      <Stack.Screen name="signup" options={{ animation: 'simple_push' }} />
       <Stack.Screen name="verify-otp" />
       <Stack.Screen name="forgot-password" />
       <Stack.Screen name="reset-password" />

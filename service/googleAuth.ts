@@ -9,7 +9,6 @@ const extra = Constants.expoConfig?.extra ?? {};
 // Use ONLY Android Client ID for native Android apps
 const ANDROID_CLIENT_ID = extra.googleAndroidClientId;
 
-console.log("🔑 Android Client ID loaded for native Android app");
 
 const GOOGLE_DISCOVERY = {
   authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -26,7 +25,6 @@ const REDIRECT_URI = AuthSession.makeRedirectUri({
   native: "com.zyapp:/oauthredirect",
 });
 
-console.log("📍 Native Android Redirect URI:", REDIRECT_URI);
 
 const parseGoogleUser = (idToken: string) => {
   const [, payloadPart] = idToken.split(".");
@@ -61,7 +59,6 @@ class GoogleAuthService {
     await WebBrowser.warmUpAsync();
 
     try {
-      console.log("🚀 Starting Google Sign-In with Android Client ID...");
 
       // Create auth request with Authorization Code flow (proper for Android)
       this.authRequest = new AuthSession.AuthRequest({
@@ -76,25 +73,16 @@ class GoogleAuthService {
         },
       });
 
-      console.log("📱 Prompting user for Google Sign-In...");
 
       // Use native redirect (no proxy needed for Android native apps)
       const result = await this.authRequest.promptAsync(GOOGLE_DISCOVERY);
 
-      console.log("✅ Auth flow completed:", result.type);
-      console.log("📍 Result details:", {
-        type: result.type,
-        hasCode: !!result.params?.code,
-        hasIdToken: !!result.params?.id_token,
-        hasAccessToken: !!result.params?.access_token,
-      });
 
       // First, check if we have any tokens/code before checking dismissal
       // (Android native builds might return "dismiss" even on successful auth)
 
       // Check if we have an authorization code to exchange
       if (result.params?.code) {
-        console.log("📦 Authorization code received, exchanging for tokens...");
 
         try {
           const codeVerifier = this.authRequest?.codeVerifier ?? "";
@@ -108,7 +96,6 @@ class GoogleAuthService {
             GOOGLE_DISCOVERY
           );
 
-          console.log("🎫 Tokens received successfully");
 
           const idToken = tokenResponse.idToken;
           if (!idToken) {
@@ -116,7 +103,6 @@ class GoogleAuthService {
           }
 
           const payload = parseGoogleUser(idToken);
-          console.log("👤 User authenticated:", payload.email);
 
           return {
             idToken,
@@ -134,7 +120,6 @@ class GoogleAuthService {
 
       // If code exchange didn't work or no code, try to extract tokens from result
       if (result.params?.id_token || result.params?.access_token) {
-        console.log("✅ Using tokens directly from result");
 
         const idToken = result.params.id_token;
         const accessToken = result.params.access_token ?? "";
@@ -144,7 +129,6 @@ class GoogleAuthService {
         }
 
         const payload = parseGoogleUser(idToken);
-        console.log("👤 User authenticated:", payload.email);
 
         return {
           idToken,
@@ -155,7 +139,6 @@ class GoogleAuthService {
 
       // If we reach here, check if it was actually dismissed or if it's an auth failure
       if (result.type === "dismiss" || result.type === "cancel" || result.type === "closed") {
-        console.log("⚠️ Google Sign-In dialog was dismissed without completing authentication");
         throw new Error("Google Sign-In was cancelled. Please try again and complete the authentication process.");
       }
 

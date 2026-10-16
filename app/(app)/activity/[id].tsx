@@ -222,11 +222,11 @@ export default function ActivityDetailScreen() {
             })}
           </Text>
 
-          <View style={[styles.heroCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={[styles.heroLabel, { color: colors.textSecondary }]}>Distance</Text>
-            <Text style={[styles.distance, { color: colors.primary }]}>{formatDistance(activity.distance)}</Text>
-            <Text style={[styles.status, { color: colors.textTertiary }]}>{activity.processing_status.toLowerCase()}</Text>
-          </View>
+            <View style={[styles.heroCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.heroLabel, { color: colors.textSecondary }]}>Distance</Text>
+              <Text style={[styles.distance, { color: colors.primary }]}>{formatDistance(activity.distance)}</Text>
+              <Text style={[styles.status, { color: colors.textTertiary }]}>{activity.processing_status.toLowerCase()}</Text>
+            </View>
 
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Route</Text>
           <ActivityRouteMap
@@ -250,33 +250,33 @@ export default function ActivityDetailScreen() {
             }}
           />
 
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Performance</Text>
-          <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <DetailMetric label="Moving time" value={formatDuration(activity.moving_time)} />
-            <DetailMetric label="Elapsed time" value={formatDuration(activity.elapsed_time)} />
-            <DetailMetric label="Average pace" value={formatPace(activity.avg_pace)} />
-            <DetailMetric label="Average speed" value={formatSpeed(activity.avg_speed)} />
-            <DetailMetric label="Max speed" value={formatSpeed(activity.max_speed)} />
-            <DetailMetric label="Calories" value={`${Math.round(activity.calories)} kcal`} />
-          </View>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Performance</Text>
+            <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <DetailMetric label="Moving time" value={formatDuration(activity.moving_time)} />
+              <DetailMetric label="Elapsed time" value={formatDuration(activity.elapsed_time)} />
+              <DetailMetric label="Average pace" value={formatPace(activity.avg_pace)} />
+              <DetailMetric label="Average speed" value={formatSpeed(activity.avg_speed)} />
+              <DetailMetric label="Max speed" value={formatSpeed(activity.max_speed)} />
+              <DetailMetric label="Calories" value={`${Math.round(activity.calories)} kcal`} />
+            </View>
 
-          {(activity.planned_distance_km !== null && activity.planned_distance_km !== undefined)
-            || (activity.extra_distance_km !== null && activity.extra_distance_km !== undefined) ? (
-            <>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Distance breakdown</Text>
-              <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <DetailMetric label="Planned distance" value={formatDistance(Number(activity.planned_distance ?? (activity.planned_distance_km ?? 0) * 1000))} />
-                <DetailMetric label="Extra distance" value={formatDistance(Number(activity.extra_distance ?? (activity.extra_distance_km ?? 0) * 1000))} />
-              </View>
-            </>
-          ) : null}
+            {(activity.planned_distance_km !== null && activity.planned_distance_km !== undefined)
+              || (activity.extra_distance_km !== null && activity.extra_distance_km !== undefined) ? (
+              <>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Distance breakdown</Text>
+                <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <DetailMetric label="Planned distance" value={formatDistance(Number(activity.planned_distance ?? (activity.planned_distance_km ?? 0) * 1000))} />
+                  <DetailMetric label="Extra distance" value={formatDistance(Number(activity.extra_distance ?? (activity.extra_distance_km ?? 0) * 1000))} />
+                </View>
+              </>
+            ) : null}
 
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Route data</Text>
-          <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <DetailMetric label="Elevation gain" value={`${Math.round(activity.elevation_gain)} m`} />
-            <DetailMetric label="Elevation loss" value={`${Math.round(activity.elevation_loss)} m`} />
-            <DetailMetric label="Route processed" value={activity.is_processed ? 'Yes' : 'No'} />
-          </View>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Route data</Text>
+            <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <DetailMetric label="Elevation gain" value={`${Math.round(activity.elevation_gain)} m`} />
+              <DetailMetric label="Elevation loss" value={`${Math.round(activity.elevation_loss)} m`} />
+              <DetailMetric label="Route processed" value={activity.is_processed ? 'Yes' : 'No'} />
+            </View>
           </MotionEntrance>
         </ScrollView>
       ) : null}
@@ -324,4 +324,3 @@ const styles = StyleSheet.create({
   retryButton: { borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, marginTop: 18 },
   retryText: { fontSize: 16, fontWeight: '700' },
 });
-

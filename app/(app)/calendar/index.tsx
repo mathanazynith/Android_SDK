@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Animated, Easing, FlatList, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useReducedMotion } from 'react-native-reanimated';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 import { useAuth } from '../../../service/auth';
 import { workoutPlanService, type CurrentWorkout, type UserWorkoutResponse } from '../../../service/workoutPlan';
@@ -167,6 +169,8 @@ const toWorkoutDetail = (
 };
 
 export default function CalendarScreen() {
+  const { colors, isDark } = useTheme();
+  const reduceMotion = useReducedMotion();
   const { user } = useAuth();
   const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
   const [selectedWeekIndex, setSelectedWeekIndex] = useState(0);
@@ -174,9 +178,37 @@ export default function CalendarScreen() {
   const [benchmarkAssignments, setBenchmarkAssignments] = useState<Record<string, PlanBenchmarkAssignment>>({});
   const [dbPlanWorkouts, setDbPlanWorkouts] = useState<UserWorkoutResponse[]>([]);
   const pagerRef = useRef<FlatList<RunningPlanWeek>>(null);
+  const previousWeekIndex = useRef(selectedWeekIndex);
+  const [weekHeaderOpacity] = useState(() => new Animated.Value(1));
+  const [weekHeaderTranslateY] = useState(() => new Animated.Value(0));
   const { width: windowWidth } = useWindowDimensions();
   const pageWidth = Math.max(0, windowWidth - 36);
   const userName = user?.username?.trim() || user?.email?.split('@')[0]?.trim() || 'Runner';
+  useEffect(() => {
+    if (previousWeekIndex.current === selectedWeekIndex) return;
+    previousWeekIndex.current = selectedWeekIndex;
+    if (reduceMotion) {
+      weekHeaderOpacity.setValue(1);
+      weekHeaderTranslateY.setValue(0);
+      return;
+    }
+    weekHeaderOpacity.setValue(0);
+    weekHeaderTranslateY.setValue(5);
+    Animated.parallel([
+      Animated.timing(weekHeaderOpacity, {
+        toValue: 1,
+        duration: 170,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(weekHeaderTranslateY, {
+        toValue: 0,
+        duration: 170,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [reduceMotion, selectedWeekIndex, weekHeaderOpacity, weekHeaderTranslateY]);
   useEffect(() => {
     fetchWorkoutPlan();
     PlanBenchmarkStore.getAssignments().then(setBenchmarkAssignments);
@@ -267,12 +299,14 @@ export default function CalendarScreen() {
     if (boundedIndex !== selectedWeekIndex) setSelectedWeekIndex(boundedIndex);
   };
 
-  if (isWorkoutPlanLoading && !plan) return <SafeAreaView style={styles.container}><StatusBar barStyle="light-content" /><View style={styles.center}><ActivityIndicator size="large" color="#28a745" /><Text style={styles.message}>Loading your training plan...</Text></View></SafeAreaView>;
-  if (!plan) return <SafeAreaView style={styles.container}><StatusBar barStyle="light-content" /><View style={styles.center}><Text style={styles.error}>{workoutPlanError || 'No training plan is available.'}</Text><TouchableOpacity onPress={() => fetchWorkoutPlan(true)} style={styles.retry}><Text style={styles.retryText}>Retry</Text></TouchableOpacity></View></SafeAreaView>;
+  if (isWorkoutPlanLoading && !plan) return <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}><StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} /><View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /><Text style={[styles.message, { color: colors.textSecondary }]}>Loading your training plan...</Text></View></SafeAreaView>;
+  if (!plan) return <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}><StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} /><View style={styles.center}><Text style={[styles.error, { color: colors.text }]}>{workoutPlanError || 'No training plan is available.'}</Text><TouchableOpacity onPress={() => fetchWorkoutPlan(true)} style={[styles.retry, { backgroundColor: colors.primary }]}><Text style={[styles.retryText, { color: colors.primaryText }]}>Retry</Text></TouchableOpacity></View></SafeAreaView>;
 
-  return <SafeAreaView style={styles.container}><StatusBar barStyle="light-content" /><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+  return <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}><StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} /><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
     <RunningPlanHeader planName={plan.name} focusLabel={plan.focus} userName={userName} />
-    <TrainingCalendarCard weekLabel={selectedWeek?.label ?? ''} rangeLabel={selectedWeek?.dateRange ?? ''} statusText={selectedWeek?.statusText ?? ''} totalWeeks={plan.totalWeeks} currentWeekIndex={selectedWeekIndex + 1} onPrevious={() => changeWeek(-1)} onNext={() => changeWeek(1)} previousDisabled={selectedWeekIndex <= 0} nextDisabled={selectedWeekIndex >= plan.weeks.length - 1} />
+    <Animated.View style={{ opacity: weekHeaderOpacity, transform: [{ translateY: weekHeaderTranslateY }] }}>
+      <TrainingCalendarCard weekLabel={selectedWeek?.label ?? ''} rangeLabel={selectedWeek?.dateRange ?? ''} statusText={selectedWeek?.statusText ?? ''} totalWeeks={plan.totalWeeks} currentWeekIndex={selectedWeekIndex + 1} onPrevious={() => changeWeek(-1)} onNext={() => changeWeek(1)} previousDisabled={selectedWeekIndex <= 0} nextDisabled={selectedWeekIndex >= plan.weeks.length - 1} />
+    </Animated.View>
     <FlatList
       ref={pagerRef}
       data={plan.weeks}
@@ -357,14 +391,14 @@ export default function CalendarScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#06090B' },
+  container: { flex: 1 },
   content: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 118 },
   pager: { marginHorizontal: -18 },
   weekPage: { paddingHorizontal: 18 },
   timelineWrapper: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  message: { color: '#fff', marginTop: 12 },
-  error: { color: '#fff', fontSize: 16, marginBottom: 12, textAlign: 'center' },
-  retry: { backgroundColor: '#28a745', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 8 },
-  retryText: { color: '#fff' },
+  message: { marginTop: 12 },
+  error: { fontSize: 16, marginBottom: 12, textAlign: 'center' },
+  retry: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 8 },
+  retryText: { fontWeight: '700' },
 });

@@ -54,14 +54,9 @@ export default function SuggestedRoutesScreen() {
     if (!workoutId) return;
     setAssigningId(route.id);
     try {
-      const response = await customWorkoutAPI.assignRoute(Number(workoutId), route.id);
+      await customWorkoutAPI.assignRoute(Number(workoutId), route.id);
       cacheAssignedRoute(Number(workoutId), route);
       setAssignedId(route.id);
-      console.log("[CustomWorkout] Route assigned", {
-        workoutId: Number(workoutId),
-        routeId: route.id,
-        response: response.data,
-      });
       Alert.alert("Route assigned", "This route will be used when you start this workout.", [
         { text: "OK", onPress: () => router.back() },
       ]);

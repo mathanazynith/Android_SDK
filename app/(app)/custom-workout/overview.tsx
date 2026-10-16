@@ -8,7 +8,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import MotionEntrance from "../../../components/MotionEntrance";
 import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
-import { Colors } from "../../../constants/theme";
+import { useTheme, type ThemeColors } from "../../../contexts/ThemeContext";
 import { clearCachedAssignedRoute, customWorkoutAPI, getCachedAssignedRoute, type SuggestedRoute } from "../../../service/customWorkout";
 import { BenchmarkStore } from "../../../src/services/benchmarkStore";
 import {
@@ -133,6 +133,8 @@ function StepCard({
   onDelete?: () => void;
   onSkipLastRest?: (skipLast: boolean) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const isRepeated = (step.repeat || 1) > 1 || Boolean(step.groupId);
 
   const openStep = () => {
@@ -241,7 +243,7 @@ function StepCard({
                 style={styles.cardThreeDotsBtn}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               >
-                <Feather name="more-horizontal" size={20} color="#8E8E93" />
+                <Feather name="more-horizontal" size={20} color={colors.iconSecondary} />
               </TouchableOpacity>
             ) : null}
           </View>
@@ -260,6 +262,8 @@ function EmptyStepCard({
   color: string;
   onPress: () => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <TouchableOpacity
       activeOpacity={0.88}
@@ -276,7 +280,7 @@ function EmptyStepCard({
           <Feather
             name="plus-circle"
             size={20}
-            color={Colors.primaryLight}
+            color={colors.primary}
           />
         </View>
       </View>
@@ -301,6 +305,8 @@ function RestCard({
   onDelete?: () => void;
   onToggleSkipLastRest?: (skip: boolean) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const restCount = skipLastRest ? Math.max(repeatCount - 1, 0) : repeatCount;
   const restSec = seconds(duration);
   const totalRestSec = restSec * restCount;
@@ -329,12 +335,12 @@ function RestCard({
             <Feather
               name="coffee"
               size={15}
-              color={skipLastRest && repeatCount === 1 ? "#8E8E93" : "#30D158"}
+              color={skipLastRest && repeatCount === 1 ? colors.iconSecondary : "#30D158"}
             />
             <Text
               style={[
                 styles.restTitle,
-                skipLastRest && repeatCount === 1 && { color: "#8E8E93" },
+                skipLastRest && repeatCount === 1 && { color: colors.textTertiary },
               ]}
             >
               Recovery Rest
@@ -347,7 +353,7 @@ function RestCard({
                 onPress={onPress}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Feather name="edit-2" size={14} color="#8E8E93" />
+                <Feather name="edit-2" size={14} color={colors.iconSecondary} />
               </TouchableOpacity>
               {onDelete ? (
                 <TouchableOpacity
@@ -370,7 +376,7 @@ function RestCard({
             <Text
               style={[
                 styles.restValue,
-                skipLastRest && repeatCount === 1 && { color: "#8E8E93" },
+                skipLastRest && repeatCount === 1 && { color: colors.textTertiary },
               ]}
             >
               {duration}
@@ -402,8 +408,8 @@ function RestCard({
               value={skipLastRest}
               onValueChange={(val: boolean) => onToggleSkipLastRest?.(val)}
               disabled={!editable}
-              trackColor={{ false: "#3A3A3C", true: "rgba(48, 209, 88, 0.4)" }}
-              thumbColor={skipLastRest ? "#30D158" : "#8E8E93"}
+              trackColor={{ false: colors.border, true: "rgba(48, 209, 88, 0.4)" }}
+              thumbColor={skipLastRest ? "#30D158" : colors.iconSecondary}
               style={{ transform: [{ scaleX: 0.7 }, { scaleY: 0.7 }], marginHorizontal: -4 }}
             />
           </TouchableOpacity>
@@ -423,6 +429,8 @@ const restPresets = [
 ];
 
 export default function CustomWorkoutOverview() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const {
     workout,
     isSaving,
@@ -801,7 +809,7 @@ export default function CustomWorkoutOverview() {
           style={styles.headerCircleBtn}
           accessibilityLabel="Go back"
         >
-          <Feather name="arrow-left" size={20} color="#FFFFFF" />
+          <Feather name="arrow-left" size={20} color={colors.icon} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -827,7 +835,7 @@ export default function CustomWorkoutOverview() {
             ) : null}
           </View>
           {isEditing ? (
-            <Feather name="edit-2" size={13} color={Colors.primaryLight} style={{ marginLeft: 6 }} />
+            <Feather name="edit-2" size={13} color={colors.primary} style={{ marginLeft: 6 }} />
           ) : null}
         </TouchableOpacity>
 
@@ -838,7 +846,7 @@ export default function CustomWorkoutOverview() {
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             accessibilityLabel="More options"
           >
-            <Feather name="more-horizontal" size={20} color="#FFFFFF" />
+            <Feather name="more-horizontal" size={20} color={colors.icon} />
           </TouchableOpacity>
 
           {isEditing ? (
@@ -848,7 +856,7 @@ export default function CustomWorkoutOverview() {
               style={styles.saveHeaderButton}
             >
               {isSaving ? (
-                <ActivityIndicator size="small" color="#30D158" />
+                <ActivityIndicator size="small" color={colors.primary} />
               ) : (
                 <Text style={styles.headerSaveText}>Save</Text>
               )}
@@ -859,7 +867,7 @@ export default function CustomWorkoutOverview() {
               style={styles.editHeaderButton}
               activeOpacity={0.8}
             >
-              <Feather name="edit-2" size={13} color={Colors.primaryLight} />
+              <Feather name="edit-2" size={13} color={colors.primary} />
               <Text style={styles.editHeaderText}>EDIT</Text>
             </TouchableOpacity>
           )}
@@ -874,7 +882,7 @@ export default function CustomWorkoutOverview() {
         <MotionEntrance>
         {/* Workout Date Banner */}
         <View style={styles.dateBanner}>
-          <Feather name="calendar" size={16} color={Colors.primaryLight} />
+          <Feather name="calendar" size={16} color={colors.primary} />
           <Text style={styles.dateText}>
             Date: {workout.workoutDate || "Unscheduled"}
           </Text>
@@ -1071,7 +1079,7 @@ export default function CustomWorkoutOverview() {
               }}
               activeOpacity={0.85}
             >
-              <Feather name="plus" size={18} color="#000000" />
+              <Feather name="plus" size={18} color={colors.primaryText} />
               <Text style={styles.actionAddText}>ADD RUN STEP</Text>
             </TouchableOpacity>
 
@@ -1083,7 +1091,7 @@ export default function CustomWorkoutOverview() {
               }}
               activeOpacity={0.85}
             >
-              <Feather name="repeat" size={16} color={Colors.text} />
+              <Feather name="repeat" size={16} color={colors.icon} />
               <Text style={styles.actionRepeatText}>REPEAT RUN</Text>
             </TouchableOpacity>
           </View>
@@ -1139,7 +1147,7 @@ export default function CustomWorkoutOverview() {
               }}
               activeOpacity={0.85}
             >
-              <Feather name="play" size={18} color="#000000" />
+              <Feather name="play" size={18} color={colors.primaryText} />
               <Text style={styles.startWorkoutButtonText}>START WORKOUT</Text>
             </TouchableOpacity>
           </View>
@@ -1169,7 +1177,7 @@ export default function CustomWorkoutOverview() {
                 value={tempTitle}
                 onChangeText={setTempTitle}
                 placeholder="e.g. 5K Tempo Run"
-                placeholderTextColor={Colors.textMuted}
+                placeholderTextColor={colors.placeholder}
                 style={styles.modalInput}
               />
               <TouchableOpacity
@@ -1215,7 +1223,7 @@ export default function CustomWorkoutOverview() {
                       <Feather
                         name="check"
                         size={20}
-                        color={Colors.primaryLight}
+                        color={colors.primary}
                       />
                     ) : null}
                   </TouchableOpacity>
@@ -1282,8 +1290,8 @@ export default function CustomWorkoutOverview() {
                 <Switch
                   value={tempSkipLastRest}
                   onValueChange={setTempSkipLastRest}
-                  trackColor={{ false: "#3A3A3C", true: Colors.primaryDark }}
-                  thumbColor={tempSkipLastRest ? Colors.primaryLight : "#BBBBBB"}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor={tempSkipLastRest ? colors.primary : colors.iconSecondary}
                 />
               </View>
 
@@ -1332,7 +1340,7 @@ export default function CustomWorkoutOverview() {
                 style={styles.menuCloseBtn}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Feather name="x" size={20} color={Colors.textSecondary} />
+                <Feather name="x" size={20} color={colors.iconSecondary} />
               </TouchableOpacity>
             </View>
 
@@ -1357,7 +1365,7 @@ export default function CustomWorkoutOverview() {
                     <Text style={styles.menuItemText}>Reset to default</Text>
                     <Text style={styles.menuItemSubtext}>Reset to 1 Set · 1.00 km default values</Text>
                   </View>
-                  <Feather name="chevron-right" size={16} color={Colors.textMuted} />
+                  <Feather name="chevron-right" size={16} color={colors.iconSecondary} />
                 </TouchableOpacity>
               )}
 
@@ -1389,7 +1397,7 @@ export default function CustomWorkoutOverview() {
                   <Text style={[styles.menuItemText, { color: "#FF453A" }]}>Delete Step</Text>
                   <Text style={styles.menuItemSubtext}>Remove this step from workout</Text>
                 </View>
-                <Feather name="chevron-right" size={16} color={Colors.textMuted} />
+                <Feather name="chevron-right" size={16} color={colors.iconSecondary} />
               </TouchableOpacity>
             )}
           </Pressable>
@@ -1424,7 +1432,7 @@ export default function CustomWorkoutOverview() {
                 style={styles.menuCloseBtn}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Feather name="x" size={20} color={Colors.textSecondary} />
+                <Feather name="x" size={20} color={colors.iconSecondary} />
               </TouchableOpacity>
             </View>
 
@@ -1445,7 +1453,7 @@ export default function CustomWorkoutOverview() {
                   <Text style={styles.menuItemText}>Edit Workout</Text>
                   <Text style={styles.menuItemSubtext}>Modify steps, sets, and workout details</Text>
                 </View>
-                <Feather name="chevron-right" size={16} color={Colors.textMuted} />
+                <Feather name="chevron-right" size={16} color={colors.iconSecondary} />
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
@@ -1463,7 +1471,7 @@ export default function CustomWorkoutOverview() {
                   <Text style={styles.menuItemText}>View Only Mode</Text>
                   <Text style={styles.menuItemSubtext}>Exit editing mode</Text>
                 </View>
-                <Feather name="chevron-right" size={16} color={Colors.textMuted} />
+                <Feather name="chevron-right" size={16} color={colors.iconSecondary} />
               </TouchableOpacity>
             )}
 
@@ -1501,7 +1509,7 @@ export default function CustomWorkoutOverview() {
               {isBenchmark ? (
                 <Feather name="check" size={18} color="#30D158" />
               ) : (
-                <Feather name="chevron-right" size={16} color={Colors.textMuted} />
+                <Feather name="chevron-right" size={16} color={colors.iconSecondary} />
               )}
             </TouchableOpacity>
 
@@ -1518,7 +1526,7 @@ export default function CustomWorkoutOverview() {
                 <Text style={styles.menuItemText}>Duplicate</Text>
                 <Text style={styles.menuItemSubtext}>Create a copy of this workout</Text>
               </View>
-              <Feather name="chevron-right" size={16} color={Colors.textMuted} />
+              <Feather name="chevron-right" size={16} color={colors.iconSecondary} />
             </TouchableOpacity>
 
             {/* Menu Option 2: Schedule / Reschedule */}
@@ -1531,7 +1539,7 @@ export default function CustomWorkoutOverview() {
               }}
             >
               <View style={[styles.menuItemIcon, { backgroundColor: "rgba(52, 199, 89, 0.15)" }]}>
-                <Feather name="calendar" size={18} color={Colors.primaryLight} />
+                <Feather name="calendar" size={18} color={colors.primary} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.menuItemText}>
@@ -1543,7 +1551,7 @@ export default function CustomWorkoutOverview() {
                     : "Assign a date for this workout"}
                 </Text>
               </View>
-              <Feather name="chevron-right" size={16} color={Colors.textMuted} />
+              <Feather name="chevron-right" size={16} color={colors.iconSecondary} />
             </TouchableOpacity>
 
             {/* Menu Option 3: Unschedule (if scheduled) */}
@@ -1560,7 +1568,7 @@ export default function CustomWorkoutOverview() {
                   <Text style={[styles.menuItemText, { color: "#FF9F0A" }]}>Unschedule</Text>
                   <Text style={styles.menuItemSubtext}>Remove date from this workout</Text>
                 </View>
-                <Feather name="chevron-right" size={16} color={Colors.textMuted} />
+                <Feather name="chevron-right" size={16} color={colors.iconSecondary} />
               </TouchableOpacity>
             ) : null}
 
@@ -1577,7 +1585,7 @@ export default function CustomWorkoutOverview() {
                 <Text style={[styles.menuItemText, { color: "#FF453A" }]}>Delete</Text>
                 <Text style={styles.menuItemSubtext}>Permanently delete this workout</Text>
               </View>
-              <Feather name="chevron-right" size={16} color={Colors.textMuted} />
+              <Feather name="chevron-right" size={16} color={colors.iconSecondary} />
             </TouchableOpacity>
           </Pressable>
         </Pressable>
@@ -1596,24 +1604,24 @@ export default function CustomWorkoutOverview() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: Colors.background },
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: colors.background },
   header: {
     minHeight: 64,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    backgroundColor: "#000",
+    backgroundColor: colors.background,
     borderBottomWidth: 1,
-    borderBottomColor: "#1C1C1E",
+    borderBottomColor: colors.border,
   },
   headerIcon: { width: 44 },
   headerCircleBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#1C1C1E",
+    backgroundColor: colors.surfaceRaised,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1625,7 +1633,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   headerTitle: {
-    color: "#FFFFFF",
+    color: colors.textPrimary,
     fontSize: 17,
     fontWeight: "700",
     maxWidth: "80%",
@@ -1655,7 +1663,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#1C1C1E",
+    backgroundColor: colors.surfaceRaised,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1666,29 +1674,29 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   headerSaveText: {
-    color: "#30D158",
+    color: colors.primary,
     fontSize: 16,
     fontWeight: "700",
   },
-  done: { color: "#30D158", fontSize: 14, fontWeight: "800", letterSpacing: 0.5 },
+  done: { color: colors.primary, fontSize: 14, fontWeight: "800", letterSpacing: 0.5 },
   editHeaderButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: "#222224",
+    backgroundColor: colors.surfaceRaised,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: Colors.primaryDark,
+    borderColor: colors.border,
   },
   editHeaderText: {
-    color: Colors.primaryLight,
+    color: colors.primary,
     fontSize: 12,
     fontWeight: "800",
     letterSpacing: 0.5,
   },
-  body: { flex: 1, backgroundColor: "#0A0A0C" },
+  body: { flex: 1, backgroundColor: colors.background },
   bodyContent: { paddingHorizontal: 16, paddingBottom: 40 },
   dateBanner: {
     flexDirection: "row",
@@ -1697,34 +1705,34 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: "#1C1C1E",
+    backgroundColor: colors.surface,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#2C2C2E",
+    borderColor: colors.border,
   },
-  dateText: { color: Colors.text, fontSize: 14, fontWeight: "600", flex: 1, marginLeft: 8 },
+  dateText: { color: colors.textPrimary, fontSize: 14, fontWeight: "600", flex: 1, marginLeft: 8 },
   dateChangeBtn: {
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: "#2C2C2E",
+    backgroundColor: colors.surfaceRaised,
     borderRadius: 8,
   },
-  dateChangeText: { color: Colors.primaryLight, fontSize: 12, fontWeight: "700" },
+  dateChangeText: { color: colors.primary, fontSize: 12, fontWeight: "700" },
   statsCard: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",
     marginTop: 14,
     paddingVertical: 16,
-    backgroundColor: "#1C1C1E",
+    backgroundColor: colors.surface,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#2C2C2E",
+    borderColor: colors.border,
   },
   statBox: { alignItems: "center", flex: 1 },
-  statDivider: { width: 1, height: 28, backgroundColor: "#2C2C2E" },
-  statLabel: { color: Colors.textSecondary, fontSize: 10, fontWeight: "700", letterSpacing: 0.5 },
-  statValue: { color: Colors.text, fontSize: 17, fontWeight: "800", marginTop: 4 },
+  statDivider: { width: 1, height: 28, backgroundColor: colors.divider },
+  statLabel: { color: colors.textSecondary, fontSize: 10, fontWeight: "700", letterSpacing: 0.5 },
+  statValue: { color: colors.textPrimary, fontSize: 17, fontWeight: "800", marginTop: 4 },
   stepsSectionHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -1733,26 +1741,26 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   stepsTitle: {
-    color: "#FFFFFF",
+    color: colors.textPrimary,
     fontSize: 18,
     fontWeight: "700",
     letterSpacing: 0.3,
   },
   reorderBtnText: {
-    color: "#30D158",
+    color: colors.primary,
     fontSize: 15,
     fontWeight: "600",
   },
   stepCard: {
     flexDirection: "row",
-    backgroundColor: "#1C1C1E",
+    backgroundColor: colors.card,
     borderRadius: 16,
     marginBottom: 12,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#28282B",
+    borderColor: colors.border,
   },
-  selectedCard: { borderColor: Colors.primary },
+  selectedCard: { borderColor: colors.primary },
   colorBar: {
     width: 5,
     marginVertical: 10,
@@ -1772,31 +1780,31 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   stepTitle: {
-    color: "#FFFFFF",
+    color: colors.textPrimary,
     fontSize: 16,
     fontWeight: "700",
     letterSpacing: 0.2,
   },
   stepDistance: {
-    color: "#FFFFFF",
+    color: colors.textPrimary,
     fontSize: 14,
     fontWeight: "500",
     marginTop: 4,
   },
   stepDistanceMuted: {
-    color: "#8E8E93",
+    color: colors.textTertiary,
     fontSize: 14,
     fontWeight: "500",
     marginTop: 4,
   },
   stepPace: {
-    color: "#8E8E93",
+    color: colors.textTertiary,
     fontSize: 12,
     fontWeight: "500",
     marginTop: 3,
   },
   stepNotes: {
-    color: Colors.textMuted,
+    color: colors.textSecondary,
     fontSize: 11,
     marginTop: 4,
     fontStyle: "italic",
@@ -1812,14 +1820,14 @@ const styles = StyleSheet.create({
     alignSelf: "flex-end",
     paddingHorizontal: 8,
     paddingVertical: 3,
-    backgroundColor: "rgba(48, 209, 88, 0.12)",
+    backgroundColor: colors.selected,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "rgba(48, 209, 88, 0.35)",
+    borderColor: colors.primary,
     marginBottom: 6,
   },
   cornerSetText: {
-    color: "#30D158",
+    color: colors.primary,
     fontSize: 12,
     fontWeight: "700",
   },
@@ -1832,7 +1840,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   estTimeLabel: {
-    color: "#8E8E93",
+    color: colors.textTertiary,
     fontSize: 11,
     fontWeight: "500",
     textAlign: "right",
@@ -1844,7 +1852,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   estTimeValue: {
-    color: "#FFFFFF",
+    color: colors.textPrimary,
     fontSize: 15,
     fontWeight: "700",
     fontVariant: ["tabular-nums"],
@@ -1859,27 +1867,27 @@ const styles = StyleSheet.create({
   },
   emptyCard: {
     flexDirection: "row",
-    backgroundColor: "#161618",
+    backgroundColor: colors.surface,
     borderRadius: 16,
     marginBottom: 12,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#28282B",
+    borderColor: colors.border,
     borderStyle: "dashed",
   },
-  emptySubtext: { color: Colors.textMuted, fontSize: 13, marginTop: 4 },
+  emptySubtext: { color: colors.textSecondary, fontSize: 13, marginTop: 4 },
   restCard: {
     flexDirection: "row",
-    backgroundColor: "#18181A",
+    backgroundColor: colors.surfaceRaised,
     borderRadius: 14,
     marginBottom: 12,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#262628",
+    borderColor: colors.border,
   },
   restCardSkipped: {
     opacity: 0.65,
-    borderColor: "#222224",
+    borderColor: colors.border,
   },
   restBar: {
     width: 5,
@@ -1888,7 +1896,7 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: "#30D158",
   },
-  restBarSkipped: { backgroundColor: "#3A3A3C" },
+  restBarSkipped: { backgroundColor: colors.border },
   restCardBody: {
     flex: 1,
     paddingVertical: 12,
@@ -1906,7 +1914,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  restTitle: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  restTitle: { color: colors.textPrimary, fontSize: 14, fontWeight: "700" },
   restActions: { flexDirection: "row", alignItems: "center", gap: 14 },
   restCardBottomRow: {
     flexDirection: "row",
@@ -1920,47 +1928,47 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   restValue: {
-    color: "#30D158",
+    color: colors.primary,
     fontSize: 15,
     fontWeight: "800",
     fontVariant: ["tabular-nums"],
   },
-  restCountText: { color: "#8E8E93", fontSize: 12, fontWeight: "500" },
+  restCountText: { color: colors.textSecondary, fontSize: 12, fontWeight: "500" },
   skipRestBadge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#222224",
+    backgroundColor: colors.surfaceRaised,
     paddingLeft: 8,
     paddingRight: 4,
     paddingVertical: 2,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#333336",
+    borderColor: colors.border,
     gap: 2,
   },
   skipRestBadgeActive: {
-    backgroundColor: "rgba(48, 209, 88, 0.12)",
-    borderColor: "rgba(48, 209, 88, 0.35)",
+    backgroundColor: colors.selected,
+    borderColor: colors.primary,
   },
   skipRestBadgeInactive: {
-    backgroundColor: "#1C1C1E",
-    borderColor: "#28282A",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
   },
   skipRestLabel: {
-    color: "#8E8E93",
+    color: colors.textTertiary,
     fontSize: 11,
     fontWeight: "600",
   },
   skipRestLabelActive: {
-    color: "#30D158",
+    color: colors.primary,
   },
   groupBox: {
     padding: 12,
-    backgroundColor: "#121214",
+    backgroundColor: colors.surfaceRaised,
     borderRadius: 16,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: "#28282C",
+    borderColor: colors.border,
   },
   groupSetHeader: {
     flexDirection: "row",
@@ -1971,7 +1979,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   groupSetHeaderText: {
-    color: "#8E8E93",
+    color: colors.textTertiary,
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 0.3,
@@ -1990,33 +1998,33 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 8,
   },
-  groupTitle: { color: Colors.primaryLight, fontSize: 13, fontWeight: "700" },
+  groupTitle: { color: colors.primary, fontSize: 13, fontWeight: "700" },
   groupTimeBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     paddingHorizontal: 7,
     paddingVertical: 2,
-    backgroundColor: "#222224",
+    backgroundColor: colors.surfaceRaised,
     borderRadius: 7,
     borderWidth: 1,
-    borderColor: Colors.primaryDark,
+    borderColor: colors.primary,
   },
   groupTimeText: {
-    color: Colors.primaryLight,
+    color: colors.primary,
     fontSize: 11,
     fontWeight: "700",
   },
   groupTotalTimeBadge: {
     paddingHorizontal: 6,
     paddingVertical: 2,
-    backgroundColor: "#1C1C1E",
+    backgroundColor: colors.surface,
     borderRadius: 7,
     borderWidth: 1,
-    borderColor: "#333336",
+    borderColor: colors.border,
   },
   groupTotalTimeText: {
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontSize: 10,
     fontWeight: "600",
   },
@@ -2026,13 +2034,13 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
-    backgroundColor: "#1C1C1E",
+    backgroundColor: colors.surface,
     borderRadius: 7,
     borderWidth: 1,
-    borderColor: "#333336",
+    borderColor: colors.border,
   },
   groupDistText: {
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontSize: 10,
     fontWeight: "600",
   },
@@ -2042,10 +2050,10 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    backgroundColor: "#222224",
+    backgroundColor: colors.surfaceRaised,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: Colors.primaryDark,
+    borderColor: colors.primary,
   },
   setSection: {
     marginBottom: 6,
@@ -2055,11 +2063,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     marginVertical: 4,
     alignSelf: "flex-start",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: colors.surface,
     borderRadius: 6,
   },
   groupCycleText: {
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontSize: 10,
     fontWeight: "700",
     letterSpacing: 0.6,
@@ -2074,18 +2082,18 @@ const styles = StyleSheet.create({
   setLine: {
     flex: 1,
     height: 1,
-    backgroundColor: "#2C2C2E",
+    backgroundColor: colors.divider,
   },
   setLabelBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    backgroundColor: "#222224",
+    backgroundColor: colors.surfaceRaised,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: "#333336",
+    borderColor: colors.border,
   },
   setLabelText: {
-    color: Colors.primaryLight,
+    color: colors.primary,
     fontSize: 10,
     fontWeight: "700",
     letterSpacing: 0.8,
@@ -2098,10 +2106,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     borderRadius: 12,
   },
-  actionAddText: { color: "#000000", fontSize: 14, fontWeight: "800", letterSpacing: 0.5 },
+  actionAddText: { color: colors.primaryText, fontSize: 14, fontWeight: "800", letterSpacing: 0.5 },
   actionRepeat: {
     flex: 1,
     minHeight: 52,
@@ -2109,13 +2117,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    backgroundColor: "#2A2A2D",
+    backgroundColor: colors.surfaceRaised,
     borderWidth: 1,
-    borderColor: "#3E3E42",
+    borderColor: colors.border,
     borderRadius: 12,
   },
   actionDisabled: { opacity: 0.5 },
-  actionRepeatText: { color: Colors.text, fontSize: 14, fontWeight: "700" },
+  actionRepeatText: { color: colors.textPrimary, fontSize: 14, fontWeight: "700" },
   viewModeActions: {
     flexDirection: "column",
     marginTop: 18,
@@ -2124,7 +2132,7 @@ const styles = StyleSheet.create({
   assignedRouteCard: {
     minHeight: 74,
     borderRadius: 18,
-    backgroundColor: "#202326",
+    backgroundColor: colors.card,
     paddingHorizontal: 18,
     paddingVertical: 14,
     marginBottom: 18,
@@ -2139,8 +2147,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
-  assignedRouteLabel: { color: Colors.text, fontSize: 15, fontWeight: "700" },
-  assignedRouteDistance: { color: "#B9BABC", fontSize: 15, marginTop: 3 },
+  assignedRouteLabel: { color: colors.textPrimary, fontSize: 15, fontWeight: "700" },
+  assignedRouteDistance: { color: colors.textSecondary, fontSize: 15, marginTop: 3 },
   assignedRouteActions: { alignItems: "flex-end", gap: 8 },
   viewRouteText: { color: "#39B800", fontSize: 15, fontWeight: "800" },
   removeRouteText: { color: "#FF453A", fontSize: 15, fontWeight: "800" },
@@ -2168,11 +2176,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     borderRadius: 14,
   },
   startWorkoutButtonText: {
-    color: "#000000",
+    color: colors.primaryText,
     fontSize: 15,
     fontWeight: "800",
     letterSpacing: 0.5,
@@ -2181,32 +2189,32 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     padding: 24,
-    backgroundColor: "rgba(0,0,0,0.75)",
+    backgroundColor: colors.overlay,
   },
   modal: {
     overflow: "hidden",
-    backgroundColor: "#222224",
+    backgroundColor: colors.modalBackground,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#333336",
+    borderColor: colors.border,
   },
   modalTitle: {
     padding: 18,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontSize: 13,
     fontWeight: "700",
     letterSpacing: 0.5,
     borderBottomWidth: 1,
-    borderBottomColor: "#2C2C2E",
+    borderBottomColor: colors.border,
   },
-  inputLabel: { color: Colors.text, fontSize: 14, fontWeight: "500", marginBottom: 8 },
+  inputLabel: { color: colors.textPrimary, fontSize: 14, fontWeight: "500", marginBottom: 8 },
   modalInput: {
     minHeight: 48,
     paddingHorizontal: 14,
-    color: Colors.text,
-    backgroundColor: "#2A2A2D",
+    color: colors.inputText,
+    backgroundColor: colors.inputBackground,
     borderWidth: 1,
-    borderColor: "#3E3E42",
+    borderColor: colors.border,
     borderRadius: 10,
     fontSize: 15,
   },
@@ -2214,17 +2222,17 @@ const styles = StyleSheet.create({
   presetChip: {
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: "#2C2C2E",
+    backgroundColor: colors.surfaceRaised,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#3A3A3C",
+    borderColor: colors.border,
   },
   presetChipActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    backgroundColor: colors.selected,
+    borderColor: colors.primary,
   },
-  presetChipText: { color: Colors.text, fontSize: 13, fontWeight: "600" },
-  presetChipTextActive: { color: "#000000", fontWeight: "800" },
+  presetChipText: { color: colors.textPrimary, fontSize: 13, fontWeight: "600" },
+  presetChipTextActive: { color: colors.primary, fontWeight: "800" },
   skipRestRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -2232,19 +2240,19 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: "#2C2C2E",
+    borderTopColor: colors.border,
   },
-  skipRestTitle: { color: Colors.text, fontSize: 15, fontWeight: "600" },
-  skipRestSubtitle: { color: Colors.textMuted, fontSize: 12, marginTop: 2 },
+  skipRestTitle: { color: colors.textPrimary, fontSize: 15, fontWeight: "600" },
+  skipRestSubtitle: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
   modalSaveButton: {
     minHeight: 48,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 18,
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     borderRadius: 10,
   },
-  modalSaveText: { color: "#000000", fontSize: 14, fontWeight: "800" },
+  modalSaveText: { color: colors.primaryText, fontSize: 14, fontWeight: "800" },
   deleteRestButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2262,30 +2270,30 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20,
     borderTopWidth: 1,
-    borderTopColor: "#2C2C2E",
+    borderTopColor: colors.border,
   },
-  optionText: { color: Colors.text, fontSize: 16 },
+  optionText: { color: colors.textPrimary, fontSize: 16 },
   /* 3-Dot Action Menu Bottom Sheet Styles */
   menuOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    backgroundColor: colors.overlay,
     justifyContent: "flex-end",
   },
   menuSheet: {
-    backgroundColor: "#1C1C1E",
+    backgroundColor: colors.modalBackground,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 36,
     borderWidth: 1,
-    borderColor: "#2C2C2E",
+    borderColor: colors.border,
   },
   menuHandle: {
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#3A3A3C",
+    backgroundColor: colors.textTertiary,
     alignSelf: "center",
     marginBottom: 16,
   },
@@ -2296,16 +2304,16 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     paddingBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#2C2C2E",
+    borderBottomColor: colors.border,
   },
   menuSheetTitle: {
-    color: Colors.text,
+    color: colors.textPrimary,
     fontSize: 18,
     fontWeight: "700",
     marginBottom: 4,
   },
   menuSheetSubtitle: {
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontSize: 13,
     fontWeight: "500",
   },
@@ -2313,7 +2321,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#2A2A2D",
+    backgroundColor: colors.surfaceRaised,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2323,7 +2331,7 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#262629",
+    borderBottomColor: colors.border,
   },
   menuItemDestructive: {
     borderBottomWidth: 0,
@@ -2337,13 +2345,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   menuItemText: {
-    color: Colors.text,
+    color: colors.textPrimary,
     fontSize: 16,
     fontWeight: "600",
     marginBottom: 2,
   },
   menuItemSubtext: {
-    color: Colors.textMuted,
+    color: colors.textSecondary,
     fontSize: 12,
   },
 });

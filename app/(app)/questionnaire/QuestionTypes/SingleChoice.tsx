@@ -15,8 +15,6 @@ const SingleChoice: React.FC<SingleChoiceProps> = ({
 }) => {
   // Handle option selection
   const handleSelect = (value: string) => {
-    console.log("SingleChoice - Option selected:", value);
-    console.log("SingleChoice - Current selectedValue:", selectedValue);
     if (onSelect) {
       onSelect(value);
     }
@@ -26,7 +24,6 @@ const SingleChoice: React.FC<SingleChoiceProps> = ({
     <View style={styles.container}>
       {options.map((option) => {
         const isSelected = selectedValue === option.value;
-        console.log(`SingleChoice - Option ${option.value}: isSelected=${isSelected}`);
         
         return (
           <TouchableOpacity

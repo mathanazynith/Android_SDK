@@ -197,14 +197,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       const bodyValue = message.notification?.body ?? message.data?.body ?? message.data?.message;
       const title = typeof titleValue === 'string' ? titleValue : undefined;
       const body = typeof bodyValue === 'string' ? bodyValue : undefined;
-      if (__DEV__) {
-        console.info('[FCM] Foreground message received', {
-          messageId: message.messageId,
-          type: message.data?.type,
-          hasTitle: Boolean(title),
-          hasBody: Boolean(body),
-        });
-      }
       if (!title && !body) {
         console.warn('[FCM] Foreground message has no title or body to display.');
         return;
@@ -229,9 +221,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           content,
           trigger: { channelId: BUSINESS_NOTIFICATION_CHANNEL_ID },
         });
-        if (__DEV__) {
-          console.info('[FCM] Foreground notification presented', { notificationId });
-        }
       } catch (notificationError) {
         console.warn('[Notifications] Foreground notification presentation failed', notificationError);
       }

@@ -112,7 +112,6 @@ export default function CropActivityModal({
         activity.start_time,
         activity.end_time,
       );
-      console.log('[CropModal] Decoded points:', decodedPoints.length);
 
       setGpsPoints(decodedPoints);
 

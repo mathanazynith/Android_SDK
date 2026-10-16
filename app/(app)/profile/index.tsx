@@ -68,7 +68,7 @@ const formatSubscriptionAmount = (subscription: UserSubscription) => {
 };
 
 export default function ProfileScreen() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const { user, logout, uploadProfilePicture } = useAuth();
   const [isUploadingPicture, setIsUploadingPicture] = React.useState(false);
   const [activeSubscription, setActiveSubscription] = React.useState<UserSubscription | null>(null);
@@ -281,14 +281,23 @@ export default function ProfileScreen() {
         </MotionEntrance>
 
         <MotionEntrance delay={135}>
-        <TouchableOpacity
-          accessibilityRole="button"
-          onPress={handleLogout}
-          style={styles.logoutButton}
-        >
-          <Feather name="log-out" size={17} color="#EF4444" />
-          <Text style={[styles.logoutText, { color: '#EF4444' }]}>Log out</Text>
-        </TouchableOpacity>
+        <View style={[styles.logoutCard, { backgroundColor: isDark ? '#351F20' : '#FEF2F2', borderColor: isDark ? '#6B2B2B' : '#FECACA' }]}>
+          <View style={styles.logoutCopy}>
+            <Text style={[styles.logoutTitle, { color: colors.text }]}>Sign out</Text>
+            <Text style={[styles.logoutHint, { color: colors.textSecondary }]}>
+              You’ll need to sign in again to access your account.
+            </Text>
+          </View>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Log out of your account"
+            onPress={handleLogout}
+            style={styles.logoutButton}
+          >
+            <Feather name="log-out" size={18} color="#DC2626" />
+            <Text style={styles.logoutText}>Log out</Text>
+          </TouchableOpacity>
+        </View>
         </MotionEntrance>
       </ScrollView>
     </SafeAreaView>
@@ -342,6 +351,10 @@ const styles = StyleSheet.create({
   detailRow: { minHeight: 34, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#515354" },
   detailLabel: { flex: 0.45, color: "#BDBEC0", fontSize: 13, fontWeight: "500" },
   detailValue: { flex: 0.55, color: "#F7F7F7", fontSize: 13, fontWeight: "700", textAlign: "right" },
-  logoutButton: { alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 7, padding: 7 },
-  logoutText: { color: "#B8B8B8", fontSize: 13, fontWeight: "600" },
+  logoutCard: { minHeight: 82, marginHorizontal: 16, marginTop: 16, padding: 14, borderRadius: 17, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 12 },
+  logoutCopy: { flex: 1, gap: 4 },
+  logoutTitle: { fontSize: 14, fontWeight: "800" },
+  logoutHint: { fontSize: 11, lineHeight: 15, fontWeight: "500" },
+  logoutButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: "rgba(220,38,38,0.35)", backgroundColor: "rgba(220,38,38,0.08)" },
+  logoutText: { color: "#DC2626", fontSize: 13, fontWeight: "700" },
 });

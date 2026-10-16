@@ -71,7 +71,7 @@ const EMPTY_IDS = new Set<string>();
   };
   
 export default function NotificationsScreen() {
-    const { colors } = useTheme();
+    const { colors, isDark } = useTheme();
     const { user } = useAuth();
     const userId = user?.id ?? null;
     const {
@@ -222,24 +222,32 @@ export default function NotificationsScreen() {
               onPress={() => void handleMarkAllRead()}
               style={styles.markAllButton}
             >
-              <Text style={styles.markAllText}>Mark all read</Text>
+              <Text style={[styles.markAllText, { color: colors.primary }]}>Mark all read</Text>
             </Pressable>
           ) : <View style={styles.headerSpacer} />}
         </View>
   
-        {actionError ? <Text accessibilityRole="alert" style={styles.actionError}>{actionError}</Text> : null}
+        {actionError ? (
+          <Text accessibilityRole="alert" style={[styles.actionError, { color: isDark ? '#FCA5A5' : '#B91C1C' }]}>
+            {actionError}
+          </Text>
+        ) : null}
   
         {isLoading && notifications.length === 0 ? (
           <View style={styles.stateContainer}>
-            <ActivityIndicator color={BRAND_GREEN} />
+            <ActivityIndicator color={colors.primary} />
             <Text style={[styles.stateText, { color: colors.textSecondary }]}>Loading notifications...</Text>
           </View>
         ) : error && notifications.length === 0 ? (
           <View style={styles.stateContainer}>
             <Feather name="wifi-off" size={27} color={colors.textSecondary} />
             <Text style={[styles.stateText, { color: colors.text }]}>{error}</Text>
-            <Pressable accessibilityRole="button" onPress={() => void refresh()} style={styles.retryButton}>
-              <Text style={styles.retryText}>Try again</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void refresh()}
+              style={[styles.retryButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
+            >
+              <Text style={[styles.retryText, { color: colors.primary }]}>Try again</Text>
             </Pressable>
           </View>
         ) : currentDismissalReadError ? (
@@ -254,20 +262,20 @@ export default function NotificationsScreen() {
                 setDismissalReadError(null);
                 setDismissalRetry((attempt) => attempt + 1);
               }}
-              style={styles.retryButton}
+              style={[styles.retryButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
             >
-              <Text style={styles.retryText}>Try again</Text>
+              <Text style={[styles.retryText, { color: colors.primary }]}>Try again</Text>
             </Pressable>
           </View>
         ) : isCheckingDismissals ? (
           <View style={styles.stateContainer}>
-            <ActivityIndicator color={BRAND_GREEN} />
+            <ActivityIndicator color={colors.primary} />
             <Text style={[styles.stateText, { color: colors.textSecondary }]}>Loading notifications...</Text>
           </View>
         ) : visibleNotifications.length === 0 ? (
           <View style={styles.stateContainer}>
-            <View style={styles.emptyIcon}>
-              <Feather name="bell" size={24} color={BRAND_GREEN} />
+            <View style={[styles.emptyIcon, { backgroundColor: colors.selected }]}>
+              <Feather name="bell" size={24} color={colors.primary} />
             </View>
             <Text style={[styles.emptyTitle, { color: colors.text }]}>You&apos;re all caught up</Text>
             <Text style={[styles.stateText, { color: colors.textSecondary }]}>New notifications will appear here.</Text>
@@ -276,11 +284,11 @@ export default function NotificationsScreen() {
                 accessibilityRole="button"
                 disabled={isLoadingMore}
                 onPress={() => void loadMore()}
-                style={styles.loadMoreButton}
+                style={[styles.loadMoreButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
               >
                 {isLoadingMore
-                  ? <ActivityIndicator size="small" color={BRAND_GREEN} />
-                  : <Text style={styles.markAllText}>Load older notifications</Text>}
+                  ? <ActivityIndicator size="small" color={colors.primary} />
+                  : <Text style={[styles.markAllText, { color: colors.primary }]}>Load older notifications</Text>}
               </Pressable>
             ) : null}
           </View>
@@ -291,8 +299,8 @@ export default function NotificationsScreen() {
               <RefreshControl
                 refreshing={isLoading}
                 onRefresh={() => void refresh()}
-                tintColor={BRAND_GREEN}
-                colors={[BRAND_GREEN]}
+                tintColor={colors.primary}
+                colors={[colors.primary]}
               />
             }
           >
@@ -333,9 +341,9 @@ export default function NotificationsScreen() {
                         style={({ pressed }) => [
                           styles.notificationRow,
                           {
-                            backgroundColor: colors.background,
-                            borderBottomColor: colors.border,
-                            opacity: pressed ? 0.72 : 1,
+                            backgroundColor: notification.is_read ? colors.surface : colors.selected,
+                            borderColor: notification.is_read ? colors.border : colors.primary,
+                            opacity: pressed ? 0.78 : 1,
                           },
                         ]}
                       >
@@ -368,11 +376,11 @@ export default function NotificationsScreen() {
                 accessibilityRole="button"
                 disabled={isLoadingMore}
                 onPress={() => void loadMore()}
-                style={styles.loadMoreButton}
+                style={[styles.loadMoreButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
               >
                 {isLoadingMore
-                  ? <ActivityIndicator size="small" color={BRAND_GREEN} />
-                  : <Text style={styles.markAllText}>Load older notifications</Text>}
+                  ? <ActivityIndicator size="small" color={colors.primary} />
+                  : <Text style={[styles.markAllText, { color: colors.primary }]}>Load older notifications</Text>}
               </Pressable>
             ) : null}
           </ScrollView>
@@ -397,13 +405,13 @@ const styles = StyleSheet.create({
     headingBlock: { flex: 1 },
     heading: { fontSize: 22, fontWeight: '700' },
     unreadSummary: { fontSize: 12, marginTop: 2 },
-    markAllButton: { paddingVertical: 10, paddingLeft: 8 },
-    markAllText: { color: BRAND_GREEN, fontSize: 13, fontWeight: '700' },
+    markAllButton: { paddingVertical: 9, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: `${BRAND_GREEN}66`, backgroundColor: `${BRAND_GREEN}14` },
+    markAllText: { fontSize: 13, fontWeight: '700' },
     headerSpacer: { width: 70 },
-    actionError: { color: '#F08D82', fontSize: 13, paddingHorizontal: 18, paddingTop: 12 },
-    listContent: { paddingHorizontal: 18, paddingBottom: 36 },
+    actionError: { fontSize: 13, paddingHorizontal: 18, paddingTop: 12 },
+    listContent: { paddingHorizontal: 18, paddingTop: 4, paddingBottom: 36 },
     sectionHeading: { marginTop: 22, marginBottom: 7, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
-    notificationRow: { minHeight: 82, flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth, gap: 12 },
+    notificationRow: { minHeight: 82, flexDirection: 'row', alignItems: 'flex-start', padding: 14, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, marginBottom: 10, gap: 12 },
     dismissAction: { width: 88, minHeight: 82, alignItems: 'center', justifyContent: 'center', backgroundColor: '#D9534F', gap: 4 },
     dismissActionText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
     eventIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
@@ -413,12 +421,12 @@ const styles = StyleSheet.create({
     notificationTitle: { flex: 1, fontSize: 14, lineHeight: 19, fontWeight: '700' },
     timestamp: { width: 64, flexShrink: 0, fontSize: 11, marginTop: 2, textAlign: 'right' },
     message: { fontSize: 13, lineHeight: 19, marginTop: 5 },
-    loadMoreButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center' },
+    loadMoreButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', marginTop: 10, borderRadius: 12, borderWidth: 1 },
     stateContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 35, gap: 12 },
     stateText: { fontSize: 14, lineHeight: 21, textAlign: 'center' },
-    emptyIcon: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: '#63C72B18' },
+    emptyIcon: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
     emptyTitle: { fontSize: 17, fontWeight: '700', marginTop: 3 },
-    retryButton: { marginTop: 4, paddingVertical: 10, paddingHorizontal: 16 },
-    retryText: { color: BRAND_GREEN, fontSize: 14, fontWeight: '700' },
+    retryButton: { marginTop: 4, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 12, borderWidth: 1 },
+    retryText: { fontSize: 14, fontWeight: '700' },
     inlineError: { color: '#F08D82', fontSize: 13, paddingTop: 12 },
 });

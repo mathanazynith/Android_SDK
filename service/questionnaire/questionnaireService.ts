@@ -219,20 +219,14 @@ class AssessmentService {
 
   // ================= DEBUG LOGS =================
 
-  console.log("========== ALL QUESTIONS ==========");
-  console.log(JSON.stringify(mappedQuestions, null, 2));
 
-  console.log("========== EVENT_DISTANCE QUESTION ==========");
   const eventDistanceQuestion = mappedQuestions.find(
     q => q.slug === "EVENT_DISTANCE"
   );
-  console.log(JSON.stringify(eventDistanceQuestion, null, 2));
 
-  console.log("========== QUESTION 7 ==========");
   const question7 = mappedQuestions.find(
     q => q.backendId === 7
   );
-  console.log(JSON.stringify(question7, null, 2));
 
   // =================================================
 
@@ -293,8 +287,6 @@ class AssessmentService {
   };
 });
 
-  console.log("========== CONVERTED ANSWERS ==========");
-  console.log(JSON.stringify(convertedAnswers, null, 2));
 
   const response = await assessmentAPI.submitAnswers(
     assessmentId,

@@ -4,11 +4,7 @@ import { Modal, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'reac
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
-import type {
-  BackendGpsPoint,
-  BackendPauseEvent,
-  BackendPolylineRoute,
-} from '../src/services/activityApi';
+import type { BackendGpsPoint, BackendPauseEvent, BackendPolylineRoute } from '../src/services/activityApi';
 import { buildActivityRouteGroups } from '../src/utils/activityRouteGroups';
 import { createCatmullRomPolyline } from '../src/utils/catmullRom';
 import { decodePolyline } from '../src/utils/polylineDecoder';
@@ -64,6 +60,7 @@ interface ActivityRouteMapProps {
   enableFullScreen?: boolean;
   onPress?: () => void;
   activityStats?: ActivityMapStats;
+  onPreviewSnapshot?: (uri: string) => void;
 }
 
 const formatDistance = (meters?: number) => {
@@ -103,6 +100,7 @@ function ActivityRouteMap({
   enableFullScreen,
   onPress,
   activityStats,
+  onPreviewSnapshot,
 }: ActivityRouteMapProps) {
   const { colors, isDark } = useTheme();
   const mapRef = useRef<MapView | null>(null);
@@ -340,6 +338,20 @@ function ActivityRouteMap({
     const frame = requestAnimationFrame(fitRoute);
     return () => cancelAnimationFrame(frame);
   }, [allRouteCoordinates.length, fitRoute, mapReady]);
+
+  useEffect(() => {
+    if (variant !== 'preview' || !onPreviewSnapshot || !mapReady || allRouteCoordinates.length < 2) return;
+    const timer = setTimeout(() => {
+      void mapRef.current?.takeSnapshot({
+        width: 264,
+        height: 240,
+        format: 'jpg',
+        quality: 0.82,
+        result: 'file',
+      }).then(onPreviewSnapshot).catch(() => undefined);
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [allRouteCoordinates.length, mapReady, onPreviewSnapshot, variant]);
 
   useEffect(() => {
     if (!fullScreenVisible || !fullScreenMapReady || allRouteCoordinates.length < 2) return;
