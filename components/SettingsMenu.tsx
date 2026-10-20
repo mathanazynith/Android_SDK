@@ -34,31 +34,39 @@ export default function SettingsMenu({ visible, onClose, onSelect, hasPassword }
     <TouchableOpacity
       key={item.label}
       accessibilityRole="button"
+      accessibilityLabel={destructive ? 'Log out of your account' : item.label}
+      accessibilityHint={destructive ? 'You will be asked to confirm before signing out.' : undefined}
       accessibilityState={{ disabled: hasPassword === null && item.label === 'Password' }}
       style={[
         styles.option,
         destructive && styles.logoutOption,
-        destructive && { backgroundColor: isDark ? '#351F20' : '#FEF2F2' },
+        destructive && { backgroundColor: isDark ? '#2C1B1D' : '#FFF7F7' },
         { borderBottomColor: colors.border },
       ]}
       onPress={() => onSelect(item.label)}
       disabled={hasPassword === null && item.label === 'Password'}
+      activeOpacity={0.72}
     >
-      <Feather
-        name={item.icon as any}
-        size={spacing(21)}
-        color={destructive ? '#DC2626' : colors.primary}
-        style={styles.optionIcon}
-      />
-      <Text
-        style={[
-          styles.optionLabel,
-          { color: destructive ? '#DC2626' : colors.text, fontSize: fontSize(16, 14, 17) },
-        ]}
-      >
-        {item.label === 'Logout' ? 'Log out' : item.label}
-      </Text>
-      {!destructive && <Feather name="chevron-right" size={18} color={colors.textTertiary} />}
+      {destructive ? (
+        <>
+          <View style={[styles.logoutIconBadge, { backgroundColor: isDark ? '#4A2529' : '#FEE2E2' }]}>
+            <Feather name="log-out" size={spacing(20)} color="#DC2626" />
+          </View>
+          <View style={styles.logoutCopy}>
+            <Text style={[styles.logoutTitle, { color: '#DC2626', fontSize: fontSize(15, 14, 16) }]}>Log out</Text>
+            <Text style={[styles.logoutHint, { color: colors.textSecondary }]}>You’ll need to sign in again to access your account.</Text>
+          </View>
+          <Feather name="chevron-right" size={18} color="#DC2626" />
+        </>
+      ) : (
+        <>
+          <Feather name={item.icon as any} size={spacing(21)} color={colors.primary} style={styles.optionIcon} />
+          <Text style={[styles.optionLabel, { color: colors.text, fontSize: fontSize(16, 14, 17) }]}>
+            {item.label}
+          </Text>
+          <Feather name="chevron-right" size={18} color={colors.textTertiary} />
+        </>
+      )}
     </TouchableOpacity>
   );
 
@@ -89,9 +97,6 @@ export default function SettingsMenu({ visible, onClose, onSelect, hasPassword }
 
               <View style={styles.logoutGroup}>
                 {renderOption({ label: 'Logout', icon: 'log-out' }, true)}
-                <Text style={[styles.logoutHint, { color: colors.textSecondary }]}>
-                  You’ll need to sign in again to access your account.
-                </Text>
               </View>
 
               <TouchableOpacity
@@ -169,8 +174,20 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   logoutOption: {
+    minHeight: 78,
+    paddingVertical: 14,
+    gap: 12,
     borderBottomWidth: 0,
   },
+  logoutIconBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutCopy: { flex: 1, gap: 3 },
+  logoutTitle: { fontWeight: '700' },
   optionIcon: {
     marginRight: 14,
   },
@@ -179,13 +196,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
   },
-  logoutHint: {
-    fontSize: 12,
-    lineHeight: 17,
-    paddingHorizontal: 49,
-    paddingBottom: 13,
-    marginTop: -3,
-  },
+  logoutHint: { fontSize: 12, lineHeight: 16, fontWeight: '500' },
   cancelButton: {
     marginTop: 14,
     paddingVertical: 14,

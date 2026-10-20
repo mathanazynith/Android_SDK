@@ -1,4 +1,5 @@
 import type { BackendGpsPoint, BackendPauseEvent } from '../services/activityApi';
+import { canConnectRoutePoints } from './routeContinuity';
 
 export interface ActivityRouteCoordinate {
   latitude: number;
@@ -56,18 +57,23 @@ export const buildActivityRouteGroups = (
     : indexedPoints;
   const groups: ActivityRouteGroup[] = [];
   let previousCoordinate: ActivityRouteCoordinate | null = null;
+  let previousPoint: (Omit<BackendGpsPoint, 'timestamp'> & { timestamp: number }) | null = null;
 
-  orderedPoints.forEach(({ point }) => {
+  orderedPoints.forEach(({ point, timestamp }) => {
     const coordinate = toRouteCoordinate(point);
     if (!coordinate) return;
+    const currentPoint = { ...point, ...coordinate, timestamp };
+    const hasTimestamp = Number.isFinite(timestamp);
+    const isContinuous = previousCoordinate !== null
+      && (!hasTimestamp || (previousPoint !== null && canConnectRoutePoints(previousPoint, currentPoint)));
     const type: ActivityRouteType = point.is_paused
       ? 'pause'
       : point.is_extra_distance
         ? 'extra'
         : 'running';
     let group = groups.at(-1);
-    if (!group || group.type !== type) {
-      group = { type, coordinates: previousCoordinate ? [previousCoordinate] : [] };
+    if (!group || group.type !== type || !isContinuous) {
+      group = { type, coordinates: isContinuous && previousCoordinate ? [previousCoordinate] : [] };
       groups.push(group);
     }
 
@@ -80,6 +86,7 @@ export const buildActivityRouteGroups = (
       group.coordinates.push(coordinate);
     }
     previousCoordinate = coordinate;
+    previousPoint = hasTimestamp ? currentPoint : null;
   });
 
   return groups;

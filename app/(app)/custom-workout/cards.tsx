@@ -4,38 +4,32 @@ import * as Haptics from "expo-haptics";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Animated,
-  BackHandler,
-  Easing,
-  FlatList,
-  LayoutAnimation,
-  Platform,
-  RefreshControl,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  UIManager,
-  Vibration,
-  View,
+    ActivityIndicator,
+    Animated,
+    BackHandler,
+    Easing,
+    FlatList,
+    LayoutAnimation,
+    Platform,
+    RefreshControl,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    Vibration,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
 import { Colors } from "../../../constants/theme";
 import { getBackendErrorMessage } from "../../../service/api";
 import {
-  customWorkoutAPI,
-  type UserWorkoutResponse,
-  type UserWorkoutSegmentResponse,
+    customWorkoutAPI,
+    type UserWorkoutResponse
 } from "../../../service/customWorkout";
 import { BenchmarkStore } from "../../../src/services/benchmarkStore";
 import { buildWorkoutExecutionPlan } from "../../../src/utils/workoutPlanBuilder";
 import { useCustomWorkout } from "./workout-context";
-
-if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 const formatDuration = (seconds?: number | null) => {
   if (!seconds || seconds <= 0) return "--";
