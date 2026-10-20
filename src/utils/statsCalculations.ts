@@ -323,10 +323,29 @@ export function calculatePeriodStats(
     filtered = activities;
 
     const monthMap = new Map<string, { label: string; fullLabel: string; acts: UnifiedActivity[]; date: Date; monthIndex: number }>();
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const emptyHistoryStart = new Date(now.getFullYear(), now.getMonth() - 5, 1).getTime();
+    const firstActivityTime = filtered.reduce(
+      (earliest, activity) => Math.min(earliest, activity.date.getTime()),
+      filtered.length === 0 ? emptyHistoryStart : now.getTime()
+    );
+    const firstMonth = new Date(firstActivityTime);
+    const firstActivityMonth = new Date(firstMonth.getFullYear(), firstMonth.getMonth(), 1);
+    const minimumVisibleStart = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    const cursor = firstActivityMonth < minimumVisibleStart
+      ? firstActivityMonth
+      : minimumVisibleStart;
+    const lastActivityTime = filtered.reduce(
+      (latest, activity) => Math.max(latest, activity.date.getTime()),
+      now.getTime()
+    );
+    const lastActivityMonth = new Date(lastActivityTime);
+    const lastMonth = new Date(lastActivityMonth.getFullYear(), lastActivityMonth.getMonth(), 1);
+    for (; cursor <= lastMonth; cursor.setMonth(cursor.getMonth() + 1)) {
+      const d = new Date(cursor);
       const key = `${d.getFullYear()}-${d.getMonth()}`;
-      const label = d.toLocaleDateString(undefined, { month: 'short' });
+      const label = d.getFullYear() === now.getFullYear()
+        ? d.toLocaleDateString(undefined, { month: 'short' })
+        : d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
       const fullLabel = d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
       monthMap.set(key, { label, fullLabel, acts: [], date: d, monthIndex: d.getMonth() });
     }

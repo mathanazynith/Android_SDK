@@ -3,5 +3,7 @@
     "source.fixAll": "explicit",
     "source.organizeImports": "explicit",
     "source.sortMembers": "explicit"
-  }
+  },
+  "chat.disableAIFeatures": false,
+  "claudeCodeChat.permissions.yoloMode": false
 }

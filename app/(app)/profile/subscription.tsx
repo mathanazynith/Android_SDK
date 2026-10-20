@@ -127,9 +127,19 @@ export default function SubscriptionScreen() {
       Alert.alert('Payment verified', 'Your subscription status has been updated.');
     } catch (purchaseError) {
       await loadData(false);
-      const razorpayMessage = (purchaseError as { description?: string; reason?: string })?.description
-        || (purchaseError as { reason?: string })?.reason;
-      Alert.alert('Subscription failed', razorpayMessage || getBackendErrorMessage(purchaseError, 'Payment could not be completed. Please try again.'));
+      const checkoutError = purchaseError as { code?: number | string; description?: string; reason?: string; message?: string };
+      const errorText = [checkoutError?.description, checkoutError?.reason, checkoutError?.message]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      const wasCancelled = String(checkoutError?.code) === '2'
+        || /cancel(?:led|ed)?|user closed|user exited/.test(errorText);
+
+      if (wasCancelled) {
+        Alert.alert('Payment canceled', 'You haven’t been charged. You can try again whenever you’re ready.');
+      } else {
+        Alert.alert('Payment failed', getBackendErrorMessage(purchaseError, 'Payment could not be completed. Please try again.'));
+      }
     } finally {
       setBusy(false);
     }

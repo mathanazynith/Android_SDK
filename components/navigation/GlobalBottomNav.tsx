@@ -5,6 +5,7 @@ import { router, usePathname } from 'expo-router';
 import { memo, useCallback, useEffect, useState, type RefObject } from 'react';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 
@@ -101,6 +102,8 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
   const pathname = usePathname();
   const { isDark } = useTheme();
   const isAndroid = Platform.OS === 'android';
+  const insets = useSafeAreaInsets();
+  const bottomOffset = isAndroid ? insets.bottom + 12 : Math.max(insets.bottom, 20);
   const { workoutPlan, isWorkoutPlanLoaded, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
   const [rowWidth, setRowWidth] = useState(0);
   const activeIndex = tabs.findIndex((tab) => isTabActive(pathname, tab.route));
@@ -189,6 +192,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
         style={[
           styles.container,
           {
+            bottom: bottomOffset,
             backgroundColor: isDark ? 'rgba(20, 20, 24, 0.94)' : 'rgba(255, 255, 255, 0.96)',
             borderColor: isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(226, 226, 226, 0.85)',
             borderWidth: isDark ? 1.2 : 1.5,
@@ -210,6 +214,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
       style={[
         styles.container,
         {
+          bottom: bottomOffset,
           backgroundColor: isDark ? 'rgba(18, 18, 22, 0.55)' : 'rgba(255, 255, 255, 0.70)',
           borderColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(226, 226, 226, 0.75)',
           borderWidth: isDark ? 1.2 : 1.5,
@@ -226,7 +231,6 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: 20,
     left: 16,
     right: 16,
     height: 64,

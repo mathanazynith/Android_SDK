@@ -42,6 +42,7 @@ import { ActivityExtraPayload, ActivityGpsPointPayload, ActivityLapPayload, Acti
 import { BackendWorkout, WorkoutEngineSnapshot } from '../../../src/types/workout';
 import { createCatmullRomPolyline } from '../../../src/utils/catmullRom';
 import { calculateDistanceMeters } from '../../../src/utils/distance';
+import { canConnectRoutePoints, splitRouteAtGaps, toRouteTimestampMilliseconds } from '../../../src/utils/routeContinuity';
 import { decodePolyline } from '../../../src/utils/polylineDecoder';
 import { formatStepTarget, WorkoutExecutionStep } from '../../../src/utils/workoutPlanBuilder';
 
@@ -133,10 +134,9 @@ type MovementState = 'STATIONARY' | 'STARTING' | 'MOVING' | 'STOPPING';
 
 const MOVEMENT_CONFIRMATION_SAMPLES = 3;
 const STATIONARY_CONFIRMATION_SAMPLES = 3;
-// A 30m GPS radius is too large for indoor distance: the displayed point can
-// be several rooms away from the user. Reject low-confidence fixes before
-// they reach the route processor instead of adding false distance.
-const MAX_MOVEMENT_ACCURACY_METERS = 15;
+// Keep the movement gate aligned with GpsFilter so background fixes that are
+// usable for route processing do not stop the run state when the screen sleeps.
+const MAX_MOVEMENT_ACCURACY_METERS = 50;
 const MIN_MOVEMENT_DISTANCE_METERS = 2;
 const MIN_MOVEMENT_SPEED_METERS_PER_SECOND = 0.5;
 const ROUTE_ON_DISTANCE_METERS = 20;
@@ -145,8 +145,10 @@ const ROUTE_WARNING_DISTANCE_METERS = 75;
 const calculateRouteDistance = (points: RunningGpsPoint[]): number => {
   let total = 0;
   for (let index = 1; index < points.length; index += 1) {
-    const distance = calculateDistanceMeters(points[index - 1], points[index]);
-    if (Number.isFinite(distance) && distance > 0 && distance < 50) {
+    const previous = points[index - 1];
+    const current = points[index];
+    const distance = calculateDistanceMeters(previous, current);
+    if (canConnectRoutePoints(previous, current) && Number.isFinite(distance) && distance >= MIN_MOVEMENT_DISTANCE_METERS) {
       total += distance;
     }
   }
@@ -292,7 +294,6 @@ export default function MapScreen() {
   const uploadInProgressRef = useRef(false);
   const distanceRef = useRef(0);
   const extraDistanceRef = useRef(0);
-  const lastRetainedCoordinateRef = useRef<Coordinate | null>(null);
   const isRunningRef = useRef(false);
   const lastCameraUpdateRef = useRef(0);
   const hasInitializedLocationRef = useRef(false);
@@ -481,16 +482,16 @@ export default function MapScreen() {
     });
   }, []);
 
-  const appendRoutePoint = useCallback((point: Coordinate, traceType: RouteSegment['traceType']) => {
+  const appendRoutePoint = useCallback((point: Coordinate, traceType: RouteSegment['traceType'], breakBefore = false) => {
     const current = routeSegmentsRef.current;
     const previous = current.at(-1);
-    if (previous?.traceType === traceType) {
+    if (!breakBefore && previous?.traceType === traceType) {
       routeSegmentsRef.current = [
         ...current.slice(0, -1),
         { ...previous, coordinates: [...previous.coordinates, point] },
       ];
     } else {
-      const boundary = previous?.coordinates.at(-1);
+      const boundary = breakBefore ? undefined : previous?.coordinates.at(-1);
       const coordinates = boundary
         && (boundary.latitude !== point.latitude || boundary.longitude !== point.longitude)
         ? [boundary, point]
@@ -732,11 +733,10 @@ export default function MapScreen() {
     (rawGps: RawGpsPayload) => {
       if (!isRunningRef.current) return;
 
-      const timestamp = typeof rawGps.timestamp === 'number'
-        ? rawGps.timestamp
-        : typeof rawGps.timestamp === 'string'
-          ? parseInt(rawGps.timestamp, 10)
-          : Date.now();
+      const parsedTimestamp = rawGps.timestamp === undefined
+        ? Date.now()
+        : toRouteTimestampMilliseconds(rawGps.timestamp);
+      const timestamp = Number.isFinite(parsedTimestamp) ? parsedTimestamp : Date.now();
       const pointKey = `${timestamp}|${rawGps.latitude}|${rawGps.longitude}`;
       if (processedLocationKeysRef.current.has(pointKey)) return;
       processedLocationKeysRef.current.add(pointKey);
@@ -764,7 +764,7 @@ export default function MapScreen() {
       const detectedActivity = activityDetection?.getCurrentActivity() ?? 'unknown';
       const hasDetectedMovement = detectedActivity === 'walking' || detectedActivity === 'running';
       const hasRecentStepEvidence = lastStepTimestampRef.current !== null
-        && timestamp - lastStepTimestampRef.current <= 5_000;
+        && Math.abs(timestamp - lastStepTimestampRef.current) <= 5_000;
       const previousPointDistance = previousLocationRef.current
         ? calculateDistanceMeters(previousLocationRef.current, rawGps)
         : 0;
@@ -774,7 +774,13 @@ export default function MapScreen() {
       const hasMovementMagnitude = previousLocationRef.current !== null
         && (previousPointDistance >= MIN_MOVEMENT_DISTANCE_METERS
           || speed >= MIN_MOVEMENT_SPEED_METERS_PER_SECOND);
-      const hasMotionEvidence = hasDetectedMovement || hasRecentStepEvidence;
+      // A background batch is replayed with its original timestamps on resume.
+      // Keep an already-confirmed active run moving when those delayed fixes
+      // show plausible, accurate movement even if motion callbacks slept too.
+      const isDelayedLocation = Date.now() - timestamp > 10_000;
+      const hasMotionEvidence = hasDetectedMovement
+        || hasRecentStepEvidence
+        || (isDelayedLocation && movementConfirmedRef.current);
       const hasExplicitResumeMovement = resumeMovementPendingRef.current
         && hasGoodAccuracy
         && hasMovementMagnitude;
@@ -847,10 +853,18 @@ export default function MapScreen() {
         // establishes the route; later accepted points extend it.
         const displayPointWasAdded = processor.getDisplayPoints().length > displayCountBefore;
         const latestDisplayPoint = processor.getDisplayPoints().at(-1);
+        const previousDisplayPoint = processor.getDisplayPoints().at(-2);
+        const continuesPreviousSegment = Boolean(
+          displayPointWasAdded
+          && previousDisplayPoint
+          && latestDisplayPoint
+          && canConnectRoutePoints(previousDisplayPoint, latestDisplayPoint),
+        );
         if (displayPointWasAdded && latestDisplayPoint) {
           appendRoutePoint(
             { latitude: latestDisplayPoint.latitude, longitude: latestDisplayPoint.longitude },
             traceType,
+            !continuesPreviousSegment,
           );
 
         }
@@ -858,13 +872,13 @@ export default function MapScreen() {
           addLog(`📌 Live polyline: ${processor.getRawPoints().length} points`);
         }
 
-        if (displayPointWasAdded && latestDisplayPoint && lastRetainedCoordinateRef.current) {
+        if (displayPointWasAdded && latestDisplayPoint && previousDisplayPoint && continuesPreviousSegment) {
           const movementDistance = calculateDistanceMeters(
-            lastRetainedCoordinateRef.current,
+            previousDisplayPoint,
             { latitude: latestDisplayPoint.latitude, longitude: latestDisplayPoint.longitude }
           );
 
-          if (movementDistance > 0 && movementDistance < 50) {
+          if (movementDistance >= MIN_MOVEMENT_DISTANCE_METERS) {
             if (countsWorkoutDistance) {
               const nextDistance = distanceRef.current + movementDistance;
               distanceRef.current = nextDistance;
@@ -891,13 +905,6 @@ export default function MapScreen() {
               });
             }
           }
-        }
-
-        if (displayPointWasAdded && latestDisplayPoint) {
-          lastRetainedCoordinateRef.current = {
-            latitude: latestDisplayPoint.latitude,
-            longitude: latestDisplayPoint.longitude,
-          };
         }
 
         // Live route points stay on-device and unfiltered. They are filtered,
@@ -1019,11 +1026,10 @@ export default function MapScreen() {
       const restoredPoints = [...journal.points]
         .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
       restoredPoints.forEach((point) => {
-        const timestamp = typeof point.timestamp === 'number'
-          ? point.timestamp
-          : typeof point.timestamp === 'string'
-            ? parseInt(point.timestamp, 10)
-            : Date.now();
+        const parsedTimestamp = point.timestamp === undefined
+          ? Date.now()
+          : toRouteTimestampMilliseconds(point.timestamp);
+        const timestamp = Number.isFinite(parsedTimestamp) ? parsedTimestamp : Date.now();
         processedLocationKeysRef.current.add(`${timestamp}|${point.latitude}|${point.longitude}`);
         processor.ingestRaw(point);
       });
@@ -1032,15 +1038,14 @@ export default function MapScreen() {
       movementConfirmedRef.current = session.movementConfirmed ?? displayPoints.length > 0;
       movementStateRef.current = movementConfirmedRef.current ? 'MOVING' : 'STATIONARY';
       if (displayPoints.length > 0) {
-        routeSegmentsRef.current = [{
-          id: Date.now(),
+        routeSegmentsRef.current = splitRouteAtGaps(displayPoints).map((segment, index) => ({
+          id: Date.now() + index,
           traceType: session.paused ? 'pause' : 'active',
-          coordinates: displayPoints.map((point) => ({ latitude: point.latitude, longitude: point.longitude })),
-        }];
+          coordinates: segment.map((point) => ({ latitude: point.latitude, longitude: point.longitude })),
+        }));
         setRouteSegments(routeSegmentsRef.current);
         const lastPoint = displayPoints.at(-1);
         if (lastPoint) {
-          lastRetainedCoordinateRef.current = { latitude: lastPoint.latitude, longitude: lastPoint.longitude };
           setLocation({
             coords: {
               latitude: lastPoint.latitude,
@@ -1168,7 +1173,6 @@ export default function MapScreen() {
       setIsPaused(false);
       logsRef.current = [];
       previousLocationRef.current = null;
-      lastRetainedCoordinateRef.current = null;
       isPausedRef.current = false;
       pausedTimeRef.current = null;
       pauseStartTimeRef.current = null;
@@ -1879,7 +1883,6 @@ export default function MapScreen() {
       isRunningRef.current = false;
       startTimeRef.current = null;
       previousLocationRef.current = null;
-      lastRetainedCoordinateRef.current = null;
       runIdRef.current = null;
       queueRef.current = null;
       pathProcessorRef.current = null;
