@@ -164,7 +164,13 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
           <Animated.View
             pointerEvents="none"
             style={[styles.activeGlow, glowStyle]}
-          />
+          >
+            <LinearGradient
+              colors={['rgba(255, 255, 255, 0.34)', 'rgba(255, 255, 255, 0.08)', 'rgba(34, 197, 94, 0.12)']}
+              locations={[0, 0.42, 1]}
+              style={styles.activeGlowGradient}
+            />
+          </Animated.View>
         ) : null}
         {tabs.map((tab) => {
           const active = isTabActive(pathname, tab.route);
@@ -186,38 +192,20 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
     </>
   );
 
-  if (isAndroid) {
-    return (
-      <View
-        style={[
-          styles.container,
-          {
-            bottom: bottomOffset,
-            backgroundColor: isDark ? 'rgba(20, 20, 24, 0.94)' : 'rgba(255, 255, 255, 0.96)',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(226, 226, 226, 0.85)',
-            borderWidth: isDark ? 1.2 : 1.5,
-            shadowColor: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(0, 0, 0, 0.08)',
-            elevation: isDark ? 12 : 8,
-          },
-        ]}
-      >
-        {navContent}
-      </View>
-    );
-  }
-
   return (
     <BlurView
-      intensity={isDark ? 85 : 80}
+      intensity={isDark ? 88 : 82}
       tint={isDark ? 'dark' : 'light'}
       blurTarget={blurTarget}
+      blurMethod={isAndroid ? 'dimezisBlurViewSdk31Plus' : undefined}
+      blurReductionFactor={isAndroid ? 3 : undefined}
       style={[
         styles.container,
         {
           bottom: bottomOffset,
-          backgroundColor: isDark ? 'rgba(18, 18, 22, 0.55)' : 'rgba(255, 255, 255, 0.70)',
-          borderColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(226, 226, 226, 0.75)',
-          borderWidth: isDark ? 1.2 : 1.5,
+          backgroundColor: isDark ? 'rgba(18, 18, 22, 0.48)' : 'rgba(255, 255, 255, 0.52)',
+          borderColor: isDark ? 'rgba(255, 255, 255, 0.24)' : 'rgba(255, 255, 255, 0.82)',
+          borderWidth: 1,
           shadowColor: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(0, 0, 0, 0.08)',
           elevation: isDark ? 12 : 8,
         },
@@ -258,6 +246,10 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFill,
     borderRadius: 40,
   },
+  activeGlowGradient: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: ACTIVE_GLOW_SIZE / 2,
+  },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minWidth: 0, position: 'relative' },
   iconWrapper: { width: 30, height: 28, alignItems: 'center', justifyContent: 'center' },
   label: { fontSize: 12, lineHeight: 14, marginTop: 1, textAlign: 'center', includeFontPadding: false, maxWidth: '100%' },
@@ -270,6 +262,12 @@ const styles = StyleSheet.create({
     width: ACTIVE_GLOW_WIDTH,
     height: ACTIVE_GLOW_SIZE,
     borderRadius: ACTIVE_GLOW_SIZE / 2,
-    backgroundColor: '#22C55E40',
+    backgroundColor: 'rgba(34, 197, 94, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(187, 247, 208, 0.5)',
+    shadowColor: '#22C55E',
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
   },
 });
