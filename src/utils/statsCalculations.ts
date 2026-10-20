@@ -14,6 +14,7 @@ export interface ChartBarPoint {
   isCurrent: boolean;
   targetDate?: Date;
   monthIndex?: number;
+  targetYear?: number;
 }
 
 export interface PersonalBests {
@@ -322,58 +323,41 @@ export function calculatePeriodStats(
   } else {
     filtered = activities;
 
-    const monthMap = new Map<string, { label: string; fullLabel: string; acts: UnifiedActivity[]; date: Date; monthIndex: number }>();
-    const emptyHistoryStart = new Date(now.getFullYear(), now.getMonth() - 5, 1).getTime();
-    const firstActivityTime = filtered.reduce(
-      (earliest, activity) => Math.min(earliest, activity.date.getTime()),
-      filtered.length === 0 ? emptyHistoryStart : now.getTime()
-    );
-    const firstMonth = new Date(firstActivityTime);
-    const firstActivityMonth = new Date(firstMonth.getFullYear(), firstMonth.getMonth(), 1);
-    const minimumVisibleStart = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-    const cursor = firstActivityMonth < minimumVisibleStart
-      ? firstActivityMonth
-      : minimumVisibleStart;
-    const lastActivityTime = filtered.reduce(
-      (latest, activity) => Math.max(latest, activity.date.getTime()),
-      now.getTime()
-    );
-    const lastActivityMonth = new Date(lastActivityTime);
-    const lastMonth = new Date(lastActivityMonth.getFullYear(), lastActivityMonth.getMonth(), 1);
-    for (; cursor <= lastMonth; cursor.setMonth(cursor.getMonth() + 1)) {
-      const d = new Date(cursor);
-      const key = `${d.getFullYear()}-${d.getMonth()}`;
-      const label = d.getFullYear() === now.getFullYear()
-        ? d.toLocaleDateString(undefined, { month: 'short' })
-        : d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
-      const fullLabel = d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-      monthMap.set(key, { label, fullLabel, acts: [], date: d, monthIndex: d.getMonth() });
+    const currentYear = now.getFullYear();
+    const activityYears = activities.map((a) => a.date.getFullYear());
+    const minActivityYear = activityYears.length > 0 ? Math.min(...activityYears) : currentYear;
+    const maxActivityYear = activityYears.length > 0 ? Math.max(currentYear, ...activityYears) : currentYear;
+
+    const endYear = maxActivityYear;
+    let startYear = Math.min(minActivityYear, endYear - 4);
+    if (endYear - startYear > 7) {
+      startYear = endYear - 7;
     }
 
-    filtered.forEach((a) => {
-      const key = `${a.date.getFullYear()}-${a.date.getMonth()}`;
-      const bucket = monthMap.get(key);
-      if (bucket) {
-        bucket.acts.push(a);
-      }
-    });
+    const years: number[] = [];
+    for (let y = startYear; y <= endYear; y++) {
+      years.push(y);
+    }
 
-    chartData = Array.from(monthMap.entries()).map(([key, data], idx) => {
-      const value = data.acts.reduce((acc, a) => acc + a.distanceKm, 0);
-      const durationSeconds = data.acts.reduce((acc, a) => acc + a.durationSeconds, 0);
+    chartData = years.map((year, idx) => {
+      const yearActs = filtered.filter((a) => a.date.getFullYear() === year);
+      const value = yearActs.reduce((acc, a) => acc + a.distanceKm, 0);
+      const durationSeconds = yearActs.reduce((acc, a) => acc + a.durationSeconds, 0);
       const paceSecondsPerKm = value > 0 ? durationSeconds / value : 0;
+      const isCurrent = year === currentYear;
+      const yearDate = new Date(year, 0, 1);
 
       return {
-        key: `all-${key}-${idx}`,
-        label: data.label,
-        fullLabel: data.fullLabel,
+        key: `all-year-${year}-${idx}`,
+        label: String(year),
+        fullLabel: `Year ${year}`,
         value,
         durationSeconds,
         paceSecondsPerKm,
-        workoutCount: data.acts.length,
-        isCurrent: idx === monthMap.size - 1,
-        targetDate: data.date,
-        monthIndex: data.monthIndex,
+        workoutCount: yearActs.length,
+        isCurrent,
+        targetDate: yearDate,
+        targetYear: year,
       };
     });
   }

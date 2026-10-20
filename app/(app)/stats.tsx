@@ -562,6 +562,9 @@ export default function StatsScreen() {
 
   const displayedLabel = useMemo(() => {
     if (selectedPointKey && activePoint) {
+      if (period === 'all') {
+        return `YEAR ${activePoint.label}`;
+      }
       return (activePoint.fullLabel || activePoint.label).toUpperCase();
     }
     return period === 'week'
@@ -570,7 +573,7 @@ export default function StatsScreen() {
       ? 'DISTANCE THIS MONTH'
       : period === 'year'
       ? 'DISTANCE THIS YEAR'
-      : 'TOTAL DISTANCE';
+      : 'ALL-TIME DISTANCE';
   }, [selectedPointKey, activePoint, period]);
 
   // Dynamic Overview Metrics reflecting active selection or current period
@@ -595,6 +598,10 @@ export default function StatsScreen() {
             a.date.getFullYear() === selectedYear &&
             a.date.getMonth() === activePoint.monthIndex
           );
+        }
+        if (period === 'all') {
+          const targetY = activePoint.targetYear ?? activePoint.targetDate?.getFullYear() ?? parseInt(activePoint.label, 10);
+          return a.date.getFullYear() === targetY;
         }
         return false;
       });
