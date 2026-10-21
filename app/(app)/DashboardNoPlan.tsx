@@ -20,6 +20,22 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
   const { colors } = useTheme();
   const openCustomWorkout = () => router.push('/(app)/questionnaire');
 
+  const openWorkoutSetup = (workout: typeof popularWorkouts[0]) => {
+    let presetId = 'preset-easy-run-30';
+    if (workout.subtitle === 'Interval Run') presetId = 'preset-interval-10x400';
+    if (workout.subtitle === 'Long Run') presetId = 'preset-long-run-70';
+    if (workout.subtitle === 'Easy Run') presetId = 'preset-easy-run-30';
+    if (workout.subtitle === 'Tempo Run') presetId = 'preset-tempo-run-20';
+
+    router.push({
+      pathname: '/(app)/workout-setup',
+      params: {
+        presetId,
+        workoutTitle: `${workout.title} ${workout.subtitle}`,
+      },
+    });
+  };
+
   return (
     <>
       <View style={[styles.card, styles.customWorkoutCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -56,7 +72,11 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
       <Text style={[styles.sectionTitle, { color: colors.text }]}>POPULAR WORKOUTS</Text>
       <View style={styles.workoutRow}>
         {popularWorkouts.map((workout) => (
-          <TouchableOpacity key={workout.subtitle} style={[styles.workoutCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => router.push('/(app)/screens/map')}>
+          <TouchableOpacity
+            key={workout.subtitle}
+            style={[styles.workoutCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            onPress={() => openWorkoutSetup(workout)}
+          >
             <Feather name={workout.icon} size={30} color={BRAND_GREEN} />
             <Text style={[styles.workoutTitle, { color: colors.text }]}>{workout.title}</Text>
             <Text style={[styles.workoutSubtitle, { color: colors.textSecondary }]}>{workout.subtitle}</Text>

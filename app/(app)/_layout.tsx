@@ -54,6 +54,7 @@ export default function AppLayout() {
       <Stack.Screen name="profile" options={{ animation: 'none' }} />
       <Stack.Screen name="activity/[id]" />
       <Stack.Screen name="custom-workout" options={{ headerShown: false }} />
+      <Stack.Screen name="workout-setup" options={{ headerShown: false }} />
     </Stack>
   );
 
@@ -77,6 +78,7 @@ export default function AppLayout() {
           <Stack.Screen name="profile" options={{ animation: 'none' }} />
           <Stack.Screen name="activity/[id]" />
           <Stack.Screen name="custom-workout" options={{ headerShown: false }} />
+      <Stack.Screen name="workout-setup" options={{ headerShown: false }} />
         </Stack>
       </BlurTargetView>
       {showBottomNav && <GlobalBottomNav blurTarget={blurTargetRef} />}
