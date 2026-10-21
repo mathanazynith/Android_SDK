@@ -28,6 +28,7 @@ export interface BackendPauseEvent {
   duration_s?: number | null;
   pause_location?: BackendGpsPoint | { latitude?: number; longitude?: number } | null;
   resume_location?: BackendGpsPoint | { latitude?: number; longitude?: number } | null;
+  paused_points?: BackendGpsPoint[];
 }
 
 const getPointTimestamp = (point: BackendGpsPoint): number | null => {
@@ -173,11 +174,11 @@ export const normalizeActivitySplits = (activity: unknown): {
     ? value.segments.map((segment, index) => normalizeSegment(segment, index)).filter((segment): segment is ActivitySegmentSplits => segment !== null)
     : [];
   const activityPoints = getActivityPoints(value);
-  const generatedActivitySplits = createSplitsFromGpsPoints(activityPoints.filter((point) => !point.is_extra_distance), splitDistanceMeters);
-  const generatedExtraSplits = createSplitsFromGpsPoints(activityPoints.filter((point) => point.is_extra_distance), splitDistanceMeters);
+  const generatedActivitySplits = createSplitsFromGpsPoints(activityPoints.filter((point) => !point.is_extra_distance && !point.is_paused), splitDistanceMeters);
+  const generatedExtraSplits = createSplitsFromGpsPoints(activityPoints.filter((point) => point.is_extra_distance && !point.is_paused), splitDistanceMeters);
   const segmentsWithGeneratedSplits = normalizedSegments.map((segment) => {
     const generatedSplits = segment.gps_points
-      ? createSplitsFromGpsPoints(segment.gps_points, splitDistanceMeters)
+      ? createSplitsFromGpsPoints(segment.gps_points.filter((point) => !point.is_paused), splitDistanceMeters)
       : [];
     return {
       ...segment,

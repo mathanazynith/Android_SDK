@@ -22,6 +22,7 @@ export interface ActivitySegmentSplits {
     longitude: number;
     timestamp?: string;
     is_extra_distance?: boolean;
+    is_paused?: boolean;
   }[];
 }
 

@@ -55,6 +55,7 @@
     "tailwindcss": "^3.4.19"
   },
   "devDependencies": {
+    "@types/node": "^22.20.2",
     "@types/react": "~19.2.2",
     "babel-plugin-transform-remove-console": "^6.9.4",
     "eslint": "^9.0.0",
@@ -66,6 +67,7 @@
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",
     "ios": "expo run:ios",
+    "test": "node --experimental-strip-types --test src/services/locationPointTagging.test.ts",
     "web": "expo start --web",
     "lint": "expo lint"
   },

@@ -156,9 +156,26 @@ function ActivityRouteMap({
     () => decodeRouteGroups(pauseRoutes),
     [pauseRoutes],
   );
+  const completeSavedGpsPoints = useMemo(() => {
+    const pointsByKey = new Map<string, BackendGpsPoint>();
+    (savedGpsPoints ?? []).forEach((point, index) => {
+      pointsByKey.set(`${point.timestamp ?? `route-${index}`}|${point.latitude}|${point.longitude}`, point);
+    });
+    (pauseEvents ?? []).forEach((event, eventIndex) => {
+      (event.paused_points ?? []).forEach((point, pointIndex) => {
+        const key = `${point.timestamp ?? `pause-${event.sequence ?? eventIndex}-${pointIndex}`}|${point.latitude}|${point.longitude}`;
+        pointsByKey.set(key, {
+          ...point,
+          is_paused: true,
+          pause_sequence: event.sequence ?? point.pause_sequence,
+        });
+      });
+    });
+    return [...pointsByKey.values()];
+  }, [pauseEvents, savedGpsPoints]);
   const savedRouteGroups = useMemo(
-    () => buildActivityRouteGroups(savedGpsPoints),
-    [savedGpsPoints],
+    () => buildActivityRouteGroups(completeSavedGpsPoints),
+    [completeSavedGpsPoints],
   );
   const useSavedRouteGroups = savedRouteGroups.some((group) => group.coordinates.length >= 2)
     && !(cropStartIndex !== undefined && cropEndIndex !== undefined);
