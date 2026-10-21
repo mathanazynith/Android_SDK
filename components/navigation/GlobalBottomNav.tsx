@@ -2,10 +2,17 @@ import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, usePathname } from 'expo-router';
-import { memo, useCallback, useEffect, useState, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, {
+    cancelAnimation,
+    Easing as ReanimatedEasing,
+    useAnimatedStyle,
+    useReducedMotion,
+    useSharedValue,
+    withSequence,
+    withTiming,
+} from 'react-native-reanimated';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 
@@ -39,6 +46,7 @@ const tabs: Tab[] = [
 const ACTIVE_GLOW_SIZE = 60;
 const TAB_ROW_HORIZONTAL_PADDING = 4;
 const ACTIVE_GLOW_WIDTH = 60;
+const TAB_PILL_DURATION_MS = 240;
 
 type TabButtonProps = {
   tab: Tab;
@@ -48,6 +56,7 @@ type TabButtonProps = {
   inactiveColor: string;
   iconSize: number;
   labelSize: number;
+  reduceMotion: boolean;
   onPress: (tab: Tab) => void;
 };
 
@@ -59,8 +68,43 @@ const TabButton = memo(function TabButton({
   inactiveColor,
   iconSize,
   labelSize,
+  reduceMotion,
   onPress,
 }: TabButtonProps) {
+  const iconScale = useSharedValue(active ? 1 : 0.98);
+  const hasMounted = useRef(false);
+  const iconMotionStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: iconScale.value }],
+  }));
+
+  useEffect(() => {
+    if (!hasMounted.current) {
+      hasMounted.current = true;
+      return;
+    }
+
+    cancelAnimation(iconScale);
+    if (reduceMotion) {
+      iconScale.value = 1;
+    } else if (active) {
+      iconScale.value = withSequence(
+        withTiming(1.05, {
+          duration: 90,
+          easing: ReanimatedEasing.out(ReanimatedEasing.quad),
+        }),
+        withTiming(1, {
+          duration: 130,
+          easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+        }),
+      );
+    } else {
+      iconScale.value = withTiming(0.98, {
+        duration: 120,
+        easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+      });
+    }
+  }, [active, iconScale, reduceMotion]);
+
   return (
     <TouchableOpacity
       style={styles.tab}
@@ -69,9 +113,9 @@ const TabButton = memo(function TabButton({
       accessibilityRole="button"
       accessibilityState={{ selected: active, disabled: !enabled }}
     >
-      <View style={styles.iconWrapper}>
+      <Animated.View style={[styles.iconWrapper, iconMotionStyle]}>
         <Feather name={tab.icon} size={iconSize} color={active ? activeColor : inactiveColor} />
-      </View>
+      </Animated.View>
       <Text
         numberOfLines={1}
         adjustsFontSizeToFit
@@ -102,8 +146,8 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
   const pathname = usePathname();
   const { isDark } = useTheme();
   const isAndroid = Platform.OS === 'android';
-  const insets = useSafeAreaInsets();
-  const bottomOffset = isAndroid ? insets.bottom + 12 : Math.max(insets.bottom, 20);
+  const reduceMotion = useReducedMotion();
+  const bottomOffset = 12;
   const { workoutPlan, isWorkoutPlanLoaded, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
   const [rowWidth, setRowWidth] = useState(0);
   const activeIndex = tabs.findIndex((tab) => isTabActive(pathname, tab.route));
@@ -116,15 +160,21 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
   }, [fetchWorkoutPlan, isWorkoutPlanLoaded, isWorkoutPlanLoading]);
 
   useEffect(() => {
-    if (activeIndex >= 0 && rowWidth > 0) {
+    if (activeIndex < 0 || rowWidth <= 0) return;
+
+    const targetX = TAB_ROW_HORIZONTAL_PADDING + activeIndex * tabWidth + (tabWidth - ACTIVE_GLOW_WIDTH) / 2;
+    if (reduceMotion) {
+      glowTranslateX.value = targetX;
+    } else {
       glowTranslateX.value = withTiming(
-        TAB_ROW_HORIZONTAL_PADDING + activeIndex * tabWidth + (tabWidth - ACTIVE_GLOW_WIDTH) / 2,
+        targetX,
         {
-          duration: 180,
+          duration: TAB_PILL_DURATION_MS,
+          easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
         },
       );
     }
-  }, [activeIndex, glowTranslateX, rowWidth, tabWidth]);
+  }, [activeIndex, glowTranslateX, reduceMotion, rowWidth, tabWidth]);
 
   const glowStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: glowTranslateX.value }],
@@ -149,11 +199,11 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
 
   const navContent = (
     <>
-      <View pointerEvents="none" style={[styles.glassSheen, { borderColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.10)' }]} />
+      <View pointerEvents="none" style={[styles.glassSheen, { borderColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.88)' }]} />
       <LinearGradient
         pointerEvents="none"
-        colors={isDark ? ['rgba(255, 255, 255, 0.12)', 'rgba(255, 255, 255, 0.02)', 'rgba(0, 0, 0, 0.12)'] : ['rgba(255, 255, 255, 0.42)', 'rgba(255, 255, 255, 0.08)', 'rgba(255, 255, 255, 0.02)']}
-        locations={[0, 0.42, 1]}
+        colors={isDark ? ['rgba(255, 255, 255, 0.12)', 'rgba(255, 255, 255, 0.02)', 'rgba(0, 0, 0, 0.12)'] : ['rgba(255, 255, 255, 0.76)', 'rgba(255, 255, 255, 0.22)', 'rgba(220, 252, 231, 0.30)']}
+        locations={[0, 0.45, 1]}
         style={styles.glassGradient}
       />
       <View
@@ -184,6 +234,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
               inactiveColor={isDark ? '#FFFFFF' : '#000000'}
               iconSize={24}
               labelSize={12}
+              reduceMotion={reduceMotion}
               onPress={handleTabPress}
             />
           );
@@ -194,20 +245,20 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
 
   return (
     <BlurView
-      intensity={isDark ? 88 : 82}
+      intensity={isDark ? 88 : 92}
       tint={isDark ? 'dark' : 'light'}
       blurTarget={blurTarget}
       blurMethod={isAndroid ? 'dimezisBlurViewSdk31Plus' : undefined}
-      blurReductionFactor={isAndroid ? 3 : undefined}
+      blurReductionFactor={isAndroid ? (isDark ? 3 : 2) : undefined}
       style={[
         styles.container,
         {
           bottom: bottomOffset,
-          backgroundColor: isDark ? 'rgba(18, 18, 22, 0.48)' : 'rgba(255, 255, 255, 0.52)',
-          borderColor: isDark ? 'rgba(255, 255, 255, 0.24)' : 'rgba(255, 255, 255, 0.82)',
-          borderWidth: 1,
-          shadowColor: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(0, 0, 0, 0.08)',
-          elevation: isDark ? 12 : 8,
+          backgroundColor: isDark ? 'rgba(18, 18, 22, 0.48)' : 'rgba(241, 248, 243, 0.72)',
+          borderColor: BRAND_GREEN,
+          borderWidth: 1.25,
+          shadowColor: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(25, 75, 45, 0.18)',
+          elevation: isDark ? 12 : 9,
         },
       ]}
     >

@@ -2,33 +2,32 @@ import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
-  ActivityIndicator,
-  TextInput as RNTextInput,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    TextInput as RNTextInput,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import DatePicker from "../../../app/(app)/questionnaire/QuestionTypes/DatePicker";
 import DistanceTimePaceSelector, { getDistanceInKilometers } from "../../../app/(app)/questionnaire/QuestionTypes/DistanceTimePaceSelector";
 import PlanSelection from "../../../app/(app)/questionnaire/QuestionTypes/PlanSelection";
 import RecentLongRun from "../../../app/(app)/questionnaire/QuestionTypes/RecentLongRun";
 import YesNo, {
-  getYesNoOptionValues,
-  getYesNoValue,
+    getYesNoOptionValues,
+    getYesNoValue,
 } from "../../../app/(app)/questionnaire/QuestionTypes/YesNo";
 import EventRegistration from "../../../app/(app)/questionnaire/components/QuestionTypes/EventRegistration";
+import MotionEntrance from "../../../components/MotionEntrance";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { useQuestionnaire } from "../../../contexts/QuestionnaireContext";
+import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
 import { useAuth } from "../../../service/auth";
 import type { Question } from "../../../service/questionnaire/questionnaireService";
 import { validateAnswer } from "../../../service/validation/AssessmentValidator";
 import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import { calculatePace, timeToSeconds } from "../../../utils/validators";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
-import MotionEntrance from "../../../components/MotionEntrance";
 
 // Helper to get numeric ID
 const getNumericId = (id: number | string): number => {
@@ -498,7 +497,6 @@ export default function QuestionnaireScreen() {
     canGoBack,
   } = useQuestionnaire();
   const { user } = useAuth();
-  const insets = useSafeAreaInsets();
   const [pageTransitionDirection, setPageTransitionDirection] = useState<'forward' | 'backward'>('forward');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1241,7 +1239,7 @@ export default function QuestionnaireScreen() {
         </MotionEntrance>
       </ScrollView>
 
-      <View style={[styles.buttonContainer, { paddingBottom: 12 + insets.bottom, backgroundColor: colors.background }]}>
+      <View style={[styles.buttonContainer, { paddingBottom: 12, backgroundColor: colors.background }]}>
         {!isFirstAssessmentPage && (
           <TouchableOpacity
             style={[styles.button, styles.prevButton]}

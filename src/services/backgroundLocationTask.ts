@@ -6,7 +6,6 @@ import * as TaskManager from 'expo-task-manager';
 import { AppState } from 'react-native';
 import { ActivityPauseEventPayload, RawGpsPayload } from '../types/running';
 import { calculateDistanceMeters } from '../utils/distance';
-import { canConnectRoutePoints, toRouteTimestampMilliseconds } from '../utils/routeContinuity';
 import { appendActiveRunPoints, readActiveRunJournal } from './activeRunJournal';
 import { updateLiveTrackingNotification, WORKOUT_FOREGROUND_NOTIFICATION_ID } from './liveTrackingNotification';
 
@@ -147,26 +146,11 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, async ({ data, error }) =>
   if (AppState.currentState === 'active') return;
 
   const journal = await readActiveRunJournal();
-  const journalDistanceKm = (journal?.points.slice(1).reduce((total, point, index) => {
-    const previousPoint = journal.points[index];
-    const accuracy = point.accuracy;
-    const previousAccuracy = previousPoint.accuracy;
-    if ((accuracy !== undefined && accuracy !== null && accuracy > 50)
-      || (previousAccuracy !== undefined && previousAccuracy !== null && previousAccuracy > 50)) return total;
-    // Journal entries can come from older or partially-written session data,
-    // so validate timestamps before passing them to helpers that require them.
-    if (point.timestamp == null || previousPoint.timestamp == null) return total;
-    const elapsedMs = toRouteTimestampMilliseconds(point.timestamp) - toRouteTimestampMilliseconds(previousPoint.timestamp);
-    if (!Number.isFinite(elapsedMs)
-      || !canConnectRoutePoints(
-        { ...previousPoint, timestamp: previousPoint.timestamp },
-        { ...point, timestamp: point.timestamp }
-      )) return total;
-    const distance = calculateDistanceMeters(previousPoint, point);
-    return elapsedMs >= 1_000 && distance >= 2 ? total + distance : total;
-  }, 0) ?? 0) / 1000;
+  const journalDistanceKm = (journal?.points.slice(1).reduce((total, point, index) => (
+    total + calculateDistanceMeters(journal.points[index], point)
+  ), 0) ?? 0) / 1000;
   const distanceKm = journal?.points.length && journal.points.length > 1
-    ? Math.max(previous.distanceKm ?? 0, journalDistanceKm)
+    ? journalDistanceKm
     : (previous.distanceKm ?? 0);
   const elapsedSeconds = previous.elapsedSeconds ?? (previous.startedAt
     ? Math.max(0, (Date.now() - new Date(previous.startedAt).getTime()) / 1000)

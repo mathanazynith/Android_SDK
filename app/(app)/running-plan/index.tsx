@@ -2,16 +2,14 @@ import { Alert } from '@/components/ThemedAlert';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import MotionEntrance from '../../../components/MotionEntrance';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 import { useTheme } from '../../../contexts/ThemeContext';
-import MotionEntrance from '../../../components/MotionEntrance';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function RunningPlanScreen() {
   const { colors } = useTheme();
   const { assessmentResult, isAssessmentResultLoading, fetchAssessmentResult, workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan, endWorkoutPlan } = useQuestionnaire();
   const [isEndingPlan, setIsEndingPlan] = useState(false);
-  const insets = useSafeAreaInsets();
   useEffect(() => { fetchAssessmentResult(); fetchWorkoutPlan(); }, [fetchAssessmentResult, fetchWorkoutPlan]);
 
   const recommendation = assessmentResult?.recommendation;
@@ -50,7 +48,7 @@ export default function RunningPlanScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: 118 + insets.bottom }]}
+        contentContainerStyle={[styles.content, { paddingBottom: 118 }]}
       >
     <MotionEntrance>
     <View style={styles.topSection}><View style={[styles.checkBadge, { backgroundColor: colors.selected }]}><Text style={[styles.check, { color: colors.primary }]}>✓</Text></View><Text style={[styles.planTitle, { color: colors.text }]}>{planName}</Text></View>

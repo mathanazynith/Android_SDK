@@ -1,6 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { RawGpsPayload } from '../types/running';
+import { calculateDistanceMeters } from '../utils/distance';
 
 /** Durable hand-off between the headless task and the map's existing GPS pipeline. */
 export interface ActiveRunJournal {
@@ -51,13 +52,20 @@ export const appendActiveRunPoints = async (points: RawGpsPayload[]): Promise<vo
     for (const point of candidates) {
       const key = `${point.timestamp}|${point.latitude}|${point.longitude}`;
       if (known.has(key)) continue;
-      // Keep the raw fixes, including lower-confidence fixes and slow movement.
-      // Route rendering and distance use a shared continuity/quality gate later;
-      // dropping a sample here can erase a turn before that gate can evaluate it.
-      journal.points.push(point);
-      known.add(key);
+      const previous = journal.points.at(-1);
+      const distance = previous ? calculateDistanceMeters(previous, point) : 0;
+      const elapsedSeconds = previous
+        ? Math.max(0, (Number(point.timestamp ?? 0) - Number(previous.timestamp ?? 0)) / 1_000)
+        : 0;
+      const accuracy = point.accuracy ?? Number.POSITIVE_INFINITY;
+      const hasMovement = !previous
+        || (accuracy <= 15
+          && elapsedSeconds >= 1
+          && distance >= 2
+          && distance < 50
+          && ((point.speed ?? 0) >= 0.5 || distance >= 2));
+      if (hasMovement) { journal.points.push(point); known.add(key); }
     }
-    journal.points.sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
     await save(journal);
   });
   return writeChain;

@@ -68,7 +68,7 @@ export default function SuggestedRoutesScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
       <StatusBar barStyle="light-content" />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.closeButton} accessibilityLabel="Close suggested routes">

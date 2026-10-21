@@ -1,6 +1,6 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -130,7 +130,7 @@ export default function LegalPolicyViewer() {
 
   const fallbackTitle = policyType === "privacy-policy" ? "Privacy Policy" : "Terms & Conditions";
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Close policy">
           <Ionicons name="close" size={25} color="#F8FAFC" />

@@ -8,8 +8,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import ActivitySplitsModal from '../../../components/ActivitySplitsModal';
-import { useTheme } from '../../../contexts/ThemeContext';
 import MotionEntrance from '../../../components/MotionEntrance';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage } from '../../../service/api';
 import { activityAPI, BackendActivity, normalizeActivitySplits } from '../../../src/services/activityApi';
 import { ActivityExtraSplits, ActivitySegmentSplits } from '../../../src/types/activity';
@@ -162,7 +162,7 @@ export default function ActivityDetailScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
       <View style={styles.header}>
         <TouchableOpacity accessibilityLabel="Back to workout history" onPress={handleBack} style={styles.backButton}>

@@ -1,10 +1,10 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import RazorpayCheckout from 'react-native-razorpay';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage } from '../../../service/api';
 import { useAuth } from '../../../service/auth';
@@ -176,7 +176,7 @@ export default function SubscriptionScreen() {
   const surface = { backgroundColor: colors.surface, borderColor: colors.border };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={[styles.backButton, { backgroundColor: colors.surfaceRaised }]} accessibilityRole="button" accessibilityLabel="Go back">
           <Feather name="chevron-left" size={24} color={colors.text} />

@@ -1,5 +1,6 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useColorScheme } from 'react-native';
+import { storage } from '../service/storage';
 
 export const BRAND_GREEN = '#22C55E';
 
@@ -60,18 +61,66 @@ const lightColors = {
 };
 
 export type ThemeColors = typeof darkColors;
+export type ThemePreference = 'system' | 'light' | 'dark';
+
+const THEME_PREFERENCE_KEY = 'zyrun:theme-preference';
+
+const readStoredPreference = async (): Promise<string | null> => {
+  return storage.getItem(THEME_PREFERENCE_KEY);
+};
+
+const storePreference = async (preference: ThemePreference): Promise<void> => {
+  await storage.setItem(THEME_PREFERENCE_KEY, preference);
+};
 
 export type AppTheme = {
   isDark: boolean;
   colors: ThemeColors;
+  preference: ThemePreference;
+  setPreference: (preference: ThemePreference) => void;
 };
 
-const ThemeContext = createContext<AppTheme>({ isDark: true, colors: darkColors });
+const ThemeContext = createContext<AppTheme>({
+  isDark: true,
+  colors: darkColors,
+  preference: 'system',
+  setPreference: () => undefined,
+});
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const scheme = useColorScheme();
-  const isDark = scheme !== 'light';
-  return <ThemeContext.Provider value={{ isDark, colors: isDark ? darkColors : lightColors }}>{children}</ThemeContext.Provider>;
+  const [preference, setPreferenceState] = useState<ThemePreference>('system');
+  const userChangedPreference = useRef(false);
+
+  useEffect(() => {
+    let mounted = true;
+    void readStoredPreference()
+      .then((storedPreference) => {
+        if (
+          mounted
+          && !userChangedPreference.current
+          && (storedPreference === 'system' || storedPreference === 'light' || storedPreference === 'dark')
+        ) {
+          setPreferenceState(storedPreference);
+        }
+      })
+      .catch((error) => console.warn('[Theme] Unable to load appearance preference', error));
+    return () => { mounted = false; };
+  }, []);
+
+  const setPreference = useCallback((nextPreference: ThemePreference) => {
+    userChangedPreference.current = true;
+    setPreferenceState(nextPreference);
+    void storePreference(nextPreference)
+      .catch((error) => console.warn('[Theme] Unable to save appearance preference', error));
+  }, []);
+
+  const isDark = preference === 'system' ? scheme !== 'light' : preference === 'dark';
+  return (
+    <ThemeContext.Provider value={{ isDark, colors: isDark ? darkColors : lightColors, preference, setPreference }}>
+      {children}
+    </ThemeContext.Provider>
+  );
 }
 
 export function useTheme() {

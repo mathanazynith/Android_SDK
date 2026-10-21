@@ -5,7 +5,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import React from "react";
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import MotionEntrance from "../../../components/MotionEntrance";
 import { Colors } from "../../../constants/theme";
 import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
@@ -69,7 +69,6 @@ const formatSubscriptionAmount = (subscription: UserSubscription) => {
 
 export default function ProfileScreen() {
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
   const { user, uploadProfilePicture } = useAuth();
   const [isUploadingPicture, setIsUploadingPicture] = React.useState(false);
   const [activeSubscription, setActiveSubscription] = React.useState<UserSubscription | null>(null);
@@ -157,10 +156,10 @@ export default function ProfileScreen() {
   const profilePictureUri = resolveApiUrl(profilePicture);
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <ScrollView
         style={[styles.container, { backgroundColor: colors.background }]}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 + insets.bottom }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 }]}
         showsVerticalScrollIndicator={false}
         scrollEnabled
       >

@@ -157,7 +157,7 @@ export default function RunningDeclaration() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
       <KeyboardAvoidingView
         style={styles.container}

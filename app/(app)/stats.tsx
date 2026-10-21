@@ -18,13 +18,12 @@ import {
 } from 'react-native';
 import Reanimated, {
   cancelAnimation,
-  interpolate,
   interpolateColor,
   Easing as ReanimatedEasing,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
-  withTiming,
+  withTiming
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -62,7 +61,6 @@ import {
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CHART_BAR_MAX_HEIGHT = 160;
-const STATS_SCREEN_TRANSITION_DURATION_MS = 20;
 const RANGE_SELECTION_DURATION_MS = 240;
 const PERIOD_TAB_SHIFT_DURATION_MS = 400;
 const CHART_REFLOW_DURATION_MS = 420;
@@ -248,11 +246,6 @@ export default function StatsScreen() {
   const chartValueHighlight = useMemo(() => new Animated.Value(1), []);
   const [periodStatsCache, setPeriodStatsCache] = useState<PeriodStatsCache | null>(null);
   const distributionAnim = useMemo(() => new Animated.Value(0), []);
-  const screenTransitionProgress = useSharedValue(1);
-  const screenTransitionStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(screenTransitionProgress.value, [0, 1], [0.72, 1]),
-    transform: [{ translateX: interpolate(screenTransitionProgress.value, [0, 1], [24, 0]) }],
-  }));
   const [showYearModal, setShowYearModal] = useState(false);
   const [showBenchmarkModal, setShowBenchmarkModal] = useState(false);
   const [startingWorkoutId, setStartingWorkoutId] = useState<number | null>(null);
@@ -306,16 +299,6 @@ export default function StatsScreen() {
   /* eslint-disable react-hooks/immutability */
   useFocusEffect(
     useCallback(() => {
-      if (reduceMotion) {
-        screenTransitionProgress.value = 1;
-      } else {
-        screenTransitionProgress.value = 0;
-        screenTransitionProgress.value = withTiming(1, {
-          duration: STATS_SCREEN_TRANSITION_DURATION_MS,
-          easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
-        });
-      }
-
       loadActivities();
       BenchmarkStore.getBenchmarkIds().then((ids) => {
         setBenchmarkIds((prev) => Array.from(new Set([...prev, ...ids])));
@@ -328,11 +311,10 @@ export default function StatsScreen() {
         setPlanBenchmarks(Object.values(assignments).filter((a) => a && a.isBenchmark));
       });
       return () => {
-        cancelAnimation(screenTransitionProgress);
         unsub();
         unsubPlan();
       };
-    }, [loadActivities, reduceMotion, screenTransitionProgress])
+    }, [loadActivities])
   );
   /* eslint-enable react-hooks/immutability */
 
@@ -797,7 +779,7 @@ export default function StatsScreen() {
   };
 
   return (
-    <Reanimated.View style={[{ flex: 1 }, screenTransitionStyle]}>
+    <View style={{ flex: 1 }}>
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#0A0A0C' : '#F8FAFC'} />
 
@@ -1554,7 +1536,7 @@ export default function StatsScreen() {
         </Pressable>
       </Modal>
     </SafeAreaView>
-    </Reanimated.View>
+    </View>
   );
 }
 

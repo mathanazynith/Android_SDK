@@ -632,7 +632,7 @@ export default function CustomWorkoutCards() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
 
       {/* Top App Header or Selection Toolbar */}

@@ -6,30 +6,30 @@ import { Image as ExpoImage } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AccessibilityInfo,
-  ActivityIndicator,
-  Animated,
-  Easing,
-  FlatList,
-  LayoutAnimation,
-  Modal,
-  Platform,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  Vibration,
-  View,
-  type ViewToken
+    AccessibilityInfo,
+    ActivityIndicator,
+    Animated,
+    Easing,
+    FlatList,
+    LayoutAnimation,
+    Modal,
+    Platform,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    Vibration,
+    View,
+    type ViewToken
 } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Reanimated, {
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withTiming,
+    useAnimatedStyle,
+    useReducedMotion,
+    useSharedValue,
+    withTiming,
 } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 import ThemedCalendarPicker from '../../../components/common/ThemedCalendarPicker';
 
@@ -617,6 +617,7 @@ async function fetchHistoryPageSkippingEmptyPages(cursor: string | null) {
 
 export default function ActivityScreen() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
   const [activities, setActivities] = useState<BackendActivity[]>([]);
   const [visibleActivityIds, setVisibleActivityIds] = useState<Set<string>>(() => new Set());
@@ -1185,7 +1186,7 @@ export default function ActivityScreen() {
 
   return (
     <GestureHandlerRootView style={styles.gestureRoot}>
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.screenContent}>
       <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} />
       {selectionMode ? (
@@ -1344,7 +1345,7 @@ export default function ActivityScreen() {
 
       <Modal transparent visible={showTypeSheet} animationType="slide" onRequestClose={() => setShowTypeSheet(false)}>
         <View style={[styles.modalBackdrop, { backgroundColor: colors.overlay }]}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: 20 + insets.bottom }]}>
             <View style={styles.modalHeaderRow}>
               <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
                 <Feather name="activity" size={14} color={colors.primary} />
@@ -1387,7 +1388,7 @@ export default function ActivityScreen() {
 
       <Modal transparent visible={showDatePicker} animationType="slide" onRequestClose={() => setShowDatePicker(false)}>
         <View style={[styles.modalBackdrop, { backgroundColor: colors.overlay }]}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: 20 + insets.bottom }]}> 
             <View style={styles.modalHeaderRow}>
               <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
                 <Feather name="calendar" size={14} color={colors.primary} />
@@ -1521,7 +1522,7 @@ export default function ActivityScreen() {
 
       <Modal transparent visible={showDistanceSheet} animationType="slide" onRequestClose={() => setShowDistanceSheet(false)}>
         <View style={[styles.modalBackdrop, { backgroundColor: colors.overlay }]}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: 20 + insets.bottom }]}> 
             <View style={styles.modalHeaderRow}>
               <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
                 <Feather name="map-pin" size={14} color={colors.primary} />
