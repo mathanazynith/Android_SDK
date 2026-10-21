@@ -362,6 +362,8 @@ export const assessmentAPI = {
     api.post(`/assessments/${assessmentId}/answers/back/`),
   getResults: (assessmentId: number) =>
     api.get(`/assessments/${assessmentId}/results/`),
+  checkAPI: (assessmentId: number, payload: Record<string, unknown>) =>
+    api.post(`/assessments/${assessmentId}/race-prediction/check/`, payload),
 };
 
 // The server generates and persists the user's Couch-to-5K calendar after a
