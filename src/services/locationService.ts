@@ -1,16 +1,11 @@
-import * as Location from 'expo-location';
 import { Platform } from 'react-native';
-import { storage } from '../../service/storage';
+import * as Location from 'expo-location';
 import { RawGpsPayload } from '../types/running';
 
 export class LocationService {
   public static async requestForegroundPermissions(): Promise<boolean> {
-    const current = await Location.getForegroundPermissionsAsync();
-    if (current.granted) return true;
-    if (!current.canAskAgain) return false;
-
-    const requested = await Location.requestForegroundPermissionsAsync();
-    return requested.granted;
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    return status === 'granted';
   }
 
   /** Ask Android to enable its high-accuracy provider (GPS + Wi-Fi + mobile). */
@@ -26,18 +21,8 @@ export class LocationService {
 
   public static async requestBackgroundPermissions(): Promise<boolean> {
     try {
-      const current = await Location.getBackgroundPermissionsAsync();
-      if (current.granted) return true;
-      if (!current.canAskAgain) return false;
-
-      const alreadyRequested = await storage.getItem(
-        storage.KEYS.BACKGROUND_LOCATION_PERMISSION_REQUESTED,
-      );
-      if (alreadyRequested === 'true') return false;
-
-      const requested = await Location.requestBackgroundPermissionsAsync();
-      await storage.setItem(storage.KEYS.BACKGROUND_LOCATION_PERMISSION_REQUESTED, 'true');
-      return requested.granted;
+      const { status } = await Location.requestBackgroundPermissionsAsync();
+      return status === 'granted';
     } catch (error) {
       console.warn(
         '[LocationManager] requestBackgroundPermissionsAsync rejected. Ensure the Android native manifest includes ACCESS_BACKGROUND_LOCATION and reinstall the app.'

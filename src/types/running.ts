@@ -13,8 +13,6 @@ export interface RawGpsPayload {
   speed?: number;
   heading?: number;
   timestamp?: number | string | Date;
-  /** Segment classification captured by the background location task. */
-  traceType?: 'active' | 'pause' | 'extra';
 }
 
 export interface RunningGpsPoint extends RunningCoordinate {

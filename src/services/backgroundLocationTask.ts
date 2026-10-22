@@ -6,9 +6,8 @@ import * as TaskManager from 'expo-task-manager';
 import { AppState } from 'react-native';
 import { ActivityPauseEventPayload, RawGpsPayload } from '../types/running';
 import { calculateDistanceMeters } from '../utils/distance';
-import { appendActiveRunPoints, isPlausibleJournalMovement, readActiveRunJournal } from './activeRunJournal';
+import { appendActiveRunPoints, readActiveRunJournal } from './activeRunJournal';
 import { updateLiveTrackingNotification, WORKOUT_FOREGROUND_NOTIFICATION_ID } from './liveTrackingNotification';
-import { tagLocationBatch } from './locationPointTagging';
 
 export const BACKGROUND_LOCATION_TASK_NAME = 'zyrun-background-location-task';
 export const BACKGROUND_LOCATION_SESSION_KEY = 'zyrun:background-location-session';
@@ -20,7 +19,6 @@ let sessionWriteChain: Promise<void> = Promise.resolve();
 export interface BackgroundLocationSessionState {
   active: boolean;
   paused?: boolean;
-  traceType?: 'active' | 'pause' | 'extra';
   confirmationPromptVisible?: boolean;
   runId?: string | null;
   userId?: string | null;
@@ -28,7 +26,6 @@ export interface BackgroundLocationSessionState {
   lastLocation?: RawGpsPayload | null;
   updatedAt?: number | null;
   distanceKm?: number;
-  extraDistanceKm?: number;
   elapsedSeconds?: number;
   paceMinutesPerKm?: number;
   movementConfirmed?: boolean;
@@ -42,15 +39,6 @@ declare global {
 const readSessionState = async (): Promise<BackgroundLocationSessionState | null> => {
   try {
     await sessionWriteChain;
-    return await readStoredSessionState();
-  } catch (error) {
-    console.warn('[BackgroundLocationTask] Unable to read background session state', error);
-    return null;
-  }
-};
-
-const readStoredSessionState = async (): Promise<BackgroundLocationSessionState | null> => {
-  try {
     const fileInfo = BACKGROUND_LOCATION_SESSION_URI
       ? await FileSystem.getInfoAsync(BACKGROUND_LOCATION_SESSION_URI)
       : null;
@@ -74,49 +62,16 @@ export const persistBackgroundLocationSession = async (
 ): Promise<void> => {
   sessionWriteChain = sessionWriteChain.then(async () => {
     try {
-      const existing = await readStoredSessionState();
-      const nextState = {
-        ...((existing?.active && existing.runId === state.runId) ? existing : {}),
-        ...state,
-        pauseEvents: state.pauseEvents?.length
-          ? state.pauseEvents
-          : existing?.active && existing.runId === state.runId && existing.pauseEvents?.length
-            ? existing.pauseEvents
-            : state.pauseEvents ?? existing?.pauseEvents,
-      };
       if (BACKGROUND_LOCATION_SESSION_URI) {
-        await FileSystem.writeAsStringAsync(BACKGROUND_LOCATION_SESSION_URI, JSON.stringify(nextState));
+        await FileSystem.writeAsStringAsync(BACKGROUND_LOCATION_SESSION_URI, JSON.stringify(state));
         return;
       }
-      await SecureStore.setItemAsync(SAFE_BACKGROUND_LOCATION_SESSION_KEY, JSON.stringify(nextState));
+      await SecureStore.setItemAsync(SAFE_BACKGROUND_LOCATION_SESSION_KEY, JSON.stringify(state));
     } catch (error) {
       console.warn('[BackgroundLocationTask] Unable to persist background session state', error);
     }
   });
   return sessionWriteChain;
-};
-
-/** Update task metrics without replacing the latest UI-owned pause state. */
-export const persistBackgroundLocationProgress = async (
-  updates: Pick<BackgroundLocationSessionState, 'lastLocation' | 'updatedAt' | 'distanceKm' | 'extraDistanceKm' | 'elapsedSeconds' | 'paceMinutesPerKm'>,
-): Promise<BackgroundLocationSessionState | null> => {
-  let saved: BackgroundLocationSessionState | null = null;
-  sessionWriteChain = sessionWriteChain.then(async () => {
-    try {
-      const latest = await readStoredSessionState();
-      if (!latest?.active) return;
-      saved = { ...latest, ...updates, paused: latest.paused, pauseEvents: latest.pauseEvents };
-      if (BACKGROUND_LOCATION_SESSION_URI) {
-        await FileSystem.writeAsStringAsync(BACKGROUND_LOCATION_SESSION_URI, JSON.stringify(saved));
-      } else {
-        await SecureStore.setItemAsync(SAFE_BACKGROUND_LOCATION_SESSION_KEY, JSON.stringify(saved));
-      }
-    } catch (error) {
-      console.warn('[BackgroundLocationTask] Unable to persist background progress', error);
-    }
-  });
-  await sessionWriteChain;
-  return saved;
 };
 
 export const clearBackgroundLocationSession = async (): Promise<void> => {
@@ -163,79 +118,64 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, async ({ data, error }) =>
     .sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
   const payload = payloads[payloads.length - 1];
   const previous = await readSessionState();
-  if (!previous?.active) return;
-  const taggedPayloads = tagLocationBatch(payloads, previous);
+  if (!previous?.active || previous.paused) return;
+
+  const nextState: BackgroundLocationSessionState = {
+    active: true,
+    paused: false,
+    runId: previous?.runId ?? null,
+    userId: previous?.userId ?? null,
+    startedAt: previous?.startedAt ?? null,
+    lastLocation: payload,
+    updatedAt: Date.now(),
+    distanceKm: previous.distanceKm,
+    elapsedSeconds: previous.elapsedSeconds,   
+    paceMinutesPerKm: previous.paceMinutesPerKm,
+    movementConfirmed: previous.movementConfirmed,
+    confirmationPromptVisible: previous.confirmationPromptVisible,
+    pauseEvents: previous.pauseEvents,
+  };
+
+  await persistBackgroundLocationSession(nextState);
 
   // Keep the screen-on watchPositionAsync pipeline completely untouched. The
   // journal remains the durable hand-off when Android delivers a batch during
   // the active/background transition; duplicate points are ignored by the journal.
-  const journaledPayloads = await appendActiveRunPoints(
-    taggedPayloads,
-    previous.paused ? 'pause' : previous.traceType ?? 'active',
-  );
+  await appendActiveRunPoints(payloads);
 
-  // The foreground watchPositionAsync pipeline owns live handling while the
-  // app is visible. The journal lets the AppState listener reconcile this batch.
   if (AppState.currentState === 'active') return;
 
-  if (typeof globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__ === 'function') {
-    journaledPayloads.forEach(globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__);
-  }
-
   const journal = await readActiveRunJournal();
-  const metricsSession = await readSessionState();
-  if (!metricsSession?.active) return;
-  const measuredDistances = journal?.points.slice(1).reduce((totals, point, index) => {
-    const prior = journal.points[index];
-    const priorType = prior.traceType ?? 'active';
-    const pointType = point.traceType ?? 'active';
-    if (priorType !== pointType) return totals;
-    const segmentDistance = calculateDistanceMeters(prior, point);
-    if (!isPlausibleJournalMovement(prior, point, segmentDistance)) return totals;
-    if (pointType === 'extra') totals.extra += segmentDistance;
-    else if (pointType !== 'pause') totals.active += segmentDistance;
-    return totals;
-  }, { active: 0, extra: 0 }) ?? { active: 0, extra: 0 };
-  const distanceKm = measuredDistances.active / 1000;
-  const extraDistanceKm = measuredDistances.extra / 1000;
-  const now = Date.now();
-  const startedAt = metricsSession.startedAt ? Date.parse(metricsSession.startedAt) : now;
-  const pausedDurationMs = (metricsSession.pauseEvents ?? []).reduce((total, event) => {
-    const pausedAt = Date.parse(event.paused_at);
-    const resumedAt = event.resumed_at ? Date.parse(event.resumed_at) : now;
-    if (!Number.isFinite(pausedAt)) return total;
-    return total + Math.max(0, Math.min(now, resumedAt) - pausedAt);
-  }, 0);
-  const elapsedSeconds = Number.isFinite(startedAt)
-    ? Math.max(0, (now - startedAt - pausedDurationMs) / 1000)
-    : metricsSession.elapsedSeconds ?? 0;
-  const paceDistanceKm = distanceKm + extraDistanceKm;
-  const paceMinutesPerKm = paceDistanceKm > 0 ? elapsedSeconds / 60 / paceDistanceKm : 0;
-  const updatedSession = await persistBackgroundLocationProgress({
-    lastLocation: taggedPayloads.at(-1) ?? payload,
-    updatedAt: now,
-    distanceKm,
-    extraDistanceKm,
-    elapsedSeconds,
-    paceMinutesPerKm,
-  });
-  if (!updatedSession) return;
+  const journalDistanceKm = (journal?.points.slice(1).reduce((total, point, index) => (
+    total + calculateDistanceMeters(journal.points[index], point)
+  ), 0) ?? 0) / 1000;
+  const distanceKm = journal?.points.length && journal.points.length > 1
+    ? journalDistanceKm
+    : (previous.distanceKm ?? 0);
+  const elapsedSeconds = previous.elapsedSeconds ?? (previous.startedAt
+    ? Math.max(0, (Date.now() - new Date(previous.startedAt).getTime()) / 1000)
+    : 0);
   updateLiveTrackingNotification({
-    runId: updatedSession.runId,
-    distanceKm: paceDistanceKm,
+    runId: previous.runId,
+    distanceKm,
     elapsedSeconds,
-    paceMinutesPerKm,
-    status: updatedSession.paused ? 'paused' : 'running',
-    startedAt: updatedSession.startedAt,
+    paceMinutesPerKm: previous.paceMinutesPerKm ?? (distanceKm > 0 ? elapsedSeconds / 60 / distanceKm : 0),
+    status: 'running',
+    startedAt: previous.startedAt,
   });
+  nextState.distanceKm = distanceKm;
+  nextState.elapsedSeconds = elapsedSeconds;
+  nextState.paceMinutesPerKm = previous.paceMinutesPerKm ?? (distanceKm > 0 ? elapsedSeconds / 60 / distanceKm : 0);
+  await persistBackgroundLocationSession(nextState);
+
+  if (typeof globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__ === 'function') {
+    payloads.forEach(globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__);
+  }
 
 });
 
-export const startBackgroundLocationTracking = async (): Promise<boolean> => {
-  const permission = await Location.getBackgroundPermissionsAsync();
-  if (!permission.granted) return false;
-  if (await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME)) return true;
-
+export const startBackgroundLocationTracking = async (): Promise<void> => {
+  if (await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME)) return;
   await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME, {
     accuracy: Location.Accuracy.BestForNavigation,
     timeInterval: 1_000,
@@ -247,7 +187,6 @@ export const startBackgroundLocationTracking = async (): Promise<boolean> => {
       killServiceOnDestroy: false,
     },
   });
-  return true;
 };
 
 export const stopBackgroundLocationTracking = async (): Promise<void> => {

@@ -3,11 +3,11 @@ import { Feather } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, BackHandler, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useAuth } from '../../../service/auth';
 import { workoutPlanService } from '../../../service/workoutPlan';
-import { appendActiveRunPoints, beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal } from '../../../src/services/activeRunJournal';
+import { beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal } from '../../../src/services/activeRunJournal';
 import { ActivityDetectionService } from '../../../src/services/activityDetectionService';
 import { activityDistanceOverrides } from '../../../src/services/activityDistanceOverrides';
 import { activityTimingOverrides } from '../../../src/services/activityTimingOverrides';
@@ -518,7 +518,7 @@ export default function MapScreen() {
             { text: 'OK', style: 'default' },
             {
               text: 'Settings',
-              onPress: () => Linking.openSettings(),
+              onPress: () => Location.requestForegroundPermissionsAsync(),
             },
           ]
         );
@@ -526,9 +526,21 @@ export default function MapScreen() {
       }
 
       await LocationService.enableHighAccuracyProvider();
+
+      if (Platform.OS === 'android') {
+        const backgroundGranted = await LocationService.requestBackgroundPermissions();
+        if (!backgroundGranted) {
+          Alert.alert(
+            'Background Location',
+            'Background location access helps track your run even when the app is in background.'
+          );
+        }
+      }
+
       setPermissionGranted(true);
 
       const currentLocation = await LocationService.getCurrentLocation();
+
       const timestamp = typeof currentLocation.timestamp === 'number'
         ? currentLocation.timestamp
         : typeof currentLocation.timestamp === 'string'
@@ -573,9 +585,7 @@ export default function MapScreen() {
   }, [params.notificationAction, requestLocation]);
 
   useEffect(() => {
-    console.debug('[MapScreen] mounted');
     return () => {
-      console.debug('[MapScreen] unmounted');
       isRunningRef.current = false;
       if (locationSubscription.current) {
         locationSubscription.current.remove();
@@ -722,13 +732,11 @@ export default function MapScreen() {
     (rawGps: RawGpsPayload) => {
       if (!isRunningRef.current) return;
 
-      const timestamp = rawGps.timestamp instanceof Date
-        ? rawGps.timestamp.getTime()
-        : typeof rawGps.timestamp === 'number'
-          ? rawGps.timestamp
-          : typeof rawGps.timestamp === 'string'
-            ? (Number.isFinite(Number(rawGps.timestamp)) ? Number(rawGps.timestamp) : Date.parse(rawGps.timestamp))
-            : Date.now();
+      const timestamp = typeof rawGps.timestamp === 'number'
+        ? rawGps.timestamp
+        : typeof rawGps.timestamp === 'string'
+          ? parseInt(rawGps.timestamp, 10)
+          : Date.now();
       const pointKey = `${timestamp}|${rawGps.latitude}|${rawGps.longitude}`;
       if (processedLocationKeysRef.current.has(pointKey)) return;
       processedLocationKeysRef.current.add(pointKey);
@@ -807,10 +815,7 @@ export default function MapScreen() {
       }
 
       const movementState = movementStateRef.current;
-      // Background task points have already passed the durable journal's GPS
-      // movement/accuracy filter. Process them even if Android suspended the
-      // motion sensors while the screen was off.
-      const shouldProcessRoute = movementState === 'MOVING' || rawGps.traceType !== undefined;
+      const shouldProcessRoute = movementState === 'MOVING';
       previousLocationRef.current = rawGps;
       if (!shouldProcessRoute) {
         previousWorkoutPointRef.current = null;
@@ -822,21 +827,12 @@ export default function MapScreen() {
       const displayCountBefore = processor.getDisplayPoints().length;
       const retained = processor.ingestRaw(rawGps);
       const workoutEngine = workoutEngineRef.current;
-      const countsWorkoutDistance = rawGps.traceType === 'pause' || rawGps.traceType === 'extra'
-        ? false
-        : workoutEngine?.isDistanceCounting() ?? !isPausedRef.current;
-      const traceType: RouteSegment['traceType'] = rawGps.traceType ?? (isPausedRef.current
+      const countsWorkoutDistance = workoutEngine?.isDistanceCounting() ?? !isPausedRef.current;
+      const traceType: RouteSegment['traceType'] = isPausedRef.current
         ? 'pause'
         : workoutEngine?.shouldUseLightPolyline()
           ? 'extra'
-          : 'active');
-      // The background task's tagged points have already been journaled. Only
-      // foreground watcher points need a second journal append here.
-      if (rawGps.traceType === undefined) {
-        void appendActiveRunPoints([rawGps], traceType).catch((error) => {
-          console.warn('[ActiveRunJournal] Unable to persist foreground location', error);
-        });
-      }
+          : 'active';
 
       // A pause/rest boundary must never be bridged by the next accepted
       // point after tracking resumes; the movement gate still controls which
@@ -950,28 +946,22 @@ export default function MapScreen() {
       userId: user?.id ? String(user.id) : null,
       startedAt,
       updatedAt: Date.now(),
-      distanceKm: distanceRef.current / 1000,
-      extraDistanceKm: extraDistanceRef.current / 1000,
+      distanceKm: distance / 1000,
       elapsedSeconds,
       paceMinutesPerKm: pace,
-      traceType: isPaused
-        ? 'pause'
-        : workoutEngineRef.current?.shouldUseLightPolyline()
-          ? 'extra'
-          : 'active',
       movementConfirmed: movementConfirmedRef.current,
       confirmationPromptVisible: completionPromptVisible,
       pauseEvents: pauseEventsRef.current,
     });
     updateLiveTrackingNotification({
       runId: runIdRef.current,
-      distanceKm: (distanceRef.current + extraDistanceRef.current) / 1000,
+      distanceKm: distance / 1000,
       elapsedSeconds,
       paceMinutesPerKm: pace,
       status: isPaused ? 'paused' : 'running',
       startedAt,
     });
-  }, [completionPromptVisible, distance, elapsedSeconds, isPaused, isRunning, pace, user?.id, workoutSnapshot]);
+  }, [completionPromptVisible, distance, elapsedSeconds, isPaused, isRunning, pace, user?.id]);
 
   useEffect(() => {
     const reconcileBackgroundPoints = async () => {
@@ -984,23 +974,8 @@ export default function MapScreen() {
         .forEach(handleLocationUpdate);
     };
     const subscription = AppState.addEventListener('change', (state) => {
-      console.debug('[MapScreen] AppState transition', {
-        state,
-        paused: isPausedRef.current,
-        running: isRunningRef.current,
-      });
       if (state !== 'active') return;
-      void (async () => {
-        await flushActiveRunJournal();
-        const journal = await readActiveRunJournal();
-        const traceTypeCounts = (journal?.points ?? []).reduce<Record<string, number>>((counts, point) => {
-          const traceType = point.traceType ?? 'active';
-          counts[traceType] = (counts[traceType] ?? 0) + 1;
-          return counts;
-        }, {});
-        console.debug('[MapScreen] Active journal points by traceType', traceTypeCounts);
-        await reconcileBackgroundPoints();
-      })();
+      void reconcileBackgroundPoints();
       if (isRunningRef.current) {
         void startBackgroundLocationTracking().catch((error) => {
           console.warn('[BackgroundLocationTask] Foreground service retry failed', error);
@@ -1025,9 +1000,9 @@ export default function MapScreen() {
       runIdRef.current = session.runId;
       apiClientRef.current = new RunningApiClient();
       startTimeRef.current = session.startedAt ? new Date(session.startedAt).getTime() : Date.now();
-      pauseEventsRef.current = session.pauseEvents ?? [];
       isPausedRef.current = Boolean(session.paused);
       setIsPaused(Boolean(session.paused));
+      pauseEventsRef.current = session.pauseEvents ?? [];
       pausedTimeRef.current = pauseEventsRef.current.reduce((total, event) => {
         const startedAt = Date.parse(event.paused_at);
         const endedAt = event.resumed_at ? Date.parse(event.resumed_at) : Number.NaN;
@@ -1050,20 +1025,19 @@ export default function MapScreen() {
             ? parseInt(point.timestamp, 10)
             : Date.now();
         processedLocationKeysRef.current.add(`${timestamp}|${point.latitude}|${point.longitude}`);
-        const retained = processor.ingestRaw(point);
-        if (retained) {
-          const latest = processor.getDisplayPoints().at(-1);
-          if (latest) appendRoutePoint(
-            { latitude: latest.latitude, longitude: latest.longitude },
-            point.traceType ?? (session.paused ? 'pause' : 'active'),
-          );
-        }
+        processor.ingestRaw(point);
       });
       previousLocationRef.current = restoredPoints.at(-1) ?? null;
       const displayPoints = processor.getDisplayPoints();
       movementConfirmedRef.current = session.movementConfirmed ?? displayPoints.length > 0;
       movementStateRef.current = movementConfirmedRef.current ? 'MOVING' : 'STATIONARY';
       if (displayPoints.length > 0) {
+        routeSegmentsRef.current = [{
+          id: Date.now(),
+          traceType: session.paused ? 'pause' : 'active',
+          coordinates: displayPoints.map((point) => ({ latitude: point.latitude, longitude: point.longitude })),
+        }];
+        setRouteSegments(routeSegmentsRef.current);
         const lastPoint = displayPoints.at(-1);
         if (lastPoint) {
           lastRetainedCoordinateRef.current = { latitude: lastPoint.latitude, longitude: lastPoint.longitude };
@@ -1084,12 +1058,10 @@ export default function MapScreen() {
 
       const restoredDistance = (session.distanceKm ?? calculateRouteDistance(displayPoints)) * (session.distanceKm === undefined ? 1 / 1000 : 1);
       distanceRef.current = restoredDistance * 1000;
-      extraDistanceRef.current = (session.extraDistanceKm ?? 0) * 1000;
-      const restoredTotalDistance = distanceRef.current + extraDistanceRef.current;
-      setDistance(restoredTotalDistance);
+      setDistance(distanceRef.current);
       const restoredElapsed = session.elapsedSeconds ?? Math.max(0, (Date.now() - startTimeRef.current) / 1000);
       setElapsedSeconds(restoredElapsed);
-      setPace(session.paceMinutesPerKm ?? (restoredTotalDistance > 0 ? restoredElapsed / 60 / (restoredTotalDistance / 1000) : 0));
+      setPace(session.paceMinutesPerKm ?? (distanceRef.current > 0 ? restoredElapsed / 60 / (distanceRef.current / 1000) : 0));
       setCompletionPromptVisible(
         Boolean(session.confirmationPromptVisible)
           || params.notificationAction === LIVE_TRACKING_STOP_ACTION,
@@ -1115,7 +1087,7 @@ export default function MapScreen() {
         await startLiveGPS();
         await startLiveTrackingNotification({
           runId: session.runId,
-          distanceKm: (distanceRef.current + extraDistanceRef.current) / 1000,
+          distanceKm: distanceRef.current / 1000,
           elapsedSeconds: restoredElapsed,
           paceMinutesPerKm: session.paceMinutesPerKm ?? 0,
           status: session.paused ? 'paused' : 'running',
@@ -1148,13 +1120,12 @@ export default function MapScreen() {
         return;
       }
 
-      await LocationService.requestBackgroundPermissions();
-
       // Start Android's location foreground service synchronously from the
       // user-visible Start action, before the API/current-location awaits.
       // Android 12+ rejects creating it later from the background.
       try {
-        backgroundServiceStartedForAttempt = await startBackgroundLocationTracking();
+        await startBackgroundLocationTracking();
+        backgroundServiceStartedForAttempt = true;
       } catch (error) {
         console.warn('[BackgroundLocationTask] Unable to start foreground service from Start action', error);
       }
@@ -1235,11 +1206,6 @@ export default function MapScreen() {
         userId,
         startedAt,
         updatedAt: new Date(startedAt).getTime(),
-        distanceKm: 0,
-        extraDistanceKm: 0,
-        elapsedSeconds: 0,
-        paceMinutesPerKm: 0,
-        traceType: 'active',
         pauseEvents: pauseEventsRef.current,
       });
 
@@ -1436,22 +1402,17 @@ export default function MapScreen() {
       //   }]);
       }
       isPausedRef.current = true;
+      setIsPaused(true);
       await persistBackgroundLocationSession({
         active: true,
         paused: true,
-        traceType: 'pause',
         runId: runIdRef.current,
         userId: user?.id ? String(user.id) : null,
         startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
         updatedAt: pauseStartTimeRef.current,
-        distanceKm: distanceRef.current / 1000,
-        extraDistanceKm: extraDistanceRef.current / 1000,
-        elapsedSeconds,
-        paceMinutesPerKm: pace,
         movementConfirmed: movementConfirmedRef.current,
         pauseEvents: pauseEventsRef.current,
       });
-      setIsPaused(true);
 
       addLog('⏸ Run paused - tracking stopped');
     } catch (error) {
@@ -1499,26 +1460,21 @@ export default function MapScreen() {
       }
 
       isPausedRef.current = false;
+      setIsPaused(false);
       prepareMovementGateForResume();
-      workoutEngineRef.current?.resume();
       await persistBackgroundLocationSession({
         active: true,
         paused: false,
-        traceType: workoutEngineRef.current?.shouldUseLightPolyline() ? 'extra' : 'active',
         runId: runIdRef.current,
         userId: user?.id ? String(user.id) : null,
         startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
         updatedAt: startTimeRef.current,
-        distanceKm: distanceRef.current / 1000,
-        extraDistanceKm: extraDistanceRef.current / 1000,
-        elapsedSeconds,
-        paceMinutesPerKm: pace,
         movementConfirmed: movementConfirmedRef.current,
         pauseEvents: pauseEventsRef.current,
       });
-      setIsPaused(false);
 
       // The watcher was never stopped; only active-distance accounting resumes.
+      workoutEngineRef.current?.resume();
       setWorkoutSnapshot(workoutEngineRef.current?.getSnapshot() ?? null);
 
       addLog('▶ Run resumed - tracking restarted');
@@ -1581,17 +1537,11 @@ export default function MapScreen() {
       await persistBackgroundLocationSession({
         active: true,
         paused: isPausedRef.current,
-        traceType: isPausedRef.current
-          ? 'pause'
-          : workoutEngineRef.current?.shouldUseLightPolyline()
-            ? 'extra'
-            : 'active',
         runId: runIdRef.current,
         userId: user?.id ? String(user.id) : null,
         startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
         updatedAt: Date.now(),
-        distanceKm: distanceRef.current / 1000,
-        extraDistanceKm: extraDistanceRef.current / 1000,
+        distanceKm: (distanceRef.current + extraDistanceRef.current) / 1000,
         elapsedSeconds,
         paceMinutesPerKm: pace,
         movementConfirmed: movementConfirmedRef.current,

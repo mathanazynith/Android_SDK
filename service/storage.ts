@@ -34,7 +34,6 @@ export const storage = {
     USER: "user",
     QUESTIONNAIRE_PROGRESS: "questionnaire_progress",
     QUESTIONNAIRE_ANSWERS: "questionnaire_answers",
-    BACKGROUND_LOCATION_PERMISSION_REQUESTED: "background_location_permission_requested",
     TRAINING_PLAN: "training_plan", // ✅ NEW: For saving training plan
     NOTIFICATION_DEVICE_ID: "notification_device_id",
   },
