@@ -1,4 +1,4 @@
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../../constants/theme';
@@ -40,11 +40,19 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
       </View>
 
       <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <Text style={[styles.cardTitle, { color: BRAND_GREEN }]}>Screening Quiz</Text>
+        <Text style={[styles.cardTitle, { color: BRAND_GREEN }]}>Get Plan Assessment</Text>
         <Text style={[styles.description, { color: colors.text }]}>A new adventure begins!</Text>
-        <TouchableOpacity style={[styles.button, { backgroundColor: BRAND_GREEN }, !canStartAssessment && styles.buttonDisabled]} onPress={onStartAssessment} disabled={!canStartAssessment}>
-          <Feather name="trending-up" size={21} color="#081009" />
-          <Text style={styles.buttonText}>Get Started</Text>
+        <TouchableOpacity
+          style={[styles.planButton, { backgroundColor: colors.primary }, !canStartAssessment && styles.buttonDisabled]}
+          onPress={onStartAssessment}
+          disabled={!canStartAssessment}
+          activeOpacity={0.85}
+        >
+          <View style={styles.planIconTile}>
+            <MaterialCommunityIcons name="run" size={22} color="#ECFDF5" />
+          </View>
+          <Text style={[styles.buttonText, styles.planButtonText, { color: colors.primaryText }]}>Get Plan</Text>
+          <Feather name="arrow-right" size={21} color={colors.primaryText} />
         </TouchableOpacity>
       </View>
 
@@ -77,10 +85,13 @@ const styles = StyleSheet.create({
   infoLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 9 ,fontWeight: 'bold'},
   infoText: { flex: 1, fontSize: 14, lineHeight: 20 },
   description: { color: '#E0E2E1', fontSize: 16, lineHeight: 22, marginVertical: 14 },
-  button: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, borderRadius: 19, backgroundColor: Colors.primary },
+  button: { width: '88%', alignSelf: 'center', minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, borderRadius: 19, backgroundColor: Colors.primary },
+  planButton: { width: '88%', alignSelf: 'center', minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, borderRadius: 16 },
+  planIconTile: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 11, backgroundColor: '#15803D' },
+  planButtonText: { flex: 1, textAlign: 'left' },
   buttonDisabled: { opacity: 0.45 },
   buttonText: { color: '#081009', fontSize: 16, fontWeight: '800', textAlign: 'center' },
-  recordButton: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 22, borderRadius: 22, backgroundColor: Colors.primary },
+  recordButton: { width: '88%', alignSelf: 'center', minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 22, borderRadius: 22, backgroundColor: Colors.primary },
   recordText: { color: '#081009', fontSize: 16, fontWeight: '800' },
   sectionTitle: { color: '#F2F2F2', fontSize: 21, fontWeight: '800', marginBottom: 12 },
   workoutRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 },

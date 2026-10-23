@@ -292,6 +292,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
           <ScrollTimePicker
             label={timeLabel}
             value={customValues?.[timeField]}
+            allowEmpty={!selectedTimeValue}
             hint={undefined}
             onChange={(value) => onCustomChange?.(timeField, value)}
             maxHours={99}

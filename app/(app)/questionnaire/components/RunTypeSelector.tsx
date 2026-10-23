@@ -29,7 +29,7 @@ export const RunTypeSelector: React.FC<RunTypeSelectorProps> = ({ label, options
       <Text style={[styles.label, { color: colors.text }]}>{label}</Text>
       <TouchableOpacity style={[styles.trigger, { backgroundColor: colors.inputBackground, borderColor: colors.border }, error ? styles.triggerError : null]} onPress={() => setVisible(true)} activeOpacity={0.9}>
         <Text style={[styles.triggerText, { color: selectedOption ? colors.text : colors.placeholder }]}>{selectedOption?.label || 'Select an option'}</Text>
-        <Feather name="chevron-down" size={18} color={colors.iconSecondary} />
+        <Feather style={styles.triggerIcon} name="chevron-down" size={18} color={colors.iconSecondary} />
       </TouchableOpacity>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
@@ -48,15 +48,17 @@ export const RunTypeSelector: React.FC<RunTypeSelectorProps> = ({ label, options
                 return (
                   <TouchableOpacity
                     key={option.id}
-                    style={[styles.option, { backgroundColor: colors.inputBackground, borderColor: colors.border }, isSelected ? { borderColor: colors.primary, backgroundColor: colors.selected } : null, option.disabled ? styles.optionDisabled : null]}
+                    style={[styles.option, { backgroundColor: colors.inputBackground, borderColor: colors.border }, isSelected ? styles.optionSelected : null, option.disabled ? styles.optionDisabled : null]}
                     disabled={option.disabled}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: isSelected, disabled: Boolean(option.disabled) }}
                     onPress={() => {
                       onSelect(option.value);
                       setVisible(false);
                     }}
                   >
-                    <Text style={[styles.optionText, { color: colors.text }, isSelected ? { color: colors.primary } : null, option.disabled ? { color: colors.textTertiary } : null]}>{option.label}</Text>
-                    {isSelected ? <Feather name="check" size={18} color={colors.primary} /> : null}
+                    <Text style={[styles.optionText, { color: colors.text }, isSelected ? styles.optionTextSelected : null, option.disabled ? { color: colors.textTertiary } : null]}>{option.label}</Text>
+                    {isSelected ? <Feather style={styles.optionIcon} name="check-circle" size={20} color={colors.primaryText} /> : null}
                   </TouchableOpacity>
                 );
               })}
@@ -82,11 +84,13 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: '#45474B',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
   },
   triggerError: { borderColor: '#FF5A5F' },
-  triggerText: { color: '#E8E8EA', fontSize: 18, fontWeight: '400', flex: 1 },
+  triggerText: { color: '#E8E8EA', fontSize: 16, lineHeight: 21, fontWeight: '400', flex: 1, flexShrink: 1, minWidth: 0, flexWrap: 'wrap' },
+  triggerIcon: { flexShrink: 0 },
   errorText: { color: '#FF5A5F', fontSize: 12, marginTop: 6 },
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.65)' },
   sheet: { backgroundColor: '#202124', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingVertical: 18, paddingBottom: 28, borderWidth: 1, borderColor: '#3D4044' },
@@ -96,17 +100,18 @@ const styles = StyleSheet.create({
   option: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 10,
     backgroundColor: '#303236',
     borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     borderWidth: 1,
     borderColor: '#3D4044',
   },
-  optionSelected: { borderColor: '#34C759', backgroundColor: '#293C29' },
+  optionSelected: { borderColor: '#15803D', borderWidth: 2, backgroundColor: '#22C55E' },
   optionDisabled: { opacity: 0.32 },
-  optionText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
+  optionText: { color: '#FFFFFF', fontSize: 14, lineHeight: 20, fontWeight: '600', flex: 1, flexShrink: 1, minWidth: 0, flexWrap: 'wrap' },
+  optionIcon: { flexShrink: 0 },
   optionTextDisabled: { color: '#8E8E93' },
-  optionTextSelected: { color: '#34C759' },
+  optionTextSelected: { color: '#0D0D0D', fontWeight: '700' },
 });

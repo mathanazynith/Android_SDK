@@ -1,8 +1,10 @@
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Modal,
   TextInput as RNTextInput,
   ScrollView,
   StyleSheet,
@@ -10,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import DatePicker from "../../../app/(app)/questionnaire/QuestionTypes/DatePicker";
 import DistanceTimePaceSelector, { getDistanceInKilometers } from "../../../app/(app)/questionnaire/QuestionTypes/DistanceTimePaceSelector";
 import PlanSelection from "../../../app/(app)/questionnaire/QuestionTypes/PlanSelection";
@@ -30,6 +33,53 @@ import { validateAnswer } from "../../../service/validation/AssessmentValidator"
 import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import { calculatePace, timeToSeconds } from "../../../utils/validators";
 
+const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+
+const AssessmentNextButton = ({
+  disabled,
+  isSubmitting,
+  backgroundColor,
+  disabledTextColor,
+  onPress,
+}: {
+  disabled: boolean;
+  isSubmitting: boolean;
+  backgroundColor: string;
+  disabledTextColor: string;
+  onPress: () => void;
+}) => {
+  const opacity = React.useRef(new Animated.Value(disabled ? 0.42 : 1)).current;
+
+  useEffect(() => {
+    const animation = Animated.timing(opacity, {
+      toValue: disabled ? 0.42 : 1,
+      duration: 220,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [disabled, opacity]);
+
+  return (
+    <AnimatedTouchableOpacity
+      style={[
+        styles.button,
+        styles.nextButton,
+        { backgroundColor },
+        { opacity },
+      ]}
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityState={{ disabled }}
+    >
+      <Text style={[styles.buttonText, disabled && { color: disabledTextColor }]}>
+        {isSubmitting ? "Submitting..." : "Next"}
+      </Text>
+      <Feather name="arrow-right" size={18} color={disabled ? disabledTextColor : "#1A1A1A"} />
+    </AnimatedTouchableOpacity>
+  );
+};
+
 // Helper to get numeric ID
 const getNumericId = (id: number | string): number => {
   if (typeof id === "number") return id;
@@ -39,25 +89,35 @@ const getNumericId = (id: number | string): number => {
 
 // SingleChoice component
 const SingleChoice = ({ options, selectedValue, onSelect, stacked = false }: any) => {
+  const { colors } = useTheme();
   return (
     <View style={stacked ? styles.dayOptionsContainer : styles.optionsContainer}>
-      {options.map((opt: any) => (
+      {options.map((opt: any) => {
+        const selected = selectedValue === opt.value;
+        return (
         <TouchableOpacity
           key={opt.id}
           style={[
             styles.optionButton,
+            { backgroundColor: colors.surface, borderColor: colors.border },
             stacked && styles.dayOptionButton,
-            selectedValue === opt.value && styles.optionSelected,
+            selected && styles.optionSelected,
           ]}
+          accessibilityRole="radio"
+          accessibilityState={{ selected }}
           onPress={() => {
-            if (selectedValue !== opt.value) {
+            if (!selected) {
               onSelect(opt.value);
             }
           }}
         >
-          <Text style={styles.optionText}>{opt.label}</Text>
+          <View style={[styles.optionContent, stacked && styles.optionContentFullWidth]}>
+            <Text style={[styles.optionText, stacked && styles.optionTextFullWidth, { color: colors.text }, selected && styles.optionSelectedText]}>{opt.label}</Text>
+            {selected && <Feather style={styles.optionCheck} name="check-circle" size={20} color="#0D0D0D" />}
+          </View>
         </TouchableOpacity>
-      ))}
+        );
+      })}
     </View>
   );
 };
@@ -99,6 +159,7 @@ const QuestionField = ({
   const normalizedQuestionText = String(questionText ?? "").toLowerCase();
   const isRunningDaysQuestion =
     type === "multiple" && /which days of the week.*usually run/.test(normalizedQuestionText);
+  const isDaysPerWeekCountQuestion = /how many days per week.*run/.test(normalizedQuestionText);
   const isLongRunDayQuestion =
     /which of your running days.*long run/.test(normalizedQuestionText);
 
@@ -203,7 +264,11 @@ const QuestionField = ({
           {questionText}
           {isRequired && <Text style={styles.requiredStar}> *</Text>}
         </Text>
-        <ScrollTimePicker value={value} onChange={(nextValue) => onAnswer(id, nextValue)} />
+        <ScrollTimePicker
+          value={value}
+          allowEmpty={question.isRequired && !value}
+          onChange={(nextValue) => onAnswer(id, nextValue)}
+        />
       </View>
     );
   }
@@ -254,7 +319,7 @@ const QuestionField = ({
           <SingleChoice
             options={visibleOptions}
             selectedValue={value}
-            stacked={isLongRunDayQuestion}
+            stacked={isLongRunDayQuestion || isDaysPerWeekCountQuestion}
             onSelect={(val: string) => onAnswer(id, val)}
           />
         </View>
@@ -289,9 +354,12 @@ const QuestionField = ({
                   key={opt.id}
                   style={[
                     styles.optionButton,
+                    { backgroundColor: colors.surface, borderColor: colors.border },
                     isRunningDaysQuestion && styles.dayOptionButton,
                     selected && styles.optionSelected,
                   ]}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ selected }}
                   onPress={() => {
                     let newVal = Array.isArray(value) ? [...value] : [];
                     if (selected) {
@@ -308,7 +376,10 @@ const QuestionField = ({
                     onAnswer(id, newVal);
                   }}
                 >
-                  <Text style={styles.optionText}>{opt.label}</Text>
+                  <View style={[styles.optionContent, isRunningDaysQuestion && styles.optionContentFullWidth]}>
+                    <Text style={[styles.optionText, isRunningDaysQuestion && styles.optionTextFullWidth, { color: colors.text }, selected && styles.optionSelectedText]}>{opt.label}</Text>
+                    {selected && <Feather style={styles.optionCheck} name="check-circle" size={20} color="#0D0D0D" />}
+                  </View>
                 </TouchableOpacity>
               );
             })}
@@ -359,15 +430,23 @@ const QuestionField = ({
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
           <View style={styles.dropdownContainer}>
-            {options?.map((opt: any) => (
+            {options?.map((opt: any) => {
+              const selected = value === opt.value;
+              return (
               <TouchableOpacity
                 key={opt.id}
-                style={[styles.dropdownItem, value === opt.value && styles.optionSelected]}
+                style={[styles.dropdownItem, { backgroundColor: colors.surface, borderBottomColor: colors.border }, selected && styles.optionSelected]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
                 onPress={() => onAnswer(id, opt.value)}
               >
-                <Text style={styles.optionText}>{opt.label}</Text>
+                <View style={[styles.optionContent, styles.optionContentFullWidth]}>
+                  <Text style={[styles.optionText, styles.optionTextFullWidth, { color: colors.text }, selected && styles.optionSelectedText]}>{opt.label}</Text>
+                  {selected && <Feather style={styles.optionCheck} name="check-circle" size={20} color="#0D0D0D" />}
+                </View>
               </TouchableOpacity>
-            ))}
+              );
+            })}
           </View>
         </View>
       );
@@ -383,10 +462,12 @@ const QuestionField = ({
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
               <TouchableOpacity
                 key={num}
-                style={[styles.ratingButton, value === num && styles.optionSelected]}
+                style={[styles.ratingButton, { backgroundColor: colors.surface, borderColor: colors.border }, value === num && styles.optionSelected]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: value === num }}
                 onPress={() => onAnswer(id, num)}
               >
-                <Text style={styles.ratingText}>{num}</Text>
+                <Text style={[styles.ratingText, value === num && styles.optionSelectedText]}>{num}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -483,6 +564,7 @@ const QuestionField = ({
 
 export default function QuestionnaireScreen() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const {
     questions,
     currentNavigation,
@@ -496,6 +578,11 @@ export default function QuestionnaireScreen() {
     isComplete,
     computedResponses,
     assessmentId,
+    workoutPlan,
+    completedPlanCheckAssessmentId,
+    isWorkoutPlanLoaded,
+    workoutPlanError,
+    isWorkoutPlanLoading,
     setAnswer,
     goToNext,
     goToPrevious,
@@ -504,6 +591,7 @@ export default function QuestionnaireScreen() {
   } = useQuestionnaire();
   const { user } = useAuth();
   const [pageTransitionDirection, setPageTransitionDirection] = useState<'forward' | 'backward'>('forward');
+  const [isNoPlanModalDismissed, setIsNoPlanModalDismissed] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrorQuestionId, setValidationErrorQuestionId] = useState<string | null>(null);
@@ -554,11 +642,27 @@ export default function QuestionnaireScreen() {
   }, [allAnswers, questions, user?.profile?.distance_unit]);
 
   React.useEffect(() => {
-    if (isComplete && assessmentId) {
-      // After assessment completion, show the Plan Summary screen (separate from the Training Calendar)
+    if (
+      !isComplete
+      || !assessmentId
+      || completedPlanCheckAssessmentId !== assessmentId
+      || isWorkoutPlanLoading
+      || !isWorkoutPlanLoaded
+    ) return;
+
+    if (workoutPlan || workoutPlanError) {
       router.replace('/(app)/running-plan');
+      return;
     }
-  }, [isComplete, assessmentId]);
+  }, [isComplete, assessmentId, completedPlanCheckAssessmentId, isWorkoutPlanLoaded, isWorkoutPlanLoading, workoutPlan, workoutPlanError]);
+
+  const showNoPlanModal = isComplete
+    && completedPlanCheckAssessmentId === assessmentId
+    && isWorkoutPlanLoaded
+    && !isWorkoutPlanLoading
+    && !workoutPlan
+    && !workoutPlanError
+    && !isNoPlanModalDismissed;
 
   React.useEffect(() => {
     const findQuestion = (pattern: RegExp, type?: string) =>
@@ -713,7 +817,7 @@ export default function QuestionnaireScreen() {
 
   if (isLoading) {
     return (
-      <View style={styles.centerContainer}>
+      <View style={[styles.centerContainer, { paddingTop: insets.top }]}>
         <ActivityIndicator size="large" color="#34C759" />
         <Text style={styles.loadingText}>Loading assessment...</Text>
       </View>
@@ -722,7 +826,7 @@ export default function QuestionnaireScreen() {
 
   if (!currentNavigation || !questions.length) {
     return (
-      <View style={styles.centerContainer}>
+      <View style={[styles.centerContainer, { paddingTop: insets.top }]}>
         <Text style={styles.errorText}>No questions available</Text>
         <TouchableOpacity style={styles.retryButton} onPress={reset}>
           <Text style={styles.retryText}>Retry</Text>
@@ -881,6 +985,7 @@ export default function QuestionnaireScreen() {
   };
 
   const handleNext = async () => {
+    setIsNoPlanModalDismissed(false);
     const runningDaysQuestion = currentPageQuestions.find(
       (question) => /which days of the week.*usually run/i.test(question.question)
     );
@@ -1130,8 +1235,57 @@ export default function QuestionnaireScreen() {
       ])
     : new Set<string>();
 
+  const runningDaysCountQuestion = questions.find((question) =>
+    /how many days per week.*run/i.test(question.question)
+  );
+  const runningDaysCountAnswer = runningDaysCountQuestion
+    ? allAnswers[String(runningDaysCountQuestion.backendId ?? getNumericId(runningDaysCountQuestion.id))]?.value
+    : undefined;
+  const runningDaysCountOption = runningDaysCountQuestion?.options?.find((option) =>
+    String(option.value) === String(runningDaysCountAnswer)
+  );
+  const requiredRunningDaysCount = Number(
+    runningDaysCountOption?.numeric_value ?? runningDaysCountOption?.label ?? runningDaysCountAnswer
+  );
+
   const isRequiredQuestionComplete = (question: Question) => {
-    if (!question.isRequired || question.type === "computed") return true;
+    if (question.type === "recent_long_run") {
+      const answer = getAnswerForQuestion(question);
+      const selectedOption = question.options?.find(
+        (option) => String(option.id) === String(answer?.value)
+      );
+      if (!selectedOption) return false;
+
+      let distanceKm = getDistanceInKilometers(selectedOption);
+      if (selectedOption.requires_input || /custom/i.test(String(selectedOption.label ?? selectedOption.text ?? ""))) {
+        const customDistance = Number(answer?.customValues?.distance ?? answer?.customValues?.targetDistance);
+        if (!Number.isFinite(customDistance) || customDistance <= 0) return false;
+        distanceKm = getDistanceUnitCode(answer?.customValues?.unit) === "mile"
+          ? customDistance * 1.60934
+          : customDistance;
+      }
+
+      return Boolean(distanceKm && distanceKm > 0)
+        && timeToSeconds(String(answer?.customValues?.time ?? "")) !== null;
+    }
+
+    if (question.type === "event_registration" && question.isRequired) {
+      const answer = getAnswerForQuestion(question)?.value;
+      if (!answer || typeof answer !== "object") return false;
+
+      const eventName = String(answer.eventName ?? "").trim();
+      const eventDate = String(answer.eventDate ?? "").trim();
+      const distance = Number(answer.targetDistance ?? answer.distance);
+      const targetTime = String(answer.targetTime ?? "").trim();
+
+      return Boolean(eventName && eventDate && Number.isFinite(Date.parse(eventDate)))
+        && Number.isFinite(distance)
+        && distance > 0
+        && timeToSeconds(targetTime) !== null;
+    }
+
+    const isRequiredByAssessmentFlow = question.isRequired || /have you run before|do you have any upcoming running events|how many days per week.*run|which days of the week.*usually run|which of your running days.*long run/i.test(question.question);
+    if (!isRequiredByAssessmentFlow || question.type === "computed") return true;
 
     const answer = getAnswerForQuestion(question);
     const value = answer?.value;
@@ -1144,6 +1298,25 @@ export default function QuestionnaireScreen() {
       return false;
     }
 
+    if (question.type === "time") {
+      return timeToSeconds(String(value)) !== null;
+    }
+
+    const selectionValidation = validateAnswer({
+      question,
+      answer: value,
+      allAnswers,
+      questions,
+    });
+    if (!selectionValidation.valid) return false;
+
+    if (question.type === "multiple" && /which days of the week.*usually run/i.test(question.question)) {
+      return Number.isFinite(requiredRunningDaysCount)
+        && requiredRunningDaysCount > 0
+        && Array.isArray(value)
+        && value.length === requiredRunningDaysCount;
+    }
+
     const selectedOption = question.options?.find(
       (option) => String(option.id) === String(value)
     );
@@ -1154,7 +1327,11 @@ export default function QuestionnaireScreen() {
     if (requiresCustomDistance) {
       const distance = answer?.customValues?.distance ?? answer?.customValues?.targetDistance;
       const distanceValue = Number(distance);
-      return Number.isFinite(distanceValue) && distanceValue > 0;
+      if (!Number.isFinite(distanceValue) || distanceValue <= 0) return false;
+      if (question.type === "plan_selection") {
+        return timeToSeconds(String(answer?.customValues?.time ?? "")) !== null;
+      }
+      return true;
     }
 
     return true;
@@ -1163,7 +1340,31 @@ export default function QuestionnaireScreen() {
   // Next is available as soon as all required answers on the current page are
   // complete. Inline validation communicates invalid values as they are edited;
   // the backend remains the final check when Next is pressed.
-  const isPageReadyToSubmit = displayQuestions.every(isRequiredQuestionComplete);
+  const isRecentLongRunGroupComplete = !recentLongRunGroup || (() => {
+    const distanceAnswer = getAnswerForQuestion(recentLongRunGroup.singleQuestion);
+    const selectedOption = recentLongRunGroup.singleQuestion.options?.find(
+      (option) => String(option.id) === String(distanceAnswer?.value)
+    );
+    if (!selectedOption) return false;
+
+    let distanceKm = getDistanceInKilometers(selectedOption);
+    if (selectedOption.requires_input || /custom/i.test(String(selectedOption.label ?? selectedOption.text ?? ""))) {
+      const customDistance = Number(distanceAnswer?.customValues?.distance ?? distanceAnswer?.customValues?.targetDistance);
+      if (!Number.isFinite(customDistance) || customDistance <= 0) return false;
+      distanceKm = getDistanceUnitCode(distanceAnswer?.customValues?.unit) === "mile"
+        ? customDistance * 1.60934
+        : customDistance;
+    }
+
+    const timeAnswer = getAnswerForQuestion(recentLongRunGroup.timeQuestion).value
+      ?? distanceAnswer?.customValues?.time;
+    return Boolean(distanceKm && distanceKm > 0)
+      && timeToSeconds(String(timeAnswer ?? "")) !== null;
+  })();
+
+  const isPageReadyToSubmit = displayQuestions.every(isRequiredQuestionComplete)
+    && isRecentLongRunGroupComplete;
+  const isNextDisabled = !isPageReadyToSubmit || isSubmitting || isLoading;
 
   const recentLongRunSelectedValue = recentLongRunGroup
     ? currentPageAnswers[
@@ -1201,7 +1402,7 @@ export default function QuestionnaireScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.progressHeader, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+      <View style={[styles.progressHeader, { paddingTop: Math.max(22, insets.top + 8), backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <View style={styles.assessmentTitleRow}>
           {isFirstAssessmentPage ? (
             <TouchableOpacity
@@ -1434,22 +1635,50 @@ export default function QuestionnaireScreen() {
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity
-          style={[
-            styles.button,
-            styles.nextButton,
-            { backgroundColor: BRAND_GREEN },
-            (!isPageReadyToSubmit || isSubmitting || isLoading) && styles.nextButtonDisabled,
-          ]}
+        <AssessmentNextButton
+          disabled={isNextDisabled}
+          isSubmitting={isSubmitting}
+          backgroundColor={isNextDisabled ? colors.surfaceRaised : BRAND_GREEN}
+          disabledTextColor={colors.textTertiary}
           onPress={handleNext}
-          disabled={!isPageReadyToSubmit || isSubmitting || isLoading}
-        >
-          <Text style={styles.buttonText}>
-            {isSubmitting ? "Submitting..." : "Next"}
-          </Text>
-          <Feather name="arrow-right" size={18} color="#1A1A1A" />
-        </TouchableOpacity>
+        />
       </View>
+
+      <Modal
+        visible={showNoPlanModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsNoPlanModalDismissed(true)}
+      >
+        <View style={[styles.noPlanModalBackdrop, { paddingTop: Math.max(24, insets.top + 16), paddingBottom: Math.max(24, insets.bottom + 16), backgroundColor: colors.overlay }]}>
+          <View style={[styles.noPlanModalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Feather name="info" size={28} color={BRAND_GREEN} />
+            <Text style={[styles.noPlanModalTitle, { color: colors.textPrimary }]}>
+              No training plan available
+            </Text>
+            <Text style={[styles.noPlanModalMessage, { color: colors.textSecondary }]}>
+              Review your assessment answers and try again.
+            </Text>
+            <TouchableOpacity
+              style={[styles.noPlanReviewButton, { backgroundColor: BRAND_GREEN }]}
+              onPress={() => {
+                setIsNoPlanModalDismissed(true);
+                handlePrevious();
+              }}
+              accessibilityRole="button"
+            >
+              <Text style={styles.noPlanReviewButtonText}>Review answers</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.noPlanDismissButton}
+              onPress={() => setIsNoPlanModalDismissed(true)}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.noPlanDismissButtonText, { color: colors.textSecondary }]}>Dismiss</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1574,10 +1803,6 @@ const styles = StyleSheet.create({
   nextButton: {
     backgroundColor: "#34C759",
   },
-  nextButtonDisabled: {
-    backgroundColor: "#4A4D50",
-    opacity: 0.7,
-  },
   buttonText: {
     fontSize: 15,
     fontWeight: "500",
@@ -1618,7 +1843,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   optionButton: {
-    paddingHorizontal: 16,
+    maxWidth: "100%",
+    flexShrink: 1,
+    paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 12,
     borderWidth: 1,
@@ -1631,13 +1858,22 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   optionSelected: {
-    borderColor: "#34C759",
-    backgroundColor: "#253525",
+    borderColor: "#15803D",
+    borderWidth: 2,
+    backgroundColor: BRAND_GREEN,
   },
+  optionContent: { flexDirection: "row", alignItems: "center", gap: 8 },
+  optionContentFullWidth: { width: "100%", minWidth: 0, justifyContent: "space-between" },
+  optionCheck: { flexShrink: 0 },
   optionText: {
-    fontSize: 16,
+    flexShrink: 1,
+    flexWrap: "wrap",
+    fontSize: 15,
+    lineHeight: 20,
     color: "#F4F4F5",
   },
+  optionTextFullWidth: { flex: 1, minWidth: 0 },
+  optionSelectedText: { color: "#0D0D0D", fontWeight: "700" },
   textInput: {
     borderWidth: 1,
     borderColor: "#45474B",
@@ -1654,7 +1890,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   dropdownItem: {
-    padding: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#3D4044",
     backgroundColor: "#303236",
@@ -1677,6 +1914,7 @@ const styles = StyleSheet.create({
   ratingText: {
     fontSize: 16,
     fontWeight: "600",
+    color: "#F4F4F5",
   },
   computedValue: {
     fontSize: 36,
@@ -1716,4 +1954,12 @@ const styles = StyleSheet.create({
   assessmentTitleRow: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   backButton: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#202A22", borderWidth: 1, borderColor: "#34C759" },
   backButtonPlaceholder: { width: 44, height: 44 },
+  noPlanModalBackdrop: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
+  noPlanModalCard: { width: "100%", maxWidth: 400, alignItems: "center", borderRadius: 16, borderWidth: 1, padding: 24 },
+  noPlanModalTitle: { fontSize: 20, fontWeight: "700", textAlign: "center", marginTop: 14 },
+  noPlanModalMessage: { fontSize: 15, lineHeight: 22, textAlign: "center", marginTop: 8, marginBottom: 20 },
+  noPlanReviewButton: { width: "100%", alignItems: "center", borderRadius: 10, paddingVertical: 13 },
+  noPlanReviewButtonText: { color: "#102018", fontSize: 15, fontWeight: "700" },
+  noPlanDismissButton: { marginTop: 12, padding: 8 },
+  noPlanDismissButtonText: { fontSize: 14, fontWeight: "600" },
 });
