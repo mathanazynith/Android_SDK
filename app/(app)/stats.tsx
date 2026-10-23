@@ -372,7 +372,9 @@ export default function StatsScreen() {
     return Array.from(map.values());
   }, [planBenchmarks, customWorkouts]);
 
-  const totalBenchmarksCount = benchmarkWorkouts.length + activePlanBenchmarks.length;
+  const totalBenchmarksCount = hasActivePlan
+    ? activePlanBenchmarks.length
+    : benchmarkWorkouts.length;
 
   const handleStartBenchmarkWorkout = (workout: UserWorkoutResponse) => {
     setStartingWorkoutId(workout.id);
@@ -845,8 +847,13 @@ export default function StatsScreen() {
           accessibilityLabel="Benchmark workouts"
         >
           <View style={styles.benchmarkLeft}>
-            <View style={styles.benchmarkIconWrapper}>
-              <BenchmarkBadgeIcon size={24} color="#30D158" />
+            <View
+              style={[
+                styles.benchmarkIconWrapper,
+                hasActivePlan && { backgroundColor: 'rgba(245, 158, 11, 0.15)' },
+              ]}
+            >
+              <BenchmarkBadgeIcon size={24} color={hasActivePlan ? '#30D158' : '#30D158'} />
             </View>
             <View style={styles.benchmarkTextCol}>
               <Text style={styles.benchmarkTitle}>Benchmark workouts</Text>
@@ -1302,7 +1309,11 @@ export default function StatsScreen() {
             <View style={styles.modalHeader}>
               <View>
                 <Text style={styles.modalTitle}>Benchmark Workouts</Text>
-                <Text style={styles.modalSubtitle}>Measure your progress against standardized baselines</Text>
+                <Text style={styles.modalSubtitle}>
+                  {hasActivePlan
+                    ? 'Measure your progress against training plan baselines'
+                    : 'Measure your progress against custom workout baselines'}
+                </Text>
               </View>
               <TouchableOpacity
                 onPress={() => setShowBenchmarkModal(false)}
@@ -1318,220 +1329,217 @@ export default function StatsScreen() {
               contentContainerStyle={{ flexGrow: 1 }}
               showsVerticalScrollIndicator={false}
             >
-              {totalBenchmarksCount > 0 ? (
-                <>
-                  {/* Custom Workouts Benchmarks */}
-                  {benchmarkWorkouts.length > 0 && (
-                    <View style={{ marginBottom: 16 }}>
-                      <View style={styles.benchmarkSectionHeader}>
-                        <BenchmarkBadgeIcon size={14} color="#30D158" />
-                        <Text style={[styles.benchmarkSectionTitle, { color: '#30D158' }]}>
-                          CUSTOM WORKOUT BENCHMARKS ({benchmarkWorkouts.length})
-                        </Text>
-                      </View>
-                      {benchmarkWorkouts.map((workout, idx) => {
-                        const isStarting = startingWorkoutId === workout.id;
-                        const metaParts = [
-                          workout.workout_type,
-                          workout.distance ? `${workout.distance} km` : null,
-                          workout.duration ? `${workout.duration} min` : null,
-                          workout.target_pace ? `@ ${workout.target_pace}` : null,
-                        ].filter(Boolean);
-                        const isLast = idx === benchmarkWorkouts.length - 1;
-
-                        return (
-                          <View
-                            key={`custom-${workout.id}`}
-                            style={[styles.benchmarkItem, isLast && { borderBottomWidth: 0 }]}
-                          >
-                            <View
-                              style={[
-                                styles.benchmarkItemIcon,
-                                { backgroundColor: 'rgba(48, 209, 88, 0.15)' },
-                              ]}
-                            >
-                              <BenchmarkBadgeIcon size={20} color="#30D158" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12, marginRight: 8 }}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                <Text style={styles.benchmarkItemTitle} numberOfLines={1}>
-                                  {workout.title || 'Custom Benchmark'}
-                                </Text>
-                                <View style={styles.customBadge}>
-                                  <Text style={styles.customBadgeText}>CUSTOM</Text>
-                                </View>
-                              </View>
-                              <Text style={styles.benchmarkItemDesc} numberOfLines={1}>
-                                {metaParts.length > 0
-                                  ? metaParts.join(' · ')
-                                  : 'Custom Benchmark Run'}
-                              </Text>
-                            </View>
-                            <TouchableOpacity
-                              style={[styles.benchmarkStartBtn, { backgroundColor: '#30D158' }]}
-                              onPress={() => handleStartBenchmarkWorkout(workout)}
-                              disabled={isStarting}
-                              activeOpacity={0.8}
-                              accessibilityLabel={`Start ${workout.title}`}
-                            >
-                              {isStarting ? (
-                                <ActivityIndicator size="small" color="#000000" />
-                              ) : (
-                                <>
-                                  <Feather
-                                    name="play"
-                                    size={13}
-                                    color="#000000"
-                                    style={{ marginRight: 4 }}
-                                  />
-                                  <Text style={styles.benchmarkStartBtnText}>START</Text>
-                                </>
-                              )}
-                            </TouchableOpacity>
-                          </View>
-                        );
-                      })}
+              {hasActivePlan ? (
+                // PLANNED WORKOUT USER: Only show Training Plan Benchmarks (custom workouts option suppressed)
+                activePlanBenchmarks.length > 0 ? (
+                  <View style={{ marginBottom: 16 }}>
+                    <View style={styles.benchmarkSectionHeader}>
+                      <BenchmarkBadgeIcon size={14} color="#30D158" />
+                      <Text style={styles.benchmarkSectionTitle}>
+                        TRAINING PLAN BENCHMARKS ({activePlanBenchmarks.length})
+                      </Text>
                     </View>
-                  )}
+                    {activePlanBenchmarks.map((pb, idx) => {
+                      const isStarting = startingPlanKey === pb.workoutKey;
+                      const metaParts = [
+                        pb.planWorkoutDay || pb.planWorkoutDate,
+                        pb.planWorkoutDistance,
+                        pb.planWorkoutPace ? `@ ${pb.planWorkoutPace}` : null,
+                        pb.planWorkoutDuration,
+                      ].filter(Boolean);
+                      const isLast = idx === activePlanBenchmarks.length - 1;
 
-                  {/* Training Plan Benchmarks */}
-                  {activePlanBenchmarks.length > 0 && (
-                    <View style={{ marginBottom: 16 }}>
-                      <View style={styles.benchmarkSectionHeader}>
-                        <BenchmarkBadgeIcon size={14} color="#F59E0B" />
-                        <Text style={styles.benchmarkSectionTitle}>
-                          TRAINING PLAN BENCHMARKS ({activePlanBenchmarks.length})
-                        </Text>
-                      </View>
-                      {activePlanBenchmarks.map((pb, idx) => {
-                        const isStarting = startingPlanKey === pb.workoutKey;
-                        const metaParts = [
-                          pb.planWorkoutDay || pb.planWorkoutDate,
-                          pb.planWorkoutDistance,
-                          pb.planWorkoutPace ? `@ ${pb.planWorkoutPace}` : null,
-                          pb.planWorkoutDuration,
-                        ].filter(Boolean);
-                        const isLast = idx === activePlanBenchmarks.length - 1;
-
-                        return (
+                      return (
+                        <View
+                          key={pb.workoutKey}
+                          style={[styles.benchmarkItem, isLast && { borderBottomWidth: 0 }]}
+                        >
                           <View
-                            key={pb.workoutKey}
-                            style={[styles.benchmarkItem, isLast && { borderBottomWidth: 0 }]}
+                            style={[
+                              styles.benchmarkItemIcon,
+                              { backgroundColor: 'rgba(245, 158, 11, 0.15)' },
+                            ]}
                           >
-                            <View
-                              style={[
-                                styles.benchmarkItemIcon,
-                                { backgroundColor: 'rgba(245, 158, 11, 0.15)' },
-                              ]}
-                            >
-                              <BenchmarkBadgeIcon size={20} color="#F59E0B" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12, marginRight: 8 }}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                <Text style={styles.benchmarkItemTitle} numberOfLines={1}>
-                                  {pb.planWorkoutTitle || pb.benchmarkTitle || 'Plan Benchmark'}
-                                </Text>
-                                <View style={styles.planBadge}>
-                                  <Text style={styles.planBadgeText}>PLAN</Text>
-                                </View>
-                              </View>
-                              <Text style={styles.benchmarkItemDesc} numberOfLines={1}>
-                                {metaParts.length > 0
-                                  ? metaParts.join(' · ')
-                                  : 'Scheduled Benchmark Run'}
-                              </Text>
-                            </View>
-                            <TouchableOpacity
-                              style={[styles.benchmarkStartBtn, { backgroundColor: '#F59E0B' }]}
-                              onPress={() => handleStartPlanBenchmark(pb)}
-                              disabled={isStarting}
-                              activeOpacity={0.8}
-                              accessibilityLabel={`Start ${pb.planWorkoutTitle || pb.benchmarkTitle}`}
-                            >
-                              {isStarting ? (
-                                <ActivityIndicator size="small" color="#000000" />
-                              ) : (
-                                <>
-                                  <Feather
-                                    name="play"
-                                    size={13}
-                                    color="#000000"
-                                    style={{ marginRight: 4 }}
-                                  />
-                                  <Text style={styles.benchmarkStartBtnText}>START</Text>
-                                </>
-                              )}
-                            </TouchableOpacity>
+                            <BenchmarkBadgeIcon size={20} color="#30D158" />
                           </View>
-                        );
-                      })}
-                    </View>
-                  )}
-                </>
-              ) : (
-                <View style={styles.benchmarkEmptyState}>
-                  <View style={styles.benchmarkEmptyIcon}>
-                    <BenchmarkBadgeIcon size={32} color="#8E8E93" />
+                          <View style={{ flex: 1, marginLeft: 12, marginRight: 8 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={styles.benchmarkItemTitle} numberOfLines={1}>
+                                {pb.planWorkoutTitle || pb.benchmarkTitle || 'Plan Benchmark'}
+                              </Text>
+                              <View style={styles.planBadge}>
+                                <Text style={styles.planBadgeText}>PLAN</Text>
+                              </View>
+                            </View>
+                            <Text style={styles.benchmarkItemDesc} numberOfLines={1}>
+                              {metaParts.length > 0
+                                ? metaParts.join(' · ')
+                                : 'Scheduled Benchmark Run'}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            style={[styles.benchmarkStartBtn, { backgroundColor: '#F59E0B' }]}
+                            onPress={() => handleStartPlanBenchmark(pb)}
+                            disabled={isStarting}
+                            activeOpacity={0.8}
+                            accessibilityLabel={`Start ${pb.planWorkoutTitle || pb.benchmarkTitle}`}
+                          >
+                            {isStarting ? (
+                              <ActivityIndicator size="small" color="#000000" />
+                            ) : (
+                              <>
+                                <Feather
+                                  name="play"
+                                  size={13}
+                                  color="#000000"
+                                  style={{ marginRight: 4 }}
+                                />
+                                <Text style={styles.benchmarkStartBtnText}>START</Text>
+                              </>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })}
                   </View>
-                  <Text style={styles.benchmarkEmptyTitle}>No Benchmark Workouts Yet</Text>
-                  <Text style={styles.benchmarkEmptySubtitle}>
-                    {hasActivePlan
-                      ? 'Mark a custom workout or a training plan day as a benchmark to measure your progress.'
-                      : 'Create a custom workout and tap the benchmark icon to track your baseline performance.'}
-                  </Text>
-                </View>
+                ) : (
+                  <View style={styles.benchmarkEmptyState}>
+                    <View style={[styles.benchmarkEmptyIcon, { backgroundColor: 'rgba(245, 158, 11, 0.12)' }]}>
+                      <BenchmarkBadgeIcon size={32} color="#30D158" />
+                    </View>
+                    <Text style={styles.benchmarkEmptyTitle}>No Benchmark Workouts Yet</Text>
+                    <Text style={styles.benchmarkEmptySubtitle}>
+                      Choose a workout from your Training Plan to track your baseline performance.
+                    </Text>
+                  </View>
+                )
+              ) : (
+                // UNPLAN USER: Only show Custom Workout Benchmarks (training plan option suppressed)
+                benchmarkWorkouts.length > 0 ? (
+                  <View style={{ marginBottom: 16 }}>
+                    <View style={styles.benchmarkSectionHeader}>
+                      <BenchmarkBadgeIcon size={14} color="#30D158" />
+                      <Text style={[styles.benchmarkSectionTitle, { color: '#30D158' }]}>
+                        CUSTOM WORKOUT BENCHMARKS ({benchmarkWorkouts.length})
+                      </Text>
+                    </View>
+                    {benchmarkWorkouts.map((workout, idx) => {
+                      const isStarting = startingWorkoutId === workout.id;
+                      const metaParts = [
+                        workout.workout_type,
+                        workout.distance ? `${workout.distance} km` : null,
+                        workout.duration ? `${workout.duration} min` : null,
+                        workout.target_pace ? `@ ${workout.target_pace}` : null,
+                      ].filter(Boolean);
+                      const isLast = idx === benchmarkWorkouts.length - 1;
+
+                      return (
+                        <View
+                          key={`custom-${workout.id}`}
+                          style={[styles.benchmarkItem, isLast && { borderBottomWidth: 0 }]}
+                        >
+                          <View
+                            style={[
+                              styles.benchmarkItemIcon,
+                              { backgroundColor: 'rgba(48, 209, 88, 0.15)' },
+                            ]}
+                          >
+                            <BenchmarkBadgeIcon size={20} color="#30D158" />
+                          </View>
+                          <View style={{ flex: 1, marginLeft: 12, marginRight: 8 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={styles.benchmarkItemTitle} numberOfLines={1}>
+                                {workout.title || 'Custom Benchmark'}
+                              </Text>
+                              <View style={styles.customBadge}>
+                                <Text style={styles.customBadgeText}>CUSTOM</Text>
+                              </View>
+                            </View>
+                            <Text style={styles.benchmarkItemDesc} numberOfLines={1}>
+                              {metaParts.length > 0
+                                ? metaParts.join(' · ')
+                                : 'Custom Benchmark Run'}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            style={[styles.benchmarkStartBtn, { backgroundColor: '#30D158' }]}
+                            onPress={() => handleStartBenchmarkWorkout(workout)}
+                            disabled={isStarting}
+                            activeOpacity={0.8}
+                            accessibilityLabel={`Start ${workout.title}`}
+                          >
+                            {isStarting ? (
+                              <ActivityIndicator size="small" color="#000000" />
+                            ) : (
+                              <>
+                                <Feather
+                                  name="play"
+                                  size={13}
+                                  color="#000000"
+                                  style={{ marginRight: 4 }}
+                                />
+                                <Text style={styles.benchmarkStartBtnText}>START</Text>
+                              </>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <View style={styles.benchmarkEmptyState}>
+                    <View style={styles.benchmarkEmptyIcon}>
+                      <BenchmarkBadgeIcon size={32} color="#30D158" />
+                    </View>
+                    <Text style={styles.benchmarkEmptyTitle}>No Benchmark Workouts Yet</Text>
+                    <Text style={styles.benchmarkEmptySubtitle}>
+                      Create a custom workout and tap the benchmark icon to track your baseline performance.
+                    </Text>
+                  </View>
+                )
               )}
             </ScrollView>
 
-            {/* Quick action buttons row */}
-            {(hasCustomWorkouts || hasPlanWorkouts) && (
-              <View style={styles.benchmarkModalActionsRow}>
-                {hasCustomWorkouts && (
-                  <TouchableOpacity
-                    style={[
-                      styles.benchmarkActionBtn,
-                      {
-                        flex: 1,
-                        backgroundColor: '#30D158',
-                        marginRight: hasPlanWorkouts ? 10 : 0,
-                      },
-                    ]}
-                    onPress={() => {
-                      setShowBenchmarkModal(false);
-                      router.push('/(app)/custom-workout/cards');
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <Feather name="list" size={16} color="#000000" style={{ marginRight: 8 }} />
-                    <Text style={styles.benchmarkActionBtnText}>Custom Workouts</Text>
-                  </TouchableOpacity>
-                )}
-
-                {hasPlanWorkouts && (
-                  <TouchableOpacity
-                    style={[
-                      styles.benchmarkActionBtn,
-                      {
-                        flex: 1,
-                        backgroundColor: '#1C1C1E',
-                        borderWidth: 1,
-                        borderColor: 'rgba(255, 255, 255, 0.15)',
-                      },
-                    ]}
-                    onPress={() => {
-                      setShowBenchmarkModal(false);
-                      router.push('/(app)/training-plan');
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <Feather name="calendar" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
-                    <Text style={[styles.benchmarkActionBtnText, { color: '#FFFFFF' }]}>
-                      Training Plan
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            )}
+            {/* Quick action button: ONLY Training Plan for plan users, ONLY Custom Workouts for unplan users */}
+            <View style={styles.benchmarkModalActionsRow}>
+              {hasActivePlan ? (
+                <TouchableOpacity
+                  style={[
+                    styles.benchmarkActionBtn,
+                    {
+                      flex: 1,
+                      backgroundColor: '#30D158',
+                    },
+                  ]}
+                  onPress={() => {
+                    setShowBenchmarkModal(false);
+                    router.push('/(app)/training-plan');
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Feather name="calendar" size={16} color="#000000" style={{ marginRight: 8 }} />
+                  <Text style={styles.benchmarkActionBtnText}>Choose from Training Plan</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[
+                    styles.benchmarkActionBtn,
+                    {
+                      flex: 1,
+                      backgroundColor: '#30D158',
+                    },
+                  ]}
+                  onPress={() => {
+                    setShowBenchmarkModal(false);
+                    router.push('/(app)/custom-workout/cards');
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Feather name="list" size={16} color="#000000" style={{ marginRight: 8 }} />
+                  <Text style={styles.benchmarkActionBtnText}>Choose from Custom Workouts</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </Pressable>
       </Modal>

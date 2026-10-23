@@ -2,7 +2,7 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     ActivityIndicator,
     Animated,
@@ -28,6 +28,7 @@ import {
     type UserWorkoutResponse
 } from "../../../service/customWorkout";
 import { BenchmarkStore } from "../../../src/services/benchmarkStore";
+import { PRESET_WORKOUTS } from "../../../src/constants/presetWorkouts";
 import { buildWorkoutExecutionPlan } from "../../../src/utils/workoutPlanBuilder";
 import { useCustomWorkout } from "./workout-context";
 
@@ -80,7 +81,62 @@ const getTargetPace = (item: UserWorkoutResponse) => {
 
 export default function CustomWorkoutCards() {
   const { loadWorkout, reset } = useCustomWorkout();
-  const [workouts, setWorkouts] = useState<UserWorkoutResponse[]>([]);
+  const [rawWorkouts, setRawWorkouts] = useState<UserWorkoutResponse[]>([]);
+  const [activeTab, setActiveTab] = useState<'all' | 'custom' | 'plan' | 'popular'>('all');
+
+  const PRESET_USER_WORKOUTS = useMemo<UserWorkoutResponse[]>(() => {
+    return PRESET_WORKOUTS.map((p, idx) => ({
+      id: -100 - idx,
+      plan: null,
+      template_workout: null,
+      is_custom: false,
+      week_number: null,
+      display_order: idx + 1,
+      workout_date: null,
+      weekday: null,
+      workout_type: p.workoutType,
+      title: p.title,
+      duration: p.durationMinutes
+        ? p.durationMinutes * 60
+        : p.repeats && p.restDurationSeconds
+        ? p.repeats * 120 + (p.repeats - 1) * p.restDurationSeconds
+        : null,
+      distance: p.repDistanceMeters && p.repeats ? p.repDistanceMeters * p.repeats : null,
+      display_distance: null,
+      distance_unit: p.paceUnit,
+      target_pace: p.defaultFasterPace,
+      pace: p.defaultFasterPace,
+      pace_unit: p.paceUnit,
+      zone: p.category,
+      notes: p.description,
+      priority: 1,
+      segments: [],
+    }));
+  }, []);
+
+  const customWorkouts = useMemo(() => {
+    return rawWorkouts.filter((w) => w.is_custom !== false && w.plan == null);
+  }, [rawWorkouts]);
+
+  const planWorkouts = useMemo(() => {
+    return rawWorkouts.filter((w) => w.is_custom === false || w.plan != null);
+  }, [rawWorkouts]);
+
+  const hasActivePlan = planWorkouts.length > 0;
+
+  const workouts = useMemo(() => {
+    if (activeTab === 'custom') return customWorkouts;
+    if (activeTab === 'plan') return planWorkouts;
+    if (activeTab === 'popular') return PRESET_USER_WORKOUTS;
+    if (customWorkouts.length === 0 && planWorkouts.length === 0) {
+      return PRESET_USER_WORKOUTS;
+    }
+    return [
+      ...customWorkouts,
+      ...planWorkouts,
+      ...(customWorkouts.length === 0 ? PRESET_USER_WORKOUTS : []),
+    ];
+  }, [activeTab, customWorkouts, planWorkouts, PRESET_USER_WORKOUTS]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState<{
@@ -190,7 +246,7 @@ export default function CustomWorkoutCards() {
     const nextState = !currentlyBenchmark;
 
     // Optimistically update state
-    setWorkouts((prev) =>
+    setRawWorkouts((prev) =>
       prev.map((w) => (w.id === id ? { ...w, is_benchmark: nextState } : w))
     );
     setBenchmarkIds((prev) =>
@@ -281,7 +337,7 @@ export default function CustomWorkoutCards() {
         ? response.data
         : ((response.data as any)?.results || []);
       // Filter only custom workouts (is_custom !== false and plan == null)
-      setWorkouts(list.filter((w) => w.is_custom !== false && w.plan == null));
+      setRawWorkouts(list);
     } catch (err: any) {
       console.error("[CustomWorkouts] Error fetching:", err);
     } finally {
@@ -297,6 +353,34 @@ export default function CustomWorkoutCards() {
   );
 
   const handleStartWorkout = (workout: UserWorkoutResponse) => {
+    if (workout.id < 0) {
+      const preset = PRESET_WORKOUTS.find((p) => p.title === workout.title) || PRESET_WORKOUTS[-workout.id - 100];
+      router.push({
+        pathname: "/(app)/workout-setup",
+        params: {
+          presetId: preset?.id,
+          workoutTitle: workout.title,
+        },
+      });
+      return;
+    }
+
+    if (workout.is_custom === false || workout.plan != null) {
+      router.push({
+        pathname: "/(app)/workout-setup",
+        params: {
+          workoutTitle: workout.title,
+          workoutType: workout.workout_type,
+          targetPace: workout.target_pace || workout.pace || undefined,
+          duration: workout.duration ? String(Math.round(workout.duration / 60)) : undefined,
+          distance: workout.distance ? String(workout.distance) : undefined,
+          planSegments: workout.segments?.length ? JSON.stringify(workout.segments) : undefined,
+          workoutDbId: String(workout.id),
+        },
+      });
+      return;
+    }
+
     setActionLoading({ id: workout.id, action: "start" });
     const plan = buildWorkoutExecutionPlan(workout);
     router.push({
@@ -355,7 +439,7 @@ export default function CustomWorkoutCards() {
 
         setDeleteSuccess(true);
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        setWorkouts((prev) => prev.filter((w) => !targetIds.includes(w.id)));
+        setRawWorkouts((prev) => prev.filter((w) => !targetIds.includes(w.id)));
 
         for (const id of targetIds) {
           void BenchmarkStore.setBenchmark(id, false);
@@ -389,7 +473,7 @@ export default function CustomWorkoutCards() {
 
           if (deletedIds.length > 0) {
             LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-            setWorkouts((prev) => prev.filter((w) => !deletedIds.includes(w.id)));
+            setRawWorkouts((prev) => prev.filter((w) => !deletedIds.includes(w.id)));
             for (const id of deletedIds) {
               void BenchmarkStore.setBenchmark(id, false);
             }
@@ -468,6 +552,9 @@ export default function CustomWorkoutCards() {
     const isBenchmark = Boolean(item.is_benchmark ?? benchmarkIds.includes(item.id));
     const isSelected = selectedWorkoutIds.has(item.id);
     const isDeleting = deletingWorkoutIds.has(item.id);
+    const isPlan = item.is_custom === false || item.plan != null;
+    const isPreset = item.id < 0;
+    const isBenchmarkAllowed = (hasActivePlan && isPlan) || (!hasActivePlan && !isPlan);
 
     return (
       <TouchableOpacity
@@ -485,7 +572,31 @@ export default function CustomWorkoutCards() {
           if (selectionMode) {
             toggleWorkoutSelection(item.id);
           } else {
-            handleEditWorkout(item.id);
+            if (isPreset) {
+              const preset = PRESET_WORKOUTS.find((p) => p.title === item.title) || PRESET_WORKOUTS[-item.id - 100];
+              router.push({
+                pathname: "/(app)/workout-setup",
+                params: {
+                  presetId: preset?.id,
+                  workoutTitle: item.title,
+                },
+              });
+            } else if (isPlan) {
+              router.push({
+                pathname: "/(app)/workout-setup",
+                params: {
+                  workoutTitle: item.title,
+                  workoutType: item.workout_type,
+                  targetPace: item.target_pace || item.pace || undefined,
+                  duration: item.duration ? String(Math.round(item.duration / 60)) : undefined,
+                  distance: item.distance ? String(item.distance) : undefined,
+                  planSegments: item.segments?.length ? JSON.stringify(item.segments) : undefined,
+                  workoutDbId: String(item.id),
+                },
+              });
+            } else {
+              handleEditWorkout(item.id);
+            }
           }
         }}
         disabled={isAnyLoading}
@@ -494,13 +605,15 @@ export default function CustomWorkoutCards() {
         <View style={styles.cardHeader}>
           <View style={styles.cardTitleBox}>
             <View style={styles.badgeRow}>
-              <View style={styles.customBadge}>
-                <Text style={styles.customBadgeText}>CUSTOM</Text>
+              <View style={[styles.customBadge, isPreset && styles.popularBadge, isPlan && styles.planBadge]}>
+                <Text style={styles.customBadgeText}>
+                  {isPreset ? "POPULAR" : isPlan ? "PLAN" : "CUSTOM"}
+                </Text>
               </View>
-              {isBenchmark ? (
-                <View style={styles.benchmarkBadge}>
-                  <BenchmarkBadgeIcon size={12} color="#30D158" />
-                  <Text style={styles.benchmarkBadgeText}>BENCHMARK</Text>
+              {isBenchmark && isBenchmarkAllowed ? (
+                <View style={[styles.benchmarkBadge, isPlan && { backgroundColor: "rgba(245, 158, 11, 0.15)", borderColor: "rgba(245, 158, 11, 0.35)" }]}>
+                  <BenchmarkBadgeIcon size={12} color={isPlan ? "#F59E0B" : "#30D158"} />
+                  <Text style={[styles.benchmarkBadgeText, isPlan && { color: "#F59E0B" }]}>BENCHMARK</Text>
                 </View>
               ) : null}
               {item.workout_date ? (
@@ -538,20 +651,22 @@ export default function CustomWorkoutCards() {
             </TouchableOpacity>
           ) : (
             <View style={styles.cardHeaderRight}>
-              <TouchableOpacity
-                onPress={(e) => {
-                  e.stopPropagation();
-                  handleToggleBenchmark(item.id, item.title);
-                }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                style={styles.cardBenchmarkBtn}
-                accessibilityLabel={isBenchmark ? "Remove from benchmark" : "Set as benchmark"}
-              >
-                <BenchmarkBadgeIcon
-                  size={18}
-                  color={isBenchmark ? "#30D158" : "#8E8E93"}
-                />
-              </TouchableOpacity>
+              {isBenchmarkAllowed && !isPreset && (
+                <TouchableOpacity
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    handleToggleBenchmark(item.id, item.title);
+                  }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  style={styles.cardBenchmarkBtn}
+                  accessibilityLabel={isBenchmark ? "Remove from benchmark" : "Set as benchmark"}
+                >
+                  <BenchmarkBadgeIcon
+                    size={18}
+                    color={isBenchmark ? (isPlan ? "#F59E0B" : "#30D158") : "#8E8E93"}
+                  />
+                </TouchableOpacity>
+              )}
 
               {isEditing ? (
                 <ActivityIndicator size="small" color={Colors.primaryLight} />
@@ -602,6 +717,8 @@ export default function CustomWorkoutCards() {
                 ? isSelected
                   ? "Selected for deletion"
                   : "Tap card to select"
+                : isPreset || isPlan
+                ? "Tap card to view setup"
                 : "Tap card to view & edit"}
             </Text>
           </View>
@@ -700,6 +817,35 @@ export default function CustomWorkoutCards() {
               <Text style={styles.newButtonText}>NEW</Text>
             </TouchableOpacity>
           </View>
+        </View>
+      )}
+
+      {/* Category Tabs: All / Custom / Plan / Popular */}
+      {!selectionMode && (
+        <View style={styles.categoryTabs}>
+          {[
+            {
+              key: "all",
+              label: `All (${rawWorkouts.length + (customWorkouts.length === 0 && planWorkouts.length === 0 ? PRESET_USER_WORKOUTS.length : 0)})`,
+            },
+            { key: "custom", label: `Custom (${customWorkouts.length})` },
+            { key: "plan", label: `Plan (${planWorkouts.length})` },
+            { key: "popular", label: `Popular (${PRESET_USER_WORKOUTS.length})` },
+          ].map((tab) => {
+            const isActive = activeTab === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                style={[styles.categoryTabPill, isActive && styles.categoryTabPillActive]}
+                onPress={() => setActiveTab(tab.key as any)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.categoryTabText, isActive && styles.categoryTabTextActive]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       )}
 
@@ -1177,6 +1323,46 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#3C4B3F",
     zIndex: 40,
+  },
+  categoryTabs: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    marginBottom: 14,
+    gap: 8,
+  },
+  categoryTabPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 18,
+    backgroundColor: "#1A1D20",
+    borderWidth: 1,
+    borderColor: "#2E3338",
+  },
+  categoryTabPillActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  categoryTabText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#AEB0B2",
+  },
+  categoryTabTextActive: {
+    color: "#081009",
+  },
+  planBadge: {
+    backgroundColor: "rgba(34, 197, 94, 0.15)",
+    borderColor: "rgba(34, 197, 94, 0.4)",
+  },
+  planBadgeText: {
+    color: "#22C55E",
+  },
+  popularBadge: {
+    backgroundColor: "rgba(10, 132, 255, 0.15)",
+    borderColor: "rgba(10, 132, 255, 0.4)",
+  },
+  popularBadgeText: {
+    color: "#0A84FF",
   },
   toastText: {
     color: "#F7F7F7",
