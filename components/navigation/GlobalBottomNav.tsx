@@ -3,7 +3,7 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, usePathname } from 'expo-router';
 import { memo, useCallback, useEffect, useRef, useState, type RefObject } from 'react';
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, {
     cancelAnimation,
     Easing as ReanimatedEasing,
@@ -15,10 +15,12 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../service/auth';
+import { isAssessmentProfileComplete } from '../../utils/profileEligibility';
 
 type Tab = {
   icon: React.ComponentProps<typeof Feather>['name'];
-  label: 'Plan' | 'Activities' | 'Home' | 'Stats' | 'Profile';
+  label: 'Plan' | 'History' | 'Home' | 'Stats' | 'Profile';
   route: '/(app)/training-plan' | '/(app)/activity' | '/(app)/dashboard' | '/(app)/stats' | '/(app)/profile';
 };
 
@@ -37,7 +39,7 @@ export const isPrimaryTabPath = (pathname: string) => {
 
 const tabs: Tab[] = [
   { icon: 'clipboard', label: 'Plan', route: '/(app)/training-plan' },
-  { icon: 'activity', label: 'Activities', route: '/(app)/activity' },
+  { icon: 'activity', label: 'History', route: '/(app)/activity' },
   { icon: 'home', label: 'Home', route: '/(app)/dashboard' },
   { icon: 'bar-chart-2', label: 'Stats', route: '/(app)/stats' },
   { icon: 'user', label: 'Profile', route: '/(app)/profile' },
@@ -144,12 +146,16 @@ const isTabActive = (pathname: string, route: Tab['route']) => {
 
 export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject<View | null> }) {
   const pathname = usePathname();
-  const { isDark } = useTheme();
+  const { colors, isDark } = useTheme();
   const isAndroid = Platform.OS === 'android';
   const reduceMotion = useReducedMotion();
   const bottomOffset = 12;
   const { workoutPlan, isWorkoutPlanLoaded, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
+  const { user, isLoading: isAuthLoading } = useAuth();
   const [rowWidth, setRowWidth] = useState(0);
+  const [planPrompt, setPlanPrompt] = useState<'get-plan' | 'profile-required' | null>(null);
+  const isProfileComplete = isAssessmentProfileComplete(user);
+  const isPlanPromptVisible = planPrompt !== null;
   const activeIndex = tabs.findIndex((tab) => isTabActive(pathname, tab.route));
   const tabContentWidth = Math.max(0, rowWidth - TAB_ROW_HORIZONTAL_PADDING * 2);
   const tabWidth = tabContentWidth > 0 ? tabContentWidth / tabs.length : 0;
@@ -182,6 +188,19 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
 
   const hasActivePlan = isWorkoutPlanLoaded && Boolean(workoutPlan?.weeks?.length);
   const handleTabPress = useCallback((tab: Tab) => {
+    if (tab.label === 'Plan') {
+      if (isWorkoutPlanLoading) return;
+      if (!isWorkoutPlanLoaded) {
+        void fetchWorkoutPlan();
+        return;
+      }
+      if (!hasActivePlan) {
+        setPlanPrompt('get-plan');
+        return;
+      }
+    }
+
+    setPlanPrompt(null);
     if (isTabActive(pathname, tab.route)) return;
 
     if (tab.label === 'Home') {
@@ -193,6 +212,25 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
       return;
     }
     router.replace(tab.route);
+  }, [fetchWorkoutPlan, hasActivePlan, isWorkoutPlanLoaded, isWorkoutPlanLoading, pathname]);
+
+  const handleGetPlan = useCallback(() => {
+    if (isAuthLoading) return;
+    if (!isProfileComplete) {
+      setPlanPrompt('profile-required');
+      return;
+    }
+    setPlanPrompt(null);
+    router.push('/(app)/questionnaire');
+  }, [isAuthLoading, isProfileComplete]);
+
+  const handleCompleteProfile = useCallback(() => {
+    setPlanPrompt(null);
+    router.push('/(app)/profile/edit');
+  }, []);
+
+  useEffect(() => {
+    setPlanPrompt(null);
   }, [pathname]);
 
   if (!isPrimaryTabPath(pathname)) return null;
@@ -229,7 +267,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
               key={tab.label}
               tab={tab}
               active={active}
-              enabled={tab.label !== 'Plan' || hasActivePlan}
+              enabled={tab.label !== 'Plan' || hasActivePlan || !isWorkoutPlanLoading}
               activeColor={isDark ? BRAND_GREEN : '#16A34A'}
               inactiveColor={isDark ? '#FFFFFF' : '#000000'}
               iconSize={24}
@@ -244,26 +282,85 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
   );
 
   return (
-    <BlurView
-      intensity={isDark ? 88 : 92}
-      tint={isDark ? 'dark' : 'light'}
-      blurTarget={blurTarget}
-      blurMethod={isAndroid ? 'dimezisBlurViewSdk31Plus' : undefined}
-      blurReductionFactor={isAndroid ? (isDark ? 3 : 2) : undefined}
-      style={[
-        styles.container,
-        {
-          bottom: bottomOffset,
-          backgroundColor: isDark ? 'rgba(18, 18, 22, 0.48)' : 'rgba(241, 248, 243, 0.72)',
-          borderColor: BRAND_GREEN,
-          borderWidth: 1.25,
-          shadowColor: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(25, 75, 45, 0.18)',
-          elevation: isDark ? 12 : 9,
-        },
-      ]}
-    >
-      {navContent}
-    </BlurView>
+    <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+      {isPlanPromptVisible && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss plan prompt"
+          onPress={() => setPlanPrompt(null)}
+          style={StyleSheet.absoluteFill}
+        />
+      )}
+      <BlurView
+        intensity={isDark ? 88 : 92}
+        tint={isDark ? 'dark' : 'light'}
+        blurTarget={blurTarget}
+        blurMethod={isAndroid ? 'dimezisBlurViewSdk31Plus' : undefined}
+        blurReductionFactor={isAndroid ? (isDark ? 3 : 2) : undefined}
+        style={[
+          styles.container,
+          {
+            bottom: bottomOffset,
+            backgroundColor: isDark ? 'rgba(18, 18, 22, 0.48)' : 'rgba(241, 248, 243, 0.72)',
+            borderColor: BRAND_GREEN,
+            borderWidth: 1.25,
+            shadowColor: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(25, 75, 45, 0.18)',
+            elevation: isDark ? 12 : 9,
+          },
+        ]}
+      >
+        {navContent}
+      </BlurView>
+      {isPlanPromptVisible && (
+        <View
+          accessibilityRole="alert"
+          style={[styles.planPrompt, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        >
+          <View style={styles.planPromptHeader}>
+            <View style={[styles.planPromptIcon, { backgroundColor: isDark ? 'rgba(52, 199, 89, 0.16)' : 'rgba(22, 163, 74, 0.12)' }]}>
+              <Feather name="clipboard" size={18} color={BRAND_GREEN} />
+            </View>
+            <View style={styles.planPromptCopy}>
+              <Text style={[styles.planPromptTitle, { color: colors.textPrimary }]}>
+                {planPrompt === 'profile-required' ? 'Complete your profile first' : 'No plan assigned yet'}
+              </Text>
+              <Text style={[styles.planPromptDescription, { color: colors.textSecondary }]}>
+                {planPrompt === 'profile-required'
+                  ? 'Complete your required personal details to personalize your running plan.'
+                  : 'Complete a quick assessment to create your running plan.'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setPlanPrompt(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Close plan prompt"
+              style={styles.planPromptClose}
+            >
+              <Feather name="x" size={18} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity
+            onPress={planPrompt === 'profile-required' ? handleCompleteProfile : handleGetPlan}
+            accessibilityRole="button"
+            accessibilityHint={planPrompt === 'profile-required'
+              ? 'Opens profile editing to complete the required information.'
+              : isProfileComplete
+                ? 'Starts the assessment to create a running plan.'
+                : 'Shows the profile information required before starting the assessment.'}
+            style={[
+              styles.planPromptButton,
+              { backgroundColor: BRAND_GREEN },
+              planPrompt === 'get-plan' && !isProfileComplete && styles.planPromptButtonDisabled,
+            ]}
+          >
+            <Text style={styles.planPromptButtonText}>
+              {planPrompt === 'profile-required' ? 'Complete Profile' : 'Get Plan'}
+            </Text>
+            <Feather name="arrow-right" size={17} color="#081009" />
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -306,6 +403,31 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, lineHeight: 14, marginTop: 1, textAlign: 'center', includeFontPadding: false, maxWidth: '100%' },
   activeLabel: { fontWeight: '700' },
   disabledLabel: { opacity: 0.5 },
+  planPrompt: {
+    position: 'absolute',
+    left: 16,
+    bottom: 88,
+    width: '88%',
+    maxWidth: 320,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    zIndex: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 14,
+  },
+  planPromptHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  planPromptIcon: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  planPromptCopy: { flex: 1, gap: 4 },
+  planPromptTitle: { fontSize: 15, fontWeight: '700' },
+  planPromptDescription: { fontSize: 13, lineHeight: 18 },
+  planPromptClose: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', marginTop: -4, marginRight: -4 },
+  planPromptButton: { minHeight: 42, marginTop: 12, paddingHorizontal: 14, borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  planPromptButtonDisabled: { opacity: 0.45 },
+  planPromptButtonText: { color: '#081009', fontSize: 14, fontWeight: '700' },
   activeGlow: {
     position: 'absolute',
     left: 0,

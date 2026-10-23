@@ -13,6 +13,7 @@ import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../service/auth';
 import { getFcmToken } from '../../service/fcmService';
 import { registerNotificationDevice } from '../../service/notificationService';
+import { isAssessmentProfileComplete } from '../../utils/profileEligibility';
 import { useResponsive } from '../../utils/responsive';
 import DashboardActivePlan from './DashboardActivePlan';
 import DashboardNoPlan from './DashboardNoPlan';
@@ -108,10 +109,7 @@ export default function DashboardScreen() {
   // }, []);
 
   const profile = user?.profile;
-  const canStartAssessment = Boolean(
-    user?.username && profile?.gender &&
-    profile?.date_of_birth && profile?.height_cm && profile?.weight_kg,
-  );
+  const canStartAssessment = isAssessmentProfileComplete(user);
   const userName = user?.username?.trim() || user?.email?.split('@')[0]?.trim() || 'Runner';
   // const parsedTemperature = weather?.temperature == null ? null : Number(weather.temperature);
   // const weatherTemperature = parsedTemperature != null && Number.isFinite(parsedTemperature)

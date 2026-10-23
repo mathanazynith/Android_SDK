@@ -61,7 +61,9 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
         <TouchableOpacity
           style={[styles.planButton, { backgroundColor: colors.primary }, !canStartAssessment && styles.buttonDisabled]}
           onPress={onStartAssessment}
-          disabled={!canStartAssessment}
+          accessibilityHint={canStartAssessment
+            ? 'Starts the assessment to create your running plan.'
+            : 'Prompts you to complete your profile before starting the assessment.'}
           activeOpacity={0.85}
         >
           <View style={styles.planIconTile}>

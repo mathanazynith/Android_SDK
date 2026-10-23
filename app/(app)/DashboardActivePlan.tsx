@@ -2,8 +2,8 @@ import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../../constants/theme';
-import type { CurrentWorkout } from '../../service/workoutPlan';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
+import type { CurrentWorkout } from '../../service/workoutPlan';
 
 type DashboardActivePlanProps = {
   todayWorkout: CurrentWorkout | null;
@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
   heading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   title: { flex: 1, color: '#F2F2F2', fontSize: 20, fontWeight: '800' },
   description: { color: '#E0E2E1', fontSize: 17, lineHeight: 24, marginVertical: 15 },
-  button: { minHeight: 51, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, borderRadius: 18, backgroundColor: Colors.primary },
+  button: { width: '88%', alignSelf: 'center', minHeight: 51, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, borderRadius: 18, backgroundColor: Colors.primary },
   buttonText: { color: '#081009', fontSize: 17, fontWeight: '800' },
   sectionTitle: { color: '#F2F2F2', fontSize: 21, fontWeight: '800', marginBottom: 12, marginTop: 6 },
   workoutRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10, marginBottom: 14 },
