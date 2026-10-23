@@ -729,7 +729,7 @@ export default function MapScreen() {
   );
 
   const handleLocationUpdate = useCallback(
-    (rawGps: RawGpsPayload) => {
+    (rawGps: RawGpsPayload, capturedPaused?: boolean) => {
       if (!isRunningRef.current) return;
 
       const timestamp = typeof rawGps.timestamp === 'number'
@@ -815,7 +815,7 @@ export default function MapScreen() {
       }
 
       const movementState = movementStateRef.current;
-      const shouldProcessRoute = movementState === 'MOVING';
+      const shouldProcessRoute = movementState === 'MOVING' || capturedPaused === true;
       previousLocationRef.current = rawGps;
       if (!shouldProcessRoute) {
         previousWorkoutPointRef.current = null;
@@ -827,8 +827,11 @@ export default function MapScreen() {
       const displayCountBefore = processor.getDisplayPoints().length;
       const retained = processor.ingestRaw(rawGps);
       const workoutEngine = workoutEngineRef.current;
-      const countsWorkoutDistance = workoutEngine?.isDistanceCounting() ?? !isPausedRef.current;
-      const traceType: RouteSegment['traceType'] = isPausedRef.current
+      const isPausePoint = capturedPaused ?? isPausedRef.current;
+      const countsWorkoutDistance = isPausePoint
+        ? false
+        : workoutEngine?.isDistanceCounting() ?? !isPausedRef.current;
+      const traceType: RouteSegment['traceType'] = isPausePoint
         ? 'pause'
         : workoutEngine?.shouldUseLightPolyline()
           ? 'extra'
@@ -969,9 +972,12 @@ export default function MapScreen() {
       await flushActiveRunJournal();
       const journal = await readActiveRunJournal();
       if (!journal?.active || journal.runId !== runIdRef.current) return;
-      [...journal.points]
-        .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0))
-        .forEach(handleLocationUpdate);
+      [
+        ...journal.points.map((point) => ({ point, paused: false })),
+        ...(journal.pausePoints ?? []).map((point) => ({ point, paused: true })),
+      ]
+        .sort((a, b) => Number(a.point.timestamp ?? 0) - Number(b.point.timestamp ?? 0))
+        .forEach(({ point, paused }) => handleLocationUpdate(point, paused));
     };
     const subscription = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
@@ -1016,8 +1022,10 @@ export default function MapScreen() {
         : Number.NaN;
       pauseStartTimeRef.current = Number.isFinite(openPauseStart) ? openPauseStart : null;
 
-      const restoredPoints = [...journal.points]
-        .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
+      const restoredPoints = [
+        ...journal.points.map((point) => ({ ...point, pauseSequence: undefined })),
+        ...(journal.pausePoints ?? []),
+      ].sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
       restoredPoints.forEach((point) => {
         const timestamp = typeof point.timestamp === 'number'
           ? point.timestamp
@@ -1032,11 +1040,26 @@ export default function MapScreen() {
       movementConfirmedRef.current = session.movementConfirmed ?? displayPoints.length > 0;
       movementStateRef.current = movementConfirmedRef.current ? 'MOVING' : 'STATIONARY';
       if (displayPoints.length > 0) {
-        routeSegmentsRef.current = [{
-          id: Date.now(),
-          traceType: session.paused ? 'pause' : 'active',
-          coordinates: displayPoints.map((point) => ({ latitude: point.latitude, longitude: point.longitude })),
-        }];
+        const restoredSegments: RouteSegment[] = [];
+        restoredPoints.forEach((point) => {
+          const traceType: RouteSegment['traceType'] = point.pauseSequence ? 'pause' : 'active';
+          const coordinate = { latitude: point.latitude, longitude: point.longitude };
+          const previousSegment = restoredSegments.at(-1);
+          if (previousSegment?.traceType === traceType) {
+            previousSegment.coordinates.push(coordinate);
+          } else {
+            const boundary = previousSegment?.coordinates.at(-1);
+            restoredSegments.push({
+              id: Date.now() + restoredSegments.length,
+              traceType,
+              coordinates: boundary
+                && (boundary.latitude !== coordinate.latitude || boundary.longitude !== coordinate.longitude)
+                ? [boundary, coordinate]
+                : [coordinate],
+            });
+          }
+        });
+        routeSegmentsRef.current = restoredSegments;
         setRouteSegments(routeSegmentsRef.current);
         const lastPoint = displayPoints.at(-1);
         if (lastPoint) {

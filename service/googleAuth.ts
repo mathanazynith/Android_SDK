@@ -139,7 +139,7 @@ class GoogleAuthService {
 
       // If we reach here, check if it was actually dismissed or if it's an auth failure
       if (result.type === "dismiss" || result.type === "cancel" || result.type === "closed") {
-        throw new Error("Google Sign-In was cancelled. Please try again and complete the authentication process.");
+        return null;
       }
 
       // Generic auth failure

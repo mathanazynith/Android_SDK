@@ -6,7 +6,7 @@ import * as TaskManager from 'expo-task-manager';
 import { AppState } from 'react-native';
 import { ActivityPauseEventPayload, RawGpsPayload } from '../types/running';
 import { calculateDistanceMeters } from '../utils/distance';
-import { appendActiveRunPoints, readActiveRunJournal } from './activeRunJournal';
+import { appendActiveRunPoints, appendPausedRunPoints, readActiveRunJournal } from './activeRunJournal';
 import { updateLiveTrackingNotification, WORKOUT_FOREGROUND_NOTIFICATION_ID } from './liveTrackingNotification';
 
 export const BACKGROUND_LOCATION_TASK_NAME = 'zyrun-background-location-task';
@@ -33,7 +33,7 @@ export interface BackgroundLocationSessionState {
 }
 
 declare global {
-  var __ZYRUN_BACKGROUND_LOCATION_LISTENER__: ((payload: RawGpsPayload) => void) | undefined;
+  var __ZYRUN_BACKGROUND_LOCATION_LISTENER__: ((payload: RawGpsPayload, paused?: boolean) => void) | undefined;
 }
 
 const readSessionState = async (): Promise<BackgroundLocationSessionState | null> => {
@@ -89,7 +89,7 @@ export const clearBackgroundLocationSession = async (): Promise<void> => {
 };
 
 export const setBackgroundLocationListener = (
-  listener?: (payload: RawGpsPayload) => void
+  listener?: (payload: RawGpsPayload, paused?: boolean) => void
 ): void => {
   globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__ = listener;
 };
@@ -118,32 +118,32 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, async ({ data, error }) =>
     .sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
   const payload = payloads[payloads.length - 1];
   const previous = await readSessionState();
-  if (!previous?.active || previous.paused) return;
+  if (!previous?.active) return;
+  const paused = Boolean(previous.paused);
 
   const nextState: BackgroundLocationSessionState = {
+    ...previous,
     active: true,
-    paused: false,
-    runId: previous?.runId ?? null,
-    userId: previous?.userId ?? null,
-    startedAt: previous?.startedAt ?? null,
     lastLocation: payload,
     updatedAt: Date.now(),
-    distanceKm: previous.distanceKm,
-    elapsedSeconds: previous.elapsedSeconds,   
-    paceMinutesPerKm: previous.paceMinutesPerKm,
-    movementConfirmed: previous.movementConfirmed,
-    confirmationPromptVisible: previous.confirmationPromptVisible,
-    pauseEvents: previous.pauseEvents,
   };
 
   await persistBackgroundLocationSession(nextState);
 
-  // Keep the screen-on watchPositionAsync pipeline completely untouched. The
-  // journal remains the durable hand-off when Android delivers a batch during
-  // the active/background transition; duplicate points are ignored by the journal.
-  await appendActiveRunPoints(payloads);
+  if (paused) {
+    await appendPausedRunPoints(payloads, Math.max(1, previous.pauseEvents?.length ?? 1));
+  } else {
+    await appendActiveRunPoints(payloads);
+  }
 
   if (AppState.currentState === 'active') return;
+
+  if (paused) {
+    if (typeof globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__ === 'function') {
+      payloads.forEach((point) => globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__?.(point, true));
+    }
+    return;
+  }
 
   const journal = await readActiveRunJournal();
   const journalDistanceKm = (journal?.points.slice(1).reduce((total, point, index) => (
@@ -169,7 +169,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, async ({ data, error }) =>
   await persistBackgroundLocationSession(nextState);
 
   if (typeof globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__ === 'function') {
-    payloads.forEach(globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__);
+    payloads.forEach((point) => globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__?.(point));
   }
 
 });

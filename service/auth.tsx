@@ -80,7 +80,7 @@ interface AuthContextType {
     confirmPassword: string;
   }) => Promise<void>;
   refreshProfile: () => Promise<void>;
-  googleLogin: () => Promise<{ requiresSignup: boolean }>;
+  googleLogin: () => Promise<{ requiresSignup: boolean; cancelled?: boolean }>;
   googleSignupData: {
     email: string;
     first_name: string;
@@ -267,7 +267,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const googleLogin = async (): Promise<{ requiresSignup: boolean }> => {
+  const googleLogin = async (): Promise<{ requiresSignup: boolean; cancelled?: boolean }> => {
     try {
       setIsLoading(true);
 
@@ -278,6 +278,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       const result = await googleAuthService.signInWithGoogle();
+      if (!result) {
+        setIsLoading(false);
+        return { requiresSignup: false, cancelled: true };
+      }
 
       const response = await authAPI.googleLogin({
         id_token: result.idToken,
