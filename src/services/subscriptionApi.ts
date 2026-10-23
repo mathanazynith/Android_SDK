@@ -84,7 +84,8 @@ export type UserSubscription = {
 
 export type SubscriptionCheckout =
   | { mode: 'payment'; order: { id: string; amount: number; currency: string } }
-  | { mode: 'subscription'; subscription: { id: string } };
+  | { mode: 'subscription'; subscription_id: string; subscription?: { id: string } }
+  | { mode: 'subscription'; subscription: { id: string }; subscription_id?: string };
 
 export type CreateSubscriptionResponse = {
   subscription: UserSubscription;
@@ -95,11 +96,10 @@ export type CreateSubscriptionResponse = {
 export const subscriptionAPI = {
   getPlans: () => api.get<SubscriptionPlan[]>('/subscriptions/plans/'),
   getCurrent: () => api.get<{ subscription: UserSubscription | null }>('/subscriptions/current/'),
-  create: (planId: number, pricingId: number, autopay: boolean) =>
+  create: (planId: number, pricingId: number) =>
     api.post<CreateSubscriptionResponse>('/subscriptions/create/', {
       plan_id: planId,
       pricing_id: pricingId,
-      autopay,
     }),
   verify: (payload:
     | { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }

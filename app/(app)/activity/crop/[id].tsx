@@ -1,16 +1,16 @@
 import { Alert } from '@/components/ThemedAlert';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { CropRangeSlider } from '../../../../components/CropRangeSlider';
 import { getBackendErrorMessage } from '../../../../service/api';
 import { activityAPI, BackendActivity, BackendPauseEvent } from '../../../../src/services/activityApi';
-import { createCatmullRomPolyline } from '../../../../src/utils/catmullRom';
 import { calculateActivityCropMetrics } from '../../../../src/utils/activityCropMetrics';
 import { buildActivityPauseMarkers, buildActivityRouteGroups } from '../../../../src/utils/activityRouteGroups';
+import { createCatmullRomPolyline } from '../../../../src/utils/catmullRom';
 import { decodePolyline } from '../../../../src/utils/polylineDecoder';
 import { addRouteTimestamps } from '../../../../src/utils/routeTimestamps';
 
@@ -209,7 +209,7 @@ export default function CropActivityScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
         <StatusBar barStyle="light-content" />
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#35C72B" />
@@ -253,7 +253,7 @@ export default function CropActivityScreen() {
     : '--';
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
       <StatusBar barStyle="light-content" />
 
       {/* Header */}

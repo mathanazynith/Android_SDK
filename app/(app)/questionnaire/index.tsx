@@ -18,17 +18,17 @@ import YesNo, {
   getYesNoOptionValues,
   getYesNoValue,
 } from "../../../app/(app)/questionnaire/QuestionTypes/YesNo";
-import EventRegistration from "../../../app/(app)/questionnaire/components/QuestionTypes/EventRegistration";
+import EventRegistration, { RacePredictionCard, type RacePrediction } from "../../../app/(app)/questionnaire/components/QuestionTypes/EventRegistration";
+import MotionEntrance from "../../../components/MotionEntrance";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { useQuestionnaire } from "../../../contexts/QuestionnaireContext";
+import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
+import { assessmentAPI } from "../../../service/api";
 import { useAuth } from "../../../service/auth";
 import type { Question } from "../../../service/questionnaire/questionnaireService";
 import { validateAnswer } from "../../../service/validation/AssessmentValidator";
 import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import { calculatePace, timeToSeconds } from "../../../utils/validators";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
-import MotionEntrance from "../../../components/MotionEntrance";
 
 // Helper to get numeric ID
 const getNumericId = (id: number | string): number => {
@@ -75,6 +75,9 @@ const QuestionField = ({
   maxDistanceKm,
   allQuestions,
   allAnswers,
+  racePrediction,
+  isRacePredictionLoading,
+  racePredictionError,
 }: any) => {
   const { colors } = useTheme();
   const {
@@ -451,6 +454,9 @@ const QuestionField = ({
             onCustomChange={(field: string, val: string) =>
               onCustomChange(id, field, val)
             }
+            racePrediction={racePrediction}
+            isRacePredictionLoading={isRacePredictionLoading}
+            racePredictionError={racePredictionError}
           />
         </View>
       );
@@ -463,7 +469,6 @@ const QuestionField = ({
           selectedValue={typeof value === "string" ? value : undefined}
           customValues={customValues || {}}
           onChange={(nextValue: Record<string, any>) => onAnswer(id, nextValue)}
-          trainingDaysComputed={computedResponses?.[question.slug ?? id]}
         />
       );
 
@@ -498,12 +503,15 @@ export default function QuestionnaireScreen() {
     canGoBack,
   } = useQuestionnaire();
   const { user } = useAuth();
-  const insets = useSafeAreaInsets();
   const [pageTransitionDirection, setPageTransitionDirection] = useState<'forward' | 'backward'>('forward');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrorQuestionId, setValidationErrorQuestionId] = useState<string | null>(null);
   const [daySelectionError, setDaySelectionError] = useState<string | null>(null);
+  const [racePrediction, setRacePrediction] = useState<RacePrediction | null>(null);
+  const [isRacePredictionLoading, setIsRacePredictionLoading] = useState(false);
+  const [racePredictionError, setRacePredictionError] = useState<string | null>(null);
+  const racePredictionRequestId = React.useRef(0);
 
   const getQuestionValidationMessages = (question: Question): string[] => {
     const keys = [
@@ -551,6 +559,157 @@ export default function QuestionnaireScreen() {
       router.replace('/(app)/running-plan');
     }
   }, [isComplete, assessmentId]);
+
+  React.useEffect(() => {
+    const findQuestion = (pattern: RegExp, type?: string) =>
+      questions.find((question) => pattern.test(question.question ?? "") && (!type || question.type === type));
+    const findSlug = (slug: string) => questions.find((question) => String(question.slug ?? "").toUpperCase() === slug);
+    const answerFor = (question?: Question) => question
+      ? allAnswers[String(question.backendId ?? getNumericId(question.id))]
+      : undefined;
+    const distanceInKm = (question?: Question) => {
+      const answer = answerFor(question);
+      const option = question?.options?.find((item) => String(item.id) === String(answer?.value));
+      const presetDistance = getDistanceInKilometers(option);
+      if (presetDistance) return presetDistance;
+      if (!option?.requires_input) return null;
+      const enteredDistance = Number(answer?.customValues?.distance ?? answer?.customValues?.targetDistance);
+      if (!Number.isFinite(enteredDistance) || enteredDistance <= 0) return null;
+      return getDistanceUnitCode(answer?.customValues?.unit ?? user?.profile?.distance_unit) === "mile"
+        ? enteredDistance * 1.60934
+        : enteredDistance;
+    };
+
+    const eventDateQuestion = findSlug("EVENT_DATE") ?? findQuestion(/event.*date|when.*event|date.*event/i, "date");
+    const eventStartQuestion = findSlug("TRAINING_START_DATE") ?? findQuestion(/start.*training|training.*start/i, "date");
+    const eventDistanceQuestion = currentPageQuestions.find((question) => /event.*distance|distance.*event/i.test(question.question ?? ""))
+      ?? findSlug("EVENT_DISTANCE")
+      ?? findQuestion(/event.*distance|distance.*event/i);
+    const eventTimeQuestion = currentPageQuestions.find((question) => question.type === "time" && /event/i.test(question.question ?? ""))
+      ?? findSlug("EVENT_TARGET_TIME")
+      ?? questions.find((question) => String(question.slug ?? "").toUpperCase() === "TARGET_TIME" && /event/i.test(question.question ?? ""))
+      ?? findQuestion(/target.*time|time.*event/i, "time");
+    const goalDateQuestion = findSlug("GOAL_ACHIEVEMENT_DATE") ?? findQuestion(/goal.*achiev.*date|goal.*date/i, "date");
+    const goalStartQuestion = findSlug("START_TRAINING_DATE") ?? findQuestion(/start.*training|training.*start/i, "date");
+    const planGoalQuestion = findSlug("RUNNING_GOAL") ?? questions.find((question) =>
+      question.isGoalQuestion === true || (question.type === "plan_selection" && /running goal|primary.*goal/i.test(question.question ?? ""))
+    );
+    const planTimeQuestion = findSlug("GOAL_TARGET_TIME") ?? questions.find((question) =>
+      question.type === "time" && /goal[_\s-]*target[_\s-]*time|target.*time.*goal/i.test(`${question.question} ${question.slug ?? ""}`)
+    );
+
+    const eventTimeAnswer = answerFor(eventTimeQuestion);
+    const eventDistanceAnswer = answerFor(eventDistanceQuestion);
+    const planGoalAnswer = answerFor(planGoalQuestion);
+    const planTimeAnswer = answerFor(planTimeQuestion);
+    const eventCandidate = {
+      kind: "event" as const,
+      dateQuestion: eventDateQuestion,
+      startQuestion: eventStartQuestion,
+      distanceQuestion: eventDistanceQuestion,
+      timeQuestion: eventTimeQuestion,
+      date: answerFor(eventDateQuestion)?.value,
+      startDate: answerFor(eventStartQuestion)?.value,
+      goalTime: eventTimeAnswer?.value ?? eventTimeAnswer?.customValues?.targetTime ?? eventTimeAnswer?.customValues?.time
+        ?? eventDistanceAnswer?.customValues?.targetTime ?? eventDistanceAnswer?.customValues?.time,
+      distanceKm: distanceInKm(eventDistanceQuestion),
+    };
+    const planCandidate = {
+      kind: "plan" as const,
+      dateQuestion: goalDateQuestion,
+      startQuestion: goalStartQuestion,
+      distanceQuestion: planGoalQuestion,
+      timeQuestion: planTimeQuestion ?? planGoalQuestion,
+      date: answerFor(goalDateQuestion)?.value,
+      startDate: answerFor(goalStartQuestion)?.value,
+      goalTime: planTimeAnswer?.value ?? planTimeAnswer?.customValues?.time ?? planTimeAnswer?.customValues?.targetTime
+        ?? planGoalAnswer?.customValues?.time ?? planGoalAnswer?.customValues?.targetTime,
+      distanceKm: distanceInKm(planGoalQuestion),
+    };
+    const isCompleteCandidate = (candidate: typeof eventCandidate | typeof planCandidate) =>
+      Boolean(candidate.date && candidate.startDate && candidate.distanceKm && typeof candidate.goalTime === "string" && timeToSeconds(candidate.goalTime) !== null);
+    // Event registration can use goal-like slugs for its target-time question.
+    // Identify the page by its event fields first so those slugs do not route
+    // the event answers through the plan-selection candidate.
+    const hasEventRegistrationQuestions = currentPageQuestions.some((question) =>
+      /event.*name|name.*event/i.test(question.question ?? "")
+      || String(question.slug ?? "").toUpperCase() === "EVENT_NAME"
+    ) && currentPageQuestions.some((question) =>
+      question.type === "date"
+      && (/event.*date|when.*event|date.*event/i.test(question.question ?? "")
+        || String(question.slug ?? "").toUpperCase() === "EVENT_DATE")
+    );
+    const isPlanSelectionPage = !hasEventRegistrationQuestions && currentPageQuestions.some((question) =>
+      question.type === "plan_selection"
+      || ["RUNNING_GOAL", "GOAL_ACHIEVEMENT_DATE", "START_TRAINING_DATE", "GOAL_TARGET_TIME"].includes(String(question.slug ?? "").toUpperCase())
+      || /goal[_\s-]*target[_\s-]*time|primary.*running.*goal/i.test(`${question.question} ${question.slug ?? ""}`)
+    );
+    const candidate = isPlanSelectionPage
+      ? (isCompleteCandidate(planCandidate) ? planCandidate : null)
+      : (isCompleteCandidate(eventCandidate) ? eventCandidate : null);
+
+    const requestId = ++racePredictionRequestId.current;
+    if (!assessmentId || !candidate) {
+      setRacePrediction(null);
+      setIsRacePredictionLoading(false);
+      setRacePredictionError(null);
+      return;
+    }
+
+    setIsRacePredictionLoading(true);
+    setRacePredictionError(null);
+    const timer = setTimeout(async () => {
+      const answers = [candidate.dateQuestion, candidate.startQuestion, candidate.distanceQuestion, candidate.timeQuestion]
+        .filter((question, index, list): question is Question => Boolean(question) && list.indexOf(question) === index)
+        .map((question) => {
+          const answer = answerFor(question);
+          return {
+            question_id: Number(question.backendId ?? getNumericId(question.id)),
+            value: answer?.value,
+            unit: answer?.unit ?? null,
+            custom_values: answer?.customValues ?? {},
+          };
+        });
+
+      try {
+        const response = await assessmentAPI.checkAPI(assessmentId, {
+          event_date: candidate.date,
+          target_date: candidate.date,
+          // The check endpoint's goal validator consumes these generic date
+          // keys for both assessment paths; keep the event aliases as well so
+          // event registration retains its own context.
+          goal_achievement_date: candidate.date,
+          training_start_date: candidate.startDate,
+          start_training_date: candidate.startDate,
+          target_distance_km: candidate.distanceKm,
+          goal_time: candidate.goalTime,
+          ...(candidate.kind === "event" ? {
+            event_distance_km: candidate.distanceKm,
+            event_target_time: candidate.goalTime,
+            target_time: candidate.goalTime,
+          } : { target_time: candidate.goalTime }),
+          answers,
+        });
+        if (requestId !== racePredictionRequestId.current) return;
+        const data = response.data?.prediction ?? response.data;
+        setRacePrediction(data && typeof data === "object" ? data as RacePrediction : null);
+      } catch (checkError: any) {
+        if (requestId !== racePredictionRequestId.current) return;
+        const data = checkError?.response?.data?.prediction ?? checkError?.response?.data;
+        setRacePrediction(data && typeof data === "object" && ("goal_status" in data || "predicted_time" in data || "validation_error" in data)
+          ? data as RacePrediction
+          : null);
+        if (!data || typeof data !== "object" || !("goal_status" in data || "predicted_time" in data || "validation_error" in data)) {
+          const message = checkError?.response?.data?.detail ?? checkError?.response?.data?.message;
+          setRacePredictionError(typeof message === "string" ? message : "Unable to check your goal time right now.");
+        }
+      } finally {
+        if (requestId === racePredictionRequestId.current) setIsRacePredictionLoading(false);
+      }
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [assessmentId, questions, currentPageQuestions, allAnswers, user?.profile?.distance_unit]);
 
   if (isLoading) {
     return (
@@ -1127,6 +1286,9 @@ export default function QuestionnaireScreen() {
               selectedValue={eventRegistrationGroup.distanceQuestion ? currentPageAnswers[String(eventRegistrationGroup.distanceQuestion.backendId ?? getNumericId(eventRegistrationGroup.distanceQuestion.id))]?.value : undefined}
               customValues={eventRegistrationGroup.distanceQuestion ? currentPageAnswers[String(eventRegistrationGroup.distanceQuestion.backendId ?? getNumericId(eventRegistrationGroup.distanceQuestion.id))]?.customValues || {} : {}}
               maxDistanceKm={maxTargetDistanceKm}
+              racePrediction={racePrediction}
+              isRacePredictionLoading={isRacePredictionLoading}
+              racePredictionError={racePredictionError}
               validationMessages={{
                 eventName: getQuestionValidationMessages(eventRegistrationGroup.eventNameQuestion),
                 eventDate: [...getQuestionValidationMessages(eventRegistrationGroup.eventDateQuestion), ...getLiveDateValidationMessages(eventRegistrationGroup.eventDateQuestion)],
@@ -1145,7 +1307,6 @@ export default function QuestionnaireScreen() {
                 eventNamePlaceholder: eventRegistrationGroup.eventNameQuestion.placeholder,
                 eventDate: eventRegistrationGroup.eventDateQuestion.label || eventRegistrationGroup.eventDateQuestion.question,
                 trainingStartDate: eventRegistrationGroup.trainingStartDateQuestion?.label || eventRegistrationGroup.trainingStartDateQuestion?.question,
-                trainingDays: eventRegistrationGroup.eventDateQuestion.fieldLabels?.trainingDays,
                 detailsTitle: eventRegistrationGroup.distanceQuestion?.title || eventRegistrationGroup.distanceQuestion?.question,
                 detailsDescription: eventRegistrationGroup.distanceQuestion?.description,
                 distance: eventRegistrationGroup.distanceQuestion?.fieldLabels?.distance || eventRegistrationGroup.distanceQuestion?.label,
@@ -1180,13 +1341,13 @@ export default function QuestionnaireScreen() {
                   handleAnswer(eventRegistrationGroup.targetTimeQuestion.id, nextValue.targetTime);
                 }
               }}
-              trainingDaysComputed={computedResponses?.[eventRegistrationGroup.eventDateQuestion.slug ?? "training_days"] ?? computedResponses?.training_days}
             />
           )}
 
           {displayQuestions
             .filter((question) => !recentLongRunQuestionIds.has(question.id))
             .filter((question) => !eventRegistrationQuestionIds.has(question.id))
+            .filter((question) => !/training\s+days?\s+available/i.test(`${question.question} ${question.slug ?? ""}`))
             .map((question) => {
               const numericKey = String(
                 question.backendId ?? getNumericId(question.id)
@@ -1206,6 +1367,8 @@ export default function QuestionnaireScreen() {
                 ...getQuestionValidationMessages(question),
                 ...getLiveDateValidationMessages(question),
               ];
+              const isRaceGoalTimeQuestion = question.type === "time"
+                && /(?:goal|target).*(?:time|finish)|(?:time|finish).*event/i.test(`${question.question} ${question.slug ?? ""}`);
 
               return (
                 <View key={question.id}>
@@ -1219,6 +1382,9 @@ export default function QuestionnaireScreen() {
                     maxDistanceKm={maxTargetDistanceKm}
                     allQuestions={questions}
                     allAnswers={allAnswers}
+                    racePrediction={racePrediction}
+                    isRacePredictionLoading={isRacePredictionLoading}
+                    racePredictionError={racePredictionError}
                     onAnswer={(
                       questionKey: string,
                       val: any,
@@ -1235,13 +1401,20 @@ export default function QuestionnaireScreen() {
                       {message}
                     </Text>
                   ))}
+                  {isRaceGoalTimeQuestion && (
+                    <RacePredictionCard
+                      prediction={racePrediction}
+                      isLoading={isRacePredictionLoading}
+                      error={racePredictionError}
+                    />
+                  )}
                 </View>
               );
             })}
         </MotionEntrance>
       </ScrollView>
 
-      <View style={[styles.buttonContainer, { paddingBottom: 12 + insets.bottom, backgroundColor: colors.background }]}>
+      <View style={[styles.buttonContainer, { paddingBottom: 12, backgroundColor: colors.background }]}>
         {!isFirstAssessmentPage && (
           <TouchableOpacity
             style={[styles.button, styles.prevButton]}

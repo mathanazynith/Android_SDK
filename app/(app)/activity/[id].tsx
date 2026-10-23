@@ -8,8 +8,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import ActivitySplitsModal from '../../../components/ActivitySplitsModal';
-import { useTheme } from '../../../contexts/ThemeContext';
 import MotionEntrance from '../../../components/MotionEntrance';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage } from '../../../service/api';
 import { activityAPI, BackendActivity, normalizeActivitySplits } from '../../../src/services/activityApi';
 import { ActivityExtraSplits, ActivitySegmentSplits } from '../../../src/types/activity';
@@ -34,12 +34,19 @@ const formatPace = (secondsPerKm: number) => {
 
 const formatSpeed = (metersPerSecond: number) => `${(Math.max(0, metersPerSecond) * 3.6).toFixed(1)} km/h`;
 
-function DetailMetric({ label, value }: { label: string; value: string }) {
+const formatEndTime = (value: string) => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? '--'
+    : date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+};
+
+function DetailMetric({ label, value, fullWidth = false }: { label: string; value: string; fullWidth?: boolean }) {
   const { colors } = useTheme();
   return (
-    <View style={styles.metric}>
-      <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>{label}</Text>
-      <Text style={[styles.metricValue, { color: colors.text }]}>{value}</Text>
+    <View style={[styles.metric, fullWidth && styles.metricFullWidth]}>
+      <Text style={[styles.metricLabel, fullWidth && styles.metricLabelInline, { color: colors.textSecondary }]}>{label}</Text>
+      <Text style={[styles.metricValue, fullWidth && styles.metricValueInline, { color: colors.text }]}>{value}</Text>
     </View>
   );
 }
@@ -162,7 +169,7 @@ export default function ActivityDetailScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
       <View style={styles.header}>
         <TouchableOpacity accessibilityLabel="Back to workout history" onPress={handleBack} style={styles.backButton}>
@@ -222,10 +229,9 @@ export default function ActivityDetailScreen() {
             })}
           </Text>
 
-            <View style={[styles.heroCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Text style={[styles.heroLabel, { color: colors.textSecondary }]}>Distance</Text>
-              <Text style={[styles.distance, { color: colors.primary }]}>{formatDistance(activity.distance)}</Text>
-              <Text style={[styles.status, { color: colors.textTertiary }]}>{activity.processing_status.toLowerCase()}</Text>
+            <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <DetailMetric label="Moving time" value={formatDuration(activity.moving_time)} />
+              <DetailMetric label="Distance" value={formatDistance(activity.distance)} />
             </View>
 
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Route</Text>
@@ -241,41 +247,39 @@ export default function ActivityDetailScreen() {
             cropStartIndex={Number.isFinite(cropStartIndex) ? cropStartIndex : undefined}
             cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
             enableFullScreen
-            activityStats={{
-              distance: activity.distance,
-              duration: activity.moving_time || activity.elapsed_time,
-              pace: activity.avg_pace,
-              elevationGain: activity.elevation_gain,
-              activityType: activity.activity_type,
-            }}
           />
 
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Performance</Text>
-            <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <DetailMetric label="Moving time" value={formatDuration(activity.moving_time)} />
-              <DetailMetric label="Elapsed time" value={formatDuration(activity.elapsed_time)} />
-              <DetailMetric label="Average pace" value={formatPace(activity.avg_pace)} />
-              <DetailMetric label="Average speed" value={formatSpeed(activity.avg_speed)} />
-              <DetailMetric label="Max speed" value={formatSpeed(activity.max_speed)} />
-              <DetailMetric label="Calories" value={`${Math.round(activity.calories)} kcal`} />
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Distance breakdown</Text>
+            <View style={[styles.metricsCard, styles.verticalMetricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <DetailMetric
+                fullWidth
+                label="Planned distance"
+                value={activity.planned_distance != null
+                  ? formatDistance(Number(activity.planned_distance))
+                  : activity.planned_distance_km != null
+                    ? formatDistance(Number(activity.planned_distance_km) * 1000)
+                    : 'No planned distance'}
+              />
+              <DetailMetric
+                fullWidth
+                label="Extra distance"
+                value={activity.extra_distance != null
+                  ? (Number(activity.extra_distance) > 0 ? formatDistance(Number(activity.extra_distance)) : 'No extra distance')
+                  : activity.extra_distance_km != null
+                    ? (Number(activity.extra_distance_km) > 0 ? formatDistance(Number(activity.extra_distance_km) * 1000) : 'No extra distance')
+                    : 'No extra distance'}
+              />
             </View>
 
-            {(activity.planned_distance_km !== null && activity.planned_distance_km !== undefined)
-              || (activity.extra_distance_km !== null && activity.extra_distance_km !== undefined) ? (
-              <>
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Distance breakdown</Text>
-                <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <DetailMetric label="Planned distance" value={formatDistance(Number(activity.planned_distance ?? (activity.planned_distance_km ?? 0) * 1000))} />
-                  <DetailMetric label="Extra distance" value={formatDistance(Number(activity.extra_distance ?? (activity.extra_distance_km ?? 0) * 1000))} />
-                </View>
-              </>
-            ) : null}
-
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Route data</Text>
-            <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <DetailMetric label="Elevation gain" value={`${Math.round(activity.elevation_gain)} m`} />
-              <DetailMetric label="Elevation loss" value={`${Math.round(activity.elevation_loss)} m`} />
-              <DetailMetric label="Route processed" value={activity.is_processed ? 'Yes' : 'No'} />
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Activity details</Text>
+            <View style={[styles.metricsCard, styles.verticalMetricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <DetailMetric fullWidth label="Elapsed time" value={formatDuration(activity.elapsed_time)} />
+              <DetailMetric fullWidth label="Average speed" value={formatSpeed(activity.avg_speed)} />
+              <DetailMetric fullWidth label="Max speed" value={formatSpeed(activity.max_speed)} />
+              <DetailMetric fullWidth label="Calories" value={`${Math.round(activity.calories)} kcal`} />
+              <DetailMetric fullWidth label="Elevation gain" value={`${Math.round(activity.elevation_gain)} m`} />
+              <DetailMetric fullWidth label="Elevation loss" value={`${Math.round(activity.elevation_loss)} m`} />
+              <DetailMetric fullWidth label="Activity ended" value={formatEndTime(activity.end_time)} />
             </View>
           </MotionEntrance>
         </ScrollView>
@@ -310,15 +314,16 @@ const styles = StyleSheet.create({
   content: { paddingTop: 16, paddingBottom: 38 },
   activityType: { fontSize: 32, fontWeight: '700' },
   date: { fontSize: 15, marginTop: 5 },
-  heroCard: { borderRadius: 26, borderWidth: 1, padding: 22, marginTop: 26 },
-  heroLabel: { fontSize: 15 },
-  distance: { fontSize: 42, fontWeight: '700', marginTop: 5 },
-  status: { fontSize: 13, marginTop: 10, textTransform: 'capitalize' },
+  summaryCard: { borderRadius: 22, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 8, marginTop: 26 },
   sectionTitle: { fontSize: 21, fontWeight: '700', marginTop: 26, marginBottom: 12 },
   metricsCard: { borderRadius: 22, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 8 },
+  verticalMetricsCard: { flexDirection: 'column' },
   metric: { width: '50%', padding: 14 },
+  metricFullWidth: { width: '100%', minHeight: 42, paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
   metricLabel: { fontSize: 13 },
+  metricLabelInline: { flex: 1, flexShrink: 1 },
   metricValue: { fontSize: 17, fontWeight: '700', marginTop: 5 },
+  metricValueInline: { flex: 1, marginTop: 0, flexShrink: 1, textAlign: 'right' },
   centerState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28 },
   stateText: { fontSize: 16, textAlign: 'center', marginTop: 13 },
   retryButton: { borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, marginTop: 18 },

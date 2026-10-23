@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { View, TextInput, Text, StyleSheet, TouchableOpacity, TextInputProps, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, BorderRadius, Spacing, Typography } from '../../constants/theme';
+import React, { useState } from 'react';
+import { StyleProp, StyleSheet, Text, TextInput, TextInputProps, TouchableOpacity, View, ViewStyle } from 'react-native';
+import { BorderRadius, Colors, Spacing, Typography } from '../../constants/theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useResponsive } from '../../utils/responsive';
 
@@ -12,7 +12,7 @@ interface AppInputProps extends TextInputProps {
   rightIcon?: React.ReactNode;
   onRightIconPress?: () => void;
   containerStyle?: ViewStyle;
-  inputStyle?: ViewStyle;
+  inputStyle?: StyleProp<ViewStyle>;
   authStyle?: boolean;
 }
 
@@ -25,11 +25,11 @@ export const AppInput: React.FC<AppInputProps> = ({
   const [isFocused, setIsFocused] = useState(false);
   const [isSecure, setIsSecure] = useState(secureTextEntry || false);
   const toggleSecure = () => setIsSecure(!isSecure);
-  const borderColor = error ? Colors.error : isFocused ? Colors.primary : colors.border;
+  const borderColor = error ? Colors.error : isFocused ? colors.primary : colors.border;
 
   return (
     <View style={[styles.container, containerStyle]}>
-      {label && <Text style={styles.label}>{label}</Text>}
+      {label && <Text style={[styles.label, { color: colors.textSecondary }]}>{label}</Text>}
       <View style={[
         styles.inputWrapper,
         { borderColor, backgroundColor: colors.surface },
@@ -48,7 +48,7 @@ export const AppInput: React.FC<AppInputProps> = ({
         />
         {secureTextEntry && (
           <TouchableOpacity onPress={toggleSecure} style={styles.rightIcon} accessibilityLabel={isSecure ? 'Show password' : 'Hide password'}>
-            <Ionicons name={isSecure ? 'eye-outline' : 'eye-off-outline'} size={20} color={Colors.textSecondary} />
+            <Ionicons name={isSecure ? 'eye-outline' : 'eye-off-outline'} size={20} color={colors.textSecondary} />
           </TouchableOpacity>
         )}
         {rightIcon && <TouchableOpacity onPress={onRightIconPress} style={styles.rightIcon}>{rightIcon}</TouchableOpacity>}

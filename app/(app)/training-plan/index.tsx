@@ -278,7 +278,7 @@ export default function TrainingPlanScreen() {
 
   if (isWorkoutPlanLoading && !plan) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
         <StatusBar barStyle="light-content" />
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#63C72B" />
@@ -290,7 +290,7 @@ export default function TrainingPlanScreen() {
 
   if (!plan) {
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
           <StatusBar barStyle="light-content" />
         <View style={styles.center}>
           <Text style={[styles.error, { color: colors.text }]}>{workoutPlanError || 'No training plan is available.'}</Text>
@@ -303,7 +303,7 @@ export default function TrainingPlanScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle="light-content" />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <MotionEntrance>

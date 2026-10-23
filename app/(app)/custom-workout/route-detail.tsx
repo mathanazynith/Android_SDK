@@ -18,11 +18,11 @@ export default function RouteDetailScreen() {
   }, [routeParam]);
 
   if (!route) {
-    return <SafeAreaView style={styles.container}><Text style={styles.errorText}>Route details are unavailable.</Text></SafeAreaView>;
+    return <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}><Text style={styles.errorText}>Route details are unavailable.</Text></SafeAreaView>;
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
       <StatusBar barStyle="light-content" />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.closeButton} accessibilityLabel="Close route details">

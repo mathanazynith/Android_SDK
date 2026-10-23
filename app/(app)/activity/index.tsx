@@ -1,41 +1,40 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { Image as ExpoImage } from 'expo-image';
 import { Directory, File, Paths } from 'expo-file-system';
-import { router, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Image as ExpoImage } from 'expo-image';
+import { router, useFocusEffect } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     AccessibilityInfo,
-    Animated,
     ActivityIndicator,
+    Animated,
     Easing,
     FlatList,
     LayoutAnimation,
     Modal,
     Platform,
-    ScrollView,
     StatusBar,
     StyleSheet,
     Text,
     TouchableOpacity,
     Vibration,
     View,
-    type ViewToken,
+    type ViewToken
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Reanimated, {
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withTiming,
+    useAnimatedStyle,
+    useReducedMotion,
+    useSharedValue,
+    withTiming,
 } from 'react-native-reanimated';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
+import ThemedCalendarPicker from '../../../components/common/ThemedCalendarPicker';
 
-import MotionEntrance from '../../../components/MotionEntrance';
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
+import MotionEntrance from '../../../components/MotionEntrance';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage, resolveApiUrl } from '../../../service/api';
 import { activityAPI, BackendActivity } from '../../../src/services/activityApi';
@@ -77,9 +76,8 @@ const getNormalizedActivityType = (activityType: string): 'run' | 'walk' =>
   activityType.toLowerCase() === 'walk' ? 'walk' : 'run';
 
 type ActivityTypeFilter = 'all' | 'run' | 'walk';
-type ActivityDateFilter = 'all' | '7d' | '30d' | '90d' | 'year' | 'single' | 'range';
+type ActivityDateFilter = 'all' | '7d' | '30d' | '90d' | 'month' | 'year' | 'single' | 'range';
 type ActivityDistanceFilter = 'all' | 'under1' | 'under2' | 'short' | 'medium' | 'long';
-type ActivitySortFilter = 'newest' | 'oldest' | 'longest' | 'fastest';
 type DatePickerTarget = 'start' | 'end';
 type ActivityGroupMode = 'month' | 'week';
 
@@ -89,7 +87,7 @@ type ActivityListRow =
   | { type: 'activity'; key: string; activity: BackendActivity };
 
 const activityTypeOptions: { label: string; value: ActivityTypeFilter }[] = [
-  { label: 'All', value: 'all' },
+  { label: 'All Types', value: 'all' },
   { label: 'Run', value: 'run' },
   { label: 'Walk', value: 'walk' },
 ];
@@ -99,6 +97,7 @@ const activityDateOptions: { label: string; value: ActivityDateFilter }[] = [
   { label: '7d', value: '7d' },
   { label: '30d', value: '30d' },
   { label: '90d', value: '90d' },
+  { label: 'This Month', value: 'month' },
   { label: 'Year', value: 'year' },
   { label: 'Single', value: 'single' },
   { label: 'Range', value: 'range' },
@@ -111,13 +110,6 @@ const activityDistanceOptions: { label: string; value: ActivityDistanceFilter }[
   { label: '<5 km', value: 'short' },
   { label: '5–10 km', value: 'medium' },
   { label: '10+ km', value: 'long' },
-];
-
-const activitySortOptions: { label: string; value: ActivitySortFilter }[] = [
-  { label: 'Newest', value: 'newest' },
-  { label: 'Oldest', value: 'oldest' },
-  { label: 'Longest', value: 'longest' },
-  { label: 'Fastest', value: 'fastest' },
 ];
 
 const formatDateLabel = (value: Date | null) => {
@@ -153,6 +145,12 @@ const matchesDateRange = (
     return activityDate >= start && activityDate <= end;
   }
 
+  if (range === 'month') {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    return activityDate >= monthStart && activityDate <= now.getTime();
+  }
+
   const now = Date.now();
   const rangeMs = {
     '7d': 7 * 24 * 60 * 60 * 1000,
@@ -175,30 +173,9 @@ const matchesDistanceRange = (activity: BackendActivity, range: ActivityDistance
   return distanceKm >= 10;
 };
 
-const sortActivities = (items: BackendActivity[], sortBy: ActivitySortFilter) => {
+const sortActivities = (items: BackendActivity[]) => {
   const cloned = [...items];
-
-  cloned.sort((a, b) => {
-    const aDate = new Date(a.start_time).getTime();
-    const bDate = new Date(b.start_time).getTime();
-    const aDistance = Number(a.distance) || 0;
-    const bDistance = Number(b.distance) || 0;
-    const aPace = Number(a.avg_pace) || Number.POSITIVE_INFINITY;
-    const bPace = Number(b.avg_pace) || Number.POSITIVE_INFINITY;
-
-    switch (sortBy) {
-      case 'oldest':
-        return aDate - bDate;
-      case 'longest':
-        return bDistance - aDistance;
-      case 'fastest':
-        return aPace - bPace;
-      case 'newest':
-      default:
-        return bDate - aDate;
-    }
-  });
-
+  cloned.sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime());
   return cloned;
 };
 
@@ -264,7 +241,6 @@ const getActivityDay = (activity: BackendActivity) => {
 const buildActivityRows = (
   activities: BackendActivity[],
   groupMode: ActivityGroupMode,
-  sortBy: ActivitySortFilter,
 ): ActivityListRow[] => {
   const groups = new Map<string, { title: string; timestamp: number; activities: BackendActivity[] }>();
 
@@ -284,9 +260,7 @@ const buildActivityRows = (
       const secondHasDate = Number.isFinite(second.timestamp);
       if (!firstHasDate) return secondHasDate ? 1 : 0;
       if (!secondHasDate) return -1;
-      return sortBy === 'oldest'
-        ? first.timestamp - second.timestamp
-        : second.timestamp - first.timestamp;
+      return second.timestamp - first.timestamp;
     })
     .flatMap(([key, group]) => {
       const dayGroups = new Map<string, { title: string; timestamp: number; activities: BackendActivity[] }>();
@@ -303,16 +277,14 @@ const buildActivityRows = (
       const orderedDays = [...dayGroups.entries()].sort(([, first], [, second]) => {
         if (!Number.isFinite(first.timestamp)) return Number.isFinite(second.timestamp) ? 1 : 0;
         if (!Number.isFinite(second.timestamp)) return -1;
-        return sortBy === 'oldest'
-          ? first.timestamp - second.timestamp
-          : second.timestamp - first.timestamp;
+        return second.timestamp - first.timestamp;
       });
 
       return [
         { type: 'section' as const, key: `section:${key}`, title: group.title, activities: group.activities },
         ...orderedDays.flatMap(([dayKey, day]) => [
           { type: 'day' as const, key: `day:${key}:${dayKey}`, title: day.title, count: day.activities.length },
-          ...sortActivities(day.activities, sortBy).map((activity) => ({
+          ...sortActivities(day.activities).map((activity) => ({
             type: 'activity' as const,
             key: `activity:${activity.id}`,
             activity,
@@ -492,13 +464,13 @@ const ActivityCard = memo(function ActivityCard({
               weekday: 'short', month: 'short', day: 'numeric',
             })}
           </Text>
-          <Text style={styles.distance}>{formatDistance(activity.distance)}</Text>
+          <Text style={[styles.distance, { color: colors.primary }]}>{formatDistance(activity.distance)}</Text>
         </View>
 
         <View style={styles.centerMetricsContainer}>
           <View style={styles.metricRow}>
             <View style={styles.metricIcon}>
-              <Feather name="clock" size={17} color="#35C72B" />
+              <Feather name="clock" size={17} color={colors.primary} />
             </View>
             <View style={styles.metricText}>
               <Text style={[styles.metricValue, { color: colors.text }]}>{formatDuration(duration)}</Text>
@@ -507,7 +479,7 @@ const ActivityCard = memo(function ActivityCard({
           </View>
           <View style={styles.metricRow}>
             <View style={styles.metricIcon}>
-              <Feather name="compass" size={17} color="#35C72B" />
+              <Feather name="compass" size={17} color={colors.primary} />
             </View>
             <View style={styles.metricText}>
               <Text style={[styles.metricValue, { color: colors.text }]}>{formatPace(activity.avg_pace)}</Text>
@@ -645,6 +617,7 @@ async function fetchHistoryPageSkippingEmptyPages(cursor: string | null) {
 
 export default function ActivityScreen() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
   const [activities, setActivities] = useState<BackendActivity[]>([]);
   const [visibleActivityIds, setVisibleActivityIds] = useState<Set<string>>(() => new Set());
@@ -658,11 +631,9 @@ export default function ActivityScreen() {
   const [selectedType, setSelectedType] = useState<ActivityTypeFilter>('all');
   const [selectedDateRange, setSelectedDateRange] = useState<ActivityDateFilter>('all');
   const [selectedDistanceRange, setSelectedDistanceRange] = useState<ActivityDistanceFilter>('all');
-  const [sortBy, setSortBy] = useState<ActivitySortFilter>('newest');
   const [showTypeSheet, setShowTypeSheet] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showDistanceSheet, setShowDistanceSheet] = useState(false);
-  const [showSortSheet, setShowSortSheet] = useState(false);
   const [showNativeDatePicker, setShowNativeDatePicker] = useState(false);
   const [datePickerTarget, setDatePickerTarget] = useState<DatePickerTarget>('start');
   const [selectedDayDate, setSelectedDayDate] = useState<Date | null>(null);
@@ -911,18 +882,13 @@ export default function ActivityScreen() {
     return activityDistanceOptions.find((option) => option.value === selectedDistanceRange)?.label ?? 'Distance';
   }, [selectedDistanceRange]);
 
-  const sortSummary = useMemo(() => {
-    return activitySortOptions.find((option) => option.value === sortBy)?.label ?? 'Newest';
-  }, [sortBy]);
-
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (selectedType !== 'all') count += 1;
     if (selectedDateRange !== 'all') count += 1;
     if (selectedDistanceRange !== 'all') count += 1;
-    if (sortBy !== 'newest') count += 1;
     return count;
-  }, [selectedDateRange, selectedDistanceRange, selectedType, sortBy]);
+  }, [selectedDateRange, selectedDistanceRange, selectedType]);
 
   const hasActiveFilters = activeFilterCount > 0;
 
@@ -931,9 +897,8 @@ export default function ActivityScreen() {
     if (selectedType !== 'all') labels.push(activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'Event');
     if (selectedDateRange !== 'all') labels.push(dateSummary);
     if (selectedDistanceRange !== 'all') labels.push(distanceSummary);
-    if (sortBy !== 'newest') labels.push(sortSummary);
     return labels;
-  }, [dateSummary, distanceSummary, selectedDateRange, selectedDistanceRange, selectedType, sortBy, sortSummary]);
+  }, [dateSummary, distanceSummary, selectedDateRange, selectedDistanceRange, selectedType]);
 
   const visibleActivities = useMemo(() => {
     let filtered = [...activities];
@@ -950,12 +915,12 @@ export default function ActivityScreen() {
       filtered = filtered.filter((activity) => matchesDistanceRange(activity, selectedDistanceRange));
     }
 
-    return sortActivities(filtered, sortBy);
-  }, [activities, rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate, selectedDistanceRange, selectedType, sortBy]);
+    return sortActivities(filtered);
+  }, [activities, rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate, selectedDistanceRange, selectedType]);
 
   const activityRows = useMemo(
-    () => buildActivityRows(visibleActivities, groupMode, sortBy),
-    [groupMode, sortBy, visibleActivities],
+    () => buildActivityRows(visibleActivities, groupMode),
+    [groupMode, visibleActivities],
   );
 
   const selectedActivities = useMemo(
@@ -1221,7 +1186,7 @@ export default function ActivityScreen() {
 
   return (
     <GestureHandlerRootView style={styles.gestureRoot}>
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.screenContent}>
       <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} />
       {selectionMode ? (
@@ -1240,7 +1205,7 @@ export default function ActivityScreen() {
               accessibilityLabel="Cancel workout selection"
               disabled={isDeletingActivities}
               onPress={cancelActivitySelection}
-              style={[styles.selectionToolbarButton, styles.cancelSelectionButton, { borderColor: colors.border }]}
+              style={[styles.selectionToolbarButton, styles.cancelSelectionButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
             >
               <Feather name="x" size={19} color="#E53935" />
             </TouchableOpacity>
@@ -1252,7 +1217,7 @@ export default function ActivityScreen() {
             </View>
           </View>
           <View style={styles.selectionToolbarActions}>
-            <View style={styles.groupModeSwitch}>
+            <View style={[styles.groupModeSwitch, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
               {(['month', 'week'] as const).map((mode) => (
                 <TouchableOpacity
                   key={mode}
@@ -1260,9 +1225,9 @@ export default function ActivityScreen() {
                   accessibilityState={{ selected: groupMode === mode }}
                   disabled={isDeletingActivities}
                   onPress={() => setGroupMode(mode)}
-                  style={[styles.groupModeButton, groupMode === mode && styles.groupModeButtonSelected]}
+                  style={[styles.groupModeButton, { backgroundColor: groupMode === mode ? colors.primary : 'transparent' }]}
                 >
-                  <Text style={[styles.groupModeText, { color: groupMode === mode ? '#08110A' : '#111827' }]}>
+                  <Text style={[styles.groupModeText, { color: groupMode === mode ? colors.primaryText : colors.textSecondary }]}>
                     {mode === 'month' ? 'Month' : 'Week'}
                   </Text>
                 </TouchableOpacity>
@@ -1305,8 +1270,8 @@ export default function ActivityScreen() {
       >
       {hasActiveFilters && (
         <View style={styles.activeFilterSummaryRow}>
-          <View style={[styles.activeFilterBadge, { backgroundColor: '#23372A', borderColor: '#2C4B38' }]}>
-            <Text style={styles.activeFilterBadgeText}>{activeFilterCount} active</Text>
+          <View style={[styles.activeFilterBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
+            <Text style={[styles.activeFilterBadgeText, { color: colors.primary }]}>{activeFilterCount} active</Text>
           </View>
           {activeFilterSummary.slice(0, 3).map((label) => (
             <View key={label} style={[styles.activeFilterPill, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -1317,22 +1282,18 @@ export default function ActivityScreen() {
       )}
 
       <MotionEntrance delay={45}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterRowBar}
-        >
+        <View style={styles.filterRowBar}>
         <TouchableOpacity
           accessibilityRole="button"
-          accessibilityLabel={`Activity type: ${activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All'}`}
+          accessibilityLabel={`Activity type: ${activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All Types'}`}
           accessibilityHint="Choose which activity types to show"
           activeOpacity={0.85}
           onPress={() => setShowTypeSheet(true)}
           style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
         >
-          <Feather name="activity" size={14} color={colors.text} />
-          <Text style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
-            {activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All'}
+          <Feather name="activity" size={14} color={colors.primary} />
+          <Text numberOfLines={1} style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
+            {activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All Types'}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -1343,8 +1304,8 @@ export default function ActivityScreen() {
           }}
           style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
         >
-          <Feather name="calendar" size={14} color={colors.text} />
-          <Text style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
+          <Feather name="calendar" size={14} color={colors.primary} />
+          <Text numberOfLines={1} style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
             {selectedDateRange === 'all' ? 'Date' : dateSummary}
           </Text>
         </TouchableOpacity>
@@ -1355,22 +1316,13 @@ export default function ActivityScreen() {
           onPress={() => setShowDistanceSheet(true)}
           style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
         >
-          <Feather name="map-pin" size={14} color={colors.text} />
-          <Text style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
+          <Feather name="map-pin" size={14} color={colors.primary} />
+          <Text numberOfLines={1} style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
             {selectedDistanceRange === 'all' ? 'Distance' : distanceSummary}
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          accessibilityRole="button"
-          activeOpacity={0.85}
-          onPress={() => setShowSortSheet(true)}
-          style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-        >
-          <Feather name="bar-chart-2" size={14} color={colors.text} />
-          <Text style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>{sortSummary}</Text>
-        </TouchableOpacity>
-        </ScrollView>
+        </View>
       </MotionEntrance>
 
       {hasActiveFilters && (
@@ -1383,21 +1335,20 @@ export default function ActivityScreen() {
             setRangeStartDate(null);
             setRangeEndDate(null);
             setSelectedDistanceRange('all');
-            setSortBy('newest');
           }}
-          style={styles.resetButton}
+          style={[styles.resetButton, { backgroundColor: colors.selected }]}
         >
-          <Text style={styles.resetButtonText}>Reset filters</Text>
+          <Text style={[styles.resetButtonText, { color: colors.primary }]}>Reset filters</Text>
         </TouchableOpacity>
       )}
       </Animated.View>
 
       <Modal transparent visible={showTypeSheet} animationType="slide" onRequestClose={() => setShowTypeSheet(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <View style={[styles.modalBackdrop, { backgroundColor: colors.overlay }]}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: 20 + insets.bottom }]}>
             <View style={styles.modalHeaderRow}>
-              <View style={styles.modalHeaderBadge}>
-                <Feather name="activity" size={14} color="#35C72B" />
+              <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
+                <Feather name="activity" size={14} color={colors.primary} />
               </View>
               <Text style={[styles.modalTitle, { color: colors.text }]}>Activity type</Text>
             </View>
@@ -1413,10 +1364,10 @@ export default function ActivityScreen() {
                     setSelectedType(option.value);
                     setShowTypeSheet(false);
                   }}
-                  style={[styles.optionRow, { backgroundColor: active ? '#35C72B' : colors.background, borderColor: active ? '#35C72B' : colors.border }]}
+                  style={[styles.optionRow, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
                 >
-                  <Text style={[styles.optionText, { color: active ? '#08110A' : colors.text }]}>{option.label}</Text>
-                  {active && <Feather name="check" size={16} color="#08110A" />}
+                  <Text style={[styles.optionText, { color: active ? colors.primary : colors.text }]}>{option.label}</Text>
+                  {active && <Feather name="check" size={16} color={colors.primary} />}
                 </TouchableOpacity>
               );
             })}
@@ -1436,11 +1387,11 @@ export default function ActivityScreen() {
       </Modal>
 
       <Modal transparent visible={showDatePicker} animationType="slide" onRequestClose={() => setShowDatePicker(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+        <View style={[styles.modalBackdrop, { backgroundColor: colors.overlay }]}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: 20 + insets.bottom }]}> 
             <View style={styles.modalHeaderRow}>
-              <View style={styles.modalHeaderBadge}>
-                <Feather name="calendar" size={14} color="#35C72B" />
+              <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
+                <Feather name="calendar" size={14} color={colors.primary} />
               </View>
               <Text style={[styles.modalTitle, { color: colors.text }]}>Date filter</Text>
             </View>
@@ -1458,9 +1409,9 @@ export default function ActivityScreen() {
                     setRangeEndDate(null);
                     setShowDatePicker(false);
                   }}
-                  style={[styles.presetButton, { backgroundColor: selectedDateRange === option.value ? '#35C72B' : colors.background, borderColor: colors.border }]}
+                  style={[styles.presetButton, { backgroundColor: selectedDateRange === option.value ? colors.selected : colors.surfaceRaised, borderColor: selectedDateRange === option.value ? colors.primary : colors.border }]}
                 >
-                  <Text style={[styles.presetButtonText, { color: selectedDateRange === option.value ? '#08110A' : colors.text }]}>{option.label}</Text>
+                  <Text style={[styles.presetButtonText, { color: selectedDateRange === option.value ? colors.primary : colors.text }]}>{option.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -1482,9 +1433,9 @@ export default function ActivityScreen() {
                         setSelectedDayDate(null);
                       }
                     }}
-                    style={[styles.segmentedButton, { backgroundColor: active ? '#35C72B' : colors.background, borderColor: active ? '#35C72B' : colors.border }]}
+                    style={[styles.segmentedButton, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
                   >
-                    <Text style={[styles.segmentedButtonText, { color: active ? '#08110A' : colors.text }]}>{mode === 'single' ? 'Single date' : 'Date range'}</Text>
+                    <Text style={[styles.segmentedButtonText, { color: active ? colors.primary : colors.text }]}>{mode === 'single' ? 'Single date' : 'Date range'}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -1560,9 +1511,9 @@ export default function ActivityScreen() {
                   }
                   setShowDatePicker(false);
                 }}
-                style={[styles.modalActionButton, { backgroundColor: '#35C72B', borderColor: '#35C72B' }]}
+                style={[styles.modalActionButton, { backgroundColor: colors.primary, borderColor: colors.primary }]}
               >
-                <Text style={[styles.modalActionText, { color: '#08110A' }]}>Apply</Text>
+                <Text style={[styles.modalActionText, { color: colors.primaryText }]}>Apply</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1570,11 +1521,11 @@ export default function ActivityScreen() {
       </Modal>
 
       <Modal transparent visible={showDistanceSheet} animationType="slide" onRequestClose={() => setShowDistanceSheet(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+        <View style={[styles.modalBackdrop, { backgroundColor: colors.overlay }]}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: 20 + insets.bottom }]}> 
             <View style={styles.modalHeaderRow}>
-              <View style={styles.modalHeaderBadge}>
-                <Feather name="map-pin" size={14} color="#35C72B" />
+              <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
+                <Feather name="map-pin" size={14} color={colors.primary} />
               </View>
               <Text style={[styles.modalTitle, { color: colors.text }]}>Distance</Text>
             </View>
@@ -1590,10 +1541,10 @@ export default function ActivityScreen() {
                     setSelectedDistanceRange(option.value);
                     setShowDistanceSheet(false);
                   }}
-                  style={[styles.optionRow, { backgroundColor: active ? '#35C72B' : colors.background, borderColor: active ? '#35C72B' : colors.border }]}
+                  style={[styles.optionRow, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
                 >
-                  <Text style={[styles.optionText, { color: active ? '#08110A' : colors.text }]}>{option.label}</Text>
-                  {active && <Feather name="check" size={16} color="#08110A" />}
+                  <Text style={[styles.optionText, { color: active ? colors.primary : colors.text }]}>{option.label}</Text>
+                  {active && <Feather name="check" size={16} color={colors.primary} />}
                 </TouchableOpacity>
               );
             })}
@@ -1611,57 +1562,13 @@ export default function ActivityScreen() {
         </View>
       </Modal>
 
-      <Modal transparent visible={showSortSheet} animationType="slide" onRequestClose={() => setShowSortSheet(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-            <View style={styles.modalHeaderRow}>
-              <View style={styles.modalHeaderBadge}>
-                <Feather name="bar-chart-2" size={14} color="#35C72B" />
-              </View>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Sort by</Text>
-            </View>
-
-            <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Choose order</Text>
-            {activitySortOptions.map((option) => {
-              const active = sortBy === option.value;
-              return (
-                <TouchableOpacity
-                  key={option.value}
-                  activeOpacity={0.8}
-                  onPress={() => {
-                    setSortBy(option.value);
-                    setShowSortSheet(false);
-                  }}
-                  style={[styles.optionRow, { backgroundColor: active ? '#35C72B' : colors.background, borderColor: active ? '#35C72B' : colors.border }]}
-                >
-                  <Text style={[styles.optionText, { color: active ? '#08110A' : colors.text }]}>{option.label}</Text>
-                  {active && <Feather name="check" size={16} color="#08110A" />}
-                </TouchableOpacity>
-              );
-            })}
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => {
-                setSortBy('newest');
-                setShowSortSheet(false);
-              }}
-              style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
-            >
-              <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
       {showNativeDatePicker && (
-        <DateTimePicker
+        <ThemedCalendarPicker
+          title={selectedDateRange === 'single' ? 'Select activity date' : `Select ${datePickerTarget} date`}
           value={datePickerTarget === 'start' ? (selectedDateRange === 'range' ? rangeStartDate ?? new Date() : selectedDayDate ?? new Date()) : (selectedDateRange === 'range' ? rangeEndDate ?? new Date() : selectedDayDate ?? new Date())}
-          mode="date"
-          display="spinner"
-          onChange={(_, selectedDate) => {
+          onCancel={() => setShowNativeDatePicker(false)}
+          onConfirm={(selectedDate) => {
             setShowNativeDatePicker(false);
-            if (!selectedDate) return;
-
             if (selectedDateRange === 'single') {
               setSelectedDayDate(selectedDate);
               setSelectedDateRange('single');
@@ -1679,8 +1586,6 @@ export default function ActivityScreen() {
               }
               setSelectedDateRange('range');
             }
-
-            setShowDatePicker(true);
           }}
         />
       )}
@@ -1831,11 +1736,11 @@ const styles = StyleSheet.create({
   activeFilterBadgeText: { color: '#D9F9DB', fontSize: 11, fontWeight: '700' },
   activeFilterPill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 5 },
   activeFilterPillText: { fontSize: 11, fontWeight: '600' },
-  filterRowBar: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: 8, paddingRight: 2, marginBottom: 10 },
+  filterRowBar: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: 8, marginBottom: 10 },
   filterBarButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, minHeight: 42 },
   filterBarText: { fontSize: 12, fontWeight: '600' },
-  compactFilterButton: { flexShrink: 0, justifyContent: 'center', gap: 6, paddingHorizontal: 10 },
-  compactFilterText: { flexShrink: 0, fontSize: 12 },
+  compactFilterButton: { flex: 1, minWidth: 0, justifyContent: 'center', gap: 6, paddingHorizontal: 8 },
+  compactFilterText: { flexShrink: 1, minWidth: 0, fontSize: 12 },
   resetButton: { alignSelf: 'flex-start', marginBottom: 12, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, backgroundColor: '#23372A' },
   resetButtonText: { color: '#EF4444', fontSize: 12, fontWeight: '700' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.42)', justifyContent: 'flex-end' },

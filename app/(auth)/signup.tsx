@@ -70,6 +70,8 @@ export default function SignupScreen() {
       setGoogleLoading(true);
       const result = await googleLogin();
 
+      if (result.cancelled) return;
+
       if (!result.requiresSignup) {
         router.replace("/(app)/dashboard");
       }

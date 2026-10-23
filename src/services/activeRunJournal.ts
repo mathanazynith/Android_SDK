@@ -9,6 +9,7 @@ export interface ActiveRunJournal {
   runId: string;
   startedAt: string;
   points: RawGpsPayload[];
+  pausePoints?: (RawGpsPayload & { pauseSequence: number })[];
 }
 
 const JOURNAL_URI = `${FileSystem.documentDirectory ?? ''}zyrun-active-route.json`;
@@ -66,6 +67,43 @@ export const appendActiveRunPoints = async (points: RawGpsPayload[]): Promise<vo
           && ((point.speed ?? 0) >= 0.5 || distance >= 2));
       if (hasMovement) { journal.points.push(point); known.add(key); }
     }
+    await save(journal);
+  });
+  return writeChain;
+};
+
+export const appendPausedRunPoints = async (
+  points: RawGpsPayload[],
+  pauseSequence: number,
+): Promise<void> => {
+  writeChain = writeChain.then(async () => {
+    const journal = await readActiveRunJournal();
+    if (!journal?.active) return;
+    const pausePoints = journal.pausePoints ?? [];
+    const known = new Set(pausePoints.map((point) => (
+      `${point.pauseSequence}|${point.timestamp}|${point.latitude}|${point.longitude}`
+    )));
+    const candidates = points.filter(validPoint).sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
+    for (const point of candidates) {
+      const key = `${pauseSequence}|${point.timestamp}|${point.latitude}|${point.longitude}`;
+      if (known.has(key)) continue;
+      const previous = [...pausePoints].reverse().find((candidate) => candidate.pauseSequence === pauseSequence);
+      const distance = previous ? calculateDistanceMeters(previous, point) : 0;
+      const elapsedSeconds = previous
+        ? Math.max(0, (Number(point.timestamp ?? 0) - Number(previous.timestamp ?? 0)) / 1_000)
+        : 0;
+      const accuracy = point.accuracy ?? Number.POSITIVE_INFINITY;
+      const hasMovement = !previous
+        || (accuracy <= 15
+          && elapsedSeconds >= 1
+          && distance >= 2
+          && distance <= Math.max(50, elapsedSeconds * 15));
+      if (hasMovement) {
+        pausePoints.push({ ...point, pauseSequence });
+        known.add(key);
+      }
+    }
+    journal.pausePoints = pausePoints;
     await save(journal);
   });
   return writeChain;

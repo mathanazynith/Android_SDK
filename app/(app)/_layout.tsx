@@ -6,8 +6,6 @@ import { BackHandler, Platform, View } from 'react-native';
 import GlobalBottomNav, { isPrimaryTabPath } from '../../components/navigation/GlobalBottomNav';
 import TabZoomTransition from '../../components/navigation/TabZoomTransition';
 
-const NESTED_STACK_ROUTES = new Set(['custom-workout', 'profile', 'questionnaire', 'training-plan']);
-
 export default function AppLayout() {
   const pathname = usePathname();
   const showBottomNav = isPrimaryTabPath(pathname);
@@ -30,7 +28,7 @@ export default function AppLayout() {
   }, [showBottomNav]);
 
   const renderScreen = ({ route, children }: { route: { key: string; name: string }; children: React.ReactElement }) =>
-    NESTED_STACK_ROUTES.has(route.name)
+    route.name === 'profile'
       ? children
       : <TabZoomTransition key={route.key}>{children}</TabZoomTransition>;
 

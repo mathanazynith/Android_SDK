@@ -5,12 +5,12 @@ import { Stack, usePathname, useRootNavigationState, useRouter } from 'expo-rout
 import type { ReactNode } from 'react';
 import { useEffect, useRef } from 'react';
 import { StatusBar } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { NotificationProvider } from '../contexts/NotificationContext';
 import { QuestionnaireProvider } from '../contexts/QuestionnaireContext';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
-import { ThemedAlertHost } from '../src/components/ThemedAlert';
 import { AuthProvider } from '../service/auth';
+import { ThemedAlertHost } from '../src/components/ThemedAlert';
 import '../src/services/backgroundLocationTask';
 import { LIVE_TRACKING_ROUTE, LIVE_TRACKING_STOP_ACTION } from '../src/services/liveTrackingNotification';
 
@@ -60,8 +60,10 @@ function RootSurface({ children }: { children: ReactNode }) {
 
   return <>
     <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} translucent backgroundColor="transparent" />
-    <>{children}</>
-    <ThemedAlertHost />
+    <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
+      {children}
+      <ThemedAlertHost />
+    </SafeAreaView>
   </>;
 }
 
