@@ -3,8 +3,9 @@ import { Feather } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { RunningLoader } from '../../../components/common/RunningLoader';
 import { useAuth } from '../../../service/auth';
 import { workoutPlanService } from '../../../service/workoutPlan';
 import { beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal } from '../../../src/services/activeRunJournal';
@@ -2194,8 +2195,10 @@ export default function MapScreen() {
         */}
         {loading && (
           <View style={styles.mapLoadingOverlay} pointerEvents="auto">
-            <ActivityIndicator size="large" color="#20D000" />
-            <Text style={styles.loadingText}>Getting precise GPS location...</Text>
+            <RunningLoader
+              size={64}
+              label="Getting precise GPS location..."
+            />
             <Text style={styles.loadingSubText}>Please wait while we find your location</Text>
           </View>
         )}

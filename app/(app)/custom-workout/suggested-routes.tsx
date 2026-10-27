@@ -2,9 +2,10 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import ActivityRouteMap from "../../../components/ActivityRouteMap";
+import { RunningLoader } from "../../../components/common/RunningLoader";
 import MotionEntrance from "../../../components/MotionEntrance";
 import { getBackendErrorMessage } from "../../../service/api";
 import { cacheAssignedRoute, customWorkoutAPI, type SuggestedRoute } from "../../../service/customWorkout";
@@ -86,7 +87,9 @@ export default function SuggestedRoutesScreen() {
         <View style={styles.headerSpacer} />
       </View>
       {checkingSubscription || (hasAccess && loading) ? (
-        <View style={styles.centerState}><ActivityIndicator size="large" color="#39B800" /></View>
+        <View style={styles.centerState}>
+          <RunningLoader size={64} label="Finding routes..." />
+        </View>
       ) : !hasAccess ? (
         <ScrollView contentContainerStyle={styles.premiumContent} showsVerticalScrollIndicator={false}>
           <View style={styles.premiumHero}>
@@ -174,7 +177,7 @@ function RouteCard({ route, isBestMatch, assigning, assigned, disabled, onView, 
           <Text style={styles.viewButtonText}>View Route</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.useButton} onPress={onUse} disabled={disabled} activeOpacity={0.85}>
-          {assigning ? <ActivityIndicator size="small" color="#000000" /> : <Feather name="check-circle" size={19} color="#000000" />}
+          {assigning ? <RunningLoader size={18} fillColor="#000000" /> : <Feather name="check-circle" size={19} color="#000000" />}
           <Text style={styles.useButtonText}>{assigned ? "Assigned" : "Assign Route"}</Text>
         </TouchableOpacity>
       </View>

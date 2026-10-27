@@ -1,8 +1,9 @@
 import { Alert } from '@/components/ThemedAlert';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, PanResponder, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { PanResponder, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -281,8 +282,7 @@ export default function TrainingPlanScreen() {
       <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
         <StatusBar barStyle="light-content" />
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#63C72B" />
-          <Text style={[styles.message, { color: colors.text }]}>Loading your training plan...</Text>
+          <RunningLoader size={64} label="Loading your training plan..." />
         </View>
       </SafeAreaView>
     );

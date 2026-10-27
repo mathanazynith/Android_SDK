@@ -1,8 +1,9 @@
 import React, { useMemo, useState, useCallback, useRef } from "react";
-import { ActivityIndicator, View, Text, TextInput, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, TextInput, StyleSheet, TouchableOpacity } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import DatePicker from "../../QuestionTypes/DatePicker";
 import DistanceTimePaceSelector from "../../QuestionTypes/DistanceTimePaceSelector";
+import { RunningLoader } from "../../../../../components/common/RunningLoader";
 import { useTheme } from "../../../../../contexts/ThemeContext";
 
 interface EventRegistrationProps {
@@ -119,7 +120,7 @@ export function RacePredictionCard({
     ]}>
       {isLoading ? (
         <View style={styles.predictionLoading}>
-          <ActivityIndicator size="small" color={colors.primary} />
+          <RunningLoader size={20} fillColor={colors.primary} />
           <Text style={[styles.predictionMessage, { color: colors.textSecondary }]}>Checking your goal time...</Text>
         </View>
       ) : prediction ? (

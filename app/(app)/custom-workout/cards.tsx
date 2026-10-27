@@ -4,7 +4,6 @@ import * as Haptics from "expo-haptics";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    ActivityIndicator,
     Animated,
     BackHandler,
     Easing,
@@ -21,6 +20,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
+import { RunningLoader } from "../../../components/common/RunningLoader";
 import { Colors } from "../../../constants/theme";
 import { getBackendErrorMessage } from "../../../service/api";
 import {
@@ -640,7 +640,7 @@ export default function CustomWorkoutCards() {
               style={[styles.cardCheckbox, isSelected && styles.cardCheckboxSelected]}
             >
               {isDeleting ? (
-                <ActivityIndicator size="small" color="#FF6B6B" />
+                <RunningLoader size={18} fillColor="#FF6B6B" />
               ) : (
                 <Feather
                   name={isSelected ? "check-square" : "square"}
@@ -669,7 +669,7 @@ export default function CustomWorkoutCards() {
               )}
 
               {isEditing ? (
-                <ActivityIndicator size="small" color={Colors.primaryLight} />
+                <RunningLoader size={18} fillColor={Colors.primaryLight} />
               ) : (
                 <Feather name="chevron-right" size={20} color={Colors.textSecondary} />
               )}
@@ -734,7 +734,7 @@ export default function CustomWorkoutCards() {
               activeOpacity={0.85}
             >
               {isStarting ? (
-                <ActivityIndicator size="small" color="#000000" />
+                <RunningLoader size={18} fillColor="#000000" />
               ) : (
                 <>
                   <Feather name="play" size={18} color="#000000" />
@@ -852,8 +852,7 @@ export default function CustomWorkoutCards() {
       {/* Content Body */}
       {loading && !refreshing ? (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.loadingText}>Loading your workouts...</Text>
+          <RunningLoader size={64} label="Loading your workouts..." />
         </View>
       ) : workouts.length === 0 ? (
         <View style={styles.emptyContainer}>
@@ -953,7 +952,7 @@ export default function CustomWorkoutCards() {
                 <Feather name="check-circle" size={22} color="#FFFFFF" />
               </Animated.View>
             ) : isDeletingWorkouts ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
+              <RunningLoader size={20} fillColor="#FFFFFF" />
             ) : (
               <Feather name="trash-2" size={22} color="#FFFFFF" />
             )}

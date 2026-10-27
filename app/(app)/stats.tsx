@@ -2,7 +2,6 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   Dimensions,
   Easing,
@@ -28,6 +27,7 @@ import Reanimated, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BenchmarkBadgeIcon from '../../components/BenchmarkBadgeIcon';
+import { RunningLoader } from '../../components/common/RunningLoader';
 import MotionEntrance from '../../components/MotionEntrance';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -780,6 +780,15 @@ export default function StatsScreen() {
     setSelectedPointKey(null);
   };
 
+  if (loading && activities.length === 0) {
+    return (
+      <SafeAreaView style={[styles.safeArea, { alignItems: 'center', justifyContent: 'center' }]} edges={['top', 'left', 'right']}>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#0A0A0C' : '#F8FAFC'} />
+        <RunningLoader size={64} label="Loading your running statistics..." />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <View style={{ flex: 1 }}>
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -805,7 +814,7 @@ export default function StatsScreen() {
           accessibilityLabel="Refresh Statistics"
         >
           {loading || refreshing ? (
-            <ActivityIndicator size="small" color="#30D158" />
+            <RunningLoader size={18} fillColor="#30D158" />
           ) : (
             <Feather name="rotate-cw" size={18} color="#8E8E93" />
           )}
@@ -1385,7 +1394,7 @@ export default function StatsScreen() {
                             accessibilityLabel={`Start ${pb.planWorkoutTitle || pb.benchmarkTitle}`}
                           >
                             {isStarting ? (
-                              <ActivityIndicator size="small" color="#000000" />
+                              <RunningLoader size={16} fillColor="#000000" />
                             ) : (
                               <>
                                 <Feather
@@ -1469,7 +1478,7 @@ export default function StatsScreen() {
                             accessibilityLabel={`Start ${workout.title}`}
                           >
                             {isStarting ? (
-                              <ActivityIndicator size="small" color="#000000" />
+                              <RunningLoader size={16} fillColor="#000000" />
                             ) : (
                               <>
                                 <Feather

@@ -4,8 +4,9 @@ import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import React from "react";
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { RunningLoader } from "../../../components/common/RunningLoader";
 import MotionEntrance from "../../../components/MotionEntrance";
 import { Colors } from "../../../constants/theme";
 import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
@@ -193,7 +194,7 @@ export default function ProfileScreen() {
           <View style={styles.profileIdentity}>
             <View style={styles.avatar}>
               {profilePictureUri ? <Image source={{ uri: profilePictureUri }} style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: colors.primaryText }]}>{initials}</Text>}
-              {isUploadingPicture ? <View style={styles.uploadOverlay}><ActivityIndicator color="#FFFFFF" /></View> : null}
+              {isUploadingPicture ? <View style={styles.uploadOverlay}><RunningLoader size={32} fillColor="#FFFFFF" /></View> : null}
               <TouchableOpacity accessibilityLabel="Change profile picture" accessibilityRole="button" onPress={openPictureOptions} style={[styles.cameraBadge, { backgroundColor: colors.surface, borderColor: colors.primary }]} disabled={isUploadingPicture}>
                 <Feather name="camera" size={16} color={colors.primary} />
               </TouchableOpacity>

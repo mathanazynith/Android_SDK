@@ -2,9 +2,10 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MotionEntrance from '../../components/MotionEntrance';
+import { RunningLoader } from '../../components/common/RunningLoader';
 import NotificationBell from '../../components/NotificationBell';
 import SettingsMenu from '../../components/SettingsMenu';
 import { useNotifications } from '../../contexts/NotificationContext';
@@ -164,7 +165,11 @@ export default function DashboardScreen() {
   };
 
   if (isWorkoutPlanLoading && !workoutPlan) {
-    return <View style={[styles.center, { backgroundColor: colors.background }]}><ActivityIndicator size="large" color={BRAND_GREEN} /><Text style={[styles.centerText, { color: colors.text }]}>Loading your dashboard...</Text></View>;
+    return (
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
+        <RunningLoader size={64} label="Loading your dashboard..." />
+      </View>
+    );
   }
 
   if (workoutPlanError && !workoutPlan) {
@@ -193,7 +198,7 @@ export default function DashboardScreen() {
                 style={[styles.weather, { backgroundColor: colors.surface, borderColor: BRAND_GREEN }]}
                 onPress={() => router.push('./screens/weather-details')}
               >
-                {loadingWeather ? <ActivityIndicator size="small" color={BRAND_GREEN} /> : weather?.iconUrl ? <Image source={{ uri: weather.iconUrl }} style={{ width: spacing(24), height: spacing(24) }} /> : <Feather name={weatherIcon} size={spacing(24)} color={BRAND_GREEN} />}
+                {loadingWeather ? <RunningLoader size={22} fillColor={BRAND_GREEN} /> : weather?.iconUrl ? <Image source={{ uri: weather.iconUrl }} style={{ width: spacing(24), height: spacing(24) }} /> : <Feather name={weatherIcon} size={spacing(24)} color={BRAND_GREEN} />}
                 <View>
                   <Text style={[styles.weatherValue, { color: colors.text }]} numberOfLines={1}>{weather?.city || weather?.locationName || 'Current location'}</Text>
                   <Text style={[styles.weatherValue, { color: colors.textSecondary }]}>{weatherTemperature}</Text>

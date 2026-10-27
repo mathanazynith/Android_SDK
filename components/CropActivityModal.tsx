@@ -2,10 +2,11 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator, Dimensions, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+    Dimensions, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
   
 
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { RunningLoader } from './common/RunningLoader';
 import { getBackendErrorMessage } from '../service/api';
 import { activityAPI, BackendActivity } from '../src/services/activityApi';
 import { createCatmullRomPolyline } from '../src/utils/catmullRom';
@@ -287,8 +288,7 @@ export default function CropActivityModal({
 
         {loading ? (
           <View style={styles.centerContainer}>
-            <ActivityIndicator size="large" color="#35C72B" />
-            <Text style={styles.loadingText}>Loading GPS points...</Text>
+            <RunningLoader size={64} label="Loading GPS points..." />
           </View>
         ) : gpsPoints.length === 0 ? (
           <View style={styles.centerContainer}>
@@ -455,7 +455,7 @@ export default function CropActivityModal({
                 disabled={isSaving}
               >
                 {isSaving ? (
-                  <ActivityIndicator size="small" color="#0B0E0F" />
+                  <RunningLoader size={20} fillColor="#0B0E0F" />
                 ) : (
                   <Text style={styles.saveButtonText}>Save Crop</Text>
                 )}

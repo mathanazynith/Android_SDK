@@ -2,7 +2,6 @@ import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   TextInput as RNTextInput,
   ScrollView,
   StyleSheet,
@@ -20,6 +19,7 @@ import YesNo, {
 } from "../../../app/(app)/questionnaire/QuestionTypes/YesNo";
 import EventRegistration, { RacePredictionCard, type RacePrediction } from "../../../app/(app)/questionnaire/components/QuestionTypes/EventRegistration";
 import MotionEntrance from "../../../components/MotionEntrance";
+import { RunningLoader } from "../../../components/common/RunningLoader";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { useQuestionnaire } from "../../../contexts/QuestionnaireContext";
 import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
@@ -714,8 +714,7 @@ export default function QuestionnaireScreen() {
   if (isLoading) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#34C759" />
-        <Text style={styles.loadingText}>Loading assessment...</Text>
+        <RunningLoader size={64} label="Loading assessment..." />
       </View>
     );
   }
