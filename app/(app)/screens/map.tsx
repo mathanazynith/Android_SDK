@@ -12,21 +12,21 @@ import { ActivityDetectionService } from '../../../src/services/activityDetectio
 import { activityDistanceOverrides } from '../../../src/services/activityDistanceOverrides';
 import { activityTimingOverrides } from '../../../src/services/activityTimingOverrides';
 import {
-  clearBackgroundLocationSession,
-  getBackgroundLocationSession,
-  persistBackgroundLocationSession,
-  setBackgroundLocationListener,
-  startBackgroundLocationTracking,
-  stopBackgroundLocationTracking,
+    clearBackgroundLocationSession,
+    getBackgroundLocationSession,
+    persistBackgroundLocationSession,
+    setBackgroundLocationListener,
+    startBackgroundLocationTracking,
+    stopBackgroundLocationTracking,
 } from '../../../src/services/backgroundLocationTask';
 import {
-  LIVE_TRACKING_PAUSE_ACTION,
-  LIVE_TRACKING_RESUME_ACTION,
-  LIVE_TRACKING_STOP_ACTION,
-  publishWorkoutSummaryNotification,
-  startLiveTrackingNotification,
-  stopLiveTrackingNotification,
-  updateLiveTrackingNotification,
+    LIVE_TRACKING_PAUSE_ACTION,
+    LIVE_TRACKING_RESUME_ACTION,
+    LIVE_TRACKING_STOP_ACTION,
+    publishWorkoutSummaryNotification,
+    startLiveTrackingNotification,
+    stopLiveTrackingNotification,
+    updateLiveTrackingNotification,
 } from '../../../src/services/liveTrackingNotification';
 import { LocationQueue } from '../../../src/services/locationQueue';
 import { LocationService } from '../../../src/services/locationService';
@@ -40,7 +40,7 @@ import { WorkoutVoiceService } from '../../../src/services/workoutVoiceService';
 import { SPLIT_DISTANCE_METERS } from '../../../src/types/activity';
 import { ActivityExtraPayload, ActivityGpsPointPayload, ActivityLapPayload, ActivityPauseEventPayload, ActivityRecoveryPayload, ActivitySegmentPayload, ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
 import { BackendWorkout, WorkoutEngineSnapshot } from '../../../src/types/workout';
-import { createCatmullRomPolyline } from '../../../src/utils/catmullRom';
+import { isReliableRoutePoint } from '../../../src/utils/activityRouteGroups';
 import { calculateDistanceMeters } from '../../../src/utils/distance';
 import { decodePolyline } from '../../../src/utils/polylineDecoder';
 import { formatStepTarget, WorkoutExecutionStep } from '../../../src/utils/workoutPlanBuilder';
@@ -850,7 +850,7 @@ export default function MapScreen() {
         // establishes the route; later accepted points extend it.
         const displayPointWasAdded = processor.getDisplayPoints().length > displayCountBefore;
         const latestDisplayPoint = processor.getDisplayPoints().at(-1);
-        if (displayPointWasAdded && latestDisplayPoint) {
+        if (displayPointWasAdded && latestDisplayPoint && isReliableRoutePoint(latestDisplayPoint)) {
           appendRoutePoint(
             { latitude: latestDisplayPoint.latitude, longitude: latestDisplayPoint.longitude },
             traceType,
@@ -1042,6 +1042,7 @@ export default function MapScreen() {
       if (displayPoints.length > 0) {
         const restoredSegments: RouteSegment[] = [];
         restoredPoints.forEach((point) => {
+          if (!isReliableRoutePoint(point)) return;
           const traceType: RouteSegment['traceType'] = point.pauseSequence ? 'pause' : 'active';
           const coordinate = { latitude: point.latitude, longitude: point.longitude };
           const previousSegment = restoredSegments.at(-1);
@@ -1601,47 +1602,49 @@ export default function MapScreen() {
           });
         }
       } else if (processor) {
-        
-        const filteredPoints = processor.filterRawPoints();
+        const completedLaps = workoutEngineRef.current?.getSnapshot().completedLaps ?? [];
+        const routeBoundaries = [
+          ...pauseEventsRef.current.flatMap((event) => [
+            Date.parse(event.paused_at),
+            event.resumed_at ? Date.parse(event.resumed_at) : Number.NaN,
+          ]),
+          ...completedLaps.flatMap((lap) => [lap.startedAt, lap.completedAt]),
+        ].filter((timestamp): timestamp is number => (
+          typeof timestamp === 'number' && Number.isFinite(timestamp)
+        ));
+        const filteredPoints = processor.filterRawPoints(routeBoundaries);
 
         const finalOptimized = processor.simplifyFinal(filteredPoints);
-        // The Activity page must receive the very same route used by the live
-        // SDK polyline and distance counter. Optimization must not replace this
-        // authoritative route with a different set of points before upload.
-        const uploadRoutePoints: RunningGpsPoint[] = processor.getDisplayPoints();
+        // Keep the live route responsive, but use the stricter save-time GPS
+        // filter for persisted geometry so compact indoor drift is removed.
+        const uploadRoutePoints: RunningGpsPoint[] = finalOptimized;
         const extraRouteCoordinates = routeSegmentsRef.current
           .filter((segment) => segment.traceType === 'extra')
           .flatMap((segment) => segment.coordinates);
 
-        // These coordinates are both the route visible in the SDK and the
-        // final backend submission.
-        const finalCoordinates = uploadRoutePoints.map((point) => ({
+        const routeGeometryPoints = uploadRoutePoints.filter(isReliableRoutePoint);
+        const displayedRouteCoordinates = routeGeometryPoints.map((point) => ({
           latitude: point.latitude,
           longitude: point.longitude,
         }));
-
-        const displayedRouteCoordinates = uploadRoutePoints.map((point) => ({
-          latitude: point.latitude,
-          longitude: point.longitude,
-        }));
-        const smoothedDisplayCoordinates = createCatmullRomPolyline(finalOptimized);
-        const smoothedRouteSegments = routeSegmentsRef.current.map((segment) => ({
+        const displayRouteCoordinates = processor.simplifyLivePolyline(displayedRouteCoordinates);
+        const simplifiedRouteSegments = routeSegmentsRef.current.map((segment) => ({
           ...segment,
-          coordinates: createCatmullRomPolyline(segment.coordinates),
+          coordinates: processor.simplifyLivePolyline(segment.coordinates),
         }));
-        if (smoothedRouteSegments.length > 0) {
-          routeSegmentsRef.current = smoothedRouteSegments;
-          setRouteSegments(smoothedRouteSegments);
-        } else if (smoothedDisplayCoordinates.length > 0) {
+        if (simplifiedRouteSegments.length > 0) {
+          routeSegmentsRef.current = simplifiedRouteSegments;
+          setRouteSegments(simplifiedRouteSegments);
+        } else if (displayRouteCoordinates.length > 0) {
           const renderedSegment: RouteSegment = {
             id: Date.now(),
             traceType: 'active',
-            coordinates: smoothedDisplayCoordinates,
+            coordinates: displayRouteCoordinates,
           };
           routeSegmentsRef.current = [renderedSegment];
           setRouteSegments([renderedSegment]);
         }
-        fitMapToRoute(smoothedDisplayCoordinates.length > 0 ? smoothedDisplayCoordinates : displayedRouteCoordinates);
+        fitMapToRoute(displayRouteCoordinates.length > 0 ? displayRouteCoordinates : displayedRouteCoordinates);
 
 
         addLog(`✅ Final optimization: ${finalOptimized.length} points`);
@@ -1656,7 +1659,6 @@ export default function MapScreen() {
         const paceSecondsPerKm = totalDistance > 0
           ? elapsedSeconds / (totalDistance / 1000)
           : 0;
-        const completedLaps = workoutEngineRef.current?.getSnapshot().completedLaps ?? [];
         const pauseIntervals = pauseEventsRef.current
           .map((event, index) => ({
             event,
@@ -1688,7 +1690,7 @@ export default function MapScreen() {
             heading: point.heading ?? 0,
             timestamp: new Date(point.timestamp).toISOString(),
             speed: point.speed ?? 0,
-            accuracy: point.accuracy ?? 0,
+            accuracy: point.accuracy,
             altitude: point.altitude ?? 0,
             is_extra_distance: isExtraDistance,
             is_paused: pauseSequence !== null,
@@ -1822,7 +1824,7 @@ export default function MapScreen() {
           }
           : null;
         const iosStyleActivityPayload: ActivitySubmissionPayload = {
-          gps_points: uploadRoutePoints
+          gps_points: routeGeometryPoints
             .filter((point) => getPauseSequence(point) === null)
             .map((point) => pointPayload(point, isExtraDistancePoint(point))),
           start_time: startTimeRef.current
@@ -2053,6 +2055,13 @@ export default function MapScreen() {
 
   const currentStepElapsedSeconds = Math.max(0, elapsedSeconds - stepStartSeconds);
   const currentStepDistanceMeters = Math.max(0, distance - stepStartDistanceMeters);
+  const renderedRouteSegments = useMemo(
+    () => routeSegments.map((segment) => ({
+      ...segment,
+      coordinates: pathProcessorRef.current?.simplifyLivePolyline(segment.coordinates) ?? segment.coordinates,
+    })),
+    [routeSegments],
+  );
 
   const remainingStepDuration =
     activeStep?.targetType === 'DURATION' && activeStep.targetDurationSeconds
@@ -2153,7 +2162,7 @@ export default function MapScreen() {
             />
           ))}
         </MapView> */}
-        {routeSegments.map((segment) => (
+        {renderedRouteSegments.map((segment) => (
             <Polyline
               key={segment.id}
               coordinates={segment.coordinates}

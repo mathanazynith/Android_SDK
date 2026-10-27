@@ -5,8 +5,9 @@ import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import type { BackendGpsPoint, BackendPauseEvent, BackendPolylineRoute } from '../src/services/activityApi';
-import { buildActivityRouteGroups } from '../src/utils/activityRouteGroups';
-import { createCatmullRomPolyline } from '../src/utils/catmullRom';
+import { getGpsOptimizationConfig } from '../src/services/gpsOptimizationConfig';
+import { RdpSimplifier } from '../src/services/rdpSimplifier';
+import { buildActivityRouteGroups, mergeActivityRouteGroups } from '../src/utils/activityRouteGroups';
 import { decodePolyline } from '../src/utils/polylineDecoder';
 
 export interface ActivityMapStats {
@@ -85,6 +86,12 @@ const formatPace = (secondsPerKm?: number) => {
   return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')} /km`;
 };
 
+const routeSimplifier = new RdpSimplifier();
+const simplifyRouteForDisplay = (points: RouteCoordinate[]) => routeSimplifier.simplifyPreservingTurns(
+  points,
+  getGpsOptimizationConfig().livePolylineJitterToleranceMeters,
+);
+
 function ActivityRouteMap({
   encodedPolyline,
   plannedEncodedPolyline,
@@ -160,7 +167,19 @@ function ActivityRouteMap({
     () => buildActivityRouteGroups(savedGpsPoints),
     [savedGpsPoints],
   );
-  const useSavedRouteGroups = savedRouteGroups.some((group) => group.coordinates.length >= 2)
+  const hasPauseRouteBoundaries = (pauseEvents?.length ?? 0) > 0
+    || (pauseRoutes?.length ?? 0) > 0
+    || (pausePoints?.length ?? 0) > 0
+    || savedRouteGroups.some((group) => group.type === 'pause');
+  const hasExtraRouteBoundaries = extraRoutePoints.length > 1
+    || savedRouteGroups.some((group) => group.type === 'extra');
+  const useUnifiedRoute = !hasPauseRouteBoundaries && !hasExtraRouteBoundaries;
+  const displaySavedRouteGroups = useMemo(
+    () => useUnifiedRoute ? mergeActivityRouteGroups(savedRouteGroups) : savedRouteGroups,
+    [savedRouteGroups, useUnifiedRoute],
+  );
+  const hasSavedGpsPoints = (savedGpsPoints?.length ?? 0) > 0;
+  const useSavedRouteGroups = hasSavedGpsPoints
     && !(cropStartIndex !== undefined && cropEndIndex !== undefined);
 
   const visibleRoutePoints = useMemo(() => {
@@ -174,25 +193,25 @@ function ActivityRouteMap({
   }, [cropEndIndex, cropStartIndex, routePoints]);
 
   const smoothedVisibleRoutePoints = useMemo(
-    () => createCatmullRomPolyline(visibleRoutePoints),
+    () => simplifyRouteForDisplay(visibleRoutePoints),
     [visibleRoutePoints],
   );
   const smoothedPlannedRoutePoints = useMemo(
-    () => createCatmullRomPolyline(plannedRoutePoints),
+    () => simplifyRouteForDisplay(plannedRoutePoints),
     [plannedRoutePoints],
   );
   const smoothedExtraRoutePoints = useMemo(
-    () => createCatmullRomPolyline(extraRoutePoints),
+    () => simplifyRouteForDisplay(extraRoutePoints),
     [extraRoutePoints],
   );
   const smoothedSavedRouteGroups = useMemo(
-    () => savedRouteGroups
+    () => displaySavedRouteGroups
       .filter((group) => group.coordinates.length >= 2)
       .map((group) => ({
         type: group.type,
-        coordinates: createCatmullRomPolyline(group.coordinates),
+        coordinates: simplifyRouteForDisplay(group.coordinates),
       })),
-    [savedRouteGroups],
+    [displaySavedRouteGroups],
   );
   const smoothedRunningRouteGroups = useMemo(() => {
     if (cropStartIndex !== undefined && cropEndIndex !== undefined) {
@@ -203,8 +222,14 @@ function ActivityRouteMap({
         .filter((group) => group.type === 'running')
         .map((group) => group.coordinates);
     }
+    if (useUnifiedRoute) {
+      const coordinates = routePoints.length >= 2
+        ? smoothedVisibleRoutePoints
+        : backendRunningRouteGroups.flat();
+      return coordinates.length >= 2 ? [simplifyRouteForDisplay(coordinates)] : [];
+    }
     if (backendRunningRouteGroups.length > 0) {
-      return backendRunningRouteGroups.map((points) => createCatmullRomPolyline(points));
+      return backendRunningRouteGroups.map(simplifyRouteForDisplay);
     }
     if (plannedRoutePoints.length >= 2 || extraRoutePoints.length >= 2) return [];
     return smoothedVisibleRoutePoints.length >= 2 ? [smoothedVisibleRoutePoints] : [];
@@ -216,6 +241,8 @@ function ActivityRouteMap({
     plannedRoutePoints.length,
     smoothedSavedRouteGroups,
     smoothedVisibleRoutePoints,
+    routePoints.length,
+    useUnifiedRoute,
     useSavedRouteGroups,
   ]);
   const savedPauseMarkers = useMemo(() => {
@@ -279,7 +306,7 @@ function ActivityRouteMap({
       ? smoothedSavedRouteGroups
         .filter((group) => group.type === 'pause')
         .map((group) => group.coordinates)
-      : backendPauseRouteGroups.map((points) => createCatmullRomPolyline(points)),
+      : backendPauseRouteGroups.map(simplifyRouteForDisplay),
     [backendPauseRouteGroups, smoothedSavedRouteGroups, useSavedRouteGroups],
   );
   const smoothedExtraRouteGroups = useMemo(
@@ -382,7 +409,9 @@ function ActivityRouteMap({
   const runningCoordinates = smoothedRunningRouteGroups.flat();
   const pauseCoordinates = smoothedPauseRouteGroups.flat();
   const routePointCoordinates = useSavedRouteGroups
-    ? smoothedSavedRouteGroups.flatMap((group) => group.coordinates)
+    ? smoothedSavedRouteGroups
+      .filter((group) => group.type === 'running')
+      .flatMap((group) => group.coordinates)
     : [];
   const extraCoordinates = smoothedExtraRouteGroups.flat();
   const firstPoint = routePointCoordinates[0]

@@ -17,13 +17,14 @@ import { ActivityExtraSplits, ActivitySegmentSplits } from '../../../src/types/a
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
 
 const formatDuration = (seconds: number) => {
+  if (!Number.isFinite(seconds)) return '--';
   const totalSeconds = Math.max(0, Math.floor(seconds));
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const secondsRemaining = totalSeconds % 60;
   return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secondsRemaining).padStart(2, '0')}`
-    : `${minutes}:${String(secondsRemaining).padStart(2, '0')}`;
+    ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secondsRemaining).padStart(2, '0')}`
+    : `${minutes} min ${secondsRemaining} sec`;
 };
 
 const formatPace = (secondsPerKm: number) => {
@@ -33,20 +34,45 @@ const formatPace = (secondsPerKm: number) => {
 };
 
 const formatSpeed = (metersPerSecond: number) => `${(Math.max(0, metersPerSecond) * 3.6).toFixed(1)} km/h`;
+const formatBackendSpeed = (speed: number) => Number.isFinite(speed) ? `${speed} Km/hr` : '--';
 
-const formatEndTime = (value: string) => {
+const formatRecordedDate = (value: string) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? '--'
-    : date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    : `${date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} at ${date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
 };
 
-function DetailMetric({ label, value, fullWidth = false }: { label: string; value: string; fullWidth?: boolean }) {
+const formatActivityDate = (value: string) => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? '--'
+    : `${date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} at ${date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+};
+
+function DetailMetric({
+  label,
+  value,
+  fullWidth = false,
+  singleLine = false,
+}: {
+  label: string;
+  value: string;
+  fullWidth?: boolean;
+  singleLine?: boolean;
+}) {
   const { colors } = useTheme();
   return (
     <View style={[styles.metric, fullWidth && styles.metricFullWidth]}>
       <Text style={[styles.metricLabel, fullWidth && styles.metricLabelInline, { color: colors.textSecondary }]}>{label}</Text>
-      <Text style={[styles.metricValue, fullWidth && styles.metricValueInline, { color: colors.text }]}>{value}</Text>
+      <Text
+        numberOfLines={singleLine ? 1 : undefined}
+        adjustsFontSizeToFit={singleLine}
+        minimumFontScale={singleLine ? 0.75 : undefined}
+        style={[styles.metricValue, fullWidth && styles.metricValueInline, { color: colors.text }]}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -183,7 +209,7 @@ export default function ActivityDetailScreen() {
               onPress={() => router.push(`/activity/crop/${activity.id}`)}
               style={styles.cropButton}
             >
-              <Feather name="crop" size={20} color="#FFB020" />
+              <Feather name="scissors" size={20} color="#FFB020" />
             </TouchableOpacity>
             <TouchableOpacity
               accessibilityLabel="Open split details"
@@ -220,45 +246,57 @@ export default function ActivityDetailScreen() {
           </TouchableOpacity>
         </View>
       ) : activity ? (
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <MotionEntrance>
-            <Text style={[styles.activityType, { color: colors.text }]}>{activity.activity_type.toUpperCase() === 'WALK' ? 'Walk' : 'Run'}</Text>
-          <Text style={[styles.date, { color: colors.textSecondary }]}>
-            {new Date(activity.start_time).toLocaleString(undefined, {
-              weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
-            })}
-          </Text>
+        <View style={styles.activityBody}>
+          <View style={styles.routePanel}>
+            <Text style={[styles.sectionTitle, styles.routeTitle, { color: colors.text }]}>Route</Text>
+            <ActivityRouteMap
+              encodedPolyline={activity.encoded_polyline}
+              plannedEncodedPolyline={activity.planned_encoded_polyline}
+              extraEncodedPolyline={activity.extra_encoded_polyline}
+              savedGpsPoints={activity.route?.points ?? activity.gps_points}
+              runningRoutes={activity.route?.running_routes}
+              pauseRoutes={activity.route?.pause_routes}
+              pauseEvents={activity.pause_events ?? activity.route?.pause_events}
+              pausePoints={activity.route?.pause_points}
+              cropStartIndex={Number.isFinite(cropStartIndex) ? cropStartIndex : undefined}
+              cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
+              enableFullScreen
+            />
+          </View>
 
-            <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <DetailMetric label="Moving time" value={formatDuration(activity.moving_time)} />
-              <DetailMetric label="Distance" value={formatDistance(activity.distance)} />
+          <ScrollView
+            style={styles.detailsScroll}
+            contentContainerStyle={styles.detailsContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <MotionEntrance>
+            <Text style={[styles.workoutHeading, { color: colors.text }]}>Workout Details</Text>
+            <Text style={[styles.date, { color: colors.textSecondary }]}>
+              {formatActivityDate(activity.start_time)}
+            </Text>
+            <View style={styles.workoutTypeRow}>
+              <Text style={[styles.workoutType, { color: colors.text }]}>
+                {activity.activity_type.toUpperCase() === 'WALK' ? 'Walk' : 'Run'}
+              </Text>
+              <Text style={[styles.workoutStatus, { color: colors.text }]}>
+                {activity.processing_status.toUpperCase()}
+              </Text>
             </View>
 
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Route</Text>
-          <ActivityRouteMap
-            encodedPolyline={activity.encoded_polyline}
-            plannedEncodedPolyline={activity.planned_encoded_polyline}
-            extraEncodedPolyline={activity.extra_encoded_polyline}
-            savedGpsPoints={activity.route?.points ?? activity.gps_points}
-            runningRoutes={activity.route?.running_routes}
-            pauseRoutes={activity.route?.pause_routes}
-            pauseEvents={activity.pause_events ?? activity.route?.pause_events}
-            pausePoints={activity.route?.pause_points}
-            cropStartIndex={Number.isFinite(cropStartIndex) ? cropStartIndex : undefined}
-            cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
-            enableFullScreen
-          />
+            <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <DetailMetric label="Distance" value={formatDistance(activity.distance)} />
+              <DetailMetric label="Moving time" value={formatDuration(activity.moving_time)} />
+              <DetailMetric label="Average pace" value={formatPace(activity.avg_pace)} />
+              <DetailMetric label="Calories" value={`${Math.round(activity.calories)} kcal`} />
+            </View>
 
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Distance breakdown</Text>
             <View style={[styles.metricsCard, styles.verticalMetricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <DetailMetric fullWidth label="Distance" value={formatDistance(activity.distance)} />
               <DetailMetric
                 fullWidth
                 label="Planned distance"
-                value={activity.planned_distance != null
-                  ? formatDistance(Number(activity.planned_distance))
-                  : activity.planned_distance_km != null
-                    ? formatDistance(Number(activity.planned_distance_km) * 1000)
-                    : 'No planned distance'}
+                value={formatDistance(activity.distance)}
               />
               <DetailMetric
                 fullWidth
@@ -269,20 +307,19 @@ export default function ActivityDetailScreen() {
                     ? (Number(activity.extra_distance_km) > 0 ? formatDistance(Number(activity.extra_distance_km) * 1000) : 'No extra distance')
                     : 'No extra distance'}
               />
-            </View>
-
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Activity details</Text>
-            <View style={[styles.metricsCard, styles.verticalMetricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <DetailMetric fullWidth label="Elapsed time" value={formatDuration(activity.elapsed_time)} />
-              <DetailMetric fullWidth label="Average speed" value={formatSpeed(activity.avg_speed)} />
+                <DetailMetric fullWidth label="Moving time" value={formatDuration(activity.moving_time)} />
+              <DetailMetric fullWidth label="Average pace" value={formatPace(activity.avg_pace)} />
+              <DetailMetric fullWidth label="Average speed" value={formatBackendSpeed(activity.avg_speed)} />
               <DetailMetric fullWidth label="Max speed" value={formatSpeed(activity.max_speed)} />
               <DetailMetric fullWidth label="Calories" value={`${Math.round(activity.calories)} kcal`} />
               <DetailMetric fullWidth label="Elevation gain" value={`${Math.round(activity.elevation_gain)} m`} />
               <DetailMetric fullWidth label="Elevation loss" value={`${Math.round(activity.elevation_loss)} m`} />
-              <DetailMetric fullWidth label="Activity ended" value={formatEndTime(activity.end_time)} />
+              <DetailMetric fullWidth singleLine label="Recorded" value={formatRecordedDate(activity.end_time)} />
             </View>
-          </MotionEntrance>
-        </ScrollView>
+            </MotionEntrance>
+          </ScrollView>
+        </View>
       ) : null}
       <ActivitySplitsModal
         visible={splitsVisible}
@@ -311,9 +348,16 @@ const styles = StyleSheet.create({
   deleteButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
   headerTitle: { fontSize: 19, fontWeight: '700' },
   headerSpacer: { width: 42 },
-  content: { paddingTop: 16, paddingBottom: 38 },
-  activityType: { fontSize: 32, fontWeight: '700' },
+  activityBody: { flex: 1, minHeight: 0 },
+  routePanel: { flexShrink: 0, paddingTop: 12 },
+  routeTitle: { marginTop: 0 },
+  detailsScroll: { flex: 1 },
+  detailsContent: { paddingBottom: 38 },
+  workoutHeading: { fontSize: 24, fontWeight: '700', marginTop: 26 },
   date: { fontSize: 15, marginTop: 5 },
+  workoutTypeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 24 },
+  workoutType: { fontSize: 20, fontWeight: '700' },
+  workoutStatus: { fontSize: 14, fontWeight: '700' },
   summaryCard: { borderRadius: 22, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 8, marginTop: 26 },
   sectionTitle: { fontSize: 21, fontWeight: '700', marginTop: 26, marginBottom: 12 },
   metricsCard: { borderRadius: 22, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 8 },

@@ -20,6 +20,12 @@ export interface GpsOptimizationConfig {
   /** Minimum movement distance (meters) to consider a GPS sample meaningful */
   minMovementDistanceMeters: number;
 
+  /** Minimum movement (meters) before adding a point to the live display route */
+  liveDisplayThresholdMeters: number;
+
+  /** Maximum cross-track deviation (meters) treated as visual GPS jitter */
+  livePolylineJitterToleranceMeters: number;
+
   /** Maximum realistic running/walking speed (m/s) - prevents GPS jump detection */
   maxReasonableSpeedMetersPerSecond: number;
 
@@ -104,6 +110,8 @@ export const DEFAULT_GPS_OPTIMIZATION_CONFIG: GpsOptimizationConfig = {
   maxAccuracyMetersLive: 50,        // Live display: slightly loose for responsiveness
   maxAccuracyMetersSave: 50,        // Save filtering: consistent with live
   minMovementDistanceMeters: 0.5,   // Any movement above GPS noise floor
+  liveDisplayThresholdMeters: 1.5,
+  livePolylineJitterToleranceMeters: 1,
   maxReasonableSpeedMetersPerSecond: 16, // ~57 km/h, reasonable for running
   maxJumpDistanceMeters: 80,        // Reject obvious GPS teleports
 

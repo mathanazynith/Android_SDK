@@ -11,10 +11,10 @@
       "icon": "./assets/Zy-Run_Official.png"
     },
     "android": {
-      "icon": "./assets/Zy-Run_Official.png",
+      "icon": "./assets/images/zyrun-adaptive-foreground.png",
       "adaptiveIcon": {
         "backgroundColor": "#090B0A",
-        "foregroundImage": "./assets/Zy-Run_Official.png"
+        "foregroundImage": "./assets/images/zyrun-adaptive-foreground.png"
       },
       "permissions": [
         "POST_NOTIFICATIONS",

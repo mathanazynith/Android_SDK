@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Zy-Run Android Emulator test" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>Zy-Run GPS and altitude test</name>
+    <desc>Synthetic short route for Android Emulator location playback.</desc>
+  </metadata>
+  <trk>
+    <name>GPS tracking test</name>
+    <trkseg>
+      <trkpt lat="13.006700" lon="80.220600"><ele>12.0</ele><time>2026-10-26T12:00:00Z</time></trkpt>
+      <trkpt lat="13.006800" lon="80.220605"><ele>12.5</ele><time>2026-10-26T12:00:05Z</time></trkpt>
+      <trkpt lat="13.006900" lon="80.220612"><ele>13.0</ele><time>2026-10-26T12:00:10Z</time></trkpt>
+      <trkpt lat="13.007000" lon="80.220620"><ele>13.5</ele><time>2026-10-26T12:00:15Z</time></trkpt>
+      <trkpt lat="13.007100" lon="80.220630"><ele>14.0</ele><time>2026-10-26T12:00:20Z</time></trkpt>
+      <trkpt lat="13.007200" lon="80.220640"><ele>14.5</ele><time>2026-10-26T12:00:25Z</time></trkpt>
+      <trkpt lat="13.007300" lon="80.220650"><ele>15.0</ele><time>2026-10-26T12:00:30Z</time></trkpt>
+      <trkpt lat="13.007400" lon="80.220660"><ele>15.5</ele><time>2026-10-26T12:00:35Z</time></trkpt>
+      <trkpt lat="13.007500" lon="80.220672"><ele>16.0</ele><time>2026-10-26T12:00:40Z</time></trkpt>
+      <trkpt lat="13.007600" lon="80.220685"><ele>16.5</ele><time>2026-10-26T12:00:45Z</time></trkpt>
+      <trkpt lat="13.007700" lon="80.220700"><ele>17.0</ele><time>2026-10-26T12:00:50Z</time></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

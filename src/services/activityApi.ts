@@ -9,6 +9,7 @@ import { activityTimingOverrides } from './activityTimingOverrides';
 export interface BackendGpsPoint {
   latitude: number;
   longitude: number;
+  accuracy?: number | null;
   timestamp?: string;
   is_extra_distance?: boolean;
   is_paused?: boolean;

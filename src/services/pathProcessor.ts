@@ -1,4 +1,4 @@
-import { PathType, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../types/running';
+import { PathType, RawGpsPayload, RunningCoordinate, RunningGpsPoint, RunningPathPoint } from '../types/running';
 import { calculateHeadingChange } from '../utils/bearing';
 import { calculateDistanceMeters } from '../utils/distance';
 import { DEFAULT_GPS_FILTER_CONFIG, GpsFilter } from './gpsFilter';
@@ -119,7 +119,7 @@ export class PathProcessor {
       // Keep the live route visible while still avoiding a noisy every-second
       // trace. A small real movement should remain visible, while tiny GPS wobble
       // is filtered out before it reaches the SDK polyline.
-      const displayThreshold = 2;
+      const displayThreshold = getGpsOptimizationConfig().liveDisplayThresholdMeters;
 
       if (
         !(displayDistance > 500 && displayElapsedSeconds < 10)
@@ -133,7 +133,7 @@ export class PathProcessor {
     return pathPoint;
   }
 
-  public filterRawPoints(): RunningPathPoint[] {
+  public filterRawPoints(boundaryTimestamps: number[] = []): RunningPathPoint[] {
     this.filteredPoints.length = 0;
 
 
@@ -199,7 +199,7 @@ export class PathProcessor {
       this.filteredPoints.push(filteredPoint);
     }
 
-    this.collapseIndoorDrift();
+    this.collapseIndoorDrift(boundaryTimestamps);
     return [...this.filteredPoints];
   }
 
@@ -244,6 +244,13 @@ export class PathProcessor {
     return [...this.displayPoints];
   }
 
+  public simplifyLivePolyline(points: RunningCoordinate[]): RunningCoordinate[] {
+    return this.rdp.simplifyPreservingTurns(
+      points,
+      getGpsOptimizationConfig().livePolylineJitterToleranceMeters
+    );
+  }
+
   public getFilteredPoints(): RunningPathPoint[] {
     return [...this.filteredPoints];
   }
@@ -252,53 +259,93 @@ export class PathProcessor {
     return [...this.optimizedPoints];
   }
 
-  private collapseIndoorDrift(): void {
-    if (this.filteredPoints.length < 3) {
-      return;
-    }
+  private collapseIndoorDrift(boundaryTimestamps: number[]): void {
+    const boundaries = [...new Set(boundaryTimestamps.filter(Number.isFinite))].sort((a, b) => a - b);
+    const groupByBoundaries = <T extends { timestamp: number }>(points: T[]): T[][] => {
+      const groups: T[][] = [];
+      let boundaryIndex = 0;
+      let groupIndex = 0;
 
-    const first = this.filteredPoints[0];
-    const last = this.filteredPoints.at(-1)!;
-    const durationSeconds = Math.max(0, (last.timestamp - first.timestamp) / 1_000);
-    if (durationSeconds < getINDOOR_DRIFT_MIN_DURATION_SECONDS()) {
-      return;
-    }
+      points.forEach((point) => {
+        while (boundaryIndex < boundaries.length && point.timestamp >= boundaries[boundaryIndex]) {
+          boundaryIndex += 1;
+          groupIndex += 1;
+        }
+        groups[groupIndex] ??= [];
+        groups[groupIndex].push(point);
+      });
+      return groups;
+    };
+    const filteredGroups = groupByBoundaries(this.filteredPoints);
+    const analysisGroups = groupByBoundaries(this.workingPoints.filter((point) => {
+      const payload: RawGpsPayload = {
+        latitude: point.latitude,
+        longitude: point.longitude,
+        accuracy: point.accuracy ?? undefined,
+        speed: point.speed ?? undefined,
+        timestamp: point.timestamp,
+      };
+      return this.gpsFilter.validateRawPoint(payload) !== null
+        && Date.now() - point.timestamp <= 60 * 60 * 24 * 1000;
+    }));
 
-    const centre = this.filteredPoints.reduce(
-      (sum, point) => ({
-        latitude: sum.latitude + point.latitude,
-        longitude: sum.longitude + point.longitude,
-      }),
-      { latitude: 0, longitude: 0 }
-    );
-    centre.latitude /= this.filteredPoints.length;
-    centre.longitude /= this.filteredPoints.length;
+    filteredGroups.forEach((filteredPoints, index) => {
+      const analysisPoints = analysisGroups[index] ?? [];
+      if (filteredPoints.length === 0 || analysisPoints.length < 3) return;
 
-    const radius = Math.max(
-      ...this.filteredPoints.map((point) => calculateDistanceMeters(centre, point))
-    );
-    const travelledDistance = this.filteredPoints.slice(1).reduce(
-      (total, point, index) => total + calculateDistanceMeters(this.filteredPoints[index], point),
-      0
-    );
-    const netDisplacement = calculateDistanceMeters(first, last);
-    const isSmallArea = radius <= getINDOOR_DRIFT_MAX_RADIUS_METERS();
-    const isWandering = travelledDistance >= radius * getINDOOR_DRIFT_MIN_WANDER_RATIO();
-    const endsNearStart = netDisplacement <= radius;
+      const first = analysisPoints[0];
+      const last = analysisPoints.at(-1)!;
+      const durationSeconds = Math.max(0, (last.timestamp - first.timestamp) / 1_000);
+      const centre = analysisPoints.reduce(
+        (sum, point) => ({
+          latitude: sum.latitude + point.latitude,
+          longitude: sum.longitude + point.longitude,
+        }),
+        { latitude: 0, longitude: 0 }
+      );
+      centre.latitude /= analysisPoints.length;
+      centre.longitude /= analysisPoints.length;
 
-    if (!isSmallArea || !isWandering || !endsNearStart) {
-      return;
-    }
+      const radius = Math.max(
+        ...analysisPoints.map((point) => calculateDistanceMeters(centre, point))
+      );
+      const travelledDistance = analysisPoints.slice(1).reduce(
+        (total, point, pointIndex) => total + calculateDistanceMeters(analysisPoints[pointIndex], point),
+        0
+      );
+      const netDisplacement = calculateDistanceMeters(first, last);
+      const reportedAccuracies = analysisPoints
+        .map((point) => point.accuracy)
+        .filter((accuracy): accuracy is number => typeof accuracy === 'number' && Number.isFinite(accuracy))
+        .sort((left, right) => left - right);
+      const medianAccuracy = reportedAccuracies.length > 0
+        ? reportedAccuracies[Math.floor(reportedAccuracies.length / 2)]
+        : 0;
+      const isUncertaintyBounded = medianAccuracy >= 6 && radius <= medianAccuracy * 0.75;
+      const isShortUncertainDrift = durationSeconds >= 20
+        && durationSeconds < getINDOOR_DRIFT_MIN_DURATION_SECONDS()
+        && travelledDistance >= Math.max(20, radius * 2)
+        && netDisplacement <= Math.max(3, medianAccuracy * 0.5);
+      const isSustainedDrift = durationSeconds >= getINDOOR_DRIFT_MIN_DURATION_SECONDS()
+        && travelledDistance >= radius * getINDOOR_DRIFT_MIN_WANDER_RATIO()
+        && netDisplacement <= radius;
 
-    // Keep the most precise point as the stationary location. Using the first
-    // and last noisy points would still make the backend calculate fake travel.
-    const anchor = this.filteredPoints.reduce((best, point) =>
-      (point.accuracy ?? Number.POSITIVE_INFINITY) < (best.accuracy ?? Number.POSITIVE_INFINITY)
-        ? point
-        : best
-    );
-    this.filteredPoints.length = 0;
-    this.filteredPoints.push(anchor);
+      if (
+        radius > getINDOOR_DRIFT_MAX_RADIUS_METERS()
+        || !isUncertaintyBounded
+        || (!isShortUncertainDrift && !isSustainedDrift)
+      ) {
+        return;
+      }
+
+      const anchor = filteredPoints.reduce((best, point) =>
+        (point.accuracy ?? Number.POSITIVE_INFINITY) < (best.accuracy ?? Number.POSITIVE_INFINITY)
+          ? point
+          : best
+      );
+      const firstIndex = this.filteredPoints.indexOf(filteredPoints[0]);
+      this.filteredPoints.splice(firstIndex, filteredPoints.length, anchor);
+    });
   }
 
   public simplifyFinal(filtered: RunningPathPoint[] = this.filteredPoints): RunningPathPoint[] {

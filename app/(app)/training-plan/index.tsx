@@ -6,13 +6,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { useAuth } from '../../../service/auth';
 import { workoutPlanService, type CurrentWorkout, type UserWorkoutResponse } from '../../../service/workoutPlan';
 import {
     PlanBenchmarkStore,
     type PlanBenchmarkAssignment,
 } from '../../../src/services/planBenchmarkStore';
-import RunningPlanHeader from '../calendar/components/RunningPlanHeader';
 import Timeline from '../calendar/components/Timeline';
 import TrainingCalendarCard from '../calendar/components/TrainingCalendarCard';
 import WorkoutModal from '../calendar/components/WorkoutModal';
@@ -79,6 +77,15 @@ const iconForWorkout = (workout: CurrentWorkout): WorkoutDetail['iconName'] => {
   return 'walk-outline';
 };
 
+const accentForWorkout = (workout: CurrentWorkout, isRest: boolean, isBenchmark: boolean) => {
+  if (isRest) return '#8A8F94';
+  if (isBenchmark) return '#F59E0B';
+  const label = `${workout.workout_type} ${workout.title}`.toLowerCase();
+  if (label.includes('long')) return '#F28C28';
+  if (label.includes('tempo') || label.includes('interval')) return '#1596E8';
+  return '#54B735';
+};
+
 const formatDuration = (seconds: number | null) => seconds == null ? '' : `${Math.round(seconds / 60)} min`;
 const formatDistance = (metres: number | null) => metres == null ? '' : `${(metres / 1000).toFixed(1)} km`;
 
@@ -136,7 +143,7 @@ const toWorkoutDetail = (
     title,
     workoutType,
     iconName: iconForWorkout(workout),
-    accentColor: isRest ? '#8A8F94' : isBenchmark ? '#F59E0B' : '#63C72B',
+    accentColor: accentForWorkout(workout, isRest, isBenchmark),
     isRest,
     isBenchmark,
     benchmarkTitle: assignment?.benchmarkTitle || (isBenchmark ? title : undefined),
@@ -165,15 +172,15 @@ const toWorkoutDetail = (
 };
 
 export default function TrainingPlanScreen() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const params = useLocalSearchParams<{ selectedWeek?: string }>();
-  const { user } = useAuth();
   const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
   const [selectedWeekIndex, setSelectedWeekIndex] = useState(() => {
     const requestedWeek = Number.parseInt(String(params.selectedWeek ?? ''), 10);
     return Number.isFinite(requestedWeek) && requestedWeek > 0 ? requestedWeek - 1 : 0;
   });
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutDetail | null>(null);
+  const [selectedDayIndex, setSelectedDayIndex] = useState(0);
   const [benchmarkAssignments, setBenchmarkAssignments] = useState<Record<string, PlanBenchmarkAssignment>>({});
   const [dbPlanWorkouts, setDbPlanWorkouts] = useState<UserWorkoutResponse[]>([]);
 
@@ -259,11 +266,15 @@ export default function TrainingPlanScreen() {
 
   const safeWeekIndex = plan ? Math.min(selectedWeekIndex, Math.max(0, plan.weeks.length - 1)) : 0;
   const selectedWeek = plan?.weeks[safeWeekIndex] ?? null;
-  const userName = user?.username?.trim() || user?.email?.split('@')[0]?.trim() || 'Runner';
+  const selectedDay = selectedWeek?.workouts[selectedDayIndex] ?? selectedWeek?.workouts[0] ?? null;
 
   const changeWeek = (direction: -1 | 1) => {
     if (!plan) return;
     setSelectedWeekIndex((current) => Math.max(0, Math.min(plan.weeks.length - 1, safeWeekIndex + direction)));
+  };
+
+  const changeDay = (direction: -1 | 1) => {
+    setSelectedDayIndex((current) => Math.max(0, Math.min(6, current + direction)));
   };
 
   const weekSwipeResponder = PanResponder.create({
@@ -279,7 +290,7 @@ export default function TrainingPlanScreen() {
   if (isWorkoutPlanLoading && !plan) {
     return (
       <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
-        <StatusBar barStyle="light-content" />
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#63C72B" />
           <Text style={[styles.message, { color: colors.text }]}>Loading your training plan...</Text>
@@ -291,7 +302,7 @@ export default function TrainingPlanScreen() {
   if (!plan) {
     return (
         <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
-          <StatusBar barStyle="light-content" />
+          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
         <View style={styles.center}>
           <Text style={[styles.error, { color: colors.text }]}>{workoutPlanError || 'No training plan is available.'}</Text>
           <TouchableOpacity onPress={() => void fetchWorkoutPlan(true)} style={[styles.retry, { backgroundColor: '#4ADE80' }]}>
@@ -304,11 +315,8 @@ export default function TrainingPlanScreen() {
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <MotionEntrance>
-        <RunningPlanHeader planName={plan.name} focusLabel={plan.focus} userName={userName} />
-        </MotionEntrance>
         <MotionEntrance delay={55}>
         <View {...weekSwipeResponder.panHandlers}>
           <TrainingCalendarCard
@@ -321,12 +329,21 @@ export default function TrainingPlanScreen() {
             onNext={() => changeWeek(1)}
             previousDisabled={safeWeekIndex <= 0}
             nextDisabled={safeWeekIndex >= plan.weeks.length - 1}
+            selectedDayLabel={selectedDay ? `Day: ${selectedDay.day}, ${selectedDay.date}` : undefined}
+            onPreviousDay={() => changeDay(-1)}
+            onNextDay={() => changeDay(1)}
+            previousDayDisabled={selectedDayIndex <= 0}
+            nextDayDisabled={selectedDayIndex >= 6}
           />
 
           <View style={styles.timelineWrapper}>
             <Timeline
               workouts={selectedWeek?.workouts ?? []}
-              onSelectWorkout={setSelectedWorkout}
+              selectedWorkoutId={selectedDay?.id}
+              onSelectWorkout={(workout) => {
+                setSelectedDayIndex(Math.max(0, (workout.displayOrder ?? 1) - 1));
+                setSelectedWorkout(workout);
+              }}
               onSwapWorkout={(workout: WorkoutDetail) => {
                 Alert.alert('Swap Session', `Swap ${workout.title} to a different day.`);
               }}
@@ -334,6 +351,12 @@ export default function TrainingPlanScreen() {
           </View>
         </View>
         </MotionEntrance>
+        <View style={styles.legend}>
+          <LegendItem label="Long Run" color="#F28C28" />
+          <LegendItem label="Tempo Run" color="#1596E8" />
+          <LegendItem label="Slow Run" color="#54B735" />
+          <LegendItem label="Rest Day" color={colors.textTertiary} />
+        </View>
       </ScrollView>
 
       <WorkoutModal
@@ -402,10 +425,23 @@ export default function TrainingPlanScreen() {
   );
 }
 
+function LegendItem({ label, color }: { label: string; color: string }) {
+  return (
+    <View style={styles.legendItem}>
+      <View style={[styles.legendDot, { backgroundColor: color }]} />
+      <Text style={[styles.legendLabel, { color }]}>{label}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#06090B' },
-  content: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 118 },
+  container: { flex: 1 },
+  content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 118 },
   timelineWrapper: { marginTop: 8 },
+  legend: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12, paddingHorizontal: 4, paddingTop: 8, paddingBottom: 10 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendDot: { width: 7, height: 7, borderRadius: 4 },
+  legendLabel: { fontSize: 10 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
   message: { color: '#fff', marginTop: 12 },
   error: { color: '#fff', fontSize: 16, marginBottom: 12, textAlign: 'center' },
