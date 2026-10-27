@@ -2,9 +2,10 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import RazorpayCheckout from 'react-native-razorpay';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { RunningLoader } from '../../../components/common/RunningLoader';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage } from '../../../service/api';
 import { useAuth } from '../../../service/auth';
@@ -187,7 +188,11 @@ export default function SubscriptionScreen() {
         </View>
       </View>
 
-      {loading ? <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /><Text style={[styles.muted, { color: colors.textSecondary }]}>Loading plans…</Text></View> : (
+      {loading ? (
+        <View style={styles.center}>
+          <RunningLoader size={64} label="Loading plans..." />
+        </View>
+      ) : (
         <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void loadData()} tintColor={colors.primary} />}>
           {error ? (
             <View style={[styles.notice, surface]}>
@@ -253,14 +258,14 @@ export default function SubscriptionScreen() {
                       : 'This plan renews automatically at the displayed interval. Checkout will ask you to authorize recurring payments.'}</Text>
                   : <Text style={[styles.terms, { color: colors.textTertiary }]}>This plan is charged once at checkout.</Text>}
                 <TouchableOpacity disabled={!selected || busy || currentIsActive} onPress={() => void purchase(plan)} style={[styles.primaryButton, { backgroundColor: colors.primary, opacity: !selected || busy || currentIsActive ? 0.55 : 1 }]}>
-                  {busy ? <ActivityIndicator size="small" color={colors.primaryText} /> : <><Text style={[styles.primaryText, { color: colors.primaryText }]}>{currentIsActive ? 'Cancel current plan to switch' : plan.trial_days > 0 ? `Start ${plan.trial_days}-day free trial` : plan.is_recurring ? 'Subscribe' : 'Buy plan'}</Text><Feather name="arrow-up-right" size={18} color={colors.primaryText} /></>}
+                  {busy ? <RunningLoader size={18} fillColor={colors.primaryText} /> : <><Text style={[styles.primaryText, { color: colors.primaryText }]}>{currentIsActive ? 'Cancel current plan to switch' : plan.trial_days > 0 ? `Start ${plan.trial_days}-day free trial` : plan.is_recurring ? 'Subscribe' : 'Buy plan'}</Text><Feather name="arrow-up-right" size={18} color={colors.primaryText} /></>}
                 </TouchableOpacity>
               </View>
             );
           })}
         </ScrollView>
       )}
-      {busy ? <View pointerEvents="none" style={styles.busyOverlay}><ActivityIndicator size="large" color={colors.primary} /></View> : null}
+      {busy ? <View pointerEvents="none" style={styles.busyOverlay}><RunningLoader size={64} label="Processing payment..." /></View> : null}
     </SafeAreaView>
   );
 }

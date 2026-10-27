@@ -2,7 +2,6 @@ import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   LayoutAnimation,
   Pressable,
   RefreshControl,
@@ -14,6 +13,7 @@ import {
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { RunningLoader } from '../../../components/common/RunningLoader';
 import { useNotifications } from '../../../contexts/NotificationContext';
 import { BRAND_GREEN, useTheme } from '../../../contexts/ThemeContext';
 import { useAuth } from '../../../service/auth';
@@ -235,8 +235,7 @@ export default function NotificationsScreen() {
   
         {isLoading && notifications.length === 0 ? (
           <View style={styles.stateContainer}>
-            <ActivityIndicator color={colors.primary} />
-            <Text style={[styles.stateText, { color: colors.textSecondary }]}>Loading notifications...</Text>
+            <RunningLoader size={56} label="Loading notifications..." />
           </View>
         ) : error && notifications.length === 0 ? (
           <View style={styles.stateContainer}>
@@ -269,8 +268,7 @@ export default function NotificationsScreen() {
           </View>
         ) : isCheckingDismissals ? (
           <View style={styles.stateContainer}>
-            <ActivityIndicator color={colors.primary} />
-            <Text style={[styles.stateText, { color: colors.textSecondary }]}>Loading notifications...</Text>
+            <RunningLoader size={56} label="Loading notifications..." />
           </View>
         ) : visibleNotifications.length === 0 ? (
           <View style={styles.stateContainer}>
@@ -287,7 +285,7 @@ export default function NotificationsScreen() {
                 style={[styles.loadMoreButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
               >
                 {isLoadingMore
-                  ? <ActivityIndicator size="small" color={colors.primary} />
+                  ? <RunningLoader size={18} fillColor={colors.primary} />
                   : <Text style={[styles.markAllText, { color: colors.primary }]}>Load older notifications</Text>}
               </Pressable>
             ) : null}
@@ -379,7 +377,7 @@ export default function NotificationsScreen() {
                 style={[styles.loadMoreButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
               >
                 {isLoadingMore
-                  ? <ActivityIndicator size="small" color={colors.primary} />
+                  ? <RunningLoader size={18} fillColor={colors.primary} />
                   : <Text style={[styles.markAllText, { color: colors.primary }]}>Load older notifications</Text>}
               </Pressable>
             ) : null}

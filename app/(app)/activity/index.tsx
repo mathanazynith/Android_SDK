@@ -7,7 +7,6 @@ import { router, useFocusEffect } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     AccessibilityInfo,
-    ActivityIndicator,
     Animated,
     Easing,
     FlatList,
@@ -34,6 +33,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import ThemedCalendarPicker from '../../../components/common/ThemedCalendarPicker';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
+import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage, resolveApiUrl } from '../../../service/api';
@@ -559,7 +559,7 @@ const ActivityCard = memo(function ActivityCard({
           ]}
         >
           {deleting
-            ? <ActivityIndicator size="small" color="#FF6B6B" />
+            ? <RunningLoader size={18} fillColor="#FF6B6B" />
             : selected
               ? <Feather name="check" size={21} color="#FFFFFF" />
               : <Feather name="square" size={20} color={colors.textSecondary} />}
@@ -1618,7 +1618,7 @@ export default function ActivityScreen() {
           ListFooterComponent={loadingMore
             ? (
               <View style={styles.footerLoaderPill}>
-                <ActivityIndicator color="#35C72B" size="small" />
+                <RunningLoader size={20} fillColor="#35C72B" />
                 <Text style={styles.footerCountText}>{footerCountText}</Text>
               </View>
             )
@@ -1687,7 +1687,7 @@ export default function ActivityScreen() {
                   </Animated.View>
                 )
                 : isDeletingActivities
-                ? <ActivityIndicator size="small" color="#FFFFFF" />
+                ? <RunningLoader size={20} fillColor="#FFFFFF" />
                 : <Feather name="trash-2" size={23} color="#FFFFFF" />}
               <Text style={styles.deleteButtonText}>
                 {deleteSuccess

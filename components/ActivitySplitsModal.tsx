@@ -1,7 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
     Modal,
     ScrollView,
     StatusBar,
@@ -11,6 +10,7 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { RunningLoader } from './common/RunningLoader';
 import { useTheme } from '../contexts/ThemeContext';
 import { ActivitySegmentSplits, ActivitySplit } from '../src/types/activity';
 import { formatPace, formatSplitDistance, formatSplitTime } from '../src/utils/splitFormatters';
@@ -105,8 +105,7 @@ export default function ActivitySplitsModal({
 
         {loading ? (
           <View style={styles.state}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={[styles.stateText, { color: colors.textSecondary }]}>Loading splits...</Text>
+            <RunningLoader size={60} label="Loading splits..." />
           </View>
         ) : error ? (
           <View style={styles.state}>

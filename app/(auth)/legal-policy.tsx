@@ -2,8 +2,9 @@ import { Alert } from '@/components/ThemedAlert';
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { RunningLoader } from "../../components/common/RunningLoader";
 import { LegalPolicy, LegalPolicyType, legalAPI } from "../../service/api";
 
 const validPolicyTypes: LegalPolicyType[] = ["terms-and-conditions", "privacy-policy"];
@@ -140,7 +141,9 @@ export default function LegalPolicyViewer() {
       </View>
 
       {loading ? (
-        <View style={styles.centered}><ActivityIndicator size="large" color="#22C55E" /><Text style={styles.statusText}>Loading policy…</Text></View>
+        <View style={styles.centered}>
+          <RunningLoader size={64} label="Loading policy..." />
+        </View>
       ) : policy ? (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <Text style={styles.title}>{policy.title}</Text>

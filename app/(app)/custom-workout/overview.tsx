@@ -2,10 +2,11 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
 import ThemedCalendarPicker from "../../../components/common/ThemedCalendarPicker";
+import { RunningLoader } from "../../../components/common/RunningLoader";
 import MotionEntrance from "../../../components/MotionEntrance";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { useTheme, type ThemeColors } from "../../../contexts/ThemeContext";
@@ -855,7 +856,7 @@ export default function CustomWorkoutOverview() {
               style={styles.saveHeaderButton}
             >
               {isSaving ? (
-                <ActivityIndicator size="small" color={colors.primary} />
+                <RunningLoader size={18} fillColor={colors.primary} />
               ) : (
                 <Text style={styles.headerSaveText}>Save</Text>
               )}
@@ -1114,7 +1115,7 @@ export default function CustomWorkoutOverview() {
                       <Text style={styles.viewRouteText}>View route</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={handleRemoveRoute} disabled={isRemovingRoute} activeOpacity={0.85}>
-                      {isRemovingRoute ? <ActivityIndicator size="small" color="#FF453A" /> : <Text style={styles.removeRouteText}>Unassign</Text>}
+                      {isRemovingRoute ? <RunningLoader size={18} fillColor="#FF453A" /> : <Text style={styles.removeRouteText}>Unassign</Text>}
                     </TouchableOpacity>
                   </View>
                 </View>

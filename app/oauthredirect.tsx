@@ -1,6 +1,7 @@
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { useEffect } from 'react';
+import { RunningLoader } from '../components/common/RunningLoader';
 
 export default function OAuthRedirectScreen() {
   useEffect(() => {
@@ -9,8 +10,7 @@ export default function OAuthRedirectScreen() {
 
   return (
     <View style={styles.container}>
-      <ActivityIndicator size="large" color="#22C55E" />
-      <Text style={styles.text}>Completing sign-in...</Text>
+      <RunningLoader size={64} label="Completing sign-in..." />
     </View>
   );
 }

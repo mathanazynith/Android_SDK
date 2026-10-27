@@ -1,7 +1,8 @@
 import { Alert } from '@/components/ThemedAlert';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -17,7 +18,13 @@ export default function RunningPlanScreen() {
   const duration = workoutPlan?.weeks.length ? `${workoutPlan.weeks.length} weeks` : '';
   const loading = (isAssessmentResultLoading || isWorkoutPlanLoading) && !workoutPlan;
 
-  if (loading) return <View style={[styles.center, { backgroundColor: colors.background }]}><ActivityIndicator size="large" color={colors.primary} /><Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading your running plan...</Text></View>;
+  if (loading) {
+    return (
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
+        <RunningLoader size={64} label="Loading your running plan..." />
+      </View>
+    );
+  }
   if (!workoutPlan) return <View style={[styles.center, { backgroundColor: colors.background }]}><Text style={[styles.error, { color: colors.text }]}>{workoutPlanError || 'No training plan is available.'}</Text><TouchableOpacity style={[styles.retry, { backgroundColor: colors.primary }]} onPress={() => fetchWorkoutPlan(true)}><Text style={[styles.retryText, { color: colors.primaryText }]}>Retry</Text></TouchableOpacity></View>;
 
   const handleEndPlan = () => {

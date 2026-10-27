@@ -2,12 +2,13 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import ActivitySplitsModal from '../../../components/ActivitySplitsModal';
+import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage } from '../../../service/api';
@@ -225,7 +226,7 @@ export default function ActivityDetailScreen() {
               style={styles.deleteButton}
             >
               {deleting
-                ? <ActivityIndicator size="small" color="#FF6B6B" />
+                ? <RunningLoader size={18} fillColor="#FF6B6B" />
                 : <Feather name="trash-2" size={20} color="#FF6B6B" />}
             </TouchableOpacity>
           </View>
@@ -234,8 +235,7 @@ export default function ActivityDetailScreen() {
 
       {loading ? (
         <View style={styles.centerState}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={[styles.stateText, { color: colors.textSecondary }]}>Loading activity details...</Text>
+          <RunningLoader size={64} label="Loading activity details..." />
         </View>
       ) : error ? (
         <View style={styles.centerState}>

@@ -4,9 +4,10 @@ import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from "react-native";
+import { FlatList, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppInput } from "../../../components/common/AppInput";
+import { RunningLoader } from "../../../components/common/RunningLoader";
 import ThemedCalendarPicker from "../../../components/common/ThemedCalendarPicker";
 import MotionEntrance from "../../../components/MotionEntrance";
 import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
@@ -270,13 +271,13 @@ export default function EditProfileScreen() {
         <View style={[styles.photoCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={[styles.avatar, { borderColor: colors.border, backgroundColor: colors.surfaceRaised }]}>
             {profilePictureUri ? <Image source={{ uri: profilePictureUri }} style={styles.avatarImage} /> : <Text style={[styles.photoInitial, { color: colors.text }]}>{initials}</Text>}
-            {isUploadingPicture && <View style={styles.uploadOverlay}><ActivityIndicator color="#FFFFFF" /></View>}
+            {isUploadingPicture && <View style={styles.uploadOverlay}><RunningLoader size={32} fillColor="#FFFFFF" /></View>}
           </View>
           <View style={styles.profileDetails}>
             <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>PROFILE PHOTO</Text>
             <Text style={[styles.profileName, { color: colors.text }]} numberOfLines={1}>{displayName}</Text>
             <TouchableOpacity accessibilityLabel="Change profile picture" accessibilityRole="button" onPress={openPictureOptions} style={[styles.photoAction, { backgroundColor: colors.selected }]} disabled={isUploadingPicture}>
-              {isUploadingPicture ? <ActivityIndicator size="small" color={colors.primary} /> : <Feather name="camera" size={15} color={colors.primary} />}
+              {isUploadingPicture ? <RunningLoader size={16} fillColor={colors.primary} /> : <Feather name="camera" size={15} color={colors.primary} />}
               <Text style={[styles.photoActionText, { color: colors.primary }]}>{isUploadingPicture ? "Uploading" : "Change photo"}</Text>
             </TouchableOpacity>
           </View>
@@ -323,7 +324,7 @@ export default function EditProfileScreen() {
     </ScrollView>
       </View>
     </TouchableWithoutFeedback>
-    <View style={styles.footer}><TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: loading || !hasChanges, busy: loading }} disabled={loading || !hasChanges} onPress={handleUpdate} style={[styles.saveButton, { backgroundColor: BRAND_GREEN }, !hasChanges && styles.saveButtonDisabled]}>{loading ? <ActivityIndicator size="small" color={colors.primaryText} /> : <Feather name="check" size={18} color={colors.primaryText} />}<Text style={[styles.saveButtonText, { color: colors.primaryText }]}>{loading ? "Saving..." : hasChanges ? "Save Changes" : "No Changes"}</Text></TouchableOpacity></View>
+    <View style={styles.footer}><TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: loading || !hasChanges, busy: loading }} disabled={loading || !hasChanges} onPress={handleUpdate} style={[styles.saveButton, { backgroundColor: BRAND_GREEN }, !hasChanges && styles.saveButtonDisabled]}>{loading ? <RunningLoader size={18} fillColor={colors.primaryText} /> : <Feather name="check" size={18} color={colors.primaryText} />}<Text style={[styles.saveButtonText, { color: colors.primaryText }]}>{loading ? "Saving..." : hasChanges ? "Save Changes" : "No Changes"}</Text></TouchableOpacity></View>
     </SafeAreaView>
     <Modal visible={showPictureOptions} transparent animationType="slide" onRequestClose={() => setShowPictureOptions(false)}>
       <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>

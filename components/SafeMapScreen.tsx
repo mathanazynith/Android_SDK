@@ -4,11 +4,11 @@ import {
   View,
   Text,
   StyleSheet,
-  ActivityIndicator,
   TouchableOpacity,
   Platform,
 } from 'react-native';
 import MapScreen from '../app/(app)/screens/map';
+import { RunningLoader } from './common/RunningLoader';
 import ENV from '../env';
 import ErrorBoundary from './ErrorBoundary';
 import * as Location from 'expo-location';
@@ -80,9 +80,7 @@ export default function SafeMapScreen() {
   if (loading) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#20D000" />
-        <Text style={styles.loadingText}>Initializing Map...</Text>
-        <Text style={styles.statusText}>{locationStatus}</Text>
+        <RunningLoader size={64} label={locationStatus || 'Initializing Map...'} />
       </View>
     );
   }

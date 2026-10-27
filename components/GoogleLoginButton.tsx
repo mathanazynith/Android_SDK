@@ -3,10 +3,10 @@ import {
   TouchableOpacity,
   Text,
   StyleSheet,
-  ActivityIndicator,
   View,
   Image,
 } from "react-native";
+import { RunningLoader } from "./common/RunningLoader";
 
 interface GoogleLoginButtonProps {
   onPress: () => void;
@@ -35,7 +35,7 @@ const GoogleLoginButton: React.FC<GoogleLoginButtonProps> = ({
       activeOpacity={0.8}
     >
       {loading ? (
-        <ActivityIndicator color="#fff" />
+        <RunningLoader size={20} fillColor="#fff" />
       ) : (
         <View style={styles.buttonContent}>
           <View style={styles.iconContainer}>

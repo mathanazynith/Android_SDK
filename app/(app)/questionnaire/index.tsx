@@ -2,7 +2,6 @@ import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Animated,
   Modal,
   TextInput as RNTextInput,
@@ -10,7 +9,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import DatePicker from "../../../app/(app)/questionnaire/QuestionTypes/DatePicker";
@@ -24,6 +23,7 @@ import YesNo, {
 import EventRegistration, { RacePredictionCard, type RacePrediction } from "../../../app/(app)/questionnaire/components/QuestionTypes/EventRegistration";
 import MotionEntrance from "../../../components/MotionEntrance";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
+import { RunningLoader } from "../../../components/common/RunningLoader";
 import { useQuestionnaire } from "../../../contexts/QuestionnaireContext";
 import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
 import { assessmentAPI } from "../../../service/api";
@@ -817,9 +817,8 @@ export default function QuestionnaireScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.centerContainer, { paddingTop: insets.top }]}>
-        <ActivityIndicator size="large" color="#34C759" />
-        <Text style={styles.loadingText}>Loading assessment...</Text>
+      <View style={styles.centerContainer}>
+        <RunningLoader size={64} label="Loading assessment..." />
       </View>
     );
   }
