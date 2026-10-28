@@ -13,10 +13,15 @@ import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 
 const runnerLoopGreen = require('../../assets/animations/runner-loop-green.json');
 const runnerLoopMuted = require('../../assets/animations/runner-loop-muted.json');
+const runnerLoop = require('../../assets/animations/runner-loop.json');
 
 export interface RunningLoaderProps {
   /** Size of the runner icon in pixels. Default is 56. */
   size?: number;
+  /** Custom base Lottie animation source (unfilled/base layer). Default: theme-aware runner-loop-muted.json. */
+  baseSource?: any;
+  /** Custom fill Lottie animation source (filled layer). Default: runner-loop-green.json. */
+  fillSource?: any;
   /** Progress from 0 to 1 (or 0 to 100). If omitted, runs in continuous indeterminate loop. */
   progress?: number;
   /** If true, loops the fill from 0% to 100% continuously. Defaults to true if progress is undefined. */
@@ -45,6 +50,8 @@ export interface RunningLoaderProps {
 
 export const RunningLoader: React.FC<RunningLoaderProps> = ({
   size = 56,
+  baseSource,
+  fillSource,
   progress,
   indeterminate,
   fillColor = BRAND_GREEN,
@@ -65,6 +72,10 @@ export const RunningLoader: React.FC<RunningLoaderProps> = ({
   const isLottie = effectiveMode === 'lottie';
   const effectiveShowSpeedLines = !isLottie && showSpeedLines && !isSmall;
   const effectiveShowShadow = !isLottie && showShadow && !isSmall;
+
+  // Resolved Lottie animation sources
+  const effectiveBaseSource = baseSource || (isDark ? runnerLoopMuted : runnerLoop);
+  const effectiveFillSource = fillSource || runnerLoopGreen;
 
   // Determine indeterminate mode: default to true if progress is not passed
   const isIndeterminate = indeterminate ?? progress === undefined;
@@ -305,9 +316,9 @@ export const RunningLoader: React.FC<RunningLoaderProps> = ({
           {effectiveMode === 'lottie' ? (
             // Lottie Athlete Mode (User's animated runner with bottom-to-top green fill)
             <View style={{ width: size, height: size, position: 'relative' }}>
-              {/* Layer 1: Base Unfilled Muted Athlete */}
+              {/* Layer 1: Base Unfilled Athlete */}
               <LottieView
-                source={runnerLoopMuted}
+                source={effectiveBaseSource}
                 autoPlay
                 loop
                 style={{ width: size, height: size }}
@@ -345,7 +356,7 @@ export const RunningLoader: React.FC<RunningLoaderProps> = ({
                   }}
                 >
                   <LottieView
-                    source={runnerLoopGreen}
+                    source={effectiveFillSource}
                     autoPlay
                     loop
                     style={{ width: size, height: size }}
