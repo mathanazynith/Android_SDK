@@ -73,7 +73,7 @@ export default function RunningDeclaration() {
       : undefined;
 
   // Step Title
-  const [title] = useState(existing?.title || "Running");
+  const [title] = useState(existing?.title || "Run");
 
   // Step Target Type: 'duration' or 'distance'
   const initialType: StepTargetType =
@@ -249,18 +249,18 @@ export default function RunningDeclaration() {
       }
       const distCheck = Number.parseFloat(effectiveDistance.replace(",", ".")) || 0;
       if (distCheck <= 0) {
-        return Alert.alert("Distance required", "Please enter a valid running distance.");
+        return Alert.alert("Distance required", "Please enter a valid run distance.");
       }
       const maxDistance = getMaxDistanceForUnit(unit);
       if (distCheck > maxDistance) {
         return Alert.alert(
           "Distance limit exceeded",
-          `Running distance cannot exceed ${maxDistance} ${getUnitLabel(unit)}.`
+          `Run distance cannot exceed ${maxDistance} ${getUnitLabel(unit)}.`
         );
       }
     } else {
       if (durSeconds <= 0) {
-        return Alert.alert("Duration required", "Please select a valid running duration.");
+        return Alert.alert("Duration required", "Please select a valid run duration.");
       }
     }
 

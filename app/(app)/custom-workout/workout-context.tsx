@@ -148,7 +148,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         {
           ...step,
           stepType: "Run",
-          title: step.title || "Running",
+          title: step.title || "Run",
         },
       ],
     }));
@@ -157,7 +157,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
   const addEmptyRun = useCallback(() => {
     setWorkout((current) => {
       const newStep: WorkoutStep = {
-        title: "Running",
+        title: "Run",
         stepType: "Run",
         inputType: "DURATION",
         duration: "",
@@ -187,7 +187,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
       if (current.runs.length === 0) {
         const newGroupId = `run-group-${Date.now()}`;
         const newStep: WorkoutStep = {
-          title: "Running",
+          title: "Run",
           stepType: "Run",
           inputType: "DISTANCE",
           duration: "00:25:00",
@@ -234,7 +234,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
       const targetGroupId = existingGroup.groupId || `run-group-${Date.now()}`;
       const groupRepeat = existingGroup.groupRepeat || existingGroup.repeat || 2;
       const newRepeatStep: WorkoutStep = {
-        title: "Running",
+        title: "Run",
         stepType: "Run",
         inputType: "DISTANCE",
         duration: "00:25:00",
@@ -262,7 +262,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
       ...current,
       runs: current.runs.map((existing, runIndex) =>
         runIndex === index
-          ? { ...step, stepType: "Run", title: step.title || "Running" }
+          ? { ...step, stepType: "Run", title: step.title || "Run" }
           : existing
       ),
     }));
@@ -407,7 +407,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         if (run.distance) {
           const maxDist = getMaxDistanceForUnit(run.unit);
           if (parseFloat(run.distance) > maxDist) {
-            throw new Error(`Running step "${run.title}" distance cannot exceed ${maxDist} ${run.unit || "km"}.`);
+            throw new Error(`Run step "${run.title}" distance cannot exceed ${maxDist} ${run.unit || "km"}.`);
           }
         }
       }
@@ -605,7 +605,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
               ? "Warm Up"
               : seg.segment_type === "Cooldown"
               ? "Cool Down"
-              : "Running",
+              : "Run",
           stepType: seg.segment_type,
           inputType: seg.input_type || "DURATION",
           duration: secondsToTimeString(seg.duration),

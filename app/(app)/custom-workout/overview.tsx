@@ -245,7 +245,7 @@ function StepCard({
     if (!editable) return null;
     return (
       <EmptyStepCard
-        title={step.title || "Running"}
+        title={step.title || "Run"}
         color={color}
         onPress={openStep}
       />
@@ -758,7 +758,7 @@ export default function CustomWorkoutOverview() {
     const existingGroupId = currentStep.groupId || `run-group-${Date.now()}`;
     updateRun(index, {
       ...currentStep,
-      title: currentStep.title || "Running",
+      title: currentStep.title || "Run",
       stepType: "Run",
       inputType: "DURATION",
       duration: "00:05:00",
@@ -799,7 +799,7 @@ export default function CustomWorkoutOverview() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
     addRun({
-      title: "Running",
+      title: "Run",
       stepType: "Run",
       inputType: "DISTANCE",
       duration: "00:25:00",
@@ -1166,7 +1166,7 @@ export default function CustomWorkoutOverview() {
             )}
             {workout.runs.length === 0 && (
               <StepSuggestionBox
-                title="Running"
+                title="Run"
                 color="#30D158"
                 onPress={handleAddRun}
               />

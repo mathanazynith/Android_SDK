@@ -150,7 +150,7 @@ export function CustomWorkoutWarmUp() {
   const [slowerPaceSec, setSlowerPaceSec] = useState<number>(initialPaces.slower);
 
   // Notes
-  const [notes, setNotes] = useState(existing?.notes || "");
+  const [notes] = useState(existing?.notes || "");
 
   const fasterPaceStr = formatSecondsToPace(fasterPaceSec, unit, false);
   const slowerPaceStr = formatSecondsToPace(slowerPaceSec, unit, false);
@@ -219,7 +219,7 @@ export function CustomWorkoutWarmUp() {
     };
   }, [distNum, medianPaceSec, unit]);
 
-  const continueToRunning = () => {
+  const continueToRun = () => {
     let effectiveDistance = distance;
     if (stepType === "distance") {
       if (unit === "m") {
@@ -299,7 +299,7 @@ export function CustomWorkoutWarmUp() {
             <Text style={[styles.headerBadge, { color: WARMUP_COLOR }]}>WARM UP</Text>
             <Text style={styles.headerTitle}>Configure Step</Text>
           </View>
-          <TouchableOpacity onPress={continueToRunning} style={styles.doneHeader}>
+          <TouchableOpacity onPress={continueToRun} style={styles.doneHeader}>
             <Text style={[styles.doneText, { color: WARMUP_COLOR }]}>DONE</Text>
           </TouchableOpacity>
         </View>
@@ -704,52 +704,42 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
+  // Modals
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    justifyContent: "flex-end",
+    justifyContent: "center",
+    padding: 24,
+    backgroundColor: "rgba(0,0,0,0.75)",
   },
   modal: {
-    backgroundColor: "#1C1C1E",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 36,
-    borderTopWidth: 1,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: "#2C2C2E",
+    overflow: "hidden",
+    backgroundColor: "#222224",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#333336",
   },
   modalTitle: {
+    padding: 20,
     color: Colors.textSecondary,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
-    letterSpacing: 0.8,
-    marginBottom: 14,
+    letterSpacing: 0.5,
   },
   option: {
+    minHeight: 56,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "#2A2A2E",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#2C2C2E",
   },
   optionLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    flex: 1,
   },
-  optionText: {
-    color: Colors.text,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  optionDescription: {
-    color: Colors.textMuted,
-    fontSize: 12,
-    marginTop: 2,
-  },
+  optionText: { color: Colors.text, fontSize: 16, fontWeight: "600" },
+  optionDescription: { color: Colors.textMuted, fontSize: 12, marginTop: 2 },
 });
