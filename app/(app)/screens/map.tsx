@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { RunningLoader } from '../../../components/common/RunningLoader';
+import { usePauseSettings } from '../../../contexts/PauseSettingsContext';
 import { useAuth } from '../../../service/auth';
 import { workoutPlanService } from '../../../service/workoutPlan';
 import { beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal } from '../../../src/services/activeRunJournal';
@@ -13,21 +14,22 @@ import { ActivityDetectionService } from '../../../src/services/activityDetectio
 import { activityDistanceOverrides } from '../../../src/services/activityDistanceOverrides';
 import { activityTimingOverrides } from '../../../src/services/activityTimingOverrides';
 import {
-    clearBackgroundLocationSession,
-    getBackgroundLocationSession,
-    persistBackgroundLocationSession,
-    setBackgroundLocationListener,
-    startBackgroundLocationTracking,
-    stopBackgroundLocationTracking,
+  clearBackgroundLocationSession,
+  flushBackgroundLocationTask,
+  getBackgroundLocationSession,
+  persistBackgroundLocationSession,
+  setBackgroundLocationListener,
+  startBackgroundLocationTracking,
+  stopBackgroundLocationTracking,
 } from '../../../src/services/backgroundLocationTask';
 import {
-    LIVE_TRACKING_PAUSE_ACTION,
-    LIVE_TRACKING_RESUME_ACTION,
-    LIVE_TRACKING_STOP_ACTION,
-    publishWorkoutSummaryNotification,
-    startLiveTrackingNotification,
-    stopLiveTrackingNotification,
-    updateLiveTrackingNotification,
+  LIVE_TRACKING_PAUSE_ACTION,
+  LIVE_TRACKING_RESUME_ACTION,
+  LIVE_TRACKING_STOP_ACTION,
+  publishWorkoutSummaryNotification,
+  startLiveTrackingNotification,
+  stopLiveTrackingNotification,
+  updateLiveTrackingNotification,
 } from '../../../src/services/liveTrackingNotification';
 import { LocationQueue } from '../../../src/services/locationQueue';
 import { LocationService } from '../../../src/services/locationService';
@@ -134,6 +136,7 @@ type MovementState = 'STATIONARY' | 'STARTING' | 'MOVING' | 'STOPPING';
 
 const MOVEMENT_CONFIRMATION_SAMPLES = 3;
 const STATIONARY_CONFIRMATION_SAMPLES = 3;
+const AUTO_PAUSE_STATIONARY_DURATION_MS = 5_000;
 // A 30m GPS radius is too large for indoor distance: the displayed point can
 // be several rooms away from the user. Reject low-confidence fixes before
 // they reach the route processor instead of adding false distance.
@@ -253,6 +256,12 @@ export default function MapScreen() {
   const [stepStartSeconds, setStepStartSeconds] = useState(0);
   const [stepStartDistanceMeters, setStepStartDistanceMeters] = useState(0);
   const [isVoiceMuted, setIsVoiceMuted] = useState(false);
+  const {
+    autoPauseEnabled,
+    isLoaded: pauseSettingsLoaded,
+    manualPauseEnabled,
+    voiceAlertsEnabled,
+  } = usePauseSettings();
 
   const currentStepIndexRef = useRef(0);
   const stepStartSecondsRef = useRef(0);
@@ -304,6 +313,12 @@ export default function MapScreen() {
   const pausedTimeRef = useRef<number | null>(null); // Tracks cumulative paused duration
   const pauseStartTimeRef = useRef<number | null>(null); // When pause started
   const isPausingRef = useRef(false);
+  const isAutoPausedRef = useRef(false);
+  const autoPauseEnabledRef = useRef(false);
+  const voiceAlertsEnabledRef = useRef(false);
+  const lastMovementTimestampRef = useRef<number | null>(null);
+  const autoPauseActionRef = useRef<() => void>(() => {});
+  const autoResumeActionRef = useRef<() => void>(() => {});
   const stepCountRef = useRef(0);
   const lastStepTimestampRef = useRef<number | null>(null);
   const movementConfirmedRef = useRef(false);
@@ -324,6 +339,42 @@ export default function MapScreen() {
   const logsRef = useRef<string[]>([]);
   const [pauseMarkers, setPauseMarkers] = useState<PauseMarker[]>([]);
   const [location, setLocation] = useState<LocationState | null>(null);
+
+  useEffect(() => {
+    autoPauseEnabledRef.current = pauseSettingsLoaded && autoPauseEnabled;
+    if (
+      pauseSettingsLoaded
+      && autoPauseEnabled
+      && !manualPauseEnabled
+      && isRunningRef.current
+      && isPausedRef.current
+      && !isAutoPausedRef.current
+    ) {
+      isAutoPausedRef.current = true;
+      movementStateRef.current = 'STATIONARY';
+      consecutiveMovementRef.current = 0;
+      consecutiveStationaryRef.current = 0;
+      resumeMovementPendingRef.current = true;
+      void persistBackgroundLocationSession({
+        active: true,
+        paused: true,
+        autoPaused: true,
+        runId: runIdRef.current,
+        userId: user?.id ? String(user.id) : null,
+        startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+        updatedAt: pauseStartTimeRef.current,
+        movementConfirmed: movementConfirmedRef.current,
+        pauseEvents: pauseEventsRef.current,
+      });
+    }
+  }, [autoPauseEnabled, manualPauseEnabled, pauseSettingsLoaded, user?.id]);
+
+  useEffect(() => {
+    const enabled = pauseSettingsLoaded && voiceAlertsEnabled;
+    voiceAlertsEnabledRef.current = enabled;
+    voiceCoach?.setMuted?.(!enabled || isVoiceMuted);
+    workoutVoiceRef.current?.setEnabled(enabled);
+  }, [isVoiceMuted, pauseSettingsLoaded, voiceAlertsEnabled]);
 
   const plannedRouteCoordinates = useMemo(() => {
     return assignedRoutePoints;
@@ -730,7 +781,7 @@ export default function MapScreen() {
   );
 
   const handleLocationUpdate = useCallback(
-    (rawGps: RawGpsPayload, capturedPaused?: boolean) => {
+    (rawGps: RawGpsPayload, capturedPaused?: boolean, fromDurableJournal = false, fromBackgroundTask = false) => {
       if (!isRunningRef.current) return;
 
       const timestamp = typeof rawGps.timestamp === 'number'
@@ -781,8 +832,12 @@ export default function MapScreen() {
         && hasMovementMagnitude;
       const hasMovementObservation = hasGoodAccuracy
         && hasMovementMagnitude
-        && (hasMotionEvidence || hasExplicitResumeMovement);
+        && (fromDurableJournal || hasMotionEvidence || hasExplicitResumeMovement);
+      const isLiveMovementSample = !fromDurableJournal || fromBackgroundTask;
       if (hasMovementObservation) {
+        if (isLiveMovementSample && capturedPaused !== true) {
+          lastMovementTimestampRef.current = timestamp;
+        }
         consecutiveMovementRef.current += 1;
         consecutiveStationaryRef.current = 0;
         if (movementStateRef.current === 'STATIONARY') {
@@ -815,8 +870,43 @@ export default function MapScreen() {
         }
       }
 
+      if (fromDurableJournal && !fromBackgroundTask && hasMovementObservation) {
+        movementConfirmedRef.current = true;
+        movementStateRef.current = 'MOVING';
+        consecutiveStationaryRef.current = 0;
+        resumeMovementPendingRef.current = false;
+      }
+
       const movementState = movementStateRef.current;
-      const shouldProcessRoute = movementState === 'MOVING' || capturedPaused === true;
+      if (isLiveMovementSample && autoPauseEnabledRef.current) {
+        if (
+          isAutoPausedRef.current
+          && isPausedRef.current
+          && movementState === 'MOVING'
+          && hasMovementObservation
+          && hasGoodAccuracy
+          && hasMovementMagnitude
+          && (hasMotionEvidence || hasExplicitResumeMovement)
+        ) {
+          autoResumeActionRef.current();
+        } else if (capturedPaused !== true
+          && !isPausedRef.current
+          && movementConfirmedRef.current
+          && (!workoutEngineRef.current || workoutEngineRef.current.getSnapshot().state !== 'waiting')
+          && movementState === 'STATIONARY'
+          && hasGoodAccuracy
+          && speed < MIN_MOVEMENT_SPEED_METERS_PER_SECOND
+          && !hasMotionEvidence
+          && lastMovementTimestampRef.current !== null
+          && timestamp - lastMovementTimestampRef.current >= AUTO_PAUSE_STATIONARY_DURATION_MS
+        ) {
+          autoPauseActionRef.current();
+        }
+      }
+
+      const shouldProcessRoute = movementState === 'MOVING'
+        || capturedPaused === true
+        || (fromDurableJournal && hasGoodAccuracy);
       previousLocationRef.current = rawGps;
       if (!shouldProcessRoute) {
         previousWorkoutPointRef.current = null;
@@ -917,6 +1007,21 @@ export default function MapScreen() {
     [addLog, appendRoutePoint, fitMapToRoute, moveMapToLocation, uploadBatch]
   );
 
+  const reconcileJournaledPoints = useCallback(async () => {
+    if (!isRunningRef.current) return;
+    await flushBackgroundLocationTask();
+    await flushActiveRunJournal();
+    const journal = await readActiveRunJournal();
+    if (!journal?.active || journal.runId !== runIdRef.current) return;
+
+    [
+      ...journal.points.map((point) => ({ point, paused: false })),
+      ...(journal.pausePoints ?? []).map((point) => ({ point, paused: true })),
+    ]
+      .sort((left, right) => Number(left.point.timestamp ?? 0) - Number(right.point.timestamp ?? 0))
+      .forEach(({ point, paused }) => handleLocationUpdate(point, paused, true));
+  }, [handleLocationUpdate]);
+
   const startLiveGPS = useCallback(async () => {
     if (locationSubscription.current) {
       locationSubscription.current.remove();
@@ -925,7 +1030,9 @@ export default function MapScreen() {
 
     locationSubscription.current = await LocationService.watchLocation(handleLocationUpdate);
     // This supplements the untouched watcher only after the workout starts.
-    setBackgroundLocationListener(handleLocationUpdate);
+    setBackgroundLocationListener((point, paused, fromDurableJournal) => (
+      handleLocationUpdate(point, paused, fromDurableJournal, true)
+    ));
     // Android only permits a location foreground service to be created while
     // this app is visible. If the user backgrounds during startup, the active
     // AppState listener below retries when they return instead of treating the
@@ -937,8 +1044,9 @@ export default function MapScreen() {
         console.warn('[BackgroundLocationTask] Foreground service start deferred', error);
       }
     }
+    await reconcileJournaledPoints();
     addLog('?? Live GPS tracking started');
-  }, [addLog, handleLocationUpdate]);
+  }, [addLog, handleLocationUpdate, reconcileJournaledPoints]);
 
   useEffect(() => {
     if (!isRunning) return;
@@ -946,6 +1054,7 @@ export default function MapScreen() {
     void persistBackgroundLocationSession({
       active: true,
       paused: isPaused,
+      autoPaused: isAutoPausedRef.current,
       runId: runIdRef.current,
       userId: user?.id ? String(user.id) : null,
       startedAt,
@@ -968,29 +1077,21 @@ export default function MapScreen() {
   }, [completionPromptVisible, distance, elapsedSeconds, isPaused, isRunning, pace, user?.id]);
 
   useEffect(() => {
-    const reconcileBackgroundPoints = async () => {
-      if (!isRunningRef.current) return;
-      await flushActiveRunJournal();
-      const journal = await readActiveRunJournal();
-      if (!journal?.active || journal.runId !== runIdRef.current) return;
-      [
-        ...journal.points.map((point) => ({ point, paused: false })),
-        ...(journal.pausePoints ?? []).map((point) => ({ point, paused: true })),
-      ]
-        .sort((a, b) => Number(a.point.timestamp ?? 0) - Number(b.point.timestamp ?? 0))
-        .forEach(({ point, paused }) => handleLocationUpdate(point, paused));
-    };
     const subscription = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
-      void reconcileBackgroundPoints();
-      if (isRunningRef.current) {
+      void reconcileJournaledPoints();
+      if (isRunningRef.current && !locationSubscription.current) {
+        void startLiveGPS().catch((error) => {
+          console.warn('[LocationManager] GPS watcher retry failed after resume', error);
+        });
+      } else if (isRunningRef.current) {
         void startBackgroundLocationTracking().catch((error) => {
           console.warn('[BackgroundLocationTask] Foreground service retry failed', error);
         });
       }
     });
     return () => subscription.remove();
-  }, [handleLocationUpdate]);
+  }, [reconcileJournaledPoints, startLiveGPS]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1008,6 +1109,8 @@ export default function MapScreen() {
       apiClientRef.current = new RunningApiClient();
       startTimeRef.current = session.startedAt ? new Date(session.startedAt).getTime() : Date.now();
       isPausedRef.current = Boolean(session.paused);
+      isAutoPausedRef.current = Boolean(session.autoPaused);
+      lastMovementTimestampRef.current = session.paused ? null : Date.now();
       setIsPaused(Boolean(session.paused));
       pauseEventsRef.current = session.pauseEvents ?? [];
       pausedTimeRef.current = pauseEventsRef.current.reduce((total, event) => {
@@ -1040,6 +1143,10 @@ export default function MapScreen() {
       const displayPoints = processor.getDisplayPoints();
       movementConfirmedRef.current = session.movementConfirmed ?? displayPoints.length > 0;
       movementStateRef.current = movementConfirmedRef.current ? 'MOVING' : 'STATIONARY';
+      if (session.paused && session.autoPaused) {
+        movementStateRef.current = 'STATIONARY';
+        resumeMovementPendingRef.current = true;
+      }
       if (displayPoints.length > 0) {
         const restoredSegments: RouteSegment[] = [];
         restoredPoints.forEach((point) => {
@@ -1145,32 +1252,18 @@ export default function MapScreen() {
         return;
       }
 
-      // Start Android's location foreground service synchronously from the
-      // user-visible Start action, before the API/current-location awaits.
-      // Android 12+ rejects creating it later from the background.
-      try {
-        await startBackgroundLocationTracking();
-        backgroundServiceStartedForAttempt = true;
-      } catch (error) {
-        console.warn('[BackgroundLocationTask] Unable to start foreground service from Start action', error);
+      if (Platform.OS === 'android') {
+        const backgroundPermission = await Location.getBackgroundPermissionsAsync();
+        if (backgroundPermission.status !== 'granted') {
+          Alert.alert(
+            'Background location required',
+            'Allow background location in Android settings before recording so your route can continue while the screen is off.'
+          );
+          return;
+        }
       }
 
       let selectedWorkout: BackendWorkout | null = null;
-      // Only query backend training plan if this is NOT a custom workout execution plan
-      if (params.workoutTitle && !params.workoutPlan && executionPlan.length === 0) {
-        try {
-          const plan = await workoutPlanService.getCurrent();
-          selectedWorkout =
-            plan?.weeks
-              ?.flatMap((week) => week.workouts)
-              ?.find((workout) => workout.title === params.workoutTitle) ?? null;
-          if (!selectedWorkout) {
-            console.warn('[MapScreen] Workout not found in backend plan:', params.workoutTitle);
-          }
-        } catch (planError) {
-          console.warn('[MapScreen] Failed to fetch backend training plan (proceeding without backend plan):', planError);
-        }
-      }
 
       routeSegmentsRef.current = [];
       pauseEventsRef.current = [];
@@ -1184,6 +1277,8 @@ export default function MapScreen() {
       setElapsedSeconds(0);
       stepCountRef.current = 0;
       lastStepTimestampRef.current = null;
+      isAutoPausedRef.current = false;
+      lastMovementTimestampRef.current = null;
       movementConfirmedRef.current = false;
       movementStateRef.current = 'STATIONARY';
       consecutiveMovementRef.current = 0;
@@ -1202,7 +1297,6 @@ export default function MapScreen() {
       workoutVoiceRef.current = null;
       workoutEngineRef.current = null;
       workoutCompletionPromptShownRef.current = false;
-      setIsPlannedWorkout(selectedWorkout !== null);
       setWorkoutSnapshot(null);
 
       const apiClient = new RunningApiClient();
@@ -1227,12 +1321,54 @@ export default function MapScreen() {
       await persistBackgroundLocationSession({
         active: true,
         paused: false,
+        autoPaused: false,
         runId,
         userId,
         startedAt,
         updatedAt: new Date(startedAt).getTime(),
         pauseEvents: pauseEventsRef.current,
       });
+
+      // Start the foreground service only after the task can durably journal
+      // fixes, but before any optional network or location lookup awaits.
+      try {
+        await startBackgroundLocationTracking();
+        backgroundServiceStartedForAttempt = true;
+      } catch (error) {
+        console.error('[BackgroundLocationTask] Unable to start location foreground service', error);
+        await persistBackgroundLocationSession({
+          active: false,
+          runId,
+          userId,
+          startedAt,
+          updatedAt: Date.now(),
+          movementConfirmed: false,
+          pauseEvents: pauseEventsRef.current,
+        });
+        await clearBackgroundLocationSession();
+        await clearActiveRunJournal();
+        Alert.alert(
+          'Background tracking unavailable',
+          'The location service could not start, so the workout was not started. Please check location and notification permissions, then try again.'
+        );
+        return;
+      }
+
+      // Only query backend training plan if this is NOT a custom workout execution plan.
+      if (params.workoutTitle && !params.workoutPlan && executionPlan.length === 0) {
+        try {
+          const plan = await workoutPlanService.getCurrent();
+          selectedWorkout = plan?.weeks
+            ?.flatMap((week) => week.workouts)
+            ?.find((workout) => workout.title === params.workoutTitle) ?? null;
+          if (!selectedWorkout) {
+            console.warn('[MapScreen] Workout not found in backend plan:', params.workoutTitle);
+          }
+        } catch (planError) {
+          console.warn('[MapScreen] Failed to fetch backend training plan (proceeding without backend plan):', planError);
+        }
+      }
+      setIsPlannedWorkout(selectedWorkout !== null);
 
       const currentLocation = await LocationService.getCurrentLocation();
 
@@ -1252,6 +1388,7 @@ export default function MapScreen() {
       const structuredWorkout = selectedWorkout ?? serializedWorkout;
       if (structuredWorkout) {
         const voice = new WorkoutVoiceService();
+        voice.setEnabled(voiceAlertsEnabledRef.current);
         let engine: WorkoutEngine;
         engine = new WorkoutEngine({
           onSegmentStarted: (segment) => {
@@ -1368,11 +1505,31 @@ export default function MapScreen() {
       });
     } catch (error) {
       console.error('Start run error:', error);
+      if (runIdRef.current) {
+        await persistBackgroundLocationSession({
+          active: false,
+          runId: runIdRef.current,
+          userId: user?.id ? String(user.id) : null,
+          startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+          updatedAt: Date.now(),
+          movementConfirmed: false,
+          pauseEvents: pauseEventsRef.current,
+        });
+      }
       if (backgroundServiceStartedForAttempt) {
         await stopBackgroundLocationTracking().catch((stopError) => {
           console.warn('[BackgroundLocationTask] Unable to clean up foreground service after failed start', stopError);
         });
       }
+      await flushBackgroundLocationTask();
+      await clearBackgroundLocationSession();
+      await clearActiveRunJournal();
+      setBackgroundLocationListener(undefined);
+      locationSubscription.current?.remove();
+      locationSubscription.current = null;
+      pathProcessorRef.current = null;
+      runIdRef.current = null;
+      apiClientRef.current = null;
       activityDetectionRef.current?.stop();
       activityDetectionRef.current = null;
       stepDetectionRef.current?.stop();
@@ -1431,6 +1588,7 @@ export default function MapScreen() {
       await persistBackgroundLocationSession({
         active: true,
         paused: true,
+        autoPaused: isAutoPausedRef.current,
         runId: runIdRef.current,
         userId: user?.id ? String(user.id) : null,
         startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
@@ -1485,11 +1643,14 @@ export default function MapScreen() {
       }
 
       isPausedRef.current = false;
+      isAutoPausedRef.current = false;
+      lastMovementTimestampRef.current = resumedAt;
       setIsPaused(false);
       prepareMovementGateForResume();
       await persistBackgroundLocationSession({
         active: true,
         paused: false,
+        autoPaused: false,
         runId: runIdRef.current,
         userId: user?.id ? String(user.id) : null,
         startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
@@ -1508,6 +1669,57 @@ export default function MapScreen() {
       addLog('❌ Failed to resume run');
     }
   }, [addLog, elapsedSeconds, location, pace, user]);
+
+  const triggerAutoPause = useCallback(async () => {
+    if (
+      !autoPauseEnabledRef.current
+      || !pauseSettingsLoaded
+      ||
+      !isRunningRef.current
+      || isPausedRef.current
+      || isPausingRef.current
+      || isAutoPausedRef.current
+      || !movementConfirmedRef.current
+    ) return;
+
+    isAutoPausedRef.current = true;
+    await pauseRun();
+    if (!isPausedRef.current) {
+      isAutoPausedRef.current = false;
+      return;
+    }
+
+    movementStateRef.current = 'STATIONARY';
+    consecutiveMovementRef.current = 0;
+    consecutiveStationaryRef.current = 0;
+    resumeMovementPendingRef.current = true;
+    lastMovementTimestampRef.current = null;
+    addLog('Auto-paused after 5 seconds without movement');
+  }, [addLog, pauseRun, pauseSettingsLoaded]);
+
+  const triggerAutoResume = useCallback(async () => {
+    if (
+      !autoPauseEnabledRef.current
+      || !pauseSettingsLoaded
+      || !isRunningRef.current
+      || !isPausedRef.current
+      || !isAutoPausedRef.current
+      || isPausingRef.current
+    ) return;
+
+    isAutoPausedRef.current = false;
+    await resumeRun();
+    if (isPausedRef.current) {
+      isAutoPausedRef.current = true;
+      return;
+    }
+    addLog('Auto-resumed after movement was detected');
+  }, [addLog, pauseSettingsLoaded, resumeRun]);
+
+  useEffect(() => {
+    autoPauseActionRef.current = () => { void triggerAutoPause(); };
+    autoResumeActionRef.current = () => { void triggerAutoResume(); };
+  }, [triggerAutoPause, triggerAutoResume]);
 
   const stopRun = async () => {
     if (isStoppingRef.current) {
@@ -1542,7 +1754,7 @@ export default function MapScreen() {
       const hasDetectedMovement = detectedActivity === 'walking' || detectedActivity === 'running';
       const hasStepEvidence = stepCountRef.current >= 3;
       const hasMeaningfulDistance = distanceRef.current > 2;
-      const stationarySession = !movementConfirmedRef.current
+      let stationarySession = !movementConfirmedRef.current
         || (!hasDetectedMovement && !hasStepEvidence && !hasMeaningfulDistance);
       // Never infer a run from an unknown or stationary state. A run is only
       // submitted when Android activity recognition explicitly reports it.
@@ -1560,8 +1772,9 @@ export default function MapScreen() {
       setCompletionPromptVisible(false);
 
       await persistBackgroundLocationSession({
-        active: true,
+        active: false,
         paused: isPausedRef.current,
+        autoPaused: isAutoPausedRef.current,
         runId: runIdRef.current,
         userId: user?.id ? String(user.id) : null,
         startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
@@ -1577,6 +1790,28 @@ export default function MapScreen() {
       } catch (stopError) {
         console.warn('[BackgroundLocationTask] Unable to stop service at finish start', stopError);
       }
+      await flushBackgroundLocationTask();
+      await flushActiveRunJournal();
+      await persistBackgroundLocationSession({
+        active: false,
+        paused: isPausedRef.current,
+        autoPaused: isAutoPausedRef.current,
+        runId: runIdRef.current,
+        userId: user?.id ? String(user.id) : null,
+        startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+        updatedAt: stoppedAt.getTime(),
+        distanceKm: (distanceRef.current + extraDistanceRef.current) / 1000,
+        elapsedSeconds,
+        paceMinutesPerKm: pace,
+        movementConfirmed: movementConfirmedRef.current,
+        pauseEvents: pauseEventsRef.current,
+      });
+      const finalJournal = await readActiveRunJournal();
+      const hasDurableRouteMovement = finalJournal?.runId === runIdRef.current
+        && finalJournal.points.length >= 2;
+      if (hasDurableRouteMovement) movementConfirmedRef.current = true;
+      stationarySession = !movementConfirmedRef.current
+        || (!hasDetectedMovement && !hasStepEvidence && !hasMeaningfulDistance && !hasDurableRouteMovement);
 
       if (locationSubscription.current) {
         locationSubscription.current.remove();
@@ -1603,6 +1838,12 @@ export default function MapScreen() {
           });
         }
       } else if (processor) {
+        if (finalJournal?.runId === runIdRef.current) {
+          processor.mergeRawPoints([
+            ...finalJournal.points,
+            ...(finalJournal.pausePoints ?? []),
+          ]);
+        }
         const completedLaps = workoutEngineRef.current?.getSnapshot().completedLaps ?? [];
         const routeBoundaries = [
           ...pauseEventsRef.current.flatMap((event) => [
@@ -1946,6 +2187,7 @@ export default function MapScreen() {
       await persistBackgroundLocationSession({
         active: true,
         paused: isPausedRef.current,
+        autoPaused: isAutoPausedRef.current,
         runId: runIdRef.current,
         userId: user?.id ? String(user.id) : null,
         startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
@@ -1983,16 +2225,20 @@ export default function MapScreen() {
     const action = params.notificationAction;
     const requestedRunId = params.runId;
     if (!action || !requestedRunId || !isRunning || runIdRef.current !== requestedRunId) return;
+    if (
+      !pauseSettingsLoaded
+      && (action === LIVE_TRACKING_PAUSE_ACTION || action === LIVE_TRACKING_RESUME_ACTION)
+    ) return;
 
     const actionKey = `${requestedRunId}:${action}:${params.actionNonce ?? ''}`;
     if (handledNativeRunActionRef.current === actionKey) return;
 
     if (action === LIVE_TRACKING_PAUSE_ACTION) {
       handledNativeRunActionRef.current = actionKey;
-      if (!isPausedRef.current) void pauseRun();
+      if (manualPauseEnabled && !isPausedRef.current) void pauseRun();
     } else if (action === LIVE_TRACKING_RESUME_ACTION) {
       handledNativeRunActionRef.current = actionKey;
-      if (isPausedRef.current) void resumeRun();
+      if (manualPauseEnabled && isPausedRef.current) void resumeRun();
     } else if (action === LIVE_TRACKING_STOP_ACTION) {
       handledNativeRunActionRef.current = actionKey;
       requestFinish();
@@ -2000,6 +2246,8 @@ export default function MapScreen() {
   }, [
     isPaused,
     isRunning,
+    manualPauseEnabled,
+    pauseSettingsLoaded,
     pauseRun,
     params.actionNonce,
     params.notificationAction,
@@ -2301,13 +2549,13 @@ export default function MapScreen() {
                 onPress={() => {
                   const nextMuted = !isVoiceMuted;
                   setIsVoiceMuted(nextMuted);
-                  voiceCoach?.setMuted?.(nextMuted);
+                  voiceCoach?.setMuted?.(!voiceAlertsEnabledRef.current || nextMuted);
                 }}
               >
                 <Feather
-                  name={isVoiceMuted ? 'volume-x' : 'volume-2'}
+                  name={isVoiceMuted || !voiceAlertsEnabled ? 'volume-x' : 'volume-2'}
                   size={18}
-                  color={isVoiceMuted ? '#8E8E93' : '#30D158'}
+                  color={isVoiceMuted || !voiceAlertsEnabled ? '#8E8E93' : '#30D158'}
                 />
               </Pressable>
             </View>
@@ -2481,22 +2729,28 @@ export default function MapScreen() {
                 <Feather name="play" size={18} color="#000000" />
                 <Text style={styles.primaryActionTextDark}>START WORKOUT</Text>
               </Pressable>
-            ) : isPaused ? (
-              <Pressable
-                style={[styles.primaryActionButton, styles.resumeBtnBg]}
-                onPress={() => void resumeRun()}
-              >
-                <Feather name="play" size={18} color="#000000" />
-                <Text style={styles.primaryActionTextDark}>RESUME</Text>
-              </Pressable>
+            ) : manualPauseEnabled ? (
+              isPaused ? (
+                <Pressable
+                  style={[styles.primaryActionButton, styles.resumeBtnBg]}
+                  onPress={() => void resumeRun()}
+                >
+                  <Feather name="play" size={18} color="#000000" />
+                  <Text style={styles.primaryActionTextDark}>RESUME</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={[styles.primaryActionButton, styles.pauseBtnBg]}
+                  onPress={() => void pauseRun()}
+                >
+                  <Feather name="pause" size={18} color="#000000" />
+                  <Text style={styles.primaryActionTextDark}>PAUSE</Text>
+                </Pressable>
+              )
             ) : (
-              <Pressable
-                style={[styles.primaryActionButton, styles.pauseBtnBg]}
-                onPress={() => void pauseRun()}
-              >
-                <Feather name="pause" size={18} color="#000000" />
-                <Text style={styles.primaryActionTextDark}>PAUSE</Text>
-              </Pressable>
+              <View style={[styles.primaryActionButton, styles.autoPauseMode]}>
+                <Text style={styles.autoPauseModeText}>{isPaused ? 'AUTO-PAUSED' : 'AUTO-PAUSE ON'}</Text>
+              </View>
             )}
 
             {/* Stop & Save Button */}
@@ -2550,28 +2804,34 @@ export default function MapScreen() {
                   >
                     <Text style={styles.startButtonText}>START RUN</Text>
                   </Pressable>
-                ) : isPaused ? (
-                  <Pressable
-                    style={styles.resumeButton}
-                    hitSlop={16}
-                    android_disableSound
-                    onPress={() => {
-                      void resumeRun();
-                    }}
-                  >
-                    <Text style={styles.resumeButtonText}>RESUME</Text>
-                  </Pressable>
+                ) : manualPauseEnabled ? (
+                  isPaused ? (
+                    <Pressable
+                      style={styles.resumeButton}
+                      hitSlop={16}
+                      android_disableSound
+                      onPress={() => {
+                        void resumeRun();
+                      }}
+                    >
+                      <Text style={styles.resumeButtonText}>RESUME</Text>
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      style={styles.pauseButton}
+                      hitSlop={16}
+                      android_disableSound
+                      onPress={() => {
+                        void pauseRun();
+                      }}
+                    >
+                      <Text style={styles.pauseButtonText}>PAUSE</Text>
+                    </Pressable>
+                  )
                 ) : (
-                  <Pressable
-                    style={styles.pauseButton}
-                    hitSlop={16}
-                    android_disableSound
-                    onPress={() => {
-                      void pauseRun();
-                    }}
-                  >
-                    <Text style={styles.pauseButtonText}>PAUSE</Text>
-                  </Pressable>
+                  <View style={styles.autoPauseStatus}>
+                    <Text style={styles.autoPauseModeText}>{isPaused ? 'AUTO-PAUSED' : 'AUTO-PAUSE ON'}</Text>
+                  </View>
                 )}
               </View>
 
@@ -2922,6 +3182,17 @@ const styles = StyleSheet.create({
   pauseBtnBg: {
     backgroundColor: '#FF9F0A',
   },
+  autoPauseMode: {
+    backgroundColor: '#26332A',
+    borderWidth: 1,
+    borderColor: '#35C72B',
+  },
+  autoPauseModeText: {
+    color: '#D9F5DD',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
   primaryActionTextDark: {
     color: '#000000',
     fontSize: 13,
@@ -2957,6 +3228,7 @@ const styles = StyleSheet.create({
   controlBarContent: { flex: 1, flexDirection: 'column', alignItems: 'stretch', justifyContent: 'space-between', backgroundColor: 'transparent', gap: 12 },
   controlActionsRow: { flexDirection: 'row', width: '100%', gap: 8 },
   actionButtonSlot: { flex: 1, height: 54, position: 'relative' },
+  autoPauseStatus: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 54, borderRadius: 30, borderWidth: 1, borderColor: '#35C72B', backgroundColor: '#17231B' },
   stopButtonSlot: { flex: 1, height: 54, position: 'relative' },
   controlStatus: { flex: 0, minWidth: 0, minHeight: 74, justifyContent: 'center', padding: 14, borderRadius: 16, backgroundColor: 'rgba(0, 0, 0, 0.65)', borderWidth: 1, borderColor: 'rgba(0, 255, 0, 0.3)' },
   liveMetricRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 5 },

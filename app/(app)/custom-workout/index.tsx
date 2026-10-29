@@ -323,6 +323,7 @@ const styles = StyleSheet.create({
   inputGroup: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16 },
   inputLabel: { color: Colors.text, fontSize: 16, fontWeight: '500', marginBottom: 8 },
   input: {
+    minWidth: 0,
     minHeight: 50,
     paddingHorizontal: 16,
     color: Colors.text,
@@ -337,12 +338,13 @@ const styles = StyleSheet.create({
   distanceInput: { flex: 1 },
   inputHelper: { color: Colors.textMuted, fontSize: 12, marginTop: 6 },
   unitButton: {
-    minWidth: 95,
+    minWidth: 0,
     minHeight: 50,
+    flexShrink: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
+    paddingHorizontal: 10,
     backgroundColor: '#2A2A2D',
     borderWidth: 1,
     borderColor: '#3E3E42',

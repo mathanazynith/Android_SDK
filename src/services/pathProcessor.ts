@@ -240,6 +240,52 @@ export class PathProcessor {
     return [...this.workingPoints];
   }
 
+  public mergeRawPoints(additionalPoints: RawGpsPayload[]): void {
+    const allPoints: RawGpsPayload[] = [
+      ...this.workingPoints.map((point) => ({
+        latitude: point.latitude,
+        longitude: point.longitude,
+        accuracy: point.accuracy ?? undefined,
+        altitude: point.altitude ?? undefined,
+        speed: point.speed ?? undefined,
+        heading: point.heading ?? undefined,
+        timestamp: point.timestamp,
+      })),
+      ...additionalPoints,
+    ];
+    const uniquePoints = new Map<string, { point: RawGpsPayload; timestamp: number; order: number }>();
+
+    allPoints.forEach((point, order) => {
+      const sourceTimestamp = point.timestamp;
+      const parsedTimestamp = sourceTimestamp instanceof Date
+        ? sourceTimestamp.getTime()
+        : typeof sourceTimestamp === 'number'
+          ? sourceTimestamp
+          : typeof sourceTimestamp === 'string'
+            ? Number.isFinite(Number(sourceTimestamp)) ? Number(sourceTimestamp) : Date.parse(sourceTimestamp)
+            : Number.NaN;
+      const timestamp = Number.isFinite(parsedTimestamp) ? parsedTimestamp : Date.now() + order;
+      const normalizedPoint = { ...point, timestamp };
+      const key = `${timestamp}|${point.latitude}|${point.longitude}`;
+      const existing = uniquePoints.get(key);
+      const accuracy = point.accuracy ?? Number.POSITIVE_INFINITY;
+      const existingAccuracy = existing?.point.accuracy ?? Number.POSITIVE_INFINITY;
+
+      if (!existing || accuracy < existingAccuracy) {
+        uniquePoints.set(key, {
+          point: normalizedPoint,
+          timestamp,
+          order: existing?.order ?? order,
+        });
+      }
+    });
+
+    const orderedPoints = [...uniquePoints.values()]
+      .sort((left, right) => left.timestamp - right.timestamp || left.order - right.order);
+    this.reset();
+    orderedPoints.forEach(({ point }) => this.ingestRaw(point));
+  }
+
   public getDisplayPoints(): RunningPathPoint[] {
     return [...this.displayPoints];
   }

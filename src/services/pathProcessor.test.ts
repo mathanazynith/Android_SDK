@@ -51,6 +51,21 @@ describe('PathProcessor live route geometry', () => {
     expect(processor.simplifyLivePolyline(route)).toEqual(route);
   });
 
+  it('merges journaled points in timestamp order without duplicating foreground fixes', () => {
+    const processor = new PathProcessor('journal-merge-run');
+    const first = { ...pointAt(0, 0), accuracy: 3, timestamp: 1_000 };
+    processor.ingestRaw(first);
+    processor.ingestRaw({ ...pointAt(3, 0), accuracy: 4, timestamp: 3_000 });
+
+    processor.mergeRawPoints([
+      { ...pointAt(1.5, 0), accuracy: 5, timestamp: 2_000 },
+      { ...first, accuracy: 2 },
+    ]);
+
+    expect(processor.getRawPoints().map((point) => point.timestamp)).toEqual([1_000, 2_000, 3_000]);
+    expect(processor.getRawPoints()[0]?.accuracy).toBe(2);
+  });
+
   it('collapses a sustained compact GPS drift loop before save optimization', () => {
     const processor = new PathProcessor('drift-run');
     const startedAt = Date.now() - 120_000;

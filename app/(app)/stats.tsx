@@ -2,27 +2,26 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Animated,
-  Dimensions,
-  Easing,
-  Modal,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Animated,
+    Easing,
+    Modal,
+    Pressable,
+    RefreshControl,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import Reanimated, {
-  cancelAnimation,
-  interpolateColor,
-  Easing as ReanimatedEasing,
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withTiming
+    cancelAnimation,
+    interpolateColor,
+    Easing as ReanimatedEasing,
+    useAnimatedStyle,
+    useReducedMotion,
+    useSharedValue,
+    withTiming
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -36,30 +35,29 @@ import { activityAPI, BackendActivity } from '../../src/services/activityApi';
 import ActivityStore from '../../src/services/activityStore';
 import { BenchmarkStore } from '../../src/services/benchmarkStore';
 import {
-  PlanBenchmarkStore,
-  type PlanBenchmarkAssignment,
+    PlanBenchmarkStore,
+    type PlanBenchmarkAssignment,
 } from '../../src/services/planBenchmarkStore';
 import {
-  AggregatedStats,
-  calculatePeriodStats,
-  calculateYearStats,
-  ChartBarPoint,
-  formatKm,
-  formatPaceMinutes,
-  formatTimeHoursMins,
-  getAvailableYears,
-  getMonthName,
-  normalizeActivities,
-  PeriodFilter,
-  UnifiedActivity
+    AggregatedStats,
+    calculatePeriodStats,
+    calculateYearStats,
+    ChartBarPoint,
+    formatKm,
+    formatPaceMinutes,
+    formatTimeHoursMins,
+    getAvailableYears,
+    getMonthName,
+    normalizeActivities,
+    PeriodFilter,
+    UnifiedActivity
 } from '../../src/utils/statsCalculations';
 import {
-  buildPlanFromPlanSegments,
-  buildWorkoutExecutionPlan,
-  type WorkoutExecutionStep
+    buildPlanFromPlanSegments,
+    buildWorkoutExecutionPlan,
+    type WorkoutExecutionStep
 } from '../../src/utils/workoutPlanBuilder';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
 const CHART_BAR_MAX_HEIGHT = 160;
 const RANGE_SELECTION_DURATION_MS = 240;
 const PERIOD_TAB_SHIFT_DURATION_MS = 400;
@@ -1893,7 +1891,8 @@ const baseStyles = StyleSheet.create({
     marginBottom: 16,
   },
   metricCard: {
-    width: (SCREEN_WIDTH - 36 - 12) / 2,
+    width: '47%',
+    minWidth: 0,
     backgroundColor: '#141416',
     borderRadius: 16,
     padding: 16,
@@ -1980,7 +1979,8 @@ const baseStyles = StyleSheet.create({
     marginBottom: 16,
   },
   bestItemCard: {
-    width: (SCREEN_WIDTH - 36 - 10) / 2,
+    width: '47%',
+    minWidth: 0,
     backgroundColor: '#141416',
     borderRadius: 14,
     padding: 14,

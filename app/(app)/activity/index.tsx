@@ -6,27 +6,30 @@ import { Image as ExpoImage } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    AccessibilityInfo,
-    Animated,
-    Easing,
-    FlatList,
-    LayoutAnimation,
-    Modal,
-    Platform,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    Vibration,
-    View,
-    type ViewToken
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  FlatList,
+  LayoutAnimation,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  Vibration,
+  View,
+  type ViewToken
 } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Reanimated, {
-    useAnimatedStyle,
-    useReducedMotion,
-    useSharedValue,
-    withTiming,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
 } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -80,6 +83,8 @@ type ActivityDateFilter = 'all' | '7d' | '30d' | '90d' | 'month' | 'year' | 'sin
 type ActivityDistanceFilter = 'all' | 'under1' | 'under2' | 'short' | 'medium' | 'long';
 type DatePickerTarget = 'start' | 'end';
 type ActivityGroupMode = 'month' | 'week';
+type FilterPopover = 'type' | 'date' | 'distance';
+type FilterPopoverPosition = { left: number; top: number; width: number; maxHeight: number; placement: 'above' | 'below' | 'center'; caretLeft: number };
 
 type ActivityListRow =
   | { type: 'section'; key: string; title: string; activities: BackendActivity[] }
@@ -97,11 +102,15 @@ const activityDateOptions: { label: string; value: ActivityDateFilter }[] = [
   { label: '7d', value: '7d' },
   { label: '30d', value: '30d' },
   { label: '90d', value: '90d' },
-  { label: 'This Month', value: 'month' },
   { label: 'Year', value: 'year' },
   { label: 'Single', value: 'single' },
   { label: 'Range', value: 'range' },
 ];
+
+const monthOptions = Array.from({ length: 12 }, (_, month) => ({
+  label: new Intl.DateTimeFormat(undefined, { month: 'short' }).format(new Date(2020, month, 1)),
+  value: month,
+}));
 
 const activityDistanceOptions: { label: string; value: ActivityDistanceFilter }[] = [
   { label: 'All', value: 'all' },
@@ -117,17 +126,30 @@ const formatDateLabel = (value: Date | null) => {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(value);
 };
 
+const formatMonthLabel = (value: Date | null) => {
+  if (!value) return 'Select month';
+  return new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(value);
+};
+
 const matchesDateRange = (
   activity: BackendActivity,
   range: ActivityDateFilter,
   selectedDay?: Date | null,
   rangeStart?: Date | null,
   rangeEnd?: Date | null,
+  selectedMonth?: Date | null,
 ): boolean => {
   if (range === 'all') return true;
 
   const activityDate = new Date(activity.start_time).getTime();
-  if (!Number.isFinite(activityDate)) return true;
+  if (!Number.isFinite(activityDate)) return false;
+
+  if (range === 'month') {
+    if (!selectedMonth) return false;
+    const monthStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1).getTime();
+    const nextMonthStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 1).getTime();
+    return activityDate >= monthStart && activityDate < nextMonthStart;
+  }
 
   if (range === 'single') {
     if (!selectedDay) return false;
@@ -143,12 +165,6 @@ const matchesDateRange = (
     const start = new Date(startValue).setHours(0, 0, 0, 0);
     const end = new Date(endValue).setHours(23, 59, 59, 999);
     return activityDate >= start && activityDate <= end;
-  }
-
-  if (range === 'month') {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-    return activityDate >= monthStart && activityDate <= now.getTime();
   }
 
   const now = Date.now();
@@ -177,6 +193,16 @@ const sortActivities = (items: BackendActivity[]) => {
   const cloned = [...items];
   cloned.sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime());
   return cloned;
+};
+
+const historyIsLoadedThroughDate = (items: BackendActivity[], date: number) => {
+  let previousDate = Number.POSITIVE_INFINITY;
+  for (const activity of items) {
+    const activityDate = new Date(activity.start_time).getTime();
+    if (!Number.isFinite(activityDate) || activityDate > previousDate) return false;
+    previousDate = activityDate;
+  }
+  return previousDate < date;
 };
 
 const getActivityGroup = (activity: BackendActivity, mode: ActivityGroupMode) => {
@@ -464,7 +490,14 @@ const ActivityCard = memo(function ActivityCard({
               weekday: 'short', month: 'short', day: 'numeric',
             })}
           </Text>
-          <Text style={[styles.distance, { color: colors.primary }]}>{formatDistance(activity.distance)}</Text>
+          <Text
+            style={[styles.distance, { color: colors.primary }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+          >
+            {formatDistance(activity.distance)}
+          </Text>
         </View>
 
         <View style={styles.centerMetricsContainer}>
@@ -618,6 +651,7 @@ async function fetchHistoryPageSkippingEmptyPages(cursor: string | null) {
 export default function ActivityScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const reduceMotion = useReducedMotion();
   const [activities, setActivities] = useState<BackendActivity[]>([]);
   const [visibleActivityIds, setVisibleActivityIds] = useState<Set<string>>(() => new Set());
@@ -630,10 +664,8 @@ export default function ActivityScreen() {
   const [isDeletingActivities, setIsDeletingActivities] = useState(false);
   const [selectedType, setSelectedType] = useState<ActivityTypeFilter>('all');
   const [selectedDateRange, setSelectedDateRange] = useState<ActivityDateFilter>('all');
+  const [selectedMonthDate, setSelectedMonthDate] = useState<Date | null>(null);
   const [selectedDistanceRange, setSelectedDistanceRange] = useState<ActivityDistanceFilter>('all');
-  const [showTypeSheet, setShowTypeSheet] = useState(false);
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showDistanceSheet, setShowDistanceSheet] = useState(false);
   const [showNativeDatePicker, setShowNativeDatePicker] = useState(false);
   const [datePickerTarget, setDatePickerTarget] = useState<DatePickerTarget>('start');
   const [selectedDayDate, setSelectedDayDate] = useState<Date | null>(null);
@@ -645,6 +677,7 @@ export default function ActivityScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [totalHistoryCount, setTotalHistoryCount] = useState<number | null>(null);
   const cursorRef = useRef<string | null>(null);
+  const monthAutoLoadKeyRef = useRef<string | null>(null);
   const loadingMoreRef = useRef(false);
   const loadingFirstPageRef = useRef(false);
   const hasLoadedHistoryRef = useRef(false);
@@ -659,6 +692,46 @@ export default function ActivityScreen() {
   const [selectionToolbarOpacity] = useState(() => new Animated.Value(0));
   const [selectionToolbarTranslateY] = useState(() => new Animated.Value(8));
   const [selectionFiltersProgress] = useState(() => new Animated.Value(1));
+  const [activeFilterPopover, setActiveFilterPopover] = useState<FilterPopover | null>(null);
+  const [filterPopoverPosition, setFilterPopoverPosition] = useState<FilterPopoverPosition>({ left: 12, top: 72, width: 280, maxHeight: 420, placement: 'below', caretLeft: 24 });
+  const typeFilterAnchorRef = useRef<View>(null);
+  const dateFilterAnchorRef = useRef<View>(null);
+  const distanceFilterAnchorRef = useRef<View>(null);
+
+  const openFilterPopover = useCallback((filter: FilterPopover, anchorRef: { current: View | null }, contentHeight: number) => {
+    anchorRef.current?.measureInWindow((x, y, anchorWidth, anchorHeight) => {
+      const horizontalMargin = 12;
+      const leftLimit = insets.left + horizontalMargin;
+      const rightLimit = windowWidth - insets.right - horizontalMargin;
+      const width = Math.min(310, rightLimit - leftLimit);
+      const left = Math.max(leftLimit, Math.min(x + anchorWidth / 2 - width / 2, rightLimit - width));
+      const topLimit = insets.top + 8;
+      const bottomLimit = windowHeight - insets.bottom - 8;
+      const availableAbove = Math.max(0, y - topLimit - 8);
+      const availableBelow = Math.max(0, bottomLimit - (y + anchorHeight) - 8);
+      const available = Math.max(availableAbove, availableBelow);
+      let placement: FilterPopoverPosition['placement'] = availableBelow >= availableAbove ? 'below' : 'above';
+      const maxHeight = Math.max(180, Math.min(contentHeight, available || windowHeight - insets.top - insets.bottom - 32));
+      let top = placement === 'below' ? y + anchorHeight + 8 : y - maxHeight - 8;
+
+      if (available < 180) {
+        placement = 'center';
+        top = topLimit + Math.max(0, (bottomLimit - topLimit - maxHeight) / 2);
+      } else {
+        top = Math.max(topLimit, Math.min(top, bottomLimit - maxHeight));
+      }
+
+      setFilterPopoverPosition({
+        left,
+        top,
+        width,
+        maxHeight,
+        placement,
+        caretLeft: Math.max(16, Math.min(x + anchorWidth / 2 - left - 7, width - 16)),
+      });
+      setActiveFilterPopover(filter);
+    });
+  }, [insets.bottom, insets.left, insets.right, insets.top, windowHeight, windowWidth]);
 
   const showSelectionToast = useCallback((message: string) => {
     if (selectionToastTimerRef.current) clearTimeout(selectionToastTimerRef.current);
@@ -860,8 +933,21 @@ export default function ActivityScreen() {
     }, [loadFirstPage]),
   );
 
+  useEffect(() => {
+    if (selectedDateRange !== 'month' || !selectedMonthDate || !hasMore || loading || loadingMore) return;
+
+    const monthStart = new Date(selectedMonthDate.getFullYear(), selectedMonthDate.getMonth(), 1).getTime();
+    if (historyIsLoadedThroughDate(activities, monthStart)) return;
+
+    const attemptKey = `${monthStart}:${cursorRef.current ?? 'first'}`;
+    if (monthAutoLoadKeyRef.current === attemptKey) return;
+    monthAutoLoadKeyRef.current = attemptKey;
+    void loadMore();
+  }, [activities, hasMore, loadMore, loading, loadingMore, selectedDateRange, selectedMonthDate]);
+
   const dateSummary = useMemo(() => {
     if (selectedDateRange === 'all') return 'All dates';
+    if (selectedDateRange === 'month') return formatMonthLabel(selectedMonthDate);
     if (selectedDateRange === 'single') {
       return selectedDayDate ? formatDateLabel(selectedDayDate) : 'Select date';
     }
@@ -875,7 +961,7 @@ export default function ActivityScreen() {
       return 'Select range';
     }
     return activityDateOptions.find((option) => option.value === selectedDateRange)?.label ?? 'Date';
-  }, [rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate]);
+  }, [rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate, selectedMonthDate]);
 
   const distanceSummary = useMemo(() => {
     if (selectedDistanceRange === 'all') return 'Distance';
@@ -908,7 +994,14 @@ export default function ActivityScreen() {
     }
 
     if (selectedDateRange !== 'all') {
-      filtered = filtered.filter((activity) => matchesDateRange(activity, selectedDateRange, selectedDayDate, rangeStartDate, rangeEndDate));
+      filtered = filtered.filter((activity) => matchesDateRange(
+        activity,
+        selectedDateRange,
+        selectedDayDate,
+        rangeStartDate,
+        rangeEndDate,
+        selectedMonthDate,
+      ));
     }
 
     if (selectedDistanceRange !== 'all') {
@@ -916,7 +1009,7 @@ export default function ActivityScreen() {
     }
 
     return sortActivities(filtered);
-  }, [activities, rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate, selectedDistanceRange, selectedType]);
+  }, [activities, rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate, selectedDistanceRange, selectedMonthDate, selectedType]);
 
   const activityRows = useMemo(
     () => buildActivityRows(visibleActivities, groupMode),
@@ -1284,11 +1377,12 @@ export default function ActivityScreen() {
       <MotionEntrance delay={45}>
         <View style={styles.filterRowBar}>
         <TouchableOpacity
+          ref={typeFilterAnchorRef}
           accessibilityRole="button"
           accessibilityLabel={`Activity type: ${activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All Types'}`}
           accessibilityHint="Choose which activity types to show"
           activeOpacity={0.85}
-          onPress={() => setShowTypeSheet(true)}
+          onPress={() => openFilterPopover('type', typeFilterAnchorRef, 300)}
           style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
         >
           <Feather name="activity" size={14} color={colors.primary} />
@@ -1297,11 +1391,10 @@ export default function ActivityScreen() {
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
+          ref={dateFilterAnchorRef}
           accessibilityRole="button"
           activeOpacity={0.85}
-          onPress={() => {
-            setShowDatePicker(true);
-          }}
+          onPress={() => openFilterPopover('date', dateFilterAnchorRef, 620)}
           style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
         >
           <Feather name="calendar" size={14} color={colors.primary} />
@@ -1311,9 +1404,10 @@ export default function ActivityScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
+          ref={distanceFilterAnchorRef}
           accessibilityRole="button"
           activeOpacity={0.85}
-          onPress={() => setShowDistanceSheet(true)}
+          onPress={() => openFilterPopover('distance', distanceFilterAnchorRef, 420)}
           style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
         >
           <Feather name="map-pin" size={14} color={colors.primary} />
@@ -1331,6 +1425,7 @@ export default function ActivityScreen() {
           onPress={() => {
             setSelectedType('all');
             setSelectedDateRange('all');
+            setSelectedMonthDate(null);
             setSelectedDayDate(null);
             setRangeStartDate(null);
             setRangeEndDate(null);
@@ -1343,9 +1438,10 @@ export default function ActivityScreen() {
       )}
       </Animated.View>
 
-      <Modal transparent visible={showTypeSheet} animationType="slide" onRequestClose={() => setShowTypeSheet(false)}>
-        <View style={[styles.modalBackdrop, { backgroundColor: colors.overlay }]}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: 20 + insets.bottom }]}>
+      <Modal transparent visible={activeFilterPopover === 'type'} animationType="fade" onRequestClose={() => setActiveFilterPopover(null)}>
+        <View style={styles.filterPopoverBackdrop}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close activity type filter" onPress={() => setActiveFilterPopover(null)} style={StyleSheet.absoluteFill} />
+          <View style={[styles.filterPopoverCard, { left: filterPopoverPosition.left, top: filterPopoverPosition.top, width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.modalHeaderRow}>
               <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
                 <Feather name="activity" size={14} color={colors.primary} />
@@ -1353,6 +1449,7 @@ export default function ActivityScreen() {
               <Text style={[styles.modalTitle, { color: colors.text }]}>Activity type</Text>
             </View>
 
+            <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight - 60 }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
             <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Show activities</Text>
             {activityTypeOptions.map((option) => {
               const active = selectedType === option.value;
@@ -1362,7 +1459,7 @@ export default function ActivityScreen() {
                   activeOpacity={0.8}
                   onPress={() => {
                     setSelectedType(option.value);
-                    setShowTypeSheet(false);
+                    setActiveFilterPopover(null);
                   }}
                   style={[styles.optionRow, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
                 >
@@ -1376,19 +1473,24 @@ export default function ActivityScreen() {
               activeOpacity={0.85}
               onPress={() => {
                 setSelectedType('all');
-                setShowTypeSheet(false);
+                setActiveFilterPopover(null);
               }}
               style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
             >
               <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
             </TouchableOpacity>
+            </ScrollView>
+            {filterPopoverPosition.placement !== 'center' ? (
+              <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
+            ) : null}
           </View>
         </View>
       </Modal>
 
-      <Modal transparent visible={showDatePicker} animationType="slide" onRequestClose={() => setShowDatePicker(false)}>
-        <View style={[styles.modalBackdrop, { backgroundColor: colors.overlay }]}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: 20 + insets.bottom }]}> 
+      <Modal transparent visible={activeFilterPopover === 'date'} animationType="fade" onRequestClose={() => setActiveFilterPopover(null)}>
+        <View style={styles.filterPopoverBackdrop}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close date filter" onPress={() => setActiveFilterPopover(null)} style={StyleSheet.absoluteFill} />
+          <View style={[styles.filterPopoverCard, { left: filterPopoverPosition.left, top: filterPopoverPosition.top, width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.modalHeaderRow}>
               <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
                 <Feather name="calendar" size={14} color={colors.primary} />
@@ -1396,6 +1498,7 @@ export default function ActivityScreen() {
               <Text style={[styles.modalTitle, { color: colors.text }]}>Date filter</Text>
             </View>
 
+            <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight - 112 }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
             <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Quick ranges</Text>
             <View style={styles.modalPresetRow}>
               {activityDateOptions.filter((option) => option.value !== 'single' && option.value !== 'range').map((option) => (
@@ -1404,10 +1507,11 @@ export default function ActivityScreen() {
                   activeOpacity={0.8}
                   onPress={() => {
                     setSelectedDateRange(option.value);
+                    setSelectedMonthDate(null);
                     setSelectedDayDate(null);
                     setRangeStartDate(null);
                     setRangeEndDate(null);
-                    setShowDatePicker(false);
+                    setActiveFilterPopover(null);
                   }}
                   style={[styles.presetButton, { backgroundColor: selectedDateRange === option.value ? colors.selected : colors.surfaceRaised, borderColor: selectedDateRange === option.value ? colors.primary : colors.border }]}
                 >
@@ -1418,30 +1522,85 @@ export default function ActivityScreen() {
 
             <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Selection mode</Text>
             <View style={styles.segmentedRow}>
-              {(['single', 'range'] as const).map((mode) => {
-                const active = (selectedDateRange === 'single' && mode === 'single') || (selectedDateRange === 'range' && mode === 'range');
+              {(['month', 'single', 'range'] as const).map((mode) => {
+                const active = selectedDateRange === mode;
                 return (
                   <TouchableOpacity
                     key={mode}
                     activeOpacity={0.8}
                     onPress={() => {
                       setSelectedDateRange(mode);
-                      if (mode === 'single') {
+                      if (mode === 'month') {
+                        setSelectedMonthDate((current) => current ?? new Date());
+                        setSelectedDayDate(null);
+                        setRangeStartDate(null);
+                        setRangeEndDate(null);
+                      } else if (mode === 'single') {
+                        setSelectedMonthDate(null);
                         setRangeStartDate(null);
                         setRangeEndDate(null);
                       } else {
+                        setSelectedMonthDate(null);
                         setSelectedDayDate(null);
                       }
                     }}
                     style={[styles.segmentedButton, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
                   >
-                    <Text style={[styles.segmentedButtonText, { color: active ? colors.primary : colors.text }]}>{mode === 'single' ? 'Single date' : 'Date range'}</Text>
+                    <Text style={[styles.segmentedButtonText, { color: active ? colors.primary : colors.text }]}>
+                      {mode === 'month' ? 'Month' : mode === 'single' ? 'Single date' : 'Date range'}
+                    </Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
 
-            {selectedDateRange === 'single' ? (
+            {selectedDateRange === 'month' ? (
+              <View style={styles.monthPicker}>
+                <View style={styles.monthYearRow}>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Previous year"
+                    onPress={() => setSelectedMonthDate((current) => {
+                      const date = current ?? new Date();
+                      return new Date(date.getFullYear() - 1, date.getMonth(), 1);
+                    })}
+                    style={[styles.monthYearButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
+                  >
+                    <Feather name="chevron-left" size={18} color={colors.text} />
+                  </TouchableOpacity>
+                  <Text style={[styles.monthYearText, { color: colors.text }]}>{selectedMonthDate?.getFullYear()}</Text>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Next year"
+                    onPress={() => setSelectedMonthDate((current) => {
+                      const date = current ?? new Date();
+                      return new Date(date.getFullYear() + 1, date.getMonth(), 1);
+                    })}
+                    style={[styles.monthYearButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
+                  >
+                    <Feather name="chevron-right" size={18} color={colors.text} />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.monthGrid}>
+                  {monthOptions.map((month) => {
+                    const active = selectedMonthDate?.getMonth() === month.value;
+                    return (
+                      <TouchableOpacity
+                        key={month.value}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${month.label} ${selectedMonthDate?.getFullYear()}`}
+                        accessibilityState={{ selected: active }}
+                        onPress={() => setSelectedMonthDate((current) =>
+                          new Date(current?.getFullYear() ?? new Date().getFullYear(), month.value, 1))}
+                        style={[styles.monthOption, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
+                      >
+                        <Text style={[styles.monthOptionText, { color: active ? colors.primary : colors.text }]}>{month.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : selectedDateRange === 'single' ? (
               <View style={styles.dateSelectionRow}>
                 <TouchableOpacity
                   activeOpacity={0.8}
@@ -1482,16 +1641,18 @@ export default function ActivityScreen() {
                 </TouchableOpacity>
               </View>
             )}
+            </ScrollView>
 
             <View style={styles.modalActions}>
               <TouchableOpacity
                 activeOpacity={0.85}
                 onPress={() => {
                   setSelectedDateRange('all');
+                  setSelectedMonthDate(null);
                   setSelectedDayDate(null);
                   setRangeStartDate(null);
                   setRangeEndDate(null);
-                  setShowDatePicker(false);
+                  setActiveFilterPopover(null);
                 }}
                 style={[styles.modalActionButton, { backgroundColor: colors.background, borderColor: colors.border }]}
               >
@@ -1502,27 +1663,31 @@ export default function ActivityScreen() {
                 activeOpacity={0.85}
                 onPress={() => {
                   if (selectedDateRange === 'single' && selectedDayDate) {
-                    setShowDatePicker(false);
+                    setActiveFilterPopover(null);
                     return;
                   }
                   if (selectedDateRange === 'range' && rangeStartDate && rangeEndDate) {
-                    setShowDatePicker(false);
+                    setActiveFilterPopover(null);
                     return;
                   }
-                  setShowDatePicker(false);
+                  setActiveFilterPopover(null);
                 }}
                 style={[styles.modalActionButton, { backgroundColor: colors.primary, borderColor: colors.primary }]}
               >
                 <Text style={[styles.modalActionText, { color: colors.primaryText }]}>Apply</Text>
               </TouchableOpacity>
             </View>
+            {filterPopoverPosition.placement !== 'center' ? (
+              <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
+            ) : null}
           </View>
         </View>
       </Modal>
 
-      <Modal transparent visible={showDistanceSheet} animationType="slide" onRequestClose={() => setShowDistanceSheet(false)}>
-        <View style={[styles.modalBackdrop, { backgroundColor: colors.overlay }]}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: 20 + insets.bottom }]}> 
+      <Modal transparent visible={activeFilterPopover === 'distance'} animationType="fade" onRequestClose={() => setActiveFilterPopover(null)}>
+        <View style={styles.filterPopoverBackdrop}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close distance filter" onPress={() => setActiveFilterPopover(null)} style={StyleSheet.absoluteFill} />
+          <View style={[styles.filterPopoverCard, { left: filterPopoverPosition.left, top: filterPopoverPosition.top, width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.modalHeaderRow}>
               <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
                 <Feather name="map-pin" size={14} color={colors.primary} />
@@ -1530,6 +1695,7 @@ export default function ActivityScreen() {
               <Text style={[styles.modalTitle, { color: colors.text }]}>Distance</Text>
             </View>
 
+            <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight - 60 }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
             <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Choose range</Text>
             {activityDistanceOptions.map((option) => {
               const active = selectedDistanceRange === option.value;
@@ -1539,7 +1705,7 @@ export default function ActivityScreen() {
                   activeOpacity={0.8}
                   onPress={() => {
                     setSelectedDistanceRange(option.value);
-                    setShowDistanceSheet(false);
+                    setActiveFilterPopover(null);
                   }}
                   style={[styles.optionRow, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
                 >
@@ -1552,12 +1718,16 @@ export default function ActivityScreen() {
               activeOpacity={0.85}
               onPress={() => {
                 setSelectedDistanceRange('all');
-                setShowDistanceSheet(false);
+                setActiveFilterPopover(null);
               }}
               style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
             >
               <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
             </TouchableOpacity>
+            </ScrollView>
+            {filterPopoverPosition.placement !== 'center' ? (
+              <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
+            ) : null}
           </View>
         </View>
       </Modal>
@@ -1738,6 +1908,13 @@ const styles = StyleSheet.create({
   activeFilterPillText: { fontSize: 11, fontWeight: '600' },
   filterRowBar: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: 8, marginBottom: 10 },
   filterBarButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, minHeight: 42 },
+  filterPopoverBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.12)' },
+  filterPopoverCard: { position: 'absolute', borderWidth: 1, borderRadius: 16, padding: 14, overflow: 'visible', elevation: 18, shadowColor: '#000000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.24, shadowRadius: 18 },
+  filterPopoverScroll: { flexGrow: 0, flexShrink: 1 },
+  filterPopoverScrollContent: { flexGrow: 0 },
+  filterPopoverCaret: { position: 'absolute', width: 14, height: 14, zIndex: 2, transform: [{ rotate: '45deg' }] },
+  filterPopoverCaretAbove: { bottom: -6 },
+  filterPopoverCaretBelow: { top: -6 },
   filterBarText: { fontSize: 12, fontWeight: '600' },
   compactFilterButton: { flex: 1, minWidth: 0, justifyContent: 'center', gap: 6, paddingHorizontal: 8 },
   compactFilterText: { flexShrink: 1, minWidth: 0, fontSize: 12 },
@@ -1755,6 +1932,13 @@ const styles = StyleSheet.create({
   segmentedRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   segmentedButton: { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 10, alignItems: 'center' },
   segmentedButtonText: { fontSize: 13, fontWeight: '700' },
+  monthPicker: { marginBottom: 14 },
+  monthYearRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 10 },
+  monthYearButton: { width: 34, height: 34, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  monthYearText: { minWidth: 56, textAlign: 'center', fontSize: 14, fontWeight: '700' },
+  monthGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  monthOption: { flexBasis: '22%', flexGrow: 1, minWidth: 48, borderWidth: 1, borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
+  monthOptionText: { fontSize: 12, fontWeight: '600' },
   customDateRow: { marginBottom: 14 },
   customDateButton: { borderWidth: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
   customDateButtonText: { fontSize: 13, fontWeight: '700' },
@@ -1779,26 +1963,26 @@ const styles = StyleSheet.create({
   dayCount: { fontSize: 11, fontWeight: '600' },
   toast: { position: 'absolute', alignSelf: 'center', bottom: 178, maxWidth: '90%', paddingHorizontal: 16, paddingVertical: 11, borderRadius: 22, backgroundColor: '#252A27', borderWidth: 1, borderColor: '#3C4B3F' },
   toastText: { color: '#F7F7F7', fontSize: 13, fontWeight: '600', textAlign: 'center' },
-  card: { height: 150, backgroundColor: '#242627', borderRadius: 25, paddingVertical: 14, paddingHorizontal: 15, marginBottom: 5, borderWidth: 1, borderColor: '#393C3E', overflow: 'hidden' },
+  card: { minHeight: 150, backgroundColor: '#242627', borderRadius: 25, paddingVertical: 14, paddingHorizontal: 15, marginBottom: 5, borderWidth: 1, borderColor: '#393C3E' },
   longPressProgressTrack: { position: 'absolute', top: 0, left: 0, height: 3, backgroundColor: '#35C72B', borderTopLeftRadius: 25, borderTopRightRadius: 3 },
   deleteTray: { position: 'absolute', left: 22, right: 22, bottom: 96, zIndex: 20, alignItems: 'center' },
   deleteButton: { minWidth: 190, minHeight: 58, borderRadius: 29, backgroundColor: '#E53935', borderWidth: 2, borderColor: '#E53935', elevation: 10, shadowColor: '#E53935', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.25, shadowRadius: 10 },
   deleteButtonAction: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 22, borderRadius: 27 },
   deleteButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-  cardContent: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden' },
+  cardContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cardCheckbox: { position: 'absolute', top: 7, right: 7, width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 2, zIndex: 2 },
   cardDetails: { flex: 1.05, minWidth: 0, paddingRight: 8 },
   activityType: { color: '#F7F7F7', fontSize: 18, lineHeight: 22, fontWeight: '800' },
   activityDate: { color: '#A9ADAF', fontSize: 12, lineHeight: 15, marginTop: 2 },
   distance: { color: '#35C72B', fontSize: 24, lineHeight: 28, fontWeight: '900', marginTop: 4 },
-  centerMetricsContainer: { flex: 0.95, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
-  metricRow: { width: 88, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', marginVertical: 3 },
+  centerMetricsContainer: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  metricRow: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', marginVertical: 3 },
   metricIcon: { width: 20, alignItems: 'center' },
-  metricText: { alignItems: 'flex-start', marginLeft: 4, minWidth: 0 },
+  metricText: { flex: 1, alignItems: 'flex-start', marginLeft: 4, minWidth: 0 },
   metricValue: { color: '#F7F7F7', fontSize: 12, lineHeight: 15, fontWeight: '900' },
   metricLabel: { color: '#A9ADAF', fontSize: 10, lineHeight: 12, marginTop: 1,width: '100%' },
-  mapThumbnailContainer: { position: 'relative', width: 132, height: 120, marginLeft: 10, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E5E7EB' },
-  mapThumbnailImage: { width: '100%', height: '100%' },
+  mapThumbnailContainer: { position: 'relative', width: '34%', aspectRatio: 1, minWidth: 0, marginLeft: 8, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E5E7EB' },
+  mapThumbnailImage: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
   mapPreviewPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E5E7EB' },
   mapOverlayTop: { position: 'absolute', top: 8, left: 8, right: 8, flexDirection: 'row', justifyContent: 'flex-start' },
   mapBadge: { backgroundColor: 'rgba(11, 14, 15, 0.58)', borderRadius: 999, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 8, paddingVertical: 4 },
@@ -1811,12 +1995,12 @@ const styles = StyleSheet.create({
   footerCountText: { color: '#D9F9DB', fontSize: 12, fontWeight: '700', letterSpacing: 0.2 },
   endMessage: { color: '#A9ADAF', textAlign: 'center', fontSize: 13, paddingVertical: 18 },
   skeletonList: { paddingTop: 4 },
-  skeletonCard: { height: 150, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden', backgroundColor: '#171A1A', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 12, borderWidth: 1, borderColor: '#243C2B' },
-  skeletonMain: { width: '70%', paddingRight: 6 },
+  skeletonCard: { minHeight: 150, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#171A1A', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 12, borderWidth: 1, borderColor: '#243C2B' },
+  skeletonMain: { flex: 1, minWidth: 0, paddingRight: 6 },
   skeletonShort: { width: '55%', height: 12, borderRadius: 5, backgroundColor: '#294A32' },
   skeletonTiny: { width: '35%', height: 8, borderRadius: 4, backgroundColor: '#26352A', marginTop: 4 },
   skeletonDistance: { width: '48%', height: 18, borderRadius: 6, backgroundColor: '#245C32', marginTop: 7 },
   skeletonMetrics: { width: '78%', height: 24, borderRadius: 7, backgroundColor: '#202A22', marginTop: 7 },
-  skeletonMap: { width: 105, height: 105, borderRadius: 18, overflow: 'hidden', backgroundColor: '#202A22' },
+  skeletonMap: { width: '34%', aspectRatio: 1, minWidth: 0, borderRadius: 18, overflow: 'hidden', backgroundColor: '#202A22' },
   empty: { color: '#A9ADAF', textAlign: 'center', fontSize: 16, marginTop: 40 },
 });

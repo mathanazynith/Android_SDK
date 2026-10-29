@@ -4,8 +4,8 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import MotionEntrance from '../../components/MotionEntrance';
 import { RunningLoader } from '../../components/common/RunningLoader';
+import MotionEntrance from '../../components/MotionEntrance';
 import NotificationBell from '../../components/NotificationBell';
 import SettingsMenu from '../../components/SettingsMenu';
 import { useNotifications } from '../../contexts/NotificationContext';
@@ -150,6 +150,7 @@ export default function DashboardScreen() {
 
   const handleSettingsOption = (option: string) => {
     setSettingsVisible(false);
+    if (option === 'Activities') router.push('/(app)/activity');
     if (option === 'Edit Profile') router.push('/(app)/profile/edit');
     if (option === 'Change Password' || option === 'Set Password') router.push('/(app)/screens/change-password');
     if (option === 'Notifications') router.push('/(app)/screens/notifications');

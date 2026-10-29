@@ -1,8 +1,8 @@
-import React, { useMemo, useRef, useState, useEffect } from 'react';
-import { StyleSheet, Text, TextInput, View, NativeSyntheticEvent, TextInputKeyPressEventData } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { NativeSyntheticEvent, StyleSheet, Text, TextInput, TextInputKeyPressEventData, View } from 'react-native';
+import { formatTimeFromComponents, normalizeTimePartValue, validateTimeFormat } from '../../../../utils/validators';
 
 type TextInputRef = React.ComponentRef<typeof TextInput>;
-import { formatTimeFromComponents, normalizeTimePartValue, validateTimeFormat } from '../../../../utils/validators';
 
 interface TimeInputProps {
   label?: string;
@@ -260,12 +260,13 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 0,
     color: '#FFFFFF',
-    fontSize: 28,
+    width: '100%',
+    minWidth: 0,
+    fontSize: 24,
     fontWeight: '500',
     paddingHorizontal: 10,
     paddingVertical: 10,
     textAlign: 'center',
-    minWidth: 92,
   },
   inputFocused: {
     borderColor: '#34C759',

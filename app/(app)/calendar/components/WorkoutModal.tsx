@@ -4,10 +4,11 @@ import { BlurView } from 'expo-blur';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 import BenchmarkBadgeIcon from '../../../../components/BenchmarkBadgeIcon';
+import { useTheme } from '../../../../contexts/ThemeContext';
 import { cacheAssignedRoute, customWorkoutAPI, getCachedAssignedRoute, type SuggestedRoute } from '../../../../service/customWorkout';
 import { workoutPlanService } from '../../../../service/workoutPlan';
-import { useReducedMotion } from 'react-native-reanimated';
 import {
     PlanBenchmarkAssignment,
     PlanBenchmarkStore,
@@ -26,12 +27,6 @@ interface WorkoutModalProps {
     workoutDbId?: number
   ) => void;
 }
-
-const PURE_WHITE = '#FFFFFF';
-const FOREST_GREEN = '#0B4720';
-const INTENSE_FOREST_GREEN = 'rgba(0, 77, 38, 0.70)';
-const MUTED_GREEN_BORDER = '#1E4623';
-const METRIC_GREY = '#D1D5DB';
 
 const isSegmentType = (segment: WorkoutSegment, type: 'warmup' | 'cooldown') => {
   const value = segment.type.toLowerCase().replace(/[-_\s]/g, '');
@@ -57,6 +52,7 @@ export default function WorkoutModal({
   onClose,
   onUpdateBenchmark,
 }: WorkoutModalProps) {
+  const { colors, isDark } = useTheme();
   const reduceMotion = useReducedMotion();
   const [rendered, setRendered] = useState(visible);
   const renderedRef = useRef(visible);
@@ -260,19 +256,19 @@ export default function WorkoutModal({
 
   const content = (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-      <Text style={styles.caption}>Workout Details</Text>
+      <Text style={[styles.caption, { color: colors.textSecondary }]}>Workout Details</Text>
       <View style={styles.headerRow}>
         <View style={styles.titleBlock}>
-          <Text style={styles.title}>{activeWorkout.title}</Text>
-          <Text style={styles.type}>{activeWorkout.workoutType}</Text>
+          <Text style={[styles.title, { color: colors.text }]}>{activeWorkout.title}</Text>
+          <Text style={[styles.type, { color: colors.primary }]}>{activeWorkout.workoutType}</Text>
         </View>
         <TouchableOpacity
           onPress={onClose}
-          style={styles.closeButton}
+          style={[styles.closeButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
           accessibilityRole="button"
           accessibilityLabel="Close workout details"
         >
-          <Ionicons name="close" size={24} color={PURE_WHITE} />
+          <Ionicons name="close" size={24} color={colors.text} />
         </TouchableOpacity>
       </View>
 
@@ -283,6 +279,7 @@ export default function WorkoutModal({
           <TouchableOpacity
             style={[
               styles.benchmarkToggleButton,
+              { backgroundColor: colors.surfaceRaised, borderColor: colors.border },
               activeWorkout.isBenchmark && styles.benchmarkToggleButtonActive,
             ]}
             onPress={handleToggleBenchmark}
@@ -304,6 +301,7 @@ export default function WorkoutModal({
               <Text
                 style={[
                   styles.benchmarkToggleTitle,
+                  { color: colors.text },
                   activeWorkout.isBenchmark && styles.benchmarkToggleTitleActive,
                 ]}
               >
@@ -311,7 +309,7 @@ export default function WorkoutModal({
                   ? 'Benchmark Workout Active'
                   : 'Mark as Benchmark Workout'}
               </Text>
-              <Text style={styles.benchmarkToggleSub}>
+              <Text style={[styles.benchmarkToggleSub, { color: colors.textSecondary }]}>
                 {activeWorkout.isBenchmark
                   ? 'Tap to remove this workout from Benchmark list in Statistics'
                   : `Tap to mark "${activeWorkout.title}" as benchmark in Statistics`}
@@ -320,7 +318,7 @@ export default function WorkoutModal({
             <Ionicons
               name={activeWorkout.isBenchmark ? 'checkmark-circle' : 'add-circle-outline'}
               size={22}
-              color={activeWorkout.isBenchmark ? '#F59E0B' : '#22C55E'}
+              color={activeWorkout.isBenchmark ? '#F59E0B' : colors.primary}
             />
           </TouchableOpacity>
         </View>
@@ -333,7 +331,7 @@ export default function WorkoutModal({
         <SummaryMetric label="HR Zone" value={activeWorkout.heartRateZone} />
       </View>
 
-      <Text style={styles.segmentsHeading}>Segments</Text>
+      <Text style={[styles.segmentsHeading, { color: colors.text }]}>Segments</Text>
       <SegmentGroup
         title="WARM-UP"
         segments={activeWorkout.segments.filter((segment) => isSegmentType(segment, 'warmup'))}
@@ -359,7 +357,7 @@ export default function WorkoutModal({
       <DetailSection label="Description" text={activeWorkout.description} />
       <DetailSection label="Instructions" text={activeWorkout.instructions} />
 
-      <Text style={[styles.sectionLabel, styles.statsTitle]}>Stats</Text>
+      <Text style={[styles.sectionLabel, styles.statsTitle, { color: colors.text, borderTopColor: colors.border }]}>Stats</Text>
       <View style={styles.statsRow}>
         <Stat label="Est Calories" value={activeWorkout.estimatedCalories} />
         <Stat label="Duration" value={activeWorkout.estimatedDuration} />
@@ -375,22 +373,22 @@ export default function WorkoutModal({
         <View style={styles.routeActions}>
           {assignedRoute ? (
             <TouchableOpacity
-              style={styles.assignedRouteButton}
+              style={[styles.assignedRouteButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
               onPress={() => {
                 onClose();
                 router.push({ pathname: '/custom-workout/route-detail', params: { route: JSON.stringify(assignedRoute) } });
               }}
               activeOpacity={0.85}
             >
-              <Ionicons name="checkmark-circle" size={19} color="#39B800" />
-              <Text style={styles.assignedRouteText}>
+              <Ionicons name="checkmark-circle" size={19} color={colors.primary} />
+              <Text style={[styles.assignedRouteText, { color: colors.text }]}>
                 Route assigned · {(Number(assignedRoute.distance || 0) / 1000).toFixed(2)} km
               </Text>
-              <Ionicons name="chevron-forward" size={20} color="#39B800" />
+              <Ionicons name="chevron-forward" size={20} color={colors.primary} />
             </TouchableOpacity>
           ) : null}
           <TouchableOpacity
-            style={styles.suggestedRoutesButton}
+            style={[styles.suggestedRoutesButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
             onPress={() => {
               const workoutId = activeWorkout.workoutDbId;
               onClose();
@@ -398,16 +396,16 @@ export default function WorkoutModal({
             }}
             activeOpacity={0.85}
           >
-            <Ionicons name="map-outline" size={19} color="#39B800" />
-            <Text style={styles.suggestedRoutesText}>Suggested Routes</Text>
-            <Ionicons name="chevron-forward" size={20} color="#39B800" />
+            <Ionicons name="map-outline" size={19} color={colors.primary} />
+            <Text style={[styles.suggestedRoutesText, { color: colors.primary }]}>Suggested Routes</Text>
+            <Ionicons name="chevron-forward" size={20} color={colors.primary} />
           </TouchableOpacity>
         </View>
       ) : null}
 
       {!activeWorkout.isRest && (
         <TouchableOpacity
-          style={[styles.startButton, activeWorkout.isBenchmark && styles.startBenchmarkButton]}
+          style={[{ backgroundColor: activeWorkout.isBenchmark ? '#F59E0B' : colors.primary }, styles.startButton]}
           onPress={handleStartRun}
           activeOpacity={0.85}
         >
@@ -415,9 +413,9 @@ export default function WorkoutModal({
             {activeWorkout.isBenchmark ? (
               <BenchmarkBadgeIcon size={19} color="#0F172A" style={{ marginRight: 6 }} />
             ) : (
-              <Ionicons name="play" size={18} color="#0F172A" />
+              <Ionicons name="play" size={18} color={colors.primaryText} />
             )}
-            <Text style={styles.startButtonText}>
+            <Text style={[styles.startButtonText, { color: activeWorkout.isBenchmark ? '#0F172A' : colors.primaryText }]}>
               {activeWorkout.isBenchmark
                 ? `Start Benchmark: ${activeWorkout.title || 'Run'}`
                 : 'Start Run'}
@@ -436,11 +434,10 @@ export default function WorkoutModal({
       onRequestClose={onClose}
     >
       <Animated.View style={[styles.overlay, { opacity }]}>
-        <BlurView intensity={90} tint="light" style={StyleSheet.absoluteFill} />
+        <BlurView intensity={isDark ? 80 : 65} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <Animated.View style={[styles.cardWrapper, { transform: [{ translateY }] }]}>
-          <View style={styles.modalCard}>
-            <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.intenseTint]} />
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             {content}
           </View>
         </Animated.View>
@@ -450,19 +447,21 @@ export default function WorkoutModal({
 }
 
 function DetailSection({ label, text }: { label: string; text: string }) {
+  const { colors } = useTheme();
   return text ? (
     <>
-      <Text style={styles.sectionLabel}>{label}</Text>
-      <Text style={styles.sectionText}>{text}</Text>
+      <Text style={[styles.sectionLabel, { color: colors.text }]}>{label}</Text>
+      <Text style={[styles.sectionText, { color: colors.textSecondary }]}>{text}</Text>
     </>
   ) : null;
 }
 
 function SummaryMetric({ label, value }: { label: string; value: string }) {
+  const { colors } = useTheme();
   return (
-    <View style={styles.summaryMetric}>
-      <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={styles.summaryValue}>{value || '—'}</Text>
+    <View style={[styles.summaryMetric, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
+      <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>{label}</Text>
+      <Text style={[styles.summaryValue, { color: colors.text }]}>{value || '—'}</Text>
     </View>
   );
 }
@@ -482,6 +481,7 @@ function SegmentGroup({
   fallbackSegments?: string[];
   fallbackLabel: string;
 }) {
+  const { colors } = useTheme();
   const rows = segments.length
     ? segments
     : fallbackSegments.map((step, index) => ({
@@ -497,33 +497,36 @@ function SegmentGroup({
   if (!rows.length && !fallback) return null;
   return (
     <View style={styles.segmentGroup}>
-      <Text style={[styles.segmentHeader, accent && styles.segmentHeaderAccent]}>{title}</Text>
+      <Text style={[styles.segmentHeader, {
+        backgroundColor: accent ? colors.selected : colors.surfaceRaised,
+        color: accent ? colors.primary : colors.textSecondary,
+      }]}>{title}</Text>
       {rows.length ? (
         rows.map((segment, index) => (
-          <View key={`${title}-${segment.order}-${index}`} style={styles.segmentItem}>
-            <Text style={styles.segmentIndex}>{accent ? index + 1 : '•'}</Text>
+          <View key={`${title}-${segment.order}-${index}`} style={[styles.segmentItem, { backgroundColor: colors.surfaceRaised, borderTopColor: colors.border }]}>
+            <Text style={[styles.segmentIndex, { color: colors.primary }]}>{accent ? index + 1 : '•'}</Text>
             <View style={styles.segmentCopy}>
-              <Text style={styles.segmentTitle}>
+              <Text style={[styles.segmentTitle, { color: colors.text }]}>
                 {segmentTitle(segment) || segment.notes || 'Workout'}
               </Text>
-              <Text style={styles.segmentSubtitle}>{segmentSubtitle(segment, fallbackLabel)}</Text>
+              <Text style={[styles.segmentSubtitle, { color: colors.textSecondary }]}>{segmentSubtitle(segment, fallbackLabel)}</Text>
             </View>
             <View style={styles.runTag}>
-              <Ionicons name="walk" size={14} color="#22C55E" />
-              <Text style={styles.runTagText}>RUN</Text>
+              <Ionicons name="walk" size={14} color={colors.primary} />
+              <Text style={[styles.runTagText, { color: colors.primary }]}>RUN</Text>
             </View>
           </View>
         ))
       ) : (
-        <View style={styles.segmentItem}>
-          <Text style={styles.segmentIndex}>•</Text>
+        <View style={[styles.segmentItem, { backgroundColor: colors.surfaceRaised, borderTopColor: colors.border }]}>
+          <Text style={[styles.segmentIndex, { color: colors.primary }]}>•</Text>
           <View style={styles.segmentCopy}>
-            <Text style={styles.segmentTitle}>{fallback}</Text>
-            <Text style={styles.segmentSubtitle}>{fallbackLabel}</Text>
+            <Text style={[styles.segmentTitle, { color: colors.text }]}>{fallback}</Text>
+            <Text style={[styles.segmentSubtitle, { color: colors.textSecondary }]}>{fallbackLabel}</Text>
           </View>
           <View style={styles.runTag}>
-            <Ionicons name="walk" size={14} color="#22C55E" />
-            <Text style={styles.runTagText}>RUN</Text>
+            <Ionicons name="walk" size={14} color={colors.primary} />
+            <Text style={[styles.runTagText, { color: colors.primary }]}>RUN</Text>
           </View>
         </View>
       )}
@@ -532,24 +535,23 @@ function SegmentGroup({
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
+  const { colors } = useTheme();
   return value ? (
     <View style={styles.stat}>
-      <Text style={styles.statLabel}>{label}</Text>
-      <Text style={styles.statValue}>{value}</Text>
+      <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{label}</Text>
+      <Text style={[styles.statValue, { color: colors.text }]}>{value}</Text>
     </View>
   ) : null;
 }
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'transparent', justifyContent: 'center', paddingHorizontal: 18 },
-  cardWrapper: { maxHeight: '84%' },
+  cardWrapper: { maxHeight: '90%' },
   modalCard: {
-    backgroundColor: FOREST_GREEN,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: MUTED_GREEN_BORDER,
     opacity: 1,
-    maxHeight: '84%',
+    maxHeight: '90%',
     overflow: 'hidden',
     elevation: 12,
     shadowColor: '#000000',
@@ -557,18 +559,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.45,
     shadowRadius: 16,
   },
-  intenseTint: { backgroundColor: INTENSE_FOREST_GREEN },
   scrollContent: { padding: 22, paddingBottom: 26 },
-  caption: { color: PURE_WHITE, fontSize: 18, marginBottom: 8 },
+  caption: { fontSize: 12, fontWeight: '700', marginBottom: 8, textTransform: 'uppercase' },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   titleBlock: { flex: 1 },
-  title: { color: PURE_WHITE, fontSize: 32, fontWeight: '500', lineHeight: 38 },
-  type: { color: PURE_WHITE, fontSize: 16, marginTop: 3 },
+  title: { fontSize: 28, fontWeight: '700', lineHeight: 34 },
+  type: { fontSize: 14, fontWeight: '600', marginTop: 4 },
   closeButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 12,
@@ -582,11 +583,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#16351F',
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor: MUTED_GREEN_BORDER,
   },
   benchmarkToggleButtonActive: {
     backgroundColor: 'rgba(245, 158, 11, 0.15)',
@@ -604,7 +603,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F59E0B',
   },
   benchmarkToggleTitle: {
-    color: PURE_WHITE,
     fontSize: 15,
     fontWeight: '700',
   },
@@ -612,40 +610,37 @@ const styles = StyleSheet.create({
     color: '#F59E0B',
   },
   benchmarkToggleSub: {
-    color: METRIC_GREY,
     fontSize: 12,
     marginTop: 2,
   },
   // Metrics & Stats
   summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 18 },
-  summaryMetric: { width: '48%', minHeight: 58, backgroundColor: '#16351F', borderRadius: 10, padding: 10 },
-  summaryLabel: { color: METRIC_GREY, fontSize: 12 },
-  summaryValue: { color: PURE_WHITE, fontSize: 16, fontWeight: '700', marginTop: 4 },
-  segmentsHeading: { color: PURE_WHITE, fontSize: 16, fontWeight: '700', marginTop: 20, marginBottom: 8 },
+  summaryMetric: { width: '48%', minHeight: 58, borderRadius: 10, borderWidth: 1, padding: 10 },
+  summaryLabel: { fontSize: 12 },
+  summaryValue: { fontSize: 16, fontWeight: '700', marginTop: 4 },
+  segmentsHeading: { fontSize: 16, fontWeight: '700', marginTop: 20, marginBottom: 8 },
   segmentGroup: { marginBottom: 12, borderRadius: 12, overflow: 'hidden' },
-  segmentHeader: { backgroundColor: '#D1D5DB', color: '#0F172A', fontSize: 12, fontWeight: '800', paddingHorizontal: 12, paddingVertical: 8 },
-  segmentHeaderAccent: { backgroundColor: '#22C55E' },
-  segmentItem: { flexDirection: 'row', alignItems: 'center', minHeight: 58, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#16351F', borderTopWidth: 1, borderTopColor: MUTED_GREEN_BORDER },
-  segmentIndex: { width: 24, color: PURE_WHITE, fontSize: 15, fontWeight: '700' },
+  segmentHeader: { fontSize: 12, fontWeight: '800', paddingHorizontal: 12, paddingVertical: 8 },
+  segmentItem: { flexDirection: 'row', alignItems: 'center', minHeight: 58, paddingHorizontal: 12, paddingVertical: 10, borderTopWidth: 1 },
+  segmentIndex: { width: 24, fontSize: 15, fontWeight: '700' },
   segmentCopy: { flex: 1 },
-  segmentTitle: { color: PURE_WHITE, fontSize: 15, fontWeight: '700' },
-  segmentSubtitle: { color: METRIC_GREY, fontSize: 12, marginTop: 3 },
+  segmentTitle: { fontSize: 15, fontWeight: '700' },
+  segmentSubtitle: { fontSize: 12, marginTop: 3 },
   runTag: { flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 8 },
-  runTagText: { color: '#22C55E', fontSize: 11, fontWeight: '800' },
-  sectionLabel: { color: PURE_WHITE, fontSize: 18, fontWeight: '600', marginTop: 17, marginBottom: 5 },
-  sectionText: { color: PURE_WHITE, fontSize: 16, lineHeight: 22 },
-  statsTitle: { borderTopWidth: 1, borderTopColor: MUTED_GREEN_BORDER, paddingTop: 17 },
+  runTagText: { fontSize: 11, fontWeight: '800' },
+  sectionLabel: { fontSize: 16, fontWeight: '700', marginTop: 17, marginBottom: 5 },
+  sectionText: { fontSize: 14, lineHeight: 21 },
+  statsTitle: { borderTopWidth: 1, paddingTop: 17 },
   statsRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
   routeActions: { gap: 10, marginTop: 18 },
-  assignedRouteButton: { minHeight: 52, borderRadius: 14, backgroundColor: '#16351F', borderWidth: 1, borderColor: '#39B800', paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  assignedRouteText: { flex: 1, color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-  suggestedRoutesButton: { minHeight: 52, borderRadius: 14, backgroundColor: '#16351F', borderWidth: 1, borderColor: MUTED_GREEN_BORDER, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  suggestedRoutesText: { flex: 1, color: '#39B800', fontSize: 15, fontWeight: '800' },
+  assignedRouteButton: { minHeight: 52, borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  assignedRouteText: { flex: 1, fontSize: 14, fontWeight: '700' },
+  suggestedRoutesButton: { minHeight: 52, borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  suggestedRoutesText: { flex: 1, fontSize: 15, fontWeight: '800' },
   stat: { flex: 1 },
-  statLabel: { color: METRIC_GREY, fontSize: 13, fontWeight: '600', marginBottom: 4 },
-  statValue: { color: PURE_WHITE, fontSize: 14, lineHeight: 19 },
-  startButton: { marginTop: 24, backgroundColor: '#22C55E', borderRadius: 16, paddingVertical: 16, alignItems: 'center', justifyContent: 'center' },
-  startBenchmarkButton: { backgroundColor: '#F59E0B' },
+  statLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
+  statValue: { fontSize: 14, lineHeight: 19 },
+  startButton: { marginTop: 24, borderRadius: 14, paddingVertical: 15, alignItems: 'center', justifyContent: 'center' },
   startButtonContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  startButtonText: { color: '#0F172A', fontSize: 17, fontWeight: '700' },
+  startButtonText: { fontSize: 16, fontWeight: '700' },
 });
