@@ -1,15 +1,17 @@
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
+  Animated,
+  Modal,
   TextInput as RNTextInput,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import DatePicker from "../../../app/(app)/questionnaire/QuestionTypes/DatePicker";
 import DistanceTimePaceSelector, { getDistanceInKilometers } from "../../../app/(app)/questionnaire/QuestionTypes/DistanceTimePaceSelector";
 import PlanSelection from "../../../app/(app)/questionnaire/QuestionTypes/PlanSelection";
@@ -18,17 +20,64 @@ import YesNo, {
   getYesNoOptionValues,
   getYesNoValue,
 } from "../../../app/(app)/questionnaire/QuestionTypes/YesNo";
-import EventRegistration from "../../../app/(app)/questionnaire/components/QuestionTypes/EventRegistration";
+import EventRegistration, { RacePredictionCard, type RacePrediction } from "../../../app/(app)/questionnaire/components/QuestionTypes/EventRegistration";
+import MotionEntrance from "../../../components/MotionEntrance";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
+import { RunningLoader } from "../../../components/common/RunningLoader";
 import { useQuestionnaire } from "../../../contexts/QuestionnaireContext";
+import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
+import { assessmentAPI } from "../../../service/api";
 import { useAuth } from "../../../service/auth";
 import type { Question } from "../../../service/questionnaire/questionnaireService";
-import { validateAnswer } from "../../../service/validation/AssessmentValidator";
 import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import { calculatePace, timeToSeconds } from "../../../utils/validators";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
-import MotionEntrance from "../../../components/MotionEntrance";
+
+const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+
+const AssessmentNextButton = ({
+  disabled,
+  isSubmitting,
+  backgroundColor,
+  disabledTextColor,
+  onPress,
+}: {
+  disabled: boolean;
+  isSubmitting: boolean;
+  backgroundColor: string;
+  disabledTextColor: string;
+  onPress: () => void;
+}) => {
+  const opacity = React.useRef(new Animated.Value(disabled ? 0.42 : 1)).current;
+
+  useEffect(() => {
+    const animation = Animated.timing(opacity, {
+      toValue: disabled ? 0.42 : 1,
+      duration: 220,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [disabled, opacity]);
+
+  return (
+    <AnimatedTouchableOpacity
+      style={[
+        styles.button,
+        styles.nextButton,
+        { backgroundColor },
+        { opacity },
+      ]}
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityState={{ disabled }}
+    >
+      <Text style={[styles.buttonText, disabled && { color: disabledTextColor }]}>
+        {isSubmitting ? "Submitting..." : "Next"}
+      </Text>
+      <Feather name="arrow-right" size={18} color={disabled ? disabledTextColor : "#1A1A1A"} />
+    </AnimatedTouchableOpacity>
+  );
+};
 
 // Helper to get numeric ID
 const getNumericId = (id: number | string): number => {
@@ -39,25 +88,35 @@ const getNumericId = (id: number | string): number => {
 
 // SingleChoice component
 const SingleChoice = ({ options, selectedValue, onSelect, stacked = false }: any) => {
+  const { colors } = useTheme();
   return (
     <View style={stacked ? styles.dayOptionsContainer : styles.optionsContainer}>
-      {options.map((opt: any) => (
+      {options.map((opt: any) => {
+        const selected = selectedValue === opt.value;
+        return (
         <TouchableOpacity
           key={opt.id}
           style={[
             styles.optionButton,
+            { backgroundColor: colors.surface, borderColor: colors.border },
             stacked && styles.dayOptionButton,
-            selectedValue === opt.value && styles.optionSelected,
+            selected && styles.optionSelected,
           ]}
+          accessibilityRole="radio"
+          accessibilityState={{ selected }}
           onPress={() => {
-            if (selectedValue !== opt.value) {
+            if (!selected) {
               onSelect(opt.value);
             }
           }}
         >
-          <Text style={styles.optionText}>{opt.label}</Text>
+          <View style={[styles.optionContent, stacked && styles.optionContentFullWidth]}>
+            <Text style={[styles.optionText, stacked && styles.optionTextFullWidth, { color: colors.text }, selected && styles.optionSelectedText]}>{opt.label}</Text>
+            {selected && <Feather style={styles.optionCheck} name="check-circle" size={20} color="#0D0D0D" />}
+          </View>
         </TouchableOpacity>
-      ))}
+        );
+      })}
     </View>
   );
 };
@@ -75,6 +134,9 @@ const QuestionField = ({
   maxDistanceKm,
   allQuestions,
   allAnswers,
+  racePrediction,
+  isRacePredictionLoading,
+  racePredictionError,
 }: any) => {
   const { colors } = useTheme();
   const {
@@ -96,6 +158,7 @@ const QuestionField = ({
   const normalizedQuestionText = String(questionText ?? "").toLowerCase();
   const isRunningDaysQuestion =
     type === "multiple" && /which days of the week.*usually run/.test(normalizedQuestionText);
+  const isDaysPerWeekCountQuestion = /how many days per week.*run/.test(normalizedQuestionText);
   const isLongRunDayQuestion =
     /which of your running days.*long run/.test(normalizedQuestionText);
 
@@ -200,7 +263,11 @@ const QuestionField = ({
           {questionText}
           {isRequired && <Text style={styles.requiredStar}> *</Text>}
         </Text>
-        <ScrollTimePicker value={value} onChange={(nextValue) => onAnswer(id, nextValue)} />
+        <ScrollTimePicker
+          value={value}
+          allowEmpty={question.isRequired && !value}
+          onChange={(nextValue) => onAnswer(id, nextValue)}
+        />
       </View>
     );
   }
@@ -251,7 +318,7 @@ const QuestionField = ({
           <SingleChoice
             options={visibleOptions}
             selectedValue={value}
-            stacked={isLongRunDayQuestion}
+            stacked={isLongRunDayQuestion || isDaysPerWeekCountQuestion}
             onSelect={(val: string) => onAnswer(id, val)}
           />
         </View>
@@ -286,9 +353,12 @@ const QuestionField = ({
                   key={opt.id}
                   style={[
                     styles.optionButton,
+                    { backgroundColor: colors.surface, borderColor: colors.border },
                     isRunningDaysQuestion && styles.dayOptionButton,
                     selected && styles.optionSelected,
                   ]}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ selected }}
                   onPress={() => {
                     let newVal = Array.isArray(value) ? [...value] : [];
                     if (selected) {
@@ -305,7 +375,10 @@ const QuestionField = ({
                     onAnswer(id, newVal);
                   }}
                 >
-                  <Text style={styles.optionText}>{opt.label}</Text>
+                  <View style={[styles.optionContent, isRunningDaysQuestion && styles.optionContentFullWidth]}>
+                    <Text style={[styles.optionText, isRunningDaysQuestion && styles.optionTextFullWidth, { color: colors.text }, selected && styles.optionSelectedText]}>{opt.label}</Text>
+                    {selected && <Feather style={styles.optionCheck} name="check-circle" size={20} color="#0D0D0D" />}
+                  </View>
                 </TouchableOpacity>
               );
             })}
@@ -356,15 +429,23 @@ const QuestionField = ({
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
           <View style={styles.dropdownContainer}>
-            {options?.map((opt: any) => (
+            {options?.map((opt: any) => {
+              const selected = value === opt.value;
+              return (
               <TouchableOpacity
                 key={opt.id}
-                style={[styles.dropdownItem, value === opt.value && styles.optionSelected]}
+                style={[styles.dropdownItem, { backgroundColor: colors.surface, borderBottomColor: colors.border }, selected && styles.optionSelected]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
                 onPress={() => onAnswer(id, opt.value)}
               >
-                <Text style={styles.optionText}>{opt.label}</Text>
+                <View style={[styles.optionContent, styles.optionContentFullWidth]}>
+                  <Text style={[styles.optionText, styles.optionTextFullWidth, { color: colors.text }, selected && styles.optionSelectedText]}>{opt.label}</Text>
+                  {selected && <Feather style={styles.optionCheck} name="check-circle" size={20} color="#0D0D0D" />}
+                </View>
               </TouchableOpacity>
-            ))}
+              );
+            })}
           </View>
         </View>
       );
@@ -380,10 +461,12 @@ const QuestionField = ({
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
               <TouchableOpacity
                 key={num}
-                style={[styles.ratingButton, value === num && styles.optionSelected]}
+                style={[styles.ratingButton, { backgroundColor: colors.surface, borderColor: colors.border }, value === num && styles.optionSelected]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: value === num }}
                 onPress={() => onAnswer(id, num)}
               >
-                <Text style={styles.ratingText}>{num}</Text>
+                <Text style={[styles.ratingText, value === num && styles.optionSelectedText]}>{num}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -451,6 +534,9 @@ const QuestionField = ({
             onCustomChange={(field: string, val: string) =>
               onCustomChange(id, field, val)
             }
+            racePrediction={racePrediction}
+            isRacePredictionLoading={isRacePredictionLoading}
+            racePredictionError={racePredictionError}
           />
         </View>
       );
@@ -463,7 +549,6 @@ const QuestionField = ({
           selectedValue={typeof value === "string" ? value : undefined}
           customValues={customValues || {}}
           onChange={(nextValue: Record<string, any>) => onAnswer(id, nextValue)}
-          trainingDaysComputed={computedResponses?.[question.slug ?? id]}
         />
       );
 
@@ -478,6 +563,7 @@ const QuestionField = ({
 
 export default function QuestionnaireScreen() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const {
     questions,
     currentNavigation,
@@ -491,6 +577,11 @@ export default function QuestionnaireScreen() {
     isComplete,
     computedResponses,
     assessmentId,
+    workoutPlan,
+    completedPlanCheckAssessmentId,
+    isWorkoutPlanLoaded,
+    workoutPlanError,
+    isWorkoutPlanLoading,
     setAnswer,
     goToNext,
     goToPrevious,
@@ -498,12 +589,14 @@ export default function QuestionnaireScreen() {
     canGoBack,
   } = useQuestionnaire();
   const { user } = useAuth();
-  const insets = useSafeAreaInsets();
   const [pageTransitionDirection, setPageTransitionDirection] = useState<'forward' | 'backward'>('forward');
+  const [isNoPlanModalDismissed, setIsNoPlanModalDismissed] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [validationErrorQuestionId, setValidationErrorQuestionId] = useState<string | null>(null);
-  const [daySelectionError, setDaySelectionError] = useState<string | null>(null);
+  const [racePrediction, setRacePrediction] = useState<RacePrediction | null>(null);
+  const [isRacePredictionLoading, setIsRacePredictionLoading] = useState(false);
+  const [racePredictionError, setRacePredictionError] = useState<string | null>(null);
+  const racePredictionRequestId = React.useRef(0);
 
   const getQuestionValidationMessages = (question: Question): string[] => {
     const keys = [
@@ -546,24 +639,190 @@ export default function QuestionnaireScreen() {
   }, [allAnswers, questions, user?.profile?.distance_unit]);
 
   React.useEffect(() => {
-    if (isComplete && assessmentId) {
-      // After assessment completion, show the Plan Summary screen (separate from the Training Calendar)
+    if (
+      !isComplete
+      || !assessmentId
+      || completedPlanCheckAssessmentId !== assessmentId
+      || isWorkoutPlanLoading
+      || !isWorkoutPlanLoaded
+    ) return;
+
+    if (workoutPlan || workoutPlanError) {
       router.replace('/(app)/running-plan');
+      return;
     }
-  }, [isComplete, assessmentId]);
+  }, [isComplete, assessmentId, completedPlanCheckAssessmentId, isWorkoutPlanLoaded, isWorkoutPlanLoading, workoutPlan, workoutPlanError]);
+
+  const showNoPlanModal = isComplete
+    && completedPlanCheckAssessmentId === assessmentId
+    && isWorkoutPlanLoaded
+    && !isWorkoutPlanLoading
+    && !workoutPlan
+    && !workoutPlanError
+    && !isNoPlanModalDismissed;
+
+  React.useEffect(() => {
+    const findQuestion = (pattern: RegExp, type?: string) =>
+      questions.find((question) => pattern.test(question.question ?? "") && (!type || question.type === type));
+    const findSlug = (slug: string) => questions.find((question) => String(question.slug ?? "").toUpperCase() === slug);
+    const answerFor = (question?: Question) => question
+      ? allAnswers[String(question.backendId ?? getNumericId(question.id))]
+      : undefined;
+    const distanceInKm = (question?: Question) => {
+      const answer = answerFor(question);
+      const option = question?.options?.find((item) => String(item.id) === String(answer?.value));
+      const presetDistance = getDistanceInKilometers(option);
+      if (presetDistance) return presetDistance;
+      if (!option?.requires_input) return null;
+      const enteredDistance = Number(answer?.customValues?.distance ?? answer?.customValues?.targetDistance);
+      if (!Number.isFinite(enteredDistance) || enteredDistance <= 0) return null;
+      return getDistanceUnitCode(answer?.customValues?.unit ?? user?.profile?.distance_unit) === "mile"
+        ? enteredDistance * 1.60934
+        : enteredDistance;
+    };
+
+    const eventDateQuestion = findSlug("EVENT_DATE") ?? findQuestion(/event.*date|when.*event|date.*event/i, "date");
+    const eventStartQuestion = findSlug("TRAINING_START_DATE") ?? findQuestion(/start.*training|training.*start/i, "date");
+    const eventDistanceQuestion = currentPageQuestions.find((question) => /event.*distance|distance.*event/i.test(question.question ?? ""))
+      ?? findSlug("EVENT_DISTANCE")
+      ?? findQuestion(/event.*distance|distance.*event/i);
+    const eventTimeQuestion = currentPageQuestions.find((question) => question.type === "time" && /event/i.test(question.question ?? ""))
+      ?? findSlug("EVENT_TARGET_TIME")
+      ?? questions.find((question) => String(question.slug ?? "").toUpperCase() === "TARGET_TIME" && /event/i.test(question.question ?? ""))
+      ?? findQuestion(/target.*time|time.*event/i, "time");
+    const goalDateQuestion = findSlug("GOAL_ACHIEVEMENT_DATE") ?? findQuestion(/goal.*achiev.*date|goal.*date/i, "date");
+    const goalStartQuestion = findSlug("START_TRAINING_DATE") ?? findQuestion(/start.*training|training.*start/i, "date");
+    const planGoalQuestion = findSlug("RUNNING_GOAL") ?? questions.find((question) =>
+      question.isGoalQuestion === true || (question.type === "plan_selection" && /running goal|primary.*goal/i.test(question.question ?? ""))
+    );
+    const planTimeQuestion = findSlug("GOAL_TARGET_TIME") ?? questions.find((question) =>
+      question.type === "time" && /goal[_\s-]*target[_\s-]*time|target.*time.*goal/i.test(`${question.question} ${question.slug ?? ""}`)
+    );
+
+    const eventTimeAnswer = answerFor(eventTimeQuestion);
+    const eventDistanceAnswer = answerFor(eventDistanceQuestion);
+    const planGoalAnswer = answerFor(planGoalQuestion);
+    const planTimeAnswer = answerFor(planTimeQuestion);
+    const eventCandidate = {
+      kind: "event" as const,
+      dateQuestion: eventDateQuestion,
+      startQuestion: eventStartQuestion,
+      distanceQuestion: eventDistanceQuestion,
+      timeQuestion: eventTimeQuestion,
+      date: answerFor(eventDateQuestion)?.value,
+      startDate: answerFor(eventStartQuestion)?.value,
+      goalTime: eventTimeAnswer?.value ?? eventTimeAnswer?.customValues?.targetTime ?? eventTimeAnswer?.customValues?.time
+        ?? eventDistanceAnswer?.customValues?.targetTime ?? eventDistanceAnswer?.customValues?.time,
+      distanceKm: distanceInKm(eventDistanceQuestion),
+    };
+    const planCandidate = {
+      kind: "plan" as const,
+      dateQuestion: goalDateQuestion,
+      startQuestion: goalStartQuestion,
+      distanceQuestion: planGoalQuestion,
+      timeQuestion: planTimeQuestion ?? planGoalQuestion,
+      date: answerFor(goalDateQuestion)?.value,
+      startDate: answerFor(goalStartQuestion)?.value,
+      goalTime: planTimeAnswer?.value ?? planTimeAnswer?.customValues?.time ?? planTimeAnswer?.customValues?.targetTime
+        ?? planGoalAnswer?.customValues?.time ?? planGoalAnswer?.customValues?.targetTime,
+      distanceKm: distanceInKm(planGoalQuestion),
+    };
+    const isCompleteCandidate = (candidate: typeof eventCandidate | typeof planCandidate) =>
+      Boolean(candidate.date && candidate.startDate && candidate.distanceKm && typeof candidate.goalTime === "string" && timeToSeconds(candidate.goalTime) !== null);
+    // Event registration can use goal-like slugs for its target-time question.
+    // Identify the page by its event fields first so those slugs do not route
+    // the event answers through the plan-selection candidate.
+    const hasEventRegistrationQuestions = currentPageQuestions.some((question) =>
+      /event.*name|name.*event/i.test(question.question ?? "")
+      || String(question.slug ?? "").toUpperCase() === "EVENT_NAME"
+    ) && currentPageQuestions.some((question) =>
+      question.type === "date"
+      && (/event.*date|when.*event|date.*event/i.test(question.question ?? "")
+        || String(question.slug ?? "").toUpperCase() === "EVENT_DATE")
+    );
+    const isPlanSelectionPage = !hasEventRegistrationQuestions && currentPageQuestions.some((question) =>
+      question.type === "plan_selection"
+      || ["RUNNING_GOAL", "GOAL_ACHIEVEMENT_DATE", "START_TRAINING_DATE", "GOAL_TARGET_TIME"].includes(String(question.slug ?? "").toUpperCase())
+      || /goal[_\s-]*target[_\s-]*time|primary.*running.*goal/i.test(`${question.question} ${question.slug ?? ""}`)
+    );
+    const candidate = isPlanSelectionPage
+      ? (isCompleteCandidate(planCandidate) ? planCandidate : null)
+      : (isCompleteCandidate(eventCandidate) ? eventCandidate : null);
+
+    const requestId = ++racePredictionRequestId.current;
+    if (!assessmentId || !candidate) {
+      setRacePrediction(null);
+      setIsRacePredictionLoading(false);
+      setRacePredictionError(null);
+      return;
+    }
+
+    setIsRacePredictionLoading(true);
+    setRacePredictionError(null);
+    const timer = setTimeout(async () => {
+      const answers = [candidate.dateQuestion, candidate.startQuestion, candidate.distanceQuestion, candidate.timeQuestion]
+        .filter((question, index, list): question is Question => Boolean(question) && list.indexOf(question) === index)
+        .map((question) => {
+          const answer = answerFor(question);
+          return {
+            question_id: Number(question.backendId ?? getNumericId(question.id)),
+            value: answer?.value,
+            unit: answer?.unit ?? null,
+            custom_values: answer?.customValues ?? {},
+          };
+        });
+
+      try {
+        const response = await assessmentAPI.checkAPI(assessmentId, {
+          event_date: candidate.date,
+          target_date: candidate.date,
+          // The check endpoint's goal validator consumes these generic date
+          // keys for both assessment paths; keep the event aliases as well so
+          // event registration retains its own context.
+          goal_achievement_date: candidate.date,
+          training_start_date: candidate.startDate,
+          start_training_date: candidate.startDate,
+          target_distance_km: candidate.distanceKm,
+          goal_time: candidate.goalTime,
+          ...(candidate.kind === "event" ? {
+            event_distance_km: candidate.distanceKm,
+            event_target_time: candidate.goalTime,
+            target_time: candidate.goalTime,
+          } : { target_time: candidate.goalTime }),
+          answers,
+        });
+        if (requestId !== racePredictionRequestId.current) return;
+        const data = response.data?.prediction ?? response.data;
+        setRacePrediction(data && typeof data === "object" ? data as RacePrediction : null);
+      } catch (checkError: any) {
+        if (requestId !== racePredictionRequestId.current) return;
+        const data = checkError?.response?.data?.prediction ?? checkError?.response?.data;
+        setRacePrediction(data && typeof data === "object" && ("goal_status" in data || "predicted_time" in data || "validation_error" in data)
+          ? data as RacePrediction
+          : null);
+        if (!data || typeof data !== "object" || !("goal_status" in data || "predicted_time" in data || "validation_error" in data)) {
+          const message = checkError?.response?.data?.detail ?? checkError?.response?.data?.message;
+          setRacePredictionError(typeof message === "string" ? message : "Unable to check your goal time right now.");
+        }
+      } finally {
+        if (requestId === racePredictionRequestId.current) setIsRacePredictionLoading(false);
+      }
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [assessmentId, questions, currentPageQuestions, allAnswers, user?.profile?.distance_unit]);
 
   if (isLoading) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#34C759" />
-        <Text style={styles.loadingText}>Loading assessment...</Text>
+        <RunningLoader size={64} label="Loading assessment..." />
       </View>
     );
   }
 
   if (!currentNavigation || !questions.length) {
     return (
-      <View style={styles.centerContainer}>
+      <View style={[styles.centerContainer, { paddingTop: insets.top }]}>
         <Text style={styles.errorText}>No questions available</Text>
         <TouchableOpacity style={styles.retryButton} onPress={reset}>
           <Text style={styles.retryText}>Retry</Text>
@@ -586,26 +845,9 @@ export default function QuestionnaireScreen() {
     unit?: string | null,
     customValues?: any
   ) => {
-    const question = questions.find((item) => String(item.backendId ?? getNumericId(item.id)) === String(getNumericId(questionId)));
-    if (question) {
-      const validationResult = validateAnswer({
-        question,
-        answer: value,
-        allAnswers,
-        questions,
-        allowIncompleteSelectionCount: true,
-      });
-      if (!validationResult.valid) {
-        setValidationErrorQuestionId(String(getNumericId(questionId)));
-        return;
-      }
-    }
-
-    // The replacement answer supersedes the rejected value. Clear the old
-    // server response now so it cannot keep Next disabled.
+    // Backend validation applies to the submitted answer. Let the user edit
+    // any value and clear stale server feedback until the next submission.
     clearValidationErrors();
-    setValidationErrorQuestionId(null);
-    setDaySelectionError(null);
     setAnswer(questionId, value, unit, customValues);
   };
 
@@ -627,27 +869,11 @@ export default function QuestionnaireScreen() {
 
     if (isEmptyCustom) {
       clearValidationErrors();
-      setValidationErrorQuestionId(null);
       setAnswer(questionId, undefined, undefined, null);
       return;
     }
 
-    const question = questions.find((item) => String(item.backendId ?? getNumericId(item.id)) === String(getNumericId(questionId)));
-    if (question) {
-      const validationResult = validateAnswer({
-        question,
-        answer: updatedCustomValues,
-        allAnswers,
-        questions,
-      });
-      if (!validationResult.valid) {
-        setValidationErrorQuestionId(String(getNumericId(questionId)));
-        return;
-      }
-    }
-
     clearValidationErrors();
-    setValidationErrorQuestionId(null);
     setAnswer(questionId, undefined, undefined, updatedCustomValues);
   };
 
@@ -722,29 +948,7 @@ export default function QuestionnaireScreen() {
   };
 
   const handleNext = async () => {
-    const runningDaysQuestion = currentPageQuestions.find(
-      (question) => /which days of the week.*usually run/i.test(question.question)
-    );
-    if (runningDaysQuestion) {
-      const selectedDays = getAnswerForQuestion(runningDaysQuestion).value;
-      const countQuestion = questions.find(
-        (question) => /how many days per week.*run/i.test(question.question)
-      );
-      const countAnswer = countQuestion ? getAnswerForQuestion(countQuestion).value : undefined;
-      const selectedCountOption = countQuestion?.options?.find(
-        (option) => String(option.value) === String(countAnswer)
-      );
-      const requiredCount = Number(
-        selectedCountOption?.numeric_value ?? selectedCountOption?.label ?? countAnswer
-      );
-
-      if (Number.isFinite(requiredCount) && (!Array.isArray(selectedDays) || selectedDays.length !== requiredCount)) {
-        setValidationErrorQuestionId(String(runningDaysQuestion.backendId ?? getNumericId(runningDaysQuestion.id)));
-        setDaySelectionError(`Please select exactly ${requiredCount} running days.`);
-        return;
-      }
-    }
-
+    setIsNoPlanModalDismissed(false);
     setIsSubmitting(true);
     try {
       setPageTransitionDirection('forward');
@@ -843,61 +1047,6 @@ export default function QuestionnaireScreen() {
     return 42.2;
   })();
 
-  const getLiveDateValidationMessages = (question: Question): string[] => {
-    const slug = String(question.slug ?? "").toUpperCase();
-    const answer = getAnswerForQuestion(question).value;
-    if (!answer || !["EVENT_DATE", "GOAL_ACHIEVEMENT_DATE", "TRAINING_START_DATE", "START_TRAINING_DATE"].includes(slug)) {
-      return [];
-    }
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const selectedDate = new Date(`${answer}T00:00:00`);
-    if (Number.isNaN(selectedDate.getTime())) return [];
-
-    if (slug === "TRAINING_START_DATE" || slug === "START_TRAINING_DATE") {
-      if (selectedDate < today) return ["The running start date cannot be in the past."];
-      const latestStart = new Date(today);
-      latestStart.setDate(latestStart.getDate() + (slug === "TRAINING_START_DATE" ? 9 : 10));
-      if (selectedDate > latestStart) {
-        return [slug === "TRAINING_START_DATE"
-          ? "Please choose a running start date within the next 10 days."
-          : "The start training date should be within 10 days from joining."];
-      }
-      return [];
-    }
-
-    const isEventDate = slug === "EVENT_DATE";
-    const distanceQuestion = questions.find((item) => String(item.slug ?? "").toUpperCase() === (isEventDate ? "EVENT_DISTANCE" : "RUNNING_GOAL"));
-    const startDateQuestion = questions.find((item) => String(item.slug ?? "").toUpperCase() === (isEventDate ? "TRAINING_START_DATE" : "START_TRAINING_DATE"));
-    if (!distanceQuestion || !startDateQuestion) return [];
-
-    const distanceAnswer = getAnswerForQuestion(distanceQuestion);
-    const option = distanceQuestion.options?.find((item) => String(item.id) === String(distanceAnswer.value));
-    let distanceKm = getDistanceInKilometers(option);
-    if (!distanceKm && option?.requires_input) {
-      const customDistance = Number(distanceAnswer.customValues?.distance ?? distanceAnswer.customValues?.targetDistance);
-      if (Number.isFinite(customDistance) && customDistance > 0) {
-        distanceKm = getDistanceUnitCode(distanceAnswer.customValues?.unit) === "mile" ? customDistance * 1.60934 : customDistance;
-      }
-    }
-    const startValue = getAnswerForQuestion(startDateQuestion).value;
-    if (!distanceKm || !startValue) return [];
-    const startDate = new Date(`${startValue}T00:00:00`);
-    if (Number.isNaN(startDate.getTime())) return [];
-
-    const minimumDays = distanceKm <= 5 ? 28 : distanceKm <= 10 ? 56 : distanceKm <= 15 ? 70 : distanceKm <= 21.1 ? (isEventDate ? 98 : 84) : 126;
-    const earliestDate = new Date(startDate);
-    earliestDate.setDate(earliestDate.getDate() + minimumDays);
-    if (selectedDate >= earliestDate) return [];
-
-    const label = distanceKm <= 5 ? "5K" : distanceKm <= 10 ? "10K" : distanceKm <= 15 ? "15K" : distanceKm <= 21.1 ? "Half Marathon" : "Full Marathon";
-    const weeks = minimumDays / 7;
-    return [isEventDate
-      ? `For a ${label} event, the event date must be at least ${weeks} weeks from start date.`
-      : `The goal achievable date must be at least ${minimumDays} days from start date.`];
-  };
-
   const getDerivedComputedValue = (question: Question) => {
     const normalizedSlug = String(question.slug ?? question.question ?? "").toLowerCase();
 
@@ -971,8 +1120,57 @@ export default function QuestionnaireScreen() {
       ])
     : new Set<string>();
 
+  const runningDaysCountQuestion = questions.find((question) =>
+    /how many days per week.*run/i.test(question.question)
+  );
+  const runningDaysCountAnswer = runningDaysCountQuestion
+    ? allAnswers[String(runningDaysCountQuestion.backendId ?? getNumericId(runningDaysCountQuestion.id))]?.value
+    : undefined;
+  const runningDaysCountOption = runningDaysCountQuestion?.options?.find((option) =>
+    String(option.value) === String(runningDaysCountAnswer)
+  );
+  const requiredRunningDaysCount = Number(
+    runningDaysCountOption?.numeric_value ?? runningDaysCountOption?.label ?? runningDaysCountAnswer
+  );
+
   const isRequiredQuestionComplete = (question: Question) => {
-    if (!question.isRequired || question.type === "computed") return true;
+    if (question.type === "recent_long_run") {
+      const answer = getAnswerForQuestion(question);
+      const selectedOption = question.options?.find(
+        (option) => String(option.id) === String(answer?.value)
+      );
+      if (!selectedOption) return false;
+
+      let distanceKm = getDistanceInKilometers(selectedOption);
+      if (selectedOption.requires_input || /custom/i.test(String(selectedOption.label ?? selectedOption.text ?? ""))) {
+        const customDistance = Number(answer?.customValues?.distance ?? answer?.customValues?.targetDistance);
+        if (!Number.isFinite(customDistance) || customDistance <= 0) return false;
+        distanceKm = getDistanceUnitCode(answer?.customValues?.unit) === "mile"
+          ? customDistance * 1.60934
+          : customDistance;
+      }
+
+      return Boolean(distanceKm && distanceKm > 0)
+        && timeToSeconds(String(answer?.customValues?.time ?? "")) !== null;
+    }
+
+    if (question.type === "event_registration" && question.isRequired) {
+      const answer = getAnswerForQuestion(question)?.value;
+      if (!answer || typeof answer !== "object") return false;
+
+      const eventName = String(answer.eventName ?? "").trim();
+      const eventDate = String(answer.eventDate ?? "").trim();
+      const distance = Number(answer.targetDistance ?? answer.distance);
+      const targetTime = String(answer.targetTime ?? "").trim();
+
+      return Boolean(eventName && eventDate && Number.isFinite(Date.parse(eventDate)))
+        && Number.isFinite(distance)
+        && distance > 0
+        && timeToSeconds(targetTime) !== null;
+    }
+
+    const isRequiredByAssessmentFlow = question.isRequired || /have you run before|do you have any upcoming running events|how many days per week.*run|which days of the week.*usually run|which of your running days.*long run/i.test(question.question);
+    if (!isRequiredByAssessmentFlow || question.type === "computed") return true;
 
     const answer = getAnswerForQuestion(question);
     const value = answer?.value;
@@ -985,6 +1183,17 @@ export default function QuestionnaireScreen() {
       return false;
     }
 
+    if (question.type === "time") {
+      return timeToSeconds(String(value)) !== null;
+    }
+
+    if (question.type === "multiple" && /which days of the week.*usually run/i.test(question.question)) {
+      return Number.isFinite(requiredRunningDaysCount)
+        && requiredRunningDaysCount > 0
+        && Array.isArray(value)
+        && value.length === requiredRunningDaysCount;
+    }
+
     const selectedOption = question.options?.find(
       (option) => String(option.id) === String(value)
     );
@@ -995,16 +1204,43 @@ export default function QuestionnaireScreen() {
     if (requiresCustomDistance) {
       const distance = answer?.customValues?.distance ?? answer?.customValues?.targetDistance;
       const distanceValue = Number(distance);
-      return Number.isFinite(distanceValue) && distanceValue > 0;
+      if (!Number.isFinite(distanceValue) || distanceValue <= 0) return false;
+      if (question.type === "plan_selection") {
+        return timeToSeconds(String(answer?.customValues?.time ?? "")) !== null;
+      }
+      return true;
     }
 
     return true;
   };
 
-  // Next is available as soon as all required answers on the current page are
-  // complete. Inline validation communicates invalid values as they are edited;
-  // the backend remains the final check when Next is pressed.
-  const isPageReadyToSubmit = displayQuestions.every(isRequiredQuestionComplete);
+  // Required answers control button availability. Validation messages come
+  // from the backend after submission.
+  const isRecentLongRunGroupComplete = !recentLongRunGroup || (() => {
+    const distanceAnswer = getAnswerForQuestion(recentLongRunGroup.singleQuestion);
+    const selectedOption = recentLongRunGroup.singleQuestion.options?.find(
+      (option) => String(option.id) === String(distanceAnswer?.value)
+    );
+    if (!selectedOption) return false;
+
+    let distanceKm = getDistanceInKilometers(selectedOption);
+    if (selectedOption.requires_input || /custom/i.test(String(selectedOption.label ?? selectedOption.text ?? ""))) {
+      const customDistance = Number(distanceAnswer?.customValues?.distance ?? distanceAnswer?.customValues?.targetDistance);
+      if (!Number.isFinite(customDistance) || customDistance <= 0) return false;
+      distanceKm = getDistanceUnitCode(distanceAnswer?.customValues?.unit) === "mile"
+        ? customDistance * 1.60934
+        : customDistance;
+    }
+
+    const timeAnswer = getAnswerForQuestion(recentLongRunGroup.timeQuestion).value
+      ?? distanceAnswer?.customValues?.time;
+    return Boolean(distanceKm && distanceKm > 0)
+      && timeToSeconds(String(timeAnswer ?? "")) !== null;
+  })();
+
+  const isPageReadyToSubmit = displayQuestions.every(isRequiredQuestionComplete)
+    && isRecentLongRunGroupComplete;
+  const isNextDisabled = !isPageReadyToSubmit || isSubmitting || isLoading;
 
   const recentLongRunSelectedValue = recentLongRunGroup
     ? currentPageAnswers[
@@ -1042,7 +1278,7 @@ export default function QuestionnaireScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.progressHeader, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+      <View style={[styles.progressHeader, { paddingTop: Math.max(22, insets.top + 8), backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <View style={styles.assessmentTitleRow}>
           {isFirstAssessmentPage ? (
             <TouchableOpacity
@@ -1079,9 +1315,9 @@ export default function QuestionnaireScreen() {
           direction={pageTransitionDirection === 'forward' ? 'right' : 'left'}
           style={styles.pageContainer}
         >
-          {(error || validationErrorQuestionId || daySelectionError) && (
+          {error && (
             <View style={styles.validationBanner}>
-              <Text style={styles.validationBannerText}>{error || daySelectionError || "This answer does not meet the configured validation rules."}</Text>
+              <Text style={styles.validationBannerText}>{error}</Text>
             </View>
           )}
           {recentLongRunGroup && (
@@ -1127,11 +1363,14 @@ export default function QuestionnaireScreen() {
               selectedValue={eventRegistrationGroup.distanceQuestion ? currentPageAnswers[String(eventRegistrationGroup.distanceQuestion.backendId ?? getNumericId(eventRegistrationGroup.distanceQuestion.id))]?.value : undefined}
               customValues={eventRegistrationGroup.distanceQuestion ? currentPageAnswers[String(eventRegistrationGroup.distanceQuestion.backendId ?? getNumericId(eventRegistrationGroup.distanceQuestion.id))]?.customValues || {} : {}}
               maxDistanceKm={maxTargetDistanceKm}
+              racePrediction={racePrediction}
+              isRacePredictionLoading={isRacePredictionLoading}
+              racePredictionError={racePredictionError}
               validationMessages={{
                 eventName: getQuestionValidationMessages(eventRegistrationGroup.eventNameQuestion),
-                eventDate: [...getQuestionValidationMessages(eventRegistrationGroup.eventDateQuestion), ...getLiveDateValidationMessages(eventRegistrationGroup.eventDateQuestion)],
+                eventDate: getQuestionValidationMessages(eventRegistrationGroup.eventDateQuestion),
                 trainingStartDate: eventRegistrationGroup.trainingStartDateQuestion
-                  ? [...getQuestionValidationMessages(eventRegistrationGroup.trainingStartDateQuestion), ...getLiveDateValidationMessages(eventRegistrationGroup.trainingStartDateQuestion)]
+                  ? getQuestionValidationMessages(eventRegistrationGroup.trainingStartDateQuestion)
                   : [],
                 distance: eventRegistrationGroup.distanceQuestion
                   ? getQuestionValidationMessages(eventRegistrationGroup.distanceQuestion)
@@ -1145,7 +1384,6 @@ export default function QuestionnaireScreen() {
                 eventNamePlaceholder: eventRegistrationGroup.eventNameQuestion.placeholder,
                 eventDate: eventRegistrationGroup.eventDateQuestion.label || eventRegistrationGroup.eventDateQuestion.question,
                 trainingStartDate: eventRegistrationGroup.trainingStartDateQuestion?.label || eventRegistrationGroup.trainingStartDateQuestion?.question,
-                trainingDays: eventRegistrationGroup.eventDateQuestion.fieldLabels?.trainingDays,
                 detailsTitle: eventRegistrationGroup.distanceQuestion?.title || eventRegistrationGroup.distanceQuestion?.question,
                 detailsDescription: eventRegistrationGroup.distanceQuestion?.description,
                 distance: eventRegistrationGroup.distanceQuestion?.fieldLabels?.distance || eventRegistrationGroup.distanceQuestion?.label,
@@ -1180,13 +1418,13 @@ export default function QuestionnaireScreen() {
                   handleAnswer(eventRegistrationGroup.targetTimeQuestion.id, nextValue.targetTime);
                 }
               }}
-              trainingDaysComputed={computedResponses?.[eventRegistrationGroup.eventDateQuestion.slug ?? "training_days"] ?? computedResponses?.training_days}
             />
           )}
 
           {displayQuestions
             .filter((question) => !recentLongRunQuestionIds.has(question.id))
             .filter((question) => !eventRegistrationQuestionIds.has(question.id))
+            .filter((question) => !/training\s+days?\s+available/i.test(`${question.question} ${question.slug ?? ""}`))
             .map((question) => {
               const numericKey = String(
                 question.backendId ?? getNumericId(question.id)
@@ -1202,10 +1440,9 @@ export default function QuestionnaireScreen() {
                 ...answerData.customValues,
                 ...(computedOverride !== undefined ? { derivedValue: computedOverride } : {}),
               };
-              const validationMessages = [
-                ...getQuestionValidationMessages(question),
-                ...getLiveDateValidationMessages(question),
-              ];
+              const validationMessages = getQuestionValidationMessages(question);
+              const isRaceGoalTimeQuestion = question.type === "time"
+                && /(?:goal|target).*(?:time|finish)|(?:time|finish).*event/i.test(`${question.question} ${question.slug ?? ""}`);
 
               return (
                 <View key={question.id}>
@@ -1219,6 +1456,9 @@ export default function QuestionnaireScreen() {
                     maxDistanceKm={maxTargetDistanceKm}
                     allQuestions={questions}
                     allAnswers={allAnswers}
+                    racePrediction={racePrediction}
+                    isRacePredictionLoading={isRacePredictionLoading}
+                    racePredictionError={racePredictionError}
                     onAnswer={(
                       questionKey: string,
                       val: any,
@@ -1228,20 +1468,26 @@ export default function QuestionnaireScreen() {
                     onCustomChange={(questionKey: string, field: string, val: string) =>
                       handleCustomChange(questionKey, field, val)
                     }
-                    isInvalid={validationErrorQuestionId === String(question.backendId ?? getNumericId(question.id))}
                   />
                   {validationMessages.map((message) => (
                     <Text key={message} style={styles.questionValidationText}>
                       {message}
                     </Text>
                   ))}
+                  {isRaceGoalTimeQuestion && (
+                    <RacePredictionCard
+                      prediction={racePrediction}
+                      isLoading={isRacePredictionLoading}
+                      error={racePredictionError}
+                    />
+                  )}
                 </View>
               );
             })}
         </MotionEntrance>
       </ScrollView>
 
-      <View style={[styles.buttonContainer, { paddingBottom: 12 + insets.bottom, backgroundColor: colors.background }]}>
+      <View style={[styles.buttonContainer, { paddingBottom: 12, backgroundColor: colors.background }]}>
         {!isFirstAssessmentPage && (
           <TouchableOpacity
             style={[styles.button, styles.prevButton]}
@@ -1261,22 +1507,50 @@ export default function QuestionnaireScreen() {
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity
-          style={[
-            styles.button,
-            styles.nextButton,
-            { backgroundColor: BRAND_GREEN },
-            (!isPageReadyToSubmit || isSubmitting || isLoading) && styles.nextButtonDisabled,
-          ]}
+        <AssessmentNextButton
+          disabled={isNextDisabled}
+          isSubmitting={isSubmitting}
+          backgroundColor={isNextDisabled ? colors.surfaceRaised : BRAND_GREEN}
+          disabledTextColor={colors.textTertiary}
           onPress={handleNext}
-          disabled={!isPageReadyToSubmit || isSubmitting || isLoading}
-        >
-          <Text style={styles.buttonText}>
-            {isSubmitting ? "Submitting..." : "Next"}
-          </Text>
-          <Feather name="arrow-right" size={18} color="#1A1A1A" />
-        </TouchableOpacity>
+        />
       </View>
+
+      <Modal
+        visible={showNoPlanModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsNoPlanModalDismissed(true)}
+      >
+        <View style={[styles.noPlanModalBackdrop, { paddingTop: Math.max(24, insets.top + 16), paddingBottom: Math.max(24, insets.bottom + 16), backgroundColor: colors.overlay }]}>
+          <View style={[styles.noPlanModalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Feather name="info" size={28} color={BRAND_GREEN} />
+            <Text style={[styles.noPlanModalTitle, { color: colors.textPrimary }]}>
+              No training plan available
+            </Text>
+            <Text style={[styles.noPlanModalMessage, { color: colors.textSecondary }]}>
+              Review your assessment answers and try again.
+            </Text>
+            <TouchableOpacity
+              style={[styles.noPlanReviewButton, { backgroundColor: BRAND_GREEN }]}
+              onPress={() => {
+                setIsNoPlanModalDismissed(true);
+                handlePrevious();
+              }}
+              accessibilityRole="button"
+            >
+              <Text style={styles.noPlanReviewButtonText}>Review answers</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.noPlanDismissButton}
+              onPress={() => setIsNoPlanModalDismissed(true)}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.noPlanDismissButtonText, { color: colors.textSecondary }]}>Dismiss</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1401,10 +1675,6 @@ const styles = StyleSheet.create({
   nextButton: {
     backgroundColor: "#34C759",
   },
-  nextButtonDisabled: {
-    backgroundColor: "#4A4D50",
-    opacity: 0.7,
-  },
   buttonText: {
     fontSize: 15,
     fontWeight: "500",
@@ -1445,7 +1715,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   optionButton: {
-    paddingHorizontal: 16,
+    maxWidth: "100%",
+    flexShrink: 1,
+    paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 12,
     borderWidth: 1,
@@ -1458,13 +1730,22 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   optionSelected: {
-    borderColor: "#34C759",
-    backgroundColor: "#253525",
+    borderColor: "#15803D",
+    borderWidth: 2,
+    backgroundColor: BRAND_GREEN,
   },
+  optionContent: { flexDirection: "row", alignItems: "center", gap: 8 },
+  optionContentFullWidth: { width: "100%", minWidth: 0, justifyContent: "space-between" },
+  optionCheck: { flexShrink: 0 },
   optionText: {
-    fontSize: 16,
+    flexShrink: 1,
+    flexWrap: "wrap",
+    fontSize: 15,
+    lineHeight: 20,
     color: "#F4F4F5",
   },
+  optionTextFullWidth: { flex: 1, minWidth: 0 },
+  optionSelectedText: { color: "#0D0D0D", fontWeight: "700" },
   textInput: {
     borderWidth: 1,
     borderColor: "#45474B",
@@ -1481,7 +1762,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   dropdownItem: {
-    padding: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#3D4044",
     backgroundColor: "#303236",
@@ -1504,6 +1786,7 @@ const styles = StyleSheet.create({
   ratingText: {
     fontSize: 16,
     fontWeight: "600",
+    color: "#F4F4F5",
   },
   computedValue: {
     fontSize: 36,
@@ -1543,4 +1826,12 @@ const styles = StyleSheet.create({
   assessmentTitleRow: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   backButton: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#202A22", borderWidth: 1, borderColor: "#34C759" },
   backButtonPlaceholder: { width: 44, height: 44 },
+  noPlanModalBackdrop: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
+  noPlanModalCard: { width: "100%", maxWidth: 400, alignItems: "center", borderRadius: 16, borderWidth: 1, padding: 24 },
+  noPlanModalTitle: { fontSize: 20, fontWeight: "700", textAlign: "center", marginTop: 14 },
+  noPlanModalMessage: { fontSize: 15, lineHeight: 22, textAlign: "center", marginTop: 8, marginBottom: 20 },
+  noPlanReviewButton: { width: "100%", alignItems: "center", borderRadius: 10, paddingVertical: 13 },
+  noPlanReviewButtonText: { color: "#102018", fontSize: 15, fontWeight: "700" },
+  noPlanDismissButton: { marginTop: 12, padding: 8 },
+  noPlanDismissButtonText: { fontSize: 14, fontWeight: "600" },
 });

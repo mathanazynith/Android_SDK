@@ -1,6 +1,6 @@
 import { RunningCoordinate } from '../types/running';
-import { calculateDistanceMeters } from '../utils/distance';
 import { calculateBearing, calculateHeadingChange } from '../utils/bearing';
+import { calculateDistanceMeters } from '../utils/distance';
 
 export interface RdpSimplifierConfig {
   straightToleranceMeters: number;
@@ -54,7 +54,10 @@ export class RdpSimplifier {
    * Keeps route direction changes as hard boundaries before simplifying each
    * segment. This prevents RDP from drawing a diagonal across a real turn.
    */
-  public simplifyPreservingTurns(points: RunningCoordinate[]): RunningCoordinate[] {
+  public simplifyPreservingTurns(
+    points: RunningCoordinate[],
+    epsilonMeters: number = this.config.straightToleranceMeters
+  ): RunningCoordinate[] {
     if (points.length <= 2) {
       return [...points];
     }
@@ -77,7 +80,8 @@ export class RdpSimplifier {
         calculateBearing(previous, current),
         calculateBearing(current, next)
       );
-      if (headingChange >= 20) {
+      const crossTrackDeviation = this.perpendicularDistance(previous, next, current);
+      if (headingChange >= 20 && crossTrackDeviation > epsilonMeters) {
         protectedIndexes.push(index);
       }
     }
@@ -88,7 +92,7 @@ export class RdpSimplifier {
       const start = protectedIndexes[index];
       const end = protectedIndexes[index + 1];
       const segment = points.slice(start, end + 1);
-      const simplified = this.simplify(segment, this.config.straightToleranceMeters);
+      const simplified = this.simplify(segment, epsilonMeters);
       result.push(...(index === 0 ? simplified : simplified.slice(1)));
     }
 

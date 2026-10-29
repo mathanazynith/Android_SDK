@@ -1,12 +1,13 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Feather } from "@expo/vector-icons";
-import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import MotionEntrance from "../../../components/MotionEntrance";
 import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
+import ThemedCalendarPicker from "../../../components/common/ThemedCalendarPicker";
+import { RunningLoader } from "../../../components/common/RunningLoader";
+import MotionEntrance from "../../../components/MotionEntrance";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { useTheme, type ThemeColors } from "../../../contexts/ThemeContext";
 import { clearCachedAssignedRoute, customWorkoutAPI, getCachedAssignedRoute, type SuggestedRoute } from "../../../service/customWorkout";
@@ -635,9 +636,8 @@ export default function CustomWorkoutOverview() {
     Alert.alert("Unscheduled", "Workout date removed.");
   };
 
-  const onDateChange = async (event: DateTimePickerEvent, selectedDate?: Date) => {
+  const onDateChange = async (selectedDate: Date) => {
     setShowDatePicker(false);
-    if (event.type === "dismissed" || !selectedDate) return;
     const year = selectedDate.getFullYear();
     const month = String(selectedDate.getMonth() + 1).padStart(2, "0");
     const day = String(selectedDate.getDate()).padStart(2, "0");
@@ -802,7 +802,7 @@ export default function CustomWorkoutOverview() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => router.back()}
@@ -856,7 +856,7 @@ export default function CustomWorkoutOverview() {
               style={styles.saveHeaderButton}
             >
               {isSaving ? (
-                <ActivityIndicator size="small" color={colors.primary} />
+                <RunningLoader size={18} fillColor={colors.primary} />
               ) : (
                 <Text style={styles.headerSaveText}>Save</Text>
               )}
@@ -1115,7 +1115,7 @@ export default function CustomWorkoutOverview() {
                       <Text style={styles.viewRouteText}>View route</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={handleRemoveRoute} disabled={isRemovingRoute} activeOpacity={0.85}>
-                      {isRemovingRoute ? <ActivityIndicator size="small" color="#FF453A" /> : <Text style={styles.removeRouteText}>Unassign</Text>}
+                      {isRemovingRoute ? <RunningLoader size={18} fillColor="#FF453A" /> : <Text style={styles.removeRouteText}>Unassign</Text>}
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -1591,13 +1591,12 @@ export default function CustomWorkoutOverview() {
         </Pressable>
       </Modal>
 
-      {/* Native DateTimePicker for Scheduling */}
       {showDatePicker && (
-        <DateTimePicker
+        <ThemedCalendarPicker
           value={workout.workoutDate ? new Date(workout.workoutDate) : new Date()}
-          mode="date"
-          display="default"
-          onChange={onDateChange}
+          title="Schedule workout"
+          onCancel={() => setShowDatePicker(false)}
+          onConfirm={(selectedDate) => { void onDateChange(selectedDate); }}
         />
       )}
     </SafeAreaView>

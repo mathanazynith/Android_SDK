@@ -1,6 +1,8 @@
 import React from "react";
 import { Feather } from "@expo/vector-icons";
+import { View } from "react-native";
 import DistanceTimePaceSelector from "./DistanceTimePaceSelector";
+import { RacePredictionCard, type RacePrediction } from "../components/QuestionTypes/EventRegistration";
 
 interface PlanOption {
   id: string;
@@ -25,6 +27,9 @@ interface PlanSelectionProps {
     unit?: string;
   };
   onCustomChange?: (field: string, value: string) => void;
+  racePrediction?: RacePrediction | null;
+  isRacePredictionLoading?: boolean;
+  racePredictionError?: string | null;
 }
 
 const PlanSelection: React.FC<PlanSelectionProps> = ({
@@ -39,26 +44,36 @@ const PlanSelection: React.FC<PlanSelectionProps> = ({
   onSelect,
   customValues,
   onCustomChange,
+  racePrediction,
+  isRacePredictionLoading,
+  racePredictionError,
 }) => {
   return (
-    <DistanceTimePaceSelector
-      title={title}
-      subtitle={subtitle}
-      icon={<Feather name="flag" size={18} color="#34C759" />}
-      options={options}
-      selectedValue={selectedValue}
-      onSelect={onSelect}
-      customValues={customValues}
-      onCustomChange={onCustomChange}
-      distanceField="distance"
-      timeField="time"
-      paceField="pace"
-      distanceLabel={distanceLabel}
-      timeLabel={timeLabel}
-      customDistanceLabel="Enter Distance"
-      timeHint={timeHint}
-      optionsHint={optionsHint}
-    />
+    <View style={{ gap: 14 }}>
+      <DistanceTimePaceSelector
+        title={title}
+        subtitle={subtitle}
+        icon={<Feather name="flag" size={18} color="#34C759" />}
+        options={options}
+        selectedValue={selectedValue}
+        onSelect={onSelect}
+        customValues={customValues}
+        onCustomChange={onCustomChange}
+        distanceField="distance"
+        timeField="time"
+        paceField="pace"
+        distanceLabel={distanceLabel}
+        timeLabel={timeLabel}
+        customDistanceLabel="Enter Distance"
+        timeHint={timeHint}
+        optionsHint={optionsHint}
+      />
+      <RacePredictionCard
+        prediction={racePrediction}
+        isLoading={isRacePredictionLoading}
+        error={racePredictionError}
+      />
+    </View>
   );
 };
 

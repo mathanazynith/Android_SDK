@@ -1,16 +1,17 @@
 import { Alert } from '@/components/ThemedAlert';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 
-import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { RunningLoader } from '../../../../components/common/RunningLoader';
 import { CropRangeSlider } from '../../../../components/CropRangeSlider';
 import { getBackendErrorMessage } from '../../../../service/api';
 import { activityAPI, BackendActivity, BackendPauseEvent } from '../../../../src/services/activityApi';
-import { createCatmullRomPolyline } from '../../../../src/utils/catmullRom';
 import { calculateActivityCropMetrics } from '../../../../src/utils/activityCropMetrics';
 import { buildActivityPauseMarkers, buildActivityRouteGroups } from '../../../../src/utils/activityRouteGroups';
+import { createCatmullRomPolyline } from '../../../../src/utils/catmullRom';
 import { decodePolyline } from '../../../../src/utils/polylineDecoder';
 import { addRouteTimestamps } from '../../../../src/utils/routeTimestamps';
 
@@ -25,6 +26,7 @@ interface GPSPoint {
 
 export default function CropActivityScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { height: windowHeight } = useWindowDimensions();
   const [activity, setActivity] = useState<BackendActivity | null>(null);
   const [gpsPoints, setGpsPoints] = useState<GPSPoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -209,11 +211,10 @@ export default function CropActivityScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
         <StatusBar barStyle="light-content" />
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#35C72B" />
-          <Text style={styles.loadingText}>Loading activity...</Text>
+          <RunningLoader size={64} label="Loading activity..." />
         </View>
       </SafeAreaView>
     );
@@ -253,7 +254,7 @@ export default function CropActivityScreen() {
     : '--';
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={styles.container}>
       <StatusBar barStyle="light-content" />
 
       {/* Header */}
@@ -271,7 +272,7 @@ export default function CropActivityScreen() {
         </View>
       ) : (
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.mapContainer}>
+        <View style={[styles.mapContainer, { height: Math.min(300, Math.max(180, windowHeight * 0.28)) }]}>
         <MapView
           ref={mapRef}
           provider={PROVIDER_GOOGLE}
@@ -370,7 +371,7 @@ export default function CropActivityScreen() {
             onPress={handleSaveCrop}
           >
             {isSaving
-              ? <ActivityIndicator color="#0B0E0F" />
+              ? <RunningLoader size={20} fillColor="#0B0E0F" />
               : <Text style={styles.saveButtonText}>Save Crop</Text>}
           </TouchableOpacity>
         </View>

@@ -1,36 +1,32 @@
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
-  Animated,
-  Dimensions,
-  Easing,
-  Modal,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Animated,
+    Easing,
+    Modal,
+    Pressable,
+    RefreshControl,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import Reanimated, {
-  cancelAnimation,
-  Easing as ReanimatedEasing,
-  interpolate,
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withTiming,
-  type SharedValue,
+    cancelAnimation,
+    interpolateColor,
+    Easing as ReanimatedEasing,
+    useAnimatedStyle,
+    useReducedMotion,
+    useSharedValue,
+    withTiming
 } from 'react-native-reanimated';
-import { scheduleOnRN } from 'react-native-worklets';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BenchmarkBadgeIcon from '../../components/BenchmarkBadgeIcon';
+import { RunningLoader } from '../../components/common/RunningLoader';
 import MotionEntrance from '../../components/MotionEntrance';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -39,41 +35,33 @@ import { activityAPI, BackendActivity } from '../../src/services/activityApi';
 import ActivityStore from '../../src/services/activityStore';
 import { BenchmarkStore } from '../../src/services/benchmarkStore';
 import {
-  PlanBenchmarkStore,
-  type PlanBenchmarkAssignment,
+    PlanBenchmarkStore,
+    type PlanBenchmarkAssignment,
 } from '../../src/services/planBenchmarkStore';
 import {
-  AggregatedStats,
-  calculatePeriodStats,
-  calculateYearStats,
-  ChartBarPoint,
-  formatKm,
-  formatPaceMinutes,
-  formatTimeHoursMins,
-  formatWeekRange,
-  getAvailableYears,
-  getMonthName,
-  normalizeActivities,
-  PeriodFilter,
-  UnifiedActivity,
+    AggregatedStats,
+    calculatePeriodStats,
+    calculateYearStats,
+    ChartBarPoint,
+    formatKm,
+    formatPaceMinutes,
+    formatTimeHoursMins,
+    getAvailableYears,
+    getMonthName,
+    normalizeActivities,
+    PeriodFilter,
+    UnifiedActivity
 } from '../../src/utils/statsCalculations';
 import {
-  buildPlanFromPlanSegments,
-  buildWorkoutExecutionPlan,
-  type WorkoutExecutionStep
+    buildPlanFromPlanSegments,
+    buildWorkoutExecutionPlan,
+    type WorkoutExecutionStep
 } from '../../src/utils/workoutPlanBuilder';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
-const CHART_BAR_MAX_HEIGHT = 125;
-
-interface ChartMorph {
-  sourceData: ChartBarPoint[];
-  targetData: ChartBarPoint[];
-  sourceMax: number;
-  targetMax: number;
-  sourcePeriod: PeriodFilter;
-  targetPeriod: PeriodFilter;
-}
+const CHART_BAR_MAX_HEIGHT = 160;
+const RANGE_SELECTION_DURATION_MS = 240;
+const PERIOD_TAB_SHIFT_DURATION_MS = 400;
+const CHART_REFLOW_DURATION_MS = 420;
 
 interface PeriodStatsCache {
   activities: UnifiedActivity[];
@@ -84,170 +72,141 @@ interface PeriodStatsCache {
   stats: AggregatedStats;
 }
 
-interface ChartPointRange {
-  start: number;
-  end: number;
-  center: number;
-}
-
-interface MorphBarProps {
+interface AnimatedPeriodTabProps {
   styles: ReturnType<typeof getThemeStyles>;
-  progress: SharedValue<number>;
-  left: number;
-  width: number;
-  height: number;
-  translateX: [number, number];
-  translateY?: [number, number];
-  scaleX: [number, number];
-  scaleY: [number, number];
-  opacity: [number, number];
-  color: string;
-}
-
-function MorphBar({
-  styles,
-  progress,
-  left,
-  width,
-  height,
-  translateX,
-  translateY = [0, 0],
-  scaleX,
-  scaleY,
-  opacity,
-  color,
-}: MorphBarProps) {
-  const animatedStyle = useAnimatedStyle(() => {
-    const value = progress.value;
-    return {
-      opacity: interpolate(value, [0, 1], opacity),
-      transform: [
-        { translateX: interpolate(value, [0, 1], translateX) },
-        { translateY: interpolate(value, [0, 1], translateY) },
-        { scaleX: interpolate(value, [0, 1], scaleX) },
-        { scaleY: interpolate(value, [0, 1], scaleY) },
-      ],
-    };
-  }, [opacity, scaleX, scaleY, translateX, translateY]);
-
-  return (
-    <Reanimated.View
-      style={[
-        styles.chartMorphBar,
-        { left, width, height, backgroundColor: color },
-        animatedStyle,
-      ]}
-    />
-  );
-}
-
-interface MorphTrackProps {
-  styles: ReturnType<typeof getThemeStyles>;
-  progress: SharedValue<number>;
-  left: number;
-  width: number;
-  color: string;
-  opacity: [number, number];
-}
-
-function MorphTrack({ styles, progress, left, width, color, opacity }: MorphTrackProps) {
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(progress.value, [0, 1], opacity),
-  }), [opacity]);
-
-  return (
-    <Reanimated.View
-      style={[
-        styles.chartMorphTrack,
-        { left, width, backgroundColor: color },
-        animatedStyle,
-      ]}
-    />
-  );
-}
-
-interface MorphLabelProps {
-  styles: ReturnType<typeof getThemeStyles>;
-  progress: SharedValue<number>;
-  left: number;
-  width: number;
   label: string;
-  opacity: [number, number];
+  active: boolean;
+  reduceMotion: boolean;
+  onPress: () => void;
 }
 
-function MorphLabel({ styles, progress, left, width, label, opacity }: MorphLabelProps) {
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(progress.value, [0, 1], opacity),
-  }), [opacity]);
+function AnimatedPeriodTab({ styles, label, active, reduceMotion, onPress }: AnimatedPeriodTabProps) {
+  const selectionProgress = useSharedValue(active ? 1 : 0);
+
+  useEffect(() => {
+    cancelAnimation(selectionProgress);
+    if (reduceMotion) {
+      selectionProgress.value = active ? 1 : 0;
+      return;
+    }
+    selectionProgress.value = withTiming(active ? 1 : 0, {
+      duration: PERIOD_TAB_SHIFT_DURATION_MS,
+      easing: ReanimatedEasing.inOut(ReanimatedEasing.ease),
+    });
+  }, [active, reduceMotion, selectionProgress]);
+
+  const backgroundStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      selectionProgress.value,
+      [0, 1],
+      ['rgba(48, 209, 88, 0)', '#30D158'],
+    ),
+  }));
+  const labelStyle = useAnimatedStyle(() => ({
+    color: interpolateColor(selectionProgress.value, [0, 1], ['#8E8E93', '#000000']),
+  }));
 
   return (
-    <Reanimated.Text
-      style={[
-        styles.barLabel,
-        styles.chartMorphLabel,
-        { left, width },
-        animatedStyle,
-      ]}
+    <TouchableOpacity
+      style={styles.periodTab}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      activeOpacity={0.8}
     >
-      {label}
-    </Reanimated.Text>
+      <Reanimated.View
+        pointerEvents="none"
+        style={[styles.periodTabBackground, backgroundStyle]}
+      />
+      <Reanimated.Text style={[styles.periodTabText, labelStyle]}>
+        {label}
+      </Reanimated.Text>
+    </TouchableOpacity>
   );
 }
 
-function getChartPointRange(period: PeriodFilter, point: ChartBarPoint): ChartPointRange | null {
-  if (!point.targetDate) return null;
-
-  const date = point.targetDate;
-  const startDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  let endDate: Date;
-
-  if (period === 'week') {
-    endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + 1);
-  } else if (period === 'month') {
-    const daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-    endDate = new Date(
-      date.getFullYear(),
-      date.getMonth(),
-      Math.min(startDate.getDate() + 7, daysInMonth + 1)
-    );
-  } else {
-    endDate = new Date(date.getFullYear(), date.getMonth() + 1, 1);
-  }
-
-  const start = startDate.getTime();
-  const end = endDate.getTime();
-  return { start, end, center: start + (end - start) / 2 };
+interface AnimatedStatsBarProps {
+  styles: ReturnType<typeof getThemeStyles>;
+  pointKey: string;
+  label: string;
+  fullLabel: string;
+  value: number;
+  isCurrent: boolean;
+  height: number;
+  selected: boolean;
+  reduceMotion: boolean;
+  onPress: (pointKey: string) => void;
 }
 
-function findMorphTargetIndex(
-  sourcePeriod: PeriodFilter,
-  sourcePoint: ChartBarPoint,
-  targetPeriod: PeriodFilter,
-  targetData: ChartBarPoint[]
-): number {
-  if (targetData.length === 0) return -1;
+function AnimatedStatsBar({
+  styles,
+  pointKey,
+  label,
+  fullLabel,
+  value,
+  isCurrent,
+  height,
+  selected,
+  reduceMotion,
+  onPress,
+}: AnimatedStatsBarProps) {
+  const animatedHeight = useSharedValue(height);
+  const selectionProgress = useSharedValue(selected ? 1 : 0);
 
-  const sourceRange = getChartPointRange(sourcePeriod, sourcePoint);
-  if (!sourceRange) return 0;
-
-  const targetRanges = targetData.map((point) => getChartPointRange(targetPeriod, point));
-  const containingIndex = targetRanges.findIndex(
-    (range) => range && sourceRange.center >= range.start && sourceRange.center < range.end
-  );
-  if (containingIndex >= 0) return containingIndex;
-
-  let closestIndex = 0;
-  let closestDistance = Number.POSITIVE_INFINITY;
-  targetRanges.forEach((range, index) => {
-    if (!range || sourceRange.start >= range.end || sourceRange.end <= range.start) return;
-    const distance = Math.abs(range.center - sourceRange.center);
-    if (distance < closestDistance) {
-      closestDistance = distance;
-      closestIndex = index;
+  useEffect(() => {
+    cancelAnimation(animatedHeight);
+    if (reduceMotion) {
+      animatedHeight.value = height;
+      return;
     }
-  });
-  return Number.isFinite(closestDistance) ? closestIndex : -1;
+    animatedHeight.value = withTiming(height, {
+      duration: CHART_REFLOW_DURATION_MS,
+      easing: ReanimatedEasing.inOut(ReanimatedEasing.ease),
+    });
+  }, [animatedHeight, height, reduceMotion]);
+
+  useEffect(() => {
+    cancelAnimation(selectionProgress);
+    if (reduceMotion) {
+      selectionProgress.value = selected ? 1 : 0;
+      return;
+    }
+    selectionProgress.value = withTiming(selected ? 1 : 0, {
+      duration: RANGE_SELECTION_DURATION_MS,
+      easing: ReanimatedEasing.inOut(ReanimatedEasing.ease),
+    });
+  }, [reduceMotion, selected, selectionProgress]);
+
+  const fillStyle = useAnimatedStyle(() => ({
+    height: animatedHeight.value,
+    backgroundColor: value > 0
+      ? interpolateColor(selectionProgress.value, [0, 1], ['#0A84FF', '#30D158'])
+      : '#2A2A2E',
+    opacity: value === 0 ? 0.35 : 1,
+  }), [value]);
+
+  return (
+    <TouchableOpacity
+      style={styles.barColumn}
+      onPress={() => onPress(pointKey)}
+      activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={`${fullLabel}, ${value.toFixed(2)} kilometers`}
+    >
+      <View style={styles.barTrack}>
+        <Reanimated.View style={[styles.barFill, fillStyle]} />
+      </View>
+      <Text
+        style={[
+          styles.barLabel,
+          isCurrent && styles.barLabelCurrent,
+          selected && styles.barLabelSelected,
+        ]}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
 }
 
 export default function StatsScreen() {
@@ -283,33 +242,12 @@ export default function StatsScreen() {
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedWeekDate, setSelectedWeekDate] = useState<Date>(new Date());
   const chartValueHighlight = useMemo(() => new Animated.Value(1), []);
-  const periodIndicatorPosition = useMemo(() => new Animated.Value(0), []);
-  const [periodTabsWidth, setPeriodTabsWidth] = useState(0);
-  const [chartWidth, setChartWidth] = useState(0);
-  const [chartMorph, setChartMorph] = useState<ChartMorph | null>(null);
-  const chartMorphProgress = useSharedValue(0);
-  const chartMorphFinalValues = useRef<Record<string, number>>({});
   const [periodStatsCache, setPeriodStatsCache] = useState<PeriodStatsCache | null>(null);
-  const [barHeightValues, setBarHeightValues] = useState<Record<string, Animated.Value>>({});
-  const barHeightAnims = useRef(new Map<string, Animated.Value>());
-  const hasRenderedChart = useRef(false);
   const distributionAnim = useMemo(() => new Animated.Value(0), []);
   const [showYearModal, setShowYearModal] = useState(false);
   const [showBenchmarkModal, setShowBenchmarkModal] = useState(false);
   const [startingWorkoutId, setStartingWorkoutId] = useState<number | null>(null);
   const [startingPlanKey, setStartingPlanKey] = useState<string | null>(null);
-
-  const finishChartMorph = useCallback(() => {
-    const finalHeights = new Map<string, Animated.Value>();
-    Object.entries(chartMorphFinalValues.current).forEach(([key, value]) => {
-      finalHeights.set(key, new Animated.Value(value));
-    });
-    barHeightAnims.current.forEach((height) => height.stopAnimation());
-    barHeightAnims.current.clear();
-    finalHeights.forEach((height, key) => barHeightAnims.current.set(key, height));
-    setBarHeightValues(Object.fromEntries(finalHeights));
-    setChartMorph(null);
-  }, []);
 
   useEffect(() => {
     fetchWorkoutPlan().catch(() => {});
@@ -356,6 +294,7 @@ export default function StatsScreen() {
     }
   }, []);
 
+  /* eslint-disable react-hooks/immutability */
   useFocusEffect(
     useCallback(() => {
       loadActivities();
@@ -375,6 +314,7 @@ export default function StatsScreen() {
       };
     }, [loadActivities])
   );
+  /* eslint-enable react-hooks/immutability */
 
   const benchmarkWorkouts = useMemo(() => {
     return customWorkouts.filter(
@@ -430,7 +370,9 @@ export default function StatsScreen() {
     return Array.from(map.values());
   }, [planBenchmarks, customWorkouts]);
 
-  const totalBenchmarksCount = benchmarkWorkouts.length + activePlanBenchmarks.length;
+  const totalBenchmarksCount = hasActivePlan
+    ? activePlanBenchmarks.length
+    : benchmarkWorkouts.length;
 
   const handleStartBenchmarkWorkout = (workout: UserWorkoutResponse) => {
     setStartingWorkoutId(workout.id);
@@ -502,9 +444,7 @@ export default function StatsScreen() {
     loadActivities();
   }, [loadActivities]);
 
-  // Update data immediately; animate only the value emphasis and chart marks.
-  const triggerTransition = useCallback((updateFn: () => void) => {
-    updateFn();
+  const animateChartValue = useCallback(() => {
     chartValueHighlight.stopAnimation();
 
     if (reduceMotion) {
@@ -512,14 +452,19 @@ export default function StatsScreen() {
       return;
     }
 
-    chartValueHighlight.setValue(0.82);
+    chartValueHighlight.setValue(0);
     Animated.timing(chartValueHighlight, {
       toValue: 1,
-      duration: 180,
-      easing: Easing.out(Easing.cubic),
+      duration: RANGE_SELECTION_DURATION_MS,
+      easing: Easing.inOut(Easing.ease),
       useNativeDriver: true,
     }).start();
   }, [chartValueHighlight, reduceMotion]);
+
+  const triggerTransition = useCallback((updateFn: () => void) => {
+    updateFn();
+    animateChartValue();
+  }, [animateChartValue]);
 
   const selectedWeekMonday = useMemo(() => {
     const base = new Date(selectedWeekDate);
@@ -544,44 +489,6 @@ export default function StatsScreen() {
     }
     return calculatePeriodStats(activities, period, selectedYear, selectedMonth, selectedWeekMonday);
   }, [activities, period, selectedYear, selectedMonth, selectedWeekMonday, periodStatsCache]);
-
-  useEffect(() => {
-    if (chartMorph) return;
-
-    const activeKeys = new Set<string>();
-    stats.chartData.forEach((bar, index) => {
-      const animationKey = String(index);
-      const ratio = stats.chartMax > 0 ? bar.value / stats.chartMax : 0;
-      const targetHeight = bar.value > 0 ? Math.max(8, Math.round(ratio * CHART_BAR_MAX_HEIGHT)) : 4;
-      activeKeys.add(animationKey);
-      let height = barHeightAnims.current.get(animationKey);
-      if (!height) {
-        height = new Animated.Value(hasRenderedChart.current ? 4 : targetHeight);
-        barHeightAnims.current.set(animationKey, height);
-      }
-
-      height.stopAnimation();
-      if (reduceMotion || !hasRenderedChart.current) {
-        height.setValue(targetHeight);
-      } else {
-        Animated.timing(height, {
-          toValue: targetHeight,
-          duration: 300,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: false,
-        }).start();
-      }
-    });
-
-    barHeightAnims.current.forEach((height, key) => {
-      if (!activeKeys.has(key)) {
-        height.stopAnimation();
-        barHeightAnims.current.delete(key);
-      }
-    });
-    hasRenderedChart.current = true;
-    setBarHeightValues(Object.fromEntries(barHeightAnims.current));
-  }, [stats.chartData, stats.chartMax, reduceMotion, chartMorph]);
 
   useEffect(() => {
     if (reduceMotion) {
@@ -627,8 +534,6 @@ export default function StatsScreen() {
     const lastActive = [...stats.chartData].reverse().find((p) => p.value > 0);
     return lastActive || stats.chartData[0];
   }, [stats.chartData, selectedPointKey]);
-  const hasAnimatedBarValues = Object.keys(barHeightValues).length > 0;
-
   // Dynamic distance and label for the hero card (bold KM updates dynamically on selection)
   const displayedDistance = useMemo(() => {
     if (selectedPointKey && activePoint) {
@@ -639,6 +544,9 @@ export default function StatsScreen() {
 
   const displayedLabel = useMemo(() => {
     if (selectedPointKey && activePoint) {
+      if (period === 'all') {
+        return `YEAR ${activePoint.label}`;
+      }
       return (activePoint.fullLabel || activePoint.label).toUpperCase();
     }
     return period === 'week'
@@ -647,7 +555,7 @@ export default function StatsScreen() {
       ? 'DISTANCE THIS MONTH'
       : period === 'year'
       ? 'DISTANCE THIS YEAR'
-      : 'TOTAL DISTANCE';
+      : 'ALL-TIME DISTANCE';
   }, [selectedPointKey, activePoint, period]);
 
   // Dynamic Overview Metrics reflecting active selection or current period
@@ -672,6 +580,10 @@ export default function StatsScreen() {
             a.date.getFullYear() === selectedYear &&
             a.date.getMonth() === activePoint.monthIndex
           );
+        }
+        if (period === 'all') {
+          const targetY = activePoint.targetYear ?? activePoint.targetDate?.getFullYear() ?? parseInt(activePoint.label, 10);
+          return a.date.getFullYear() === targetY;
         }
         return false;
       });
@@ -834,6 +746,7 @@ export default function StatsScreen() {
 
   const handleBarPress = (pointKey: string) => {
     setSelectedPointKey((prev) => (prev === pointKey ? null : pointKey));
+    animateChartValue();
   };
 
   const periodLabels: { id: PeriodFilter; label: string }[] = [
@@ -845,74 +758,37 @@ export default function StatsScreen() {
   const handlePeriodChange = (nextPeriod: PeriodFilter) => {
     if (nextPeriod === period) return;
 
-    const nextPeriodIndex = periodLabels.findIndex((tab) => tab.id === nextPeriod);
-    const periodSlotWidth = periodTabsWidth / periodLabels.length;
-    periodIndicatorPosition.stopAnimation();
-    if (reduceMotion) {
-      periodIndicatorPosition.setValue(nextPeriodIndex * periodSlotWidth);
-    } else {
-      Animated.timing(periodIndicatorPosition, {
-        toValue: nextPeriodIndex * periodSlotWidth,
-        duration: 135,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-    }
-
-    cancelAnimation(chartMorphProgress);
-    if (!reduceMotion && chartWidth > 0 && stats.chartData.length > 0) {
-      const nextStats = calculatePeriodStats(
-        activities,
-        nextPeriod,
-        selectedYear,
-        selectedMonth,
-        selectedWeekMonday
-      );
-      setPeriodStatsCache({
-        activities,
-        period: nextPeriod,
-        year: selectedYear,
-        month: selectedMonth,
-        weekDate: selectedWeekMonday.getTime(),
-        stats: nextStats,
-      });
-      setChartMorph({
-        sourceData: stats.chartData,
-        targetData: nextStats.chartData,
-        sourceMax: stats.chartMax,
-        targetMax: nextStats.chartMax,
-        sourcePeriod: period,
-        targetPeriod: nextPeriod,
-      });
-      chartMorphFinalValues.current = Object.fromEntries(
-        nextStats.chartData.map((bar, index) => [
-          String(index),
-          bar.value > 0
-            ? Math.max(8, Math.round((bar.value / nextStats.chartMax) * CHART_BAR_MAX_HEIGHT))
-            : 4,
-        ])
-      );
-      chartMorphProgress.value = 0;
-      setPeriod(nextPeriod);
-      setSelectedPointKey(null);
-
-      chartMorphProgress.value = withTiming(1, {
-        duration: 300,
-        easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
-      }, (finished) => {
-        if (finished) scheduleOnRN(finishChartMorph);
-      });
-      return;
-    }
-
-    setChartMorph(null);
-    triggerTransition(() => {
-      setPeriod(nextPeriod);
-      setSelectedPointKey(null);
+    const nextStats = calculatePeriodStats(
+      activities,
+      nextPeriod,
+      selectedYear,
+      selectedMonth,
+      selectedWeekMonday
+    );
+    setPeriodStatsCache({
+      activities,
+      period: nextPeriod,
+      year: selectedYear,
+      month: selectedMonth,
+      weekDate: selectedWeekMonday.getTime(),
+      stats: nextStats,
     });
+    animateChartValue();
+    setPeriod(nextPeriod);
+    setSelectedPointKey(null);
   };
 
+  if (loading && activities.length === 0) {
+    return (
+      <SafeAreaView style={[styles.safeArea, { alignItems: 'center', justifyContent: 'center' }]} edges={['top', 'left', 'right']}>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#0A0A0C' : '#F8FAFC'} />
+        <RunningLoader size={64} label="Loading your running statistics..." />
+      </SafeAreaView>
+    );
+  }
+
   return (
+    <View style={{ flex: 1 }}>
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#0A0A0C' : '#F8FAFC'} />
 
@@ -936,7 +812,7 @@ export default function StatsScreen() {
           accessibilityLabel="Refresh Statistics"
         >
           {loading || refreshing ? (
-            <ActivityIndicator size="small" color="#30D158" />
+            <RunningLoader size={18} fillColor="#30D158" />
           ) : (
             <Feather name="rotate-cw" size={18} color="#8E8E93" />
           )}
@@ -978,8 +854,13 @@ export default function StatsScreen() {
           accessibilityLabel="Benchmark workouts"
         >
           <View style={styles.benchmarkLeft}>
-            <View style={styles.benchmarkIconWrapper}>
-              <BenchmarkBadgeIcon size={24} color="#30D158" />
+            <View
+              style={[
+                styles.benchmarkIconWrapper,
+                hasActivePlan && { backgroundColor: 'rgba(245, 158, 11, 0.15)' },
+              ]}
+            >
+              <BenchmarkBadgeIcon size={24} color={hasActivePlan ? '#30D158' : '#30D158'} />
             </View>
             <View style={styles.benchmarkTextCol}>
               <Text style={styles.benchmarkTitle}>Benchmark workouts</Text>
@@ -1000,44 +881,18 @@ export default function StatsScreen() {
 
         {/* Period Selector Tabs */}
         <MotionEntrance delay={115}>
-        <View
-          style={styles.periodTabsContainer}
-          onLayout={(event) => {
-            const width = Math.max(0, event.nativeEvent.layout.width - 8);
-            setPeriodTabsWidth((previous) => previous === width ? previous : width);
-            if (periodTabsWidth === 0) {
-              const selectedIndex = periodLabels.findIndex((tab) => tab.id === period);
-              periodIndicatorPosition.setValue(selectedIndex * (width / periodLabels.length));
-            }
-          }}
-        >
-          {periodTabsWidth > 0 && (
-            <Animated.View
-              pointerEvents="none"
-              style={[
-                styles.periodTabIndicator,
-                {
-                  width: periodTabsWidth / periodLabels.length,
-                  transform: [{ translateX: periodIndicatorPosition }],
-                },
-              ]}
-            />
-          )}
+        <View style={styles.periodTabsContainer}>
           {periodLabels.map((tab) => {
             const active = period === tab.id;
             return (
-              <TouchableOpacity
+              <AnimatedPeriodTab
                 key={tab.id}
-                style={styles.periodTab}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
+                styles={styles}
+                label={tab.label}
+                active={active}
+                reduceMotion={reduceMotion}
                 onPress={() => handlePeriodChange(tab.id)}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.periodTabText, active && styles.periodTabTextActive]}>
-                  {tab.label}
-                </Text>
-              </TouchableOpacity>
+              />
             );
           })}
         </View>
@@ -1061,15 +916,16 @@ export default function StatsScreen() {
               {selectedPointKey && (
                 <TouchableOpacity
                   style={styles.clearSelectionBtn}
-                  onPress={() => setSelectedPointKey(null)}
+                  onPress={() => {
+                    setSelectedPointKey(null);
+                    animateChartValue();
+                  }}
                   activeOpacity={0.7}
                 >
                   <Text style={styles.clearSelectionText}>✕ Reset to total</Text>
                 </TouchableOpacity>
               )}
             </View>
-
-            {/* Streak & Consistency Badge */}
             <View style={styles.streakBadge}>
               <Feather name="zap" size={14} color="#30D158" />
               <Text style={styles.streakText}>
@@ -1078,7 +934,6 @@ export default function StatsScreen() {
             </View>
           </View>
 
-          {/* Point Tooltip */}
           {activePoint && activePoint.value > 0 ? (
             <View style={styles.tooltipBox}>
               <View style={styles.tooltipLeft}>
@@ -1104,217 +959,31 @@ export default function StatsScreen() {
             </View>
           )}
 
-
-          {/* Interactive Native Bar Chart with Fluid Upward Fill */}
           <View style={styles.chartArea}>
-            <View
-              style={styles.barsRow}
-              onLayout={(event) => {
-                const width = event.nativeEvent.layout.width;
-                setChartWidth((previous) => previous === width ? previous : width);
-              }}
-            >
-              {chartMorph && chartWidth > 0 ? (
-                (() => {
-                  const sourceCount = chartMorph.sourceData.length;
-                  const targetCount = chartMorph.targetData.length;
-                  const sourceSlotWidth = chartWidth / Math.max(sourceCount, 1);
-                  const targetSlotWidth = chartWidth / Math.max(targetCount, 1);
-                  const barWidthForSlot = (slotWidth: number) => Math.min(24, slotWidth * 0.55);
-                  const sourcePositions = chartMorph.sourceData.map((bar, index) => {
-                    const sourceCenter = sourceSlotWidth * (index + 0.5);
-                    const targetIndex = findMorphTargetIndex(
-                      chartMorph.sourcePeriod,
-                      bar,
-                      chartMorph.targetPeriod,
-                      chartMorph.targetData
-                    );
+            <View style={styles.barsRow}>
+              {stats.chartData.map((bar, index) => {
+                const isSelected = activePoint?.key === bar.key;
+                const ratio = stats.chartMax > 0 ? bar.value / stats.chartMax : 0;
+                const barHeight = bar.value > 0
+                  ? Math.max(10, Math.round(ratio * CHART_BAR_MAX_HEIGHT))
+                  : 4;
 
-                    return {
-                      bar,
-                      index,
-                      sourceCenter,
-                      targetIndex,
-                      targetCenter: targetIndex >= 0
-                        ? targetSlotWidth * (targetIndex + 0.5)
-                        : sourceCenter,
-                    };
-                  });
-
-                  const targetMorphs = chartMorph.targetData.map((bar, index) => {
-                    const donors = sourcePositions.filter((source) => source.targetIndex === index);
-                    const contribution = donors.reduce((sum, source) => sum + source.bar.value, 0);
-                    const sourceCenter = donors.length > 0
-                      ? donors.reduce((sum, source) => sum + source.sourceCenter, 0) / donors.length
-                      : targetSlotWidth * (index + 0.5);
-                    const initialHeight = chartMorph.sourceMax > 0 && contribution > 0
-                      ? Math.max(8, (contribution / chartMorph.sourceMax) * CHART_BAR_MAX_HEIGHT)
-                      : 4;
-                    const finalHeight = chartMorph.targetMax > 0 && bar.value > 0
-                      ? Math.max(8, (bar.value / chartMorph.targetMax) * CHART_BAR_MAX_HEIGHT)
-                      : 4;
-
-                    return {
-                      bar,
-                      index,
-                      sourceCenter,
-                      targetCenter: targetSlotWidth * (index + 0.5),
-                      initialHeight,
-                      finalHeight,
-                      initialWidth: donors.length > 0
-                        ? Math.min(barWidthForSlot(targetSlotWidth), Math.max(8, donors.length * 4))
-                        : 4,
-                    };
-                  });
-                  const trackColor = isDark ? '#1E1E22' : '#D9DADD';
-
-                  return (
-                    <View style={styles.chartMorphCanvas} pointerEvents="none">
-                      {sourcePositions.map(({ bar, index, sourceCenter }) => {
-                        const trackWidth = barWidthForSlot(sourceSlotWidth);
-                        return (
-                          <MorphTrack
-                            key={`source-track-${bar.key}-${index}`}
-                            styles={styles}
-                            progress={chartMorphProgress}
-                            left={sourceCenter - trackWidth / 2}
-                            width={trackWidth}
-                            color={trackColor}
-                            opacity={[1, 0]}
-                          />
-                        );
-                      })}
-                      {chartMorph.targetData.map((bar, index) => {
-                        const center = targetSlotWidth * (index + 0.5);
-                        const trackWidth = barWidthForSlot(targetSlotWidth);
-                        return (
-                          <MorphTrack
-                            key={`target-track-${bar.key}`}
-                            styles={styles}
-                            progress={chartMorphProgress}
-                            left={center - trackWidth / 2}
-                            width={trackWidth}
-                            color={trackColor}
-                            opacity={[0, 1]}
-                          />
-                        );
-                      })}
-                      {sourcePositions.map(({ bar, index, sourceCenter, targetCenter }) => {
-                        const sourceHeight = chartMorph.sourceMax > 0 && bar.value > 0
-                          ? Math.max(8, (bar.value / chartMorph.sourceMax) * CHART_BAR_MAX_HEIGHT)
-                          : 4;
-                        const sourceWidth = barWidthForSlot(sourceSlotWidth);
-                        return (
-                          <View key={`source-${bar.key}-${index}`} style={styles.chartMorphItem}>
-                            <MorphBar
-                              styles={styles}
-                              progress={chartMorphProgress}
-                              left={sourceCenter - sourceWidth / 2}
-                              width={sourceWidth}
-                              height={sourceHeight}
-                              translateX={[0, targetCenter - sourceCenter]}
-                              scaleX={[1, 0.15]}
-                              scaleY={[1, 0.15]}
-                              opacity={[1, 0]}
-                              color={bar.value > 0 ? '#0A84FF' : '#2A2A2E'}
-                            />
-                            <MorphLabel
-                              styles={styles}
-                              progress={chartMorphProgress}
-                              left={sourceSlotWidth * index}
-                              width={sourceSlotWidth}
-                              label={bar.label}
-                              opacity={[1, 0]}
-                            />
-                          </View>
-                        );
-                      })}
-
-                      {targetMorphs.map((target) => {
-                        const finalWidth = barWidthForSlot(targetSlotWidth);
-                        return (
-                          <View key={`target-${target.bar.key}`} style={styles.chartMorphItem}>
-                            <MorphBar
-                              styles={styles}
-                              progress={chartMorphProgress}
-                              left={target.targetCenter - finalWidth / 2}
-                              width={finalWidth}
-                              height={target.finalHeight}
-                              translateX={[target.sourceCenter - target.targetCenter, 0]}
-                              translateY={[(target.finalHeight - target.initialHeight) / 2, 0]}
-                              scaleX={[target.initialWidth / finalWidth, 1]}
-                              scaleY={[target.initialHeight / target.finalHeight, 1]}
-                              opacity={[0, 1]}
-                              color={target.bar.value > 0 ? '#0A84FF' : '#2A2A2E'}
-                            />
-                            <MorphLabel
-                              styles={styles}
-                              progress={chartMorphProgress}
-                              left={targetSlotWidth * target.index}
-                              width={targetSlotWidth}
-                              label={target.bar.label}
-                              opacity={[0, 1]}
-                            />
-                          </View>
-                        );
-                      })}
-                    </View>
-                  );
-                })()
-              ) : (
-                stats.chartData.map((bar, index) => {
-                  const isSelected = activePoint?.key === bar.key;
-                  const ratio = stats.chartMax > 0 ? bar.value / stats.chartMax : 0;
-                  const barHeight = bar.value > 0 ? Math.max(8, Math.round(ratio * CHART_BAR_MAX_HEIGHT)) : 4;
-                  const animatedBarHeight = barHeightValues[String(index)];
-
-                  return (
-                    <TouchableOpacity
-                      key={bar.key}
-                      style={styles.barColumn}
-                      onPress={() => handleBarPress(bar.key)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.barTrack}>
-                        <Animated.View
-                          style={[
-                            styles.barFill,
-                            {
-                              height: animatedBarHeight || (hasAnimatedBarValues ? 4 : barHeight),
-                              backgroundColor: isSelected
-                                ? '#30D158'
-                                : bar.value > 0
-                                ? '#0A84FF'
-                                : '#2A2A2E',
-                              opacity: bar.value === 0 ? 0.35 : 1,
-                            },
-                          ]}
-                        >
-                          {bar.value > 0 && (
-                            <LinearGradient
-                              colors={
-                                isSelected
-                                  ? ['#30D158', '#28CD41']
-                                  : ['#388BFF', '#0A84FF']
-                              }
-                              style={StyleSheet.absoluteFill}
-                            />
-                          )}
-                        </Animated.View>
-                      </View>
-                      <Text
-                        style={[
-                          styles.barLabel,
-                          bar.isCurrent && styles.barLabelCurrent,
-                          isSelected && styles.barLabelSelected,
-                        ]}
-                      >
-                        {bar.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })
-              )}
+                return (
+                  <AnimatedStatsBar
+                    key={index}
+                    styles={styles}
+                    pointKey={bar.key}
+                    label={bar.label}
+                    fullLabel={bar.fullLabel}
+                    value={bar.value}
+                    isCurrent={bar.isCurrent}
+                    height={barHeight}
+                    selected={isSelected}
+                    reduceMotion={reduceMotion}
+                    onPress={handleBarPress}
+                  />
+                );
+              })}
             </View>
           </View>
         </View>
@@ -1647,7 +1316,11 @@ export default function StatsScreen() {
             <View style={styles.modalHeader}>
               <View>
                 <Text style={styles.modalTitle}>Benchmark Workouts</Text>
-                <Text style={styles.modalSubtitle}>Measure your progress against standardized baselines</Text>
+                <Text style={styles.modalSubtitle}>
+                  {hasActivePlan
+                    ? 'Measure your progress against training plan baselines'
+                    : 'Measure your progress against custom workout baselines'}
+                </Text>
               </View>
               <TouchableOpacity
                 onPress={() => setShowBenchmarkModal(false)}
@@ -1663,224 +1336,222 @@ export default function StatsScreen() {
               contentContainerStyle={{ flexGrow: 1 }}
               showsVerticalScrollIndicator={false}
             >
-              {totalBenchmarksCount > 0 ? (
-                <>
-                  {/* Custom Workouts Benchmarks */}
-                  {benchmarkWorkouts.length > 0 && (
-                    <View style={{ marginBottom: 16 }}>
-                      <View style={styles.benchmarkSectionHeader}>
-                        <BenchmarkBadgeIcon size={14} color="#30D158" />
-                        <Text style={[styles.benchmarkSectionTitle, { color: '#30D158' }]}>
-                          CUSTOM WORKOUT BENCHMARKS ({benchmarkWorkouts.length})
-                        </Text>
-                      </View>
-                      {benchmarkWorkouts.map((workout, idx) => {
-                        const isStarting = startingWorkoutId === workout.id;
-                        const metaParts = [
-                          workout.workout_type,
-                          workout.distance ? `${workout.distance} km` : null,
-                          workout.duration ? `${workout.duration} min` : null,
-                          workout.target_pace ? `@ ${workout.target_pace}` : null,
-                        ].filter(Boolean);
-                        const isLast = idx === benchmarkWorkouts.length - 1;
-
-                        return (
-                          <View
-                            key={`custom-${workout.id}`}
-                            style={[styles.benchmarkItem, isLast && { borderBottomWidth: 0 }]}
-                          >
-                            <View
-                              style={[
-                                styles.benchmarkItemIcon,
-                                { backgroundColor: 'rgba(48, 209, 88, 0.15)' },
-                              ]}
-                            >
-                              <BenchmarkBadgeIcon size={20} color="#30D158" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12, marginRight: 8 }}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                <Text style={styles.benchmarkItemTitle} numberOfLines={1}>
-                                  {workout.title || 'Custom Benchmark'}
-                                </Text>
-                                <View style={styles.customBadge}>
-                                  <Text style={styles.customBadgeText}>CUSTOM</Text>
-                                </View>
-                              </View>
-                              <Text style={styles.benchmarkItemDesc} numberOfLines={1}>
-                                {metaParts.length > 0
-                                  ? metaParts.join(' · ')
-                                  : 'Custom Benchmark Run'}
-                              </Text>
-                            </View>
-                            <TouchableOpacity
-                              style={[styles.benchmarkStartBtn, { backgroundColor: '#30D158' }]}
-                              onPress={() => handleStartBenchmarkWorkout(workout)}
-                              disabled={isStarting}
-                              activeOpacity={0.8}
-                              accessibilityLabel={`Start ${workout.title}`}
-                            >
-                              {isStarting ? (
-                                <ActivityIndicator size="small" color="#000000" />
-                              ) : (
-                                <>
-                                  <Feather
-                                    name="play"
-                                    size={13}
-                                    color="#000000"
-                                    style={{ marginRight: 4 }}
-                                  />
-                                  <Text style={styles.benchmarkStartBtnText}>START</Text>
-                                </>
-                              )}
-                            </TouchableOpacity>
-                          </View>
-                        );
-                      })}
+              {hasActivePlan ? (
+                // PLANNED WORKOUT USER: Only show Training Plan Benchmarks (custom workouts option suppressed)
+                activePlanBenchmarks.length > 0 ? (
+                  <View style={{ marginBottom: 16 }}>
+                    <View style={styles.benchmarkSectionHeader}>
+                      <BenchmarkBadgeIcon size={14} color="#30D158" />
+                      <Text style={styles.benchmarkSectionTitle}>
+                        TRAINING PLAN BENCHMARKS ({activePlanBenchmarks.length})
+                      </Text>
                     </View>
-                  )}
+                    {activePlanBenchmarks.map((pb, idx) => {
+                      const isStarting = startingPlanKey === pb.workoutKey;
+                      const metaParts = [
+                        pb.planWorkoutDay || pb.planWorkoutDate,
+                        pb.planWorkoutDistance,
+                        pb.planWorkoutPace ? `@ ${pb.planWorkoutPace}` : null,
+                        pb.planWorkoutDuration,
+                      ].filter(Boolean);
+                      const isLast = idx === activePlanBenchmarks.length - 1;
 
-                  {/* Training Plan Benchmarks */}
-                  {activePlanBenchmarks.length > 0 && (
-                    <View style={{ marginBottom: 16 }}>
-                      <View style={styles.benchmarkSectionHeader}>
-                        <BenchmarkBadgeIcon size={14} color="#F59E0B" />
-                        <Text style={styles.benchmarkSectionTitle}>
-                          TRAINING PLAN BENCHMARKS ({activePlanBenchmarks.length})
-                        </Text>
-                      </View>
-                      {activePlanBenchmarks.map((pb, idx) => {
-                        const isStarting = startingPlanKey === pb.workoutKey;
-                        const metaParts = [
-                          pb.planWorkoutDay || pb.planWorkoutDate,
-                          pb.planWorkoutDistance,
-                          pb.planWorkoutPace ? `@ ${pb.planWorkoutPace}` : null,
-                          pb.planWorkoutDuration,
-                        ].filter(Boolean);
-                        const isLast = idx === activePlanBenchmarks.length - 1;
-
-                        return (
+                      return (
+                        <View
+                          key={pb.workoutKey}
+                          style={[styles.benchmarkItem, isLast && { borderBottomWidth: 0 }]}
+                        >
                           <View
-                            key={pb.workoutKey}
-                            style={[styles.benchmarkItem, isLast && { borderBottomWidth: 0 }]}
+                            style={[
+                              styles.benchmarkItemIcon,
+                              { backgroundColor: 'rgba(245, 158, 11, 0.15)' },
+                            ]}
                           >
-                            <View
-                              style={[
-                                styles.benchmarkItemIcon,
-                                { backgroundColor: 'rgba(245, 158, 11, 0.15)' },
-                              ]}
-                            >
-                              <BenchmarkBadgeIcon size={20} color="#F59E0B" />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12, marginRight: 8 }}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                <Text style={styles.benchmarkItemTitle} numberOfLines={1}>
-                                  {pb.planWorkoutTitle || pb.benchmarkTitle || 'Plan Benchmark'}
-                                </Text>
-                                <View style={styles.planBadge}>
-                                  <Text style={styles.planBadgeText}>PLAN</Text>
-                                </View>
-                              </View>
-                              <Text style={styles.benchmarkItemDesc} numberOfLines={1}>
-                                {metaParts.length > 0
-                                  ? metaParts.join(' · ')
-                                  : 'Scheduled Benchmark Run'}
-                              </Text>
-                            </View>
-                            <TouchableOpacity
-                              style={[styles.benchmarkStartBtn, { backgroundColor: '#F59E0B' }]}
-                              onPress={() => handleStartPlanBenchmark(pb)}
-                              disabled={isStarting}
-                              activeOpacity={0.8}
-                              accessibilityLabel={`Start ${pb.planWorkoutTitle || pb.benchmarkTitle}`}
-                            >
-                              {isStarting ? (
-                                <ActivityIndicator size="small" color="#000000" />
-                              ) : (
-                                <>
-                                  <Feather
-                                    name="play"
-                                    size={13}
-                                    color="#000000"
-                                    style={{ marginRight: 4 }}
-                                  />
-                                  <Text style={styles.benchmarkStartBtnText}>START</Text>
-                                </>
-                              )}
-                            </TouchableOpacity>
+                            <BenchmarkBadgeIcon size={20} color="#30D158" />
                           </View>
-                        );
-                      })}
-                    </View>
-                  )}
-                </>
-              ) : (
-                <View style={styles.benchmarkEmptyState}>
-                  <View style={styles.benchmarkEmptyIcon}>
-                    <BenchmarkBadgeIcon size={32} color="#8E8E93" />
+                          <View style={{ flex: 1, marginLeft: 12, marginRight: 8 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={styles.benchmarkItemTitle} numberOfLines={1}>
+                                {pb.planWorkoutTitle || pb.benchmarkTitle || 'Plan Benchmark'}
+                              </Text>
+                              <View style={styles.planBadge}>
+                                <Text style={styles.planBadgeText}>PLAN</Text>
+                              </View>
+                            </View>
+                            <Text style={styles.benchmarkItemDesc} numberOfLines={1}>
+                              {metaParts.length > 0
+                                ? metaParts.join(' · ')
+                                : 'Scheduled Benchmark Run'}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            style={[styles.benchmarkStartBtn, { backgroundColor: '#F59E0B' }]}
+                            onPress={() => handleStartPlanBenchmark(pb)}
+                            disabled={isStarting}
+                            activeOpacity={0.8}
+                            accessibilityLabel={`Start ${pb.planWorkoutTitle || pb.benchmarkTitle}`}
+                          >
+                            {isStarting ? (
+                              <RunningLoader size={16} fillColor="#000000" />
+                            ) : (
+                              <>
+                                <Feather
+                                  name="play"
+                                  size={13}
+                                  color="#000000"
+                                  style={{ marginRight: 4 }}
+                                />
+                                <Text style={styles.benchmarkStartBtnText}>START</Text>
+                              </>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })}
                   </View>
-                  <Text style={styles.benchmarkEmptyTitle}>No Benchmark Workouts Yet</Text>
-                  <Text style={styles.benchmarkEmptySubtitle}>
-                    {hasActivePlan
-                      ? 'Mark a custom workout or a training plan day as a benchmark to measure your progress.'
-                      : 'Create a custom workout and tap the benchmark icon to track your baseline performance.'}
-                  </Text>
-                </View>
+                ) : (
+                  <View style={styles.benchmarkEmptyState}>
+                    <View style={[styles.benchmarkEmptyIcon, { backgroundColor: 'rgba(245, 158, 11, 0.12)' }]}>
+                      <BenchmarkBadgeIcon size={32} color="#30D158" />
+                    </View>
+                    <Text style={styles.benchmarkEmptyTitle}>No Benchmark Workouts Yet</Text>
+                    <Text style={styles.benchmarkEmptySubtitle}>
+                      Choose a workout from your Training Plan to track your baseline performance.
+                    </Text>
+                  </View>
+                )
+              ) : (
+                // UNPLAN USER: Only show Custom Workout Benchmarks (training plan option suppressed)
+                benchmarkWorkouts.length > 0 ? (
+                  <View style={{ marginBottom: 16 }}>
+                    <View style={styles.benchmarkSectionHeader}>
+                      <BenchmarkBadgeIcon size={14} color="#30D158" />
+                      <Text style={[styles.benchmarkSectionTitle, { color: '#30D158' }]}>
+                        CUSTOM WORKOUT BENCHMARKS ({benchmarkWorkouts.length})
+                      </Text>
+                    </View>
+                    {benchmarkWorkouts.map((workout, idx) => {
+                      const isStarting = startingWorkoutId === workout.id;
+                      const metaParts = [
+                        workout.workout_type,
+                        workout.distance ? `${workout.distance} km` : null,
+                        workout.duration ? `${workout.duration} min` : null,
+                        workout.target_pace ? `@ ${workout.target_pace}` : null,
+                      ].filter(Boolean);
+                      const isLast = idx === benchmarkWorkouts.length - 1;
+
+                      return (
+                        <View
+                          key={`custom-${workout.id}`}
+                          style={[styles.benchmarkItem, isLast && { borderBottomWidth: 0 }]}
+                        >
+                          <View
+                            style={[
+                              styles.benchmarkItemIcon,
+                              { backgroundColor: 'rgba(48, 209, 88, 0.15)' },
+                            ]}
+                          >
+                            <BenchmarkBadgeIcon size={20} color="#30D158" />
+                          </View>
+                          <View style={{ flex: 1, marginLeft: 12, marginRight: 8 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={styles.benchmarkItemTitle} numberOfLines={1}>
+                                {workout.title || 'Custom Benchmark'}
+                              </Text>
+                              <View style={styles.customBadge}>
+                                <Text style={styles.customBadgeText}>CUSTOM</Text>
+                              </View>
+                            </View>
+                            <Text style={styles.benchmarkItemDesc} numberOfLines={1}>
+                              {metaParts.length > 0
+                                ? metaParts.join(' · ')
+                                : 'Custom Benchmark Run'}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            style={[styles.benchmarkStartBtn, { backgroundColor: '#30D158' }]}
+                            onPress={() => handleStartBenchmarkWorkout(workout)}
+                            disabled={isStarting}
+                            activeOpacity={0.8}
+                            accessibilityLabel={`Start ${workout.title}`}
+                          >
+                            {isStarting ? (
+                              <RunningLoader size={16} fillColor="#000000" />
+                            ) : (
+                              <>
+                                <Feather
+                                  name="play"
+                                  size={13}
+                                  color="#000000"
+                                  style={{ marginRight: 4 }}
+                                />
+                                <Text style={styles.benchmarkStartBtnText}>START</Text>
+                              </>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <View style={styles.benchmarkEmptyState}>
+                    <View style={styles.benchmarkEmptyIcon}>
+                      <BenchmarkBadgeIcon size={32} color="#30D158" />
+                    </View>
+                    <Text style={styles.benchmarkEmptyTitle}>No Benchmark Workouts Yet</Text>
+                    <Text style={styles.benchmarkEmptySubtitle}>
+                      Create a custom workout and tap the benchmark icon to track your baseline performance.
+                    </Text>
+                  </View>
+                )
               )}
             </ScrollView>
 
-            {/* Quick action buttons row */}
-            {(hasCustomWorkouts || hasPlanWorkouts) && (
-              <View style={styles.benchmarkModalActionsRow}>
-                {hasCustomWorkouts && (
-                  <TouchableOpacity
-                    style={[
-                      styles.benchmarkActionBtn,
-                      {
-                        flex: 1,
-                        backgroundColor: '#30D158',
-                        marginRight: hasPlanWorkouts ? 10 : 0,
-                      },
-                    ]}
-                    onPress={() => {
-                      setShowBenchmarkModal(false);
-                      router.push('/(app)/custom-workout/cards');
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <Feather name="list" size={16} color="#000000" style={{ marginRight: 8 }} />
-                    <Text style={styles.benchmarkActionBtnText}>Custom Workouts</Text>
-                  </TouchableOpacity>
-                )}
-
-                {hasPlanWorkouts && (
-                  <TouchableOpacity
-                    style={[
-                      styles.benchmarkActionBtn,
-                      {
-                        flex: 1,
-                        backgroundColor: '#1C1C1E',
-                        borderWidth: 1,
-                        borderColor: 'rgba(255, 255, 255, 0.15)',
-                      },
-                    ]}
-                    onPress={() => {
-                      setShowBenchmarkModal(false);
-                      router.push('/(app)/training-plan');
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <Feather name="calendar" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
-                    <Text style={[styles.benchmarkActionBtnText, { color: '#FFFFFF' }]}>
-                      Training Plan
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            )}
+            {/* Quick action button: ONLY Training Plan for plan users, ONLY Custom Workouts for unplan users */}
+            <View style={styles.benchmarkModalActionsRow}>
+              {hasActivePlan ? (
+                <TouchableOpacity
+                  style={[
+                    styles.benchmarkActionBtn,
+                    {
+                      flex: 1,
+                      backgroundColor: '#30D158',
+                    },
+                  ]}
+                  onPress={() => {
+                    setShowBenchmarkModal(false);
+                    router.push('/(app)/training-plan');
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Feather name="calendar" size={16} color="#000000" style={{ marginRight: 8 }} />
+                  <Text style={styles.benchmarkActionBtnText}>Choose from Training Plan</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[
+                    styles.benchmarkActionBtn,
+                    {
+                      flex: 1,
+                      backgroundColor: '#30D158',
+                    },
+                  ]}
+                  onPress={() => {
+                    setShowBenchmarkModal(false);
+                    router.push('/(app)/custom-workout/cards');
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Feather name="list" size={16} color="#000000" style={{ marginRight: 8 }} />
+                  <Text style={styles.benchmarkActionBtnText}>Choose from Custom Workouts</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </Pressable>
       </Modal>
     </SafeAreaView>
+    </View>
   );
 }
 
@@ -1928,35 +1599,29 @@ const baseStyles = StyleSheet.create({
   periodTabsContainer: {
     flexDirection: 'row',
     backgroundColor: '#161618',
-    borderRadius: 12,
-    padding: 3,
+    borderRadius: 16,
+    padding: 4,
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'white',
-  },
-  periodTabIndicator: {
-    position: 'absolute',
-    top: 3,
-    bottom: 3,
-    left: 3,
-    borderRadius: 9,
-    backgroundColor: '#30D158',
   },
   periodTab: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 9,
+    borderRadius: 12,
     zIndex: 1,
   },
+  periodTabBackground: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: 12,
+  },
   periodTabText: {
-    color: 'white',
-    fontSize: 13,
+    color: '#8E8E93',
+    fontSize: 14,
     fontWeight: '600',
   },
   periodTabTextActive: {
-    color: '#FFFFFF',
+    color: '#000000',
     fontWeight: '700',
   },
   navRangeRow: {
@@ -2151,7 +1816,7 @@ const baseStyles = StyleSheet.create({
     fontStyle: 'italic',
   },
   chartArea: {
-    height: 160,
+    height: 195,
     justifyContent: 'flex-end',
     paddingTop: 8,
   },
@@ -2159,40 +1824,8 @@ const baseStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    height: 150,
+    height: 185,
     position: 'relative',
-  },
-  chartMorphCanvas: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-  },
-  chartMorphItem: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-  },
-  chartMorphBar: {
-    position: 'absolute',
-    bottom: 22,
-    borderRadius: 6,
-    overflow: 'hidden',
-  },
-  chartMorphTrack: {
-    position: 'absolute',
-    bottom: 22,
-    height: 125,
-    borderRadius: 6,
-  },
-  chartMorphLabel: {
-    position: 'absolute',
-    bottom: 0,
-    marginTop: 0,
-    textAlign: 'center',
   },
   barColumn: {
     flex: 1,
@@ -2203,7 +1836,7 @@ const baseStyles = StyleSheet.create({
   barTrack: {
     width: '55%',
     maxWidth: 24,
-    height: 125,
+    height: 160,
     backgroundColor: '#1E1E22',
     borderRadius: 6,
     overflow: 'hidden',
@@ -2258,7 +1891,8 @@ const baseStyles = StyleSheet.create({
     marginBottom: 16,
   },
   metricCard: {
-    width: (SCREEN_WIDTH - 36 - 12) / 2,
+    width: '47%',
+    minWidth: 0,
     backgroundColor: '#141416',
     borderRadius: 16,
     padding: 16,
@@ -2345,7 +1979,8 @@ const baseStyles = StyleSheet.create({
     marginBottom: 16,
   },
   bestItemCard: {
-    width: (SCREEN_WIDTH - 36 - 10) / 2,
+    width: '47%',
+    minWidth: 0,
     backgroundColor: '#141416',
     borderRadius: 14,
     padding: 14,

@@ -5,6 +5,15 @@ export interface ActivityRouteCoordinate {
   longitude: number;
 }
 
+export const MAX_ROUTE_POINT_ACCURACY_METERS = 15;
+
+export const isReliableRoutePoint = (point: { accuracy?: number | null }) => (
+  typeof point.accuracy === 'number'
+  && Number.isFinite(point.accuracy)
+  && point.accuracy >= 0
+  && point.accuracy <= MAX_ROUTE_POINT_ACCURACY_METERS
+);
+
 export type ActivityRouteType = 'running' | 'pause' | 'extra';
 
 export interface ActivityRouteGroup {
@@ -42,10 +51,19 @@ const toRouteCoordinate = (value: {
   return { latitude, longitude };
 };
 
+const isEnabledFlag = (value: unknown): boolean => (
+  value === true
+  || value === 1
+  || (typeof value === 'string' && ['true', '1'].includes(value.trim().toLowerCase()))
+);
+
 export const buildActivityRouteGroups = (
   points: BackendGpsPoint[] = [],
 ): ActivityRouteGroup[] => {
-  const indexedPoints = points.map((point, index) => ({
+  const pointsWithReliableAccuracy = points.some((point) => typeof point.accuracy === 'number')
+    ? points.filter(isReliableRoutePoint)
+    : points;
+  const indexedPoints = pointsWithReliableAccuracy.map((point, index) => ({
     point,
     index,
     timestamp: point.timestamp ? Date.parse(point.timestamp) : Number.NaN,
@@ -58,11 +76,12 @@ export const buildActivityRouteGroups = (
   let previousCoordinate: ActivityRouteCoordinate | null = null;
 
   orderedPoints.forEach(({ point }) => {
+    if (!isReliableRoutePoint(point)) return;
     const coordinate = toRouteCoordinate(point);
     if (!coordinate) return;
-    const type: ActivityRouteType = point.is_paused
+    const type: ActivityRouteType = isEnabledFlag(point.is_paused)
       ? 'pause'
-      : point.is_extra_distance
+      : isEnabledFlag(point.is_extra_distance)
         ? 'extra'
         : 'running';
     let group = groups.at(-1);
@@ -83,6 +102,17 @@ export const buildActivityRouteGroups = (
   });
 
   return groups;
+};
+
+export const mergeActivityRouteGroups = (
+  groups: ActivityRouteGroup[],
+): ActivityRouteGroup[] => {
+  const coordinates = groups.flatMap((group) => group.coordinates).filter((coordinate, index, all) => (
+    index === 0
+    || coordinate.latitude !== all[index - 1].latitude
+    || coordinate.longitude !== all[index - 1].longitude
+  ));
+  return coordinates.length >= 2 ? [{ type: 'running', coordinates }] : [];
 };
 
 export const buildActivityPauseMarkers = (

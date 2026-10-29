@@ -1,25 +1,23 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 import BenchmarkBadgeIcon from '../../../../components/BenchmarkBadgeIcon';
 import { useTheme } from '../../../../contexts/ThemeContext';
-import { useReducedMotion } from 'react-native-reanimated';
-import WorkoutIcon from './WorkoutIcon';
 import { WorkoutDetail } from './types';
 
 interface WorkoutCardProps {
   workout: WorkoutDetail;
   onPress: (workout: WorkoutDetail) => void;
   onSwap?: (workout: WorkoutDetail) => void;
+  isSelected?: boolean;
 }
 
-export default function WorkoutCard({ workout, onPress, onSwap }: WorkoutCardProps) {
-  const { colors, isDark } = useTheme();
+export default function WorkoutCard({ workout, onPress, onSwap, isSelected = false }: WorkoutCardProps) {
+  const { colors } = useTheme();
   const reduceMotion = useReducedMotion();
-  const isActiveWorkout = !workout.isRest;
-  const activeBackground = isDark ? '#16803C' : '#DCFCE7';
-  const activeText = isDark ? '#FFFFFF' : colors.text;
   const [scale] = useState(() => new Animated.Value(1));
+
   const animate = (toValue: number) => {
     if (reduceMotion) {
       scale.setValue(toValue);
@@ -37,45 +35,31 @@ export default function WorkoutCard({ workout, onPress, onSwap }: WorkoutCardPro
     <Animated.View style={{ transform: [{ scale }] }}>
       <Pressable
         accessibilityRole="button"
+        accessibilityState={{ selected: isSelected }}
         onPress={() => onPress(workout)}
         onPressIn={() => animate(0.98)}
         onPressOut={() => animate(1)}
-        style={[styles.card, isActiveWorkout
-          ? {
-              backgroundColor: activeBackground,
-              borderColor: workout.isBenchmark ? '#F59E0B' : colors.primary,
-              borderWidth: workout.isBenchmark ? 1.5 : 1,
-            }
-          : { backgroundColor: colors.surface, borderColor: colors.border }]}
+        style={[
+          styles.card,
+          { backgroundColor: isSelected ? colors.selected : 'transparent' },
+          isSelected && { borderColor: workout.isBenchmark ? '#F59E0B' : workout.accentColor },
+        ]}
       >
-        <View style={styles.iconBox}>
-          {workout.isRest ? <View style={styles.sleepIcon}><WorkoutIcon name="moon-outline" backgroundColor="transparent" color={colors.primary} size={30} /><Text style={[styles.sleepZ, { color: colors.primary }]}>Z</Text></View> : <WorkoutIcon name={workout.iconName} backgroundColor="transparent" color={isActiveWorkout ? activeText : colors.primary} size={30} />}
-        </View>
         <View style={styles.detailBlock}>
           <View style={styles.headerRow}>
-            <Text style={[styles.dayText, { color: isActiveWorkout ? activeText : colors.textSecondary }]}>{workout.day}, {workout.date}</Text>
+            <Text style={[styles.dayText, { color: colors.textSecondary }]}>Day: {workout.day}, {workout.date}</Text>
             {workout.isBenchmark && (
               <View style={styles.benchmarkBadge}>
-                <BenchmarkBadgeIcon size={14} color="#F59E0B" />
+                <BenchmarkBadgeIcon size={13} color="#F59E0B" />
                 <Text style={styles.benchmarkBadgeText}>BENCHMARK</Text>
               </View>
             )}
           </View>
-          <Text style={[styles.titleText, { color: isActiveWorkout ? activeText : colors.textPrimary }]}>{workout.title}</Text>
-          <Text style={[styles.subtitleText, { color: isActiveWorkout ? activeText : colors.textSecondary }]}>{workout.workoutType}</Text>
-          {!workout.isRest && (
-            <View style={styles.metricsRow}>
-              {workout.distance ? <Metric icon="navigate-outline" value={workout.distance} color={isActiveWorkout ? activeText : colors.textPrimary} /> : null}
-              {workout.estimatedDuration ? <Metric icon="time-outline" value={workout.estimatedDuration} color={isActiveWorkout ? activeText : colors.textPrimary} /> : null}
-              {workout.targetPace ? <Metric icon="speedometer-outline" value={workout.targetPace} color={isActiveWorkout ? activeText : colors.textPrimary} /> : null}
-              {workout.heartRateZone ? <Metric icon="pulse-outline" value={workout.heartRateZone} color={isActiveWorkout ? activeText : colors.textPrimary} /> : null}
-            </View>
-          )}
-          <Text style={[styles.descriptionText, { color: isActiveWorkout ? activeText : colors.textSecondary }]} numberOfLines={2}>{workout.description}</Text>
+          <Text style={[styles.titleText, { color: colors.text }]} numberOfLines={1}>{workout.title}</Text>
         </View>
         {onSwap ? (
           <TouchableOpacity
-            style={styles.swapButton}
+            style={styles.actionButton}
             onPress={(event) => {
               event.stopPropagation();
               onSwap(workout);
@@ -83,108 +67,32 @@ export default function WorkoutCard({ workout, onPress, onSwap }: WorkoutCardPro
             accessibilityLabel="Swap workout"
             accessibilityRole="button"
           >
-            <Ionicons name="swap-horizontal-outline" size={20} color={isActiveWorkout ? activeText : colors.primary} />
+            <Ionicons name="swap-horizontal-outline" size={18} color={colors.primary} />
           </TouchableOpacity>
-        ) : null}
+        ) : (
+          <Feather name="chevron-right" size={18} color={colors.textTertiary} />
+        )}
       </Pressable>
     </Animated.View>
   );
 }
 
-function Metric({ icon, value, color }: { icon: React.ComponentProps<typeof Ionicons>['name']; value: string; color: string }) {
-  return <View style={styles.metric}><Ionicons name={icon} size={13} color={color} /><Text style={[styles.metricText, { color }]}>{value}</Text></View>;
-}
-
 const styles = StyleSheet.create({
   card: {
-    minHeight: 92,
-    borderRadius: 18,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
+    minHeight: 62,
+    borderRadius: 10,
     borderWidth: 1,
-  },
-  iconBox: {
-    width: 48,
-    alignItems: 'center',
-  },
-  sleepIcon: {
-    width: 42,
-    height: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sleepZ: {
-    position: 'absolute',
-    top: -2,
-    right: 0,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  detailBlock: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  dayText: {
-    fontSize: 15,
-    lineHeight: 20,
-  },
-  titleText: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginTop: 4,
-  },
-  subtitleText: {
-    fontSize: 13,
-    marginTop: 4,
-  },
-  metricsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 8,
-  },
-  metric: {
+    borderColor: 'transparent',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
   },
-  metricText: {
-    fontSize: 12,
-  },
-  descriptionText: {
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 7,
-  },
-  swapButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 10,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  benchmarkBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(245, 158, 11, 0.22)',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 8,
-    gap: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.45)',
-  },
-  benchmarkBadgeText: {
-    color: '#F59E0B',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
+  detailBlock: { flex: 1, minWidth: 0 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
+  dayText: { fontSize: 11, lineHeight: 15 },
+  titleText: { fontSize: 15, fontWeight: '700', marginTop: 2 },
+  actionButton: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', marginLeft: 6 },
+  benchmarkBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(245, 158, 11, 0.16)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, gap: 4 },
+  benchmarkBadgeText: { color: '#F59E0B', fontSize: 9, fontWeight: '800' },
 });

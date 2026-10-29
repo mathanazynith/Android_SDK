@@ -1,44 +1,46 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { Image as ExpoImage } from 'expo-image';
 import { Directory, File, Paths } from 'expo-file-system';
-import { router, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Image as ExpoImage } from 'expo-image';
+import { router, useFocusEffect } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    AccessibilityInfo,
-    Animated,
-    ActivityIndicator,
-    Easing,
-    FlatList,
-    LayoutAnimation,
-    Modal,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    Vibration,
-    View,
-    type ViewToken,
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  FlatList,
+  LayoutAnimation,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  Vibration,
+  View,
+  type ViewToken
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Reanimated, {
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
+import ThemedCalendarPicker from '../../../components/common/ThemedCalendarPicker';
 
-import MotionEntrance from '../../../components/MotionEntrance';
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
+import { RunningLoader } from '../../../components/common/RunningLoader';
+import MotionEntrance from '../../../components/MotionEntrance';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage, resolveApiUrl } from '../../../service/api';
-import { activityAPI, BackendActivity } from '../../../src/services/activityApi';
+import { activityAPI, BackendActivity, runRouteAPI } from '../../../src/services/activityApi';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
 
@@ -77,11 +79,12 @@ const getNormalizedActivityType = (activityType: string): 'run' | 'walk' =>
   activityType.toLowerCase() === 'walk' ? 'walk' : 'run';
 
 type ActivityTypeFilter = 'all' | 'run' | 'walk';
-type ActivityDateFilter = 'all' | '7d' | '30d' | '90d' | 'year' | 'single' | 'range';
+type ActivityDateFilter = 'all' | '7d' | '30d' | '90d' | 'month' | 'year' | 'single' | 'range';
 type ActivityDistanceFilter = 'all' | 'under1' | 'under2' | 'short' | 'medium' | 'long';
-type ActivitySortFilter = 'newest' | 'oldest' | 'longest' | 'fastest';
 type DatePickerTarget = 'start' | 'end';
 type ActivityGroupMode = 'month' | 'week';
+type FilterPopover = 'type' | 'date' | 'distance';
+type FilterPopoverPosition = { left: number; top: number; width: number; maxHeight: number; placement: 'above' | 'below' | 'center'; caretLeft: number };
 
 type ActivityListRow =
   | { type: 'section'; key: string; title: string; activities: BackendActivity[] }
@@ -89,7 +92,7 @@ type ActivityListRow =
   | { type: 'activity'; key: string; activity: BackendActivity };
 
 const activityTypeOptions: { label: string; value: ActivityTypeFilter }[] = [
-  { label: 'All', value: 'all' },
+  { label: 'All Types', value: 'all' },
   { label: 'Run', value: 'run' },
   { label: 'Walk', value: 'walk' },
 ];
@@ -104,6 +107,11 @@ const activityDateOptions: { label: string; value: ActivityDateFilter }[] = [
   { label: 'Range', value: 'range' },
 ];
 
+const monthOptions = Array.from({ length: 12 }, (_, month) => ({
+  label: new Intl.DateTimeFormat(undefined, { month: 'short' }).format(new Date(2020, month, 1)),
+  value: month,
+}));
+
 const activityDistanceOptions: { label: string; value: ActivityDistanceFilter }[] = [
   { label: 'All', value: 'all' },
   { label: '<1 km', value: 'under1' },
@@ -113,16 +121,14 @@ const activityDistanceOptions: { label: string; value: ActivityDistanceFilter }[
   { label: '10+ km', value: 'long' },
 ];
 
-const activitySortOptions: { label: string; value: ActivitySortFilter }[] = [
-  { label: 'Newest', value: 'newest' },
-  { label: 'Oldest', value: 'oldest' },
-  { label: 'Longest', value: 'longest' },
-  { label: 'Fastest', value: 'fastest' },
-];
-
 const formatDateLabel = (value: Date | null) => {
   if (!value) return 'Select date';
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(value);
+};
+
+const formatMonthLabel = (value: Date | null) => {
+  if (!value) return 'Select month';
+  return new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(value);
 };
 
 const matchesDateRange = (
@@ -131,11 +137,19 @@ const matchesDateRange = (
   selectedDay?: Date | null,
   rangeStart?: Date | null,
   rangeEnd?: Date | null,
+  selectedMonth?: Date | null,
 ): boolean => {
   if (range === 'all') return true;
 
   const activityDate = new Date(activity.start_time).getTime();
-  if (!Number.isFinite(activityDate)) return true;
+  if (!Number.isFinite(activityDate)) return false;
+
+  if (range === 'month') {
+    if (!selectedMonth) return false;
+    const monthStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1).getTime();
+    const nextMonthStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 1).getTime();
+    return activityDate >= monthStart && activityDate < nextMonthStart;
+  }
 
   if (range === 'single') {
     if (!selectedDay) return false;
@@ -175,31 +189,20 @@ const matchesDistanceRange = (activity: BackendActivity, range: ActivityDistance
   return distanceKm >= 10;
 };
 
-const sortActivities = (items: BackendActivity[], sortBy: ActivitySortFilter) => {
+const sortActivities = (items: BackendActivity[]) => {
   const cloned = [...items];
-
-  cloned.sort((a, b) => {
-    const aDate = new Date(a.start_time).getTime();
-    const bDate = new Date(b.start_time).getTime();
-    const aDistance = Number(a.distance) || 0;
-    const bDistance = Number(b.distance) || 0;
-    const aPace = Number(a.avg_pace) || Number.POSITIVE_INFINITY;
-    const bPace = Number(b.avg_pace) || Number.POSITIVE_INFINITY;
-
-    switch (sortBy) {
-      case 'oldest':
-        return aDate - bDate;
-      case 'longest':
-        return bDistance - aDistance;
-      case 'fastest':
-        return aPace - bPace;
-      case 'newest':
-      default:
-        return bDate - aDate;
-    }
-  });
-
+  cloned.sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime());
   return cloned;
+};
+
+const historyIsLoadedThroughDate = (items: BackendActivity[], date: number) => {
+  let previousDate = Number.POSITIVE_INFINITY;
+  for (const activity of items) {
+    const activityDate = new Date(activity.start_time).getTime();
+    if (!Number.isFinite(activityDate) || activityDate > previousDate) return false;
+    previousDate = activityDate;
+  }
+  return previousDate < date;
 };
 
 const getActivityGroup = (activity: BackendActivity, mode: ActivityGroupMode) => {
@@ -264,7 +267,6 @@ const getActivityDay = (activity: BackendActivity) => {
 const buildActivityRows = (
   activities: BackendActivity[],
   groupMode: ActivityGroupMode,
-  sortBy: ActivitySortFilter,
 ): ActivityListRow[] => {
   const groups = new Map<string, { title: string; timestamp: number; activities: BackendActivity[] }>();
 
@@ -284,9 +286,7 @@ const buildActivityRows = (
       const secondHasDate = Number.isFinite(second.timestamp);
       if (!firstHasDate) return secondHasDate ? 1 : 0;
       if (!secondHasDate) return -1;
-      return sortBy === 'oldest'
-        ? first.timestamp - second.timestamp
-        : second.timestamp - first.timestamp;
+      return second.timestamp - first.timestamp;
     })
     .flatMap(([key, group]) => {
       const dayGroups = new Map<string, { title: string; timestamp: number; activities: BackendActivity[] }>();
@@ -303,16 +303,14 @@ const buildActivityRows = (
       const orderedDays = [...dayGroups.entries()].sort(([, first], [, second]) => {
         if (!Number.isFinite(first.timestamp)) return Number.isFinite(second.timestamp) ? 1 : 0;
         if (!Number.isFinite(second.timestamp)) return -1;
-        return sortBy === 'oldest'
-          ? first.timestamp - second.timestamp
-          : second.timestamp - first.timestamp;
+        return second.timestamp - first.timestamp;
       });
 
       return [
         { type: 'section' as const, key: `section:${key}`, title: group.title, activities: group.activities },
         ...orderedDays.flatMap(([dayKey, day]) => [
           { type: 'day' as const, key: `day:${key}:${dayKey}`, title: day.title, count: day.activities.length },
-          ...sortActivities(day.activities, sortBy).map((activity) => ({
+          ...sortActivities(day.activities).map((activity) => ({
             type: 'activity' as const,
             key: `activity:${activity.id}`,
             activity,
@@ -324,7 +322,8 @@ const buildActivityRows = (
 
 interface ActivityCardProps {
   activity: BackendActivity;
-  onPress: (activityId: BackendActivity['id']) => void;
+  onPress: (activity: BackendActivity) => void;
+  onRouteMenu: (activity: BackendActivity) => void;
   onStartSelection: (activityId: BackendActivity['id']) => void;
   reduceMotion: boolean;
   selectionMode: boolean;
@@ -337,6 +336,7 @@ interface ActivityCardProps {
 const ActivityCard = memo(function ActivityCard({
   activity,
   onPress,
+  onRouteMenu,
   onStartSelection,
   reduceMotion,
   selectionMode,
@@ -427,7 +427,7 @@ const ActivityCard = memo(function ActivityCard({
       longPressHandledRef.current = false;
       return;
     }
-    onPress(activityId);
+    onPress(activity);
   };
 
   const handleStartSelection = useCallback(() => {
@@ -476,7 +476,7 @@ const ActivityCard = memo(function ActivityCard({
         ]}
       >
       <TouchableOpacity
-        style={styles.cardContent}
+        style={[styles.cardContent, !selectionMode && styles.cardContentWithMenu]}
         accessibilityRole="button"
         accessibilityLabel={`${activityName} activity, ${formatDistance(activity.distance)}, ${formatDuration(duration)}`}
         accessibilityHint={selectionMode ? 'Tap to select or deselect this activity for deletion.' : 'Open activity details, or long press to select this activity for deletion.'}
@@ -492,13 +492,20 @@ const ActivityCard = memo(function ActivityCard({
               weekday: 'short', month: 'short', day: 'numeric',
             })}
           </Text>
-          <Text style={styles.distance}>{formatDistance(activity.distance)}</Text>
+          <Text
+            style={[styles.distance, { color: colors.primary }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+          >
+            {formatDistance(activity.distance)}
+          </Text>
         </View>
 
         <View style={styles.centerMetricsContainer}>
           <View style={styles.metricRow}>
             <View style={styles.metricIcon}>
-              <Feather name="clock" size={17} color="#35C72B" />
+              <Feather name="clock" size={17} color={colors.primary} />
             </View>
             <View style={styles.metricText}>
               <Text style={[styles.metricValue, { color: colors.text }]}>{formatDuration(duration)}</Text>
@@ -507,7 +514,7 @@ const ActivityCard = memo(function ActivityCard({
           </View>
           <View style={styles.metricRow}>
             <View style={styles.metricIcon}>
-              <Feather name="compass" size={17} color="#35C72B" />
+              <Feather name="compass" size={17} color={colors.primary} />
             </View>
             <View style={styles.metricText}>
               <Text style={[styles.metricValue, { color: colors.text }]}>{formatPace(activity.avg_pace)}</Text>
@@ -516,7 +523,7 @@ const ActivityCard = memo(function ActivityCard({
           </View>
         </View>
 
-        <View pointerEvents="none" style={styles.mapThumbnailContainer}>
+        <View pointerEvents="none" style={[styles.mapThumbnailContainer, !selectionMode && styles.mapThumbnailWithMenu]}>
           {thumbnailUri && !thumbnailFailed ? (
             <ExpoImage
               source={{ uri: thumbnailUri }}
@@ -566,6 +573,27 @@ const ActivityCard = memo(function ActivityCard({
           </View>
         </View>
       </TouchableOpacity>
+      {!selectionMode ? (
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={`More actions for ${activityName.toLowerCase()} activity`}
+          accessibilityHint="Save this activity route to My Routes."
+          disabled={busy}
+          onPress={(event) => {
+            event.stopPropagation();
+            onRouteMenu(activity);
+          }}
+          style={[styles.routeMenuButton, { backgroundColor: colors.surface, borderColor: colors.border }, busy && styles.routeMenuButtonDisabled]}
+        >
+          <Feather name="more-vertical" size={19} color={colors.textSecondary} />
+        </TouchableOpacity>
+      ) : null}
+      {!selectionMode && activity.is_saved_to_my_routes ? (
+        <View style={[styles.routeSavedStatus, { borderTopColor: colors.border }]}>
+          <Feather name="check-circle" size={15} color={colors.primary} />
+          <Text style={[styles.routeSavedText, { color: colors.textSecondary }]}>Saved to My Routes</Text>
+        </View>
+      ) : null}
       <Reanimated.View
         pointerEvents="none"
         style={[
@@ -579,7 +607,7 @@ const ActivityCard = memo(function ActivityCard({
           accessibilityState={{ checked: selected, disabled: busy }}
           accessibilityLabel={`${selected ? 'Deselect' : 'Select'} ${activityName.toLowerCase()} activity for deletion`}
           disabled={busy}
-          onPress={() => onPress(activityId)}
+          onPress={() => onPress(activity)}
           style={[
             styles.cardCheckbox,
             { backgroundColor: selected ? '#DC2626' : isDark ? '#111827' : '#FFFFFF' },
@@ -587,7 +615,7 @@ const ActivityCard = memo(function ActivityCard({
           ]}
         >
           {deleting
-            ? <ActivityIndicator size="small" color="#FF6B6B" />
+            ? <RunningLoader size={18} fillColor="#FF6B6B" />
             : selected
               ? <Feather name="check" size={21} color="#FFFFFF" />
               : <Feather name="square" size={20} color={colors.textSecondary} />}
@@ -645,8 +673,12 @@ async function fetchHistoryPageSkippingEmptyPages(cursor: string | null) {
 
 export default function ActivityScreen() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const reduceMotion = useReducedMotion();
   const [activities, setActivities] = useState<BackendActivity[]>([]);
+  const [savingActivityIds, setSavingActivityIds] = useState<Set<string>>(() => new Set());
+  const [pendingSaveActivity, setPendingSaveActivity] = useState<BackendActivity | null>(null);
   const [visibleActivityIds, setVisibleActivityIds] = useState<Set<string>>(() => new Set());
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedActivityIds, setSelectedActivityIds] = useState<Set<string>>(() => new Set());
@@ -657,12 +689,8 @@ export default function ActivityScreen() {
   const [isDeletingActivities, setIsDeletingActivities] = useState(false);
   const [selectedType, setSelectedType] = useState<ActivityTypeFilter>('all');
   const [selectedDateRange, setSelectedDateRange] = useState<ActivityDateFilter>('all');
+  const [selectedMonthDate, setSelectedMonthDate] = useState<Date | null>(null);
   const [selectedDistanceRange, setSelectedDistanceRange] = useState<ActivityDistanceFilter>('all');
-  const [sortBy, setSortBy] = useState<ActivitySortFilter>('newest');
-  const [showTypeSheet, setShowTypeSheet] = useState(false);
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showDistanceSheet, setShowDistanceSheet] = useState(false);
-  const [showSortSheet, setShowSortSheet] = useState(false);
   const [showNativeDatePicker, setShowNativeDatePicker] = useState(false);
   const [datePickerTarget, setDatePickerTarget] = useState<DatePickerTarget>('start');
   const [selectedDayDate, setSelectedDayDate] = useState<Date | null>(null);
@@ -674,6 +702,7 @@ export default function ActivityScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [totalHistoryCount, setTotalHistoryCount] = useState<number | null>(null);
   const cursorRef = useRef<string | null>(null);
+  const monthAutoLoadKeyRef = useRef<string | null>(null);
   const loadingMoreRef = useRef(false);
   const loadingFirstPageRef = useRef(false);
   const hasLoadedHistoryRef = useRef(false);
@@ -688,6 +717,46 @@ export default function ActivityScreen() {
   const [selectionToolbarOpacity] = useState(() => new Animated.Value(0));
   const [selectionToolbarTranslateY] = useState(() => new Animated.Value(8));
   const [selectionFiltersProgress] = useState(() => new Animated.Value(1));
+  const [activeFilterPopover, setActiveFilterPopover] = useState<FilterPopover | null>(null);
+  const [filterPopoverPosition, setFilterPopoverPosition] = useState<FilterPopoverPosition>({ left: 12, top: 72, width: 280, maxHeight: 420, placement: 'below', caretLeft: 24 });
+  const typeFilterAnchorRef = useRef<View>(null);
+  const dateFilterAnchorRef = useRef<View>(null);
+  const distanceFilterAnchorRef = useRef<View>(null);
+
+  const openFilterPopover = useCallback((filter: FilterPopover, anchorRef: { current: View | null }, contentHeight: number) => {
+    anchorRef.current?.measureInWindow((x, y, anchorWidth, anchorHeight) => {
+      const horizontalMargin = 12;
+      const leftLimit = insets.left + horizontalMargin;
+      const rightLimit = windowWidth - insets.right - horizontalMargin;
+      const width = Math.min(310, rightLimit - leftLimit);
+      const left = Math.max(leftLimit, Math.min(x + anchorWidth / 2 - width / 2, rightLimit - width));
+      const topLimit = insets.top + 8;
+      const bottomLimit = windowHeight - insets.bottom - 8;
+      const availableAbove = Math.max(0, y - topLimit - 8);
+      const availableBelow = Math.max(0, bottomLimit - (y + anchorHeight) - 8);
+      const available = Math.max(availableAbove, availableBelow);
+      let placement: FilterPopoverPosition['placement'] = availableBelow >= availableAbove ? 'below' : 'above';
+      const maxHeight = Math.max(180, Math.min(contentHeight, available || windowHeight - insets.top - insets.bottom - 32));
+      let top = placement === 'below' ? y + anchorHeight + 8 : y - maxHeight - 8;
+
+      if (available < 180) {
+        placement = 'center';
+        top = topLimit + Math.max(0, (bottomLimit - topLimit - maxHeight) / 2);
+      } else {
+        top = Math.max(topLimit, Math.min(top, bottomLimit - maxHeight));
+      }
+
+      setFilterPopoverPosition({
+        left,
+        top,
+        width,
+        maxHeight,
+        placement,
+        caretLeft: Math.max(16, Math.min(x + anchorWidth / 2 - left - 7, width - 16)),
+      });
+      setActiveFilterPopover(filter);
+    });
+  }, [insets.bottom, insets.left, insets.right, insets.top, windowHeight, windowWidth]);
 
   const showSelectionToast = useCallback((message: string) => {
     if (selectionToastTimerRef.current) clearTimeout(selectionToastTimerRef.current);
@@ -889,8 +958,21 @@ export default function ActivityScreen() {
     }, [loadFirstPage]),
   );
 
+  useEffect(() => {
+    if (selectedDateRange !== 'month' || !selectedMonthDate || !hasMore || loading || loadingMore) return;
+
+    const monthStart = new Date(selectedMonthDate.getFullYear(), selectedMonthDate.getMonth(), 1).getTime();
+    if (historyIsLoadedThroughDate(activities, monthStart)) return;
+
+    const attemptKey = `${monthStart}:${cursorRef.current ?? 'first'}`;
+    if (monthAutoLoadKeyRef.current === attemptKey) return;
+    monthAutoLoadKeyRef.current = attemptKey;
+    void loadMore();
+  }, [activities, hasMore, loadMore, loading, loadingMore, selectedDateRange, selectedMonthDate]);
+
   const dateSummary = useMemo(() => {
     if (selectedDateRange === 'all') return 'All dates';
+    if (selectedDateRange === 'month') return formatMonthLabel(selectedMonthDate);
     if (selectedDateRange === 'single') {
       return selectedDayDate ? formatDateLabel(selectedDayDate) : 'Select date';
     }
@@ -904,25 +986,20 @@ export default function ActivityScreen() {
       return 'Select range';
     }
     return activityDateOptions.find((option) => option.value === selectedDateRange)?.label ?? 'Date';
-  }, [rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate]);
+  }, [rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate, selectedMonthDate]);
 
   const distanceSummary = useMemo(() => {
     if (selectedDistanceRange === 'all') return 'Distance';
     return activityDistanceOptions.find((option) => option.value === selectedDistanceRange)?.label ?? 'Distance';
   }, [selectedDistanceRange]);
 
-  const sortSummary = useMemo(() => {
-    return activitySortOptions.find((option) => option.value === sortBy)?.label ?? 'Newest';
-  }, [sortBy]);
-
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (selectedType !== 'all') count += 1;
     if (selectedDateRange !== 'all') count += 1;
     if (selectedDistanceRange !== 'all') count += 1;
-    if (sortBy !== 'newest') count += 1;
     return count;
-  }, [selectedDateRange, selectedDistanceRange, selectedType, sortBy]);
+  }, [selectedDateRange, selectedDistanceRange, selectedType]);
 
   const hasActiveFilters = activeFilterCount > 0;
 
@@ -931,9 +1008,8 @@ export default function ActivityScreen() {
     if (selectedType !== 'all') labels.push(activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'Event');
     if (selectedDateRange !== 'all') labels.push(dateSummary);
     if (selectedDistanceRange !== 'all') labels.push(distanceSummary);
-    if (sortBy !== 'newest') labels.push(sortSummary);
     return labels;
-  }, [dateSummary, distanceSummary, selectedDateRange, selectedDistanceRange, selectedType, sortBy, sortSummary]);
+  }, [dateSummary, distanceSummary, selectedDateRange, selectedDistanceRange, selectedType]);
 
   const visibleActivities = useMemo(() => {
     let filtered = [...activities];
@@ -943,19 +1019,26 @@ export default function ActivityScreen() {
     }
 
     if (selectedDateRange !== 'all') {
-      filtered = filtered.filter((activity) => matchesDateRange(activity, selectedDateRange, selectedDayDate, rangeStartDate, rangeEndDate));
+      filtered = filtered.filter((activity) => matchesDateRange(
+        activity,
+        selectedDateRange,
+        selectedDayDate,
+        rangeStartDate,
+        rangeEndDate,
+        selectedMonthDate,
+      ));
     }
 
     if (selectedDistanceRange !== 'all') {
       filtered = filtered.filter((activity) => matchesDistanceRange(activity, selectedDistanceRange));
     }
 
-    return sortActivities(filtered, sortBy);
-  }, [activities, rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate, selectedDistanceRange, selectedType, sortBy]);
+    return sortActivities(filtered);
+  }, [activities, rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate, selectedDistanceRange, selectedMonthDate, selectedType]);
 
   const activityRows = useMemo(
-    () => buildActivityRows(visibleActivities, groupMode, sortBy),
-    [groupMode, sortBy, visibleActivities],
+    () => buildActivityRows(visibleActivities, groupMode),
+    [groupMode, visibleActivities],
   );
 
   const selectedActivities = useMemo(
@@ -1015,6 +1098,128 @@ export default function ActivityScreen() {
       return next;
     });
   }, [visibleActivities]);
+
+  const saveActivityRoute = useCallback(async (activity: BackendActivity, isPublic: boolean) => {
+    const activityKey = String(activity.id);
+    if (activity.is_saved_to_my_routes || savingActivityIds.has(activityKey)) return;
+    setSavingActivityIds((current) => new Set(current).add(activityKey));
+    try {
+      const { routeId } = await activityAPI.saveRoute(activity.id);
+      if (isPublic && routeId === null) {
+        setActivities((current) => current.map((item) => String(item.id) === activityKey
+          ? { ...item, is_saved_to_my_routes: true }
+          : item));
+        setPendingSaveActivity(null);
+        Alert.alert(
+          'Route saved privately',
+          'The route was saved, but the server did not return its route ID, so it could not be published.'
+        );
+        return;
+      }
+
+      if (isPublic && routeId !== null) {
+        try {
+          await runRouteAPI.setVisibility(routeId, true);
+        } catch (visibilityError) {
+          setActivities((current) => current.map((item) => String(item.id) === activityKey
+            ? { ...item, is_saved_to_my_routes: true, saved_route_id: routeId }
+            : item));
+          setPendingSaveActivity(null);
+          Alert.alert(
+            'Route saved privately',
+            `The route was saved, but could not be published. ${getBackendErrorMessage(visibilityError, 'Try again from My Routes.')}`
+          );
+          return;
+        }
+      }
+
+      setActivities((current) => current.map((item) => String(item.id) === activityKey
+        ? { ...item, is_saved_to_my_routes: true, saved_route_id: routeId }
+        : item));
+      setPendingSaveActivity(null);
+      showSelectionToast(`Route saved ${isPublic ? 'publicly' : 'privately'} to My Routes.`);
+    } catch (requestError) {
+      Alert.alert('Could not save route', getBackendErrorMessage(requestError, 'Please try again.'));
+    } finally {
+      setSavingActivityIds((current) => {
+        const next = new Set(current);
+        next.delete(activityKey);
+        return next;
+      });
+    }
+  }, [savingActivityIds, showSelectionToast]);
+
+  const updateActivityRouteVisibility = useCallback(async (
+    activity: BackendActivity,
+    routeId: number,
+    isPublic: boolean,
+  ) => {
+    const activityKey = String(activity.id);
+    if (savingActivityIds.has(activityKey)) return;
+    setSavingActivityIds((current) => new Set(current).add(activityKey));
+    try {
+      await runRouteAPI.setVisibility(routeId, isPublic);
+      setActivities((current) => current.map((item) => String(item.id) === activityKey
+        ? { ...item, is_saved_to_my_routes: true, saved_route_id: routeId, saved_route_is_public: isPublic }
+        : item));
+      showSelectionToast(`Route made ${isPublic ? 'public' : 'private'}.`);
+    } catch (requestError) {
+      Alert.alert('Could not change route visibility', getBackendErrorMessage(requestError, 'Please try again.'));
+    } finally {
+      setSavingActivityIds((current) => {
+        const next = new Set(current);
+        next.delete(activityKey);
+        return next;
+      });
+    }
+  }, [savingActivityIds, showSelectionToast]);
+
+  const openActivityRouteMenu = useCallback((activity: BackendActivity) => {
+    if (activity.is_saved_to_my_routes) {
+      const routeId = Number(activity.saved_route_id);
+      if (!Number.isInteger(routeId) || routeId <= 0) {
+        Alert.alert('Route already saved', 'This route is saved, but its route ID is missing from the History response.');
+        return;
+      }
+
+      void runRouteAPI.get(routeId).then((route) => {
+        const nextIsPublic = !route.is_public;
+        Alert.alert(
+          nextIsPublic ? 'Make route public?' : 'Make route private?',
+          nextIsPublic
+            ? 'Other signed-in Zy-Run users will be able to view this route.'
+            : 'Other users will no longer be able to view this route.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: nextIsPublic ? 'Make Public' : 'Make Private',
+              onPress: () => { void updateActivityRouteVisibility(activity, routeId, nextIsPublic); },
+            },
+          ],
+          { cancelable: true },
+        );
+      }).catch((requestError) => {
+        Alert.alert('Could not load route visibility', getBackendErrorMessage(requestError, 'Please try again.'));
+      });
+      return;
+    }
+
+    Alert.alert('Activity options', undefined, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Save to My Routes',
+        onPress: () => {
+          const routeProcessingComplete = activity.is_processed === true
+            || (activity.is_processed == null && activity.processing_status.toUpperCase() === 'COMPLETED');
+          if (!routeProcessingComplete || !activity.route_generated) {
+            Alert.alert('Route not ready', 'This activity needs to finish processing its route before it can be saved.');
+            return;
+          }
+          setPendingSaveActivity(activity);
+        },
+      },
+    ]);
+  }, [updateActivityRouteVisibility]);
 
   const deleteActivities = useCallback(async (targets: BackendActivity[]) => {
     if (targets.length === 0 || isDeletingActivities) return;
@@ -1111,11 +1316,17 @@ export default function ActivityScreen() {
       return;
     }
     const count = targets.length;
+    const savedRouteCount = targets.filter((activity) => (
+      activity.is_saved_to_my_routes || activity.saved_route_id
+    )).length;
+    const deleteMessage = savedRouteCount > 0
+      ? `${count === 1 ? 'This workout' : `These ${count} workouts`} ${count === 1 ? 'has' : 'have'} ${savedRouteCount} associated saved ${savedRouteCount === 1 ? 'route' : 'routes'} that will also be removed from My Routes${savedRouteCount === 1 ? ' (including its public listing, if enabled)' : ' (including any public listings, if enabled)'}. This cannot be undone.`
+      : count === 1
+        ? 'Delete this workout from your history? This cannot be undone.'
+        : `Delete ${count} workouts from your history? This cannot be undone.`;
     Alert.alert(
       count === 1 ? 'Delete workout?' : 'Delete selected workouts?',
-      count === 1
-        ? 'Delete this workout from your history? This cannot be undone.'
-        : `Delete ${count} workouts from your history? This cannot be undone.`,
+      deleteMessage,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -1134,12 +1345,18 @@ export default function ActivityScreen() {
     confirmDeleteActivities(selectedActivities);
   }, [confirmDeleteActivities, selectedActivities]);
 
-  const handleActivityPress = useCallback((activityId: BackendActivity['id']) => {
+  const handleActivityPress = useCallback((activity: BackendActivity) => {
     if (selectionMode) {
-      toggleActivitySelection(activityId);
+      toggleActivitySelection(activity.id);
       return;
     }
-    router.push(`/(app)/activity/${activityId}` as any);
+    router.push({
+      pathname: '/(app)/activity/[id]',
+      params: {
+        id: String(activity.id),
+        ...(activity.saved_route_id ? { savedRouteId: String(activity.saved_route_id) } : {}),
+      },
+    } as any);
   }, [selectionMode, toggleActivitySelection]);
 
   const renderActivityRow = useCallback(({ item }: { item: ActivityListRow }) => {
@@ -1182,13 +1399,14 @@ export default function ActivityScreen() {
       <ActivityCard
         activity={activity}
         onPress={handleActivityPress}
+        onRouteMenu={openActivityRouteMenu}
         onStartSelection={startActivitySelection}
         reduceMotion={reduceMotion}
         isVisible={visibleActivityIds.has(String(activity.id))}
         selectionMode={selectionMode}
         selected={selectedActivityIds.has(String(activity.id))}
         deleting={deletingActivityIds.has(String(activity.id))}
-        busy={isDeletingActivities}
+        busy={isDeletingActivities || savingActivityIds.has(String(activity.id))}
       />
     );
   }, [
@@ -1198,6 +1416,7 @@ export default function ActivityScreen() {
     deletingActivityIds,
     isDeletingActivities,
     handleActivityPress,
+    openActivityRouteMenu,
     reduceMotion,
     visibleActivityIds,
     selectedActivityIds,
@@ -1221,7 +1440,7 @@ export default function ActivityScreen() {
 
   return (
     <GestureHandlerRootView style={styles.gestureRoot}>
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.screenContent}>
       <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} />
       {selectionMode ? (
@@ -1240,7 +1459,7 @@ export default function ActivityScreen() {
               accessibilityLabel="Cancel workout selection"
               disabled={isDeletingActivities}
               onPress={cancelActivitySelection}
-              style={[styles.selectionToolbarButton, styles.cancelSelectionButton, { borderColor: colors.border }]}
+              style={[styles.selectionToolbarButton, styles.cancelSelectionButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
             >
               <Feather name="x" size={19} color="#E53935" />
             </TouchableOpacity>
@@ -1252,7 +1471,7 @@ export default function ActivityScreen() {
             </View>
           </View>
           <View style={styles.selectionToolbarActions}>
-            <View style={styles.groupModeSwitch}>
+            <View style={[styles.groupModeSwitch, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
               {(['month', 'week'] as const).map((mode) => (
                 <TouchableOpacity
                   key={mode}
@@ -1260,9 +1479,9 @@ export default function ActivityScreen() {
                   accessibilityState={{ selected: groupMode === mode }}
                   disabled={isDeletingActivities}
                   onPress={() => setGroupMode(mode)}
-                  style={[styles.groupModeButton, groupMode === mode && styles.groupModeButtonSelected]}
+                  style={[styles.groupModeButton, { backgroundColor: groupMode === mode ? colors.primary : 'transparent' }]}
                 >
-                  <Text style={[styles.groupModeText, { color: groupMode === mode ? '#08110A' : '#111827' }]}>
+                  <Text style={[styles.groupModeText, { color: groupMode === mode ? colors.primaryText : colors.textSecondary }]}>
                     {mode === 'month' ? 'Month' : 'Week'}
                   </Text>
                 </TouchableOpacity>
@@ -1305,8 +1524,8 @@ export default function ActivityScreen() {
       >
       {hasActiveFilters && (
         <View style={styles.activeFilterSummaryRow}>
-          <View style={[styles.activeFilterBadge, { backgroundColor: '#23372A', borderColor: '#2C4B38' }]}>
-            <Text style={styles.activeFilterBadgeText}>{activeFilterCount} active</Text>
+          <View style={[styles.activeFilterBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
+            <Text style={[styles.activeFilterBadgeText, { color: colors.primary }]}>{activeFilterCount} active</Text>
           </View>
           {activeFilterSummary.slice(0, 3).map((label) => (
             <View key={label} style={[styles.activeFilterPill, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -1317,60 +1536,48 @@ export default function ActivityScreen() {
       )}
 
       <MotionEntrance delay={45}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterRowBar}
-        >
+        <View style={styles.filterRowBar}>
         <TouchableOpacity
+          ref={typeFilterAnchorRef}
           accessibilityRole="button"
-          accessibilityLabel={`Activity type: ${activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All'}`}
+          accessibilityLabel={`Activity type: ${activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All Types'}`}
           accessibilityHint="Choose which activity types to show"
           activeOpacity={0.85}
-          onPress={() => setShowTypeSheet(true)}
+          onPress={() => openFilterPopover('type', typeFilterAnchorRef, 300)}
           style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
         >
-          <Feather name="activity" size={14} color={colors.text} />
-          <Text style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
-            {activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All'}
+          <Feather name="activity" size={14} color={colors.primary} />
+          <Text numberOfLines={1} style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
+            {activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All Types'}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
+          ref={dateFilterAnchorRef}
           accessibilityRole="button"
           activeOpacity={0.85}
-          onPress={() => {
-            setShowDatePicker(true);
-          }}
+          onPress={() => openFilterPopover('date', dateFilterAnchorRef, 620)}
           style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
         >
-          <Feather name="calendar" size={14} color={colors.text} />
-          <Text style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
+          <Feather name="calendar" size={14} color={colors.primary} />
+          <Text numberOfLines={1} style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
             {selectedDateRange === 'all' ? 'Date' : dateSummary}
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
+          ref={distanceFilterAnchorRef}
           accessibilityRole="button"
           activeOpacity={0.85}
-          onPress={() => setShowDistanceSheet(true)}
+          onPress={() => openFilterPopover('distance', distanceFilterAnchorRef, 420)}
           style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
         >
-          <Feather name="map-pin" size={14} color={colors.text} />
-          <Text style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
+          <Feather name="map-pin" size={14} color={colors.primary} />
+          <Text numberOfLines={1} style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
             {selectedDistanceRange === 'all' ? 'Distance' : distanceSummary}
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          accessibilityRole="button"
-          activeOpacity={0.85}
-          onPress={() => setShowSortSheet(true)}
-          style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-        >
-          <Feather name="bar-chart-2" size={14} color={colors.text} />
-          <Text style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>{sortSummary}</Text>
-        </TouchableOpacity>
-        </ScrollView>
+        </View>
       </MotionEntrance>
 
       {hasActiveFilters && (
@@ -1379,29 +1586,31 @@ export default function ActivityScreen() {
           onPress={() => {
             setSelectedType('all');
             setSelectedDateRange('all');
+            setSelectedMonthDate(null);
             setSelectedDayDate(null);
             setRangeStartDate(null);
             setRangeEndDate(null);
             setSelectedDistanceRange('all');
-            setSortBy('newest');
           }}
-          style={styles.resetButton}
+          style={[styles.resetButton, { backgroundColor: colors.selected }]}
         >
-          <Text style={styles.resetButtonText}>Reset filters</Text>
+          <Text style={[styles.resetButtonText, { color: colors.primary }]}>Reset filters</Text>
         </TouchableOpacity>
       )}
       </Animated.View>
 
-      <Modal transparent visible={showTypeSheet} animationType="slide" onRequestClose={() => setShowTypeSheet(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <Modal transparent visible={activeFilterPopover === 'type'} animationType="fade" onRequestClose={() => setActiveFilterPopover(null)}>
+        <View style={styles.filterPopoverBackdrop}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close activity type filter" onPress={() => setActiveFilterPopover(null)} style={StyleSheet.absoluteFill} />
+          <View style={[styles.filterPopoverCard, { left: filterPopoverPosition.left, top: filterPopoverPosition.top, width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.modalHeaderRow}>
-              <View style={styles.modalHeaderBadge}>
-                <Feather name="activity" size={14} color="#35C72B" />
+              <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
+                <Feather name="activity" size={14} color={colors.primary} />
               </View>
               <Text style={[styles.modalTitle, { color: colors.text }]}>Activity type</Text>
             </View>
 
+            <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight - 60 }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
             <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Show activities</Text>
             {activityTypeOptions.map((option) => {
               const active = selectedType === option.value;
@@ -1411,12 +1620,12 @@ export default function ActivityScreen() {
                   activeOpacity={0.8}
                   onPress={() => {
                     setSelectedType(option.value);
-                    setShowTypeSheet(false);
+                    setActiveFilterPopover(null);
                   }}
-                  style={[styles.optionRow, { backgroundColor: active ? '#35C72B' : colors.background, borderColor: active ? '#35C72B' : colors.border }]}
+                  style={[styles.optionRow, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
                 >
-                  <Text style={[styles.optionText, { color: active ? '#08110A' : colors.text }]}>{option.label}</Text>
-                  {active && <Feather name="check" size={16} color="#08110A" />}
+                  <Text style={[styles.optionText, { color: active ? colors.primary : colors.text }]}>{option.label}</Text>
+                  {active && <Feather name="check" size={16} color={colors.primary} />}
                 </TouchableOpacity>
               );
             })}
@@ -1425,26 +1634,32 @@ export default function ActivityScreen() {
               activeOpacity={0.85}
               onPress={() => {
                 setSelectedType('all');
-                setShowTypeSheet(false);
+                setActiveFilterPopover(null);
               }}
               style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
             >
               <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
             </TouchableOpacity>
+            </ScrollView>
+            {filterPopoverPosition.placement !== 'center' ? (
+              <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
+            ) : null}
           </View>
         </View>
       </Modal>
 
-      <Modal transparent visible={showDatePicker} animationType="slide" onRequestClose={() => setShowDatePicker(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+      <Modal transparent visible={activeFilterPopover === 'date'} animationType="fade" onRequestClose={() => setActiveFilterPopover(null)}>
+        <View style={styles.filterPopoverBackdrop}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close date filter" onPress={() => setActiveFilterPopover(null)} style={StyleSheet.absoluteFill} />
+          <View style={[styles.filterPopoverCard, { left: filterPopoverPosition.left, top: filterPopoverPosition.top, width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.modalHeaderRow}>
-              <View style={styles.modalHeaderBadge}>
-                <Feather name="calendar" size={14} color="#35C72B" />
+              <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
+                <Feather name="calendar" size={14} color={colors.primary} />
               </View>
               <Text style={[styles.modalTitle, { color: colors.text }]}>Date filter</Text>
             </View>
 
+            <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight - 112 }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
             <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Quick ranges</Text>
             <View style={styles.modalPresetRow}>
               {activityDateOptions.filter((option) => option.value !== 'single' && option.value !== 'range').map((option) => (
@@ -1453,44 +1668,100 @@ export default function ActivityScreen() {
                   activeOpacity={0.8}
                   onPress={() => {
                     setSelectedDateRange(option.value);
+                    setSelectedMonthDate(null);
                     setSelectedDayDate(null);
                     setRangeStartDate(null);
                     setRangeEndDate(null);
-                    setShowDatePicker(false);
+                    setActiveFilterPopover(null);
                   }}
-                  style={[styles.presetButton, { backgroundColor: selectedDateRange === option.value ? '#35C72B' : colors.background, borderColor: colors.border }]}
+                  style={[styles.presetButton, { backgroundColor: selectedDateRange === option.value ? colors.selected : colors.surfaceRaised, borderColor: selectedDateRange === option.value ? colors.primary : colors.border }]}
                 >
-                  <Text style={[styles.presetButtonText, { color: selectedDateRange === option.value ? '#08110A' : colors.text }]}>{option.label}</Text>
+                  <Text style={[styles.presetButtonText, { color: selectedDateRange === option.value ? colors.primary : colors.text }]}>{option.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
 
             <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Selection mode</Text>
             <View style={styles.segmentedRow}>
-              {(['single', 'range'] as const).map((mode) => {
-                const active = (selectedDateRange === 'single' && mode === 'single') || (selectedDateRange === 'range' && mode === 'range');
+              {(['month', 'single', 'range'] as const).map((mode) => {
+                const active = selectedDateRange === mode;
                 return (
                   <TouchableOpacity
                     key={mode}
                     activeOpacity={0.8}
                     onPress={() => {
                       setSelectedDateRange(mode);
-                      if (mode === 'single') {
+                      if (mode === 'month') {
+                        setSelectedMonthDate((current) => current ?? new Date());
+                        setSelectedDayDate(null);
+                        setRangeStartDate(null);
+                        setRangeEndDate(null);
+                      } else if (mode === 'single') {
+                        setSelectedMonthDate(null);
                         setRangeStartDate(null);
                         setRangeEndDate(null);
                       } else {
+                        setSelectedMonthDate(null);
                         setSelectedDayDate(null);
                       }
                     }}
-                    style={[styles.segmentedButton, { backgroundColor: active ? '#35C72B' : colors.background, borderColor: active ? '#35C72B' : colors.border }]}
+                    style={[styles.segmentedButton, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
                   >
-                    <Text style={[styles.segmentedButtonText, { color: active ? '#08110A' : colors.text }]}>{mode === 'single' ? 'Single date' : 'Date range'}</Text>
+                    <Text style={[styles.segmentedButtonText, { color: active ? colors.primary : colors.text }]}>
+                      {mode === 'month' ? 'Month' : mode === 'single' ? 'Single date' : 'Date range'}
+                    </Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
 
-            {selectedDateRange === 'single' ? (
+            {selectedDateRange === 'month' ? (
+              <View style={styles.monthPicker}>
+                <View style={styles.monthYearRow}>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Previous year"
+                    onPress={() => setSelectedMonthDate((current) => {
+                      const date = current ?? new Date();
+                      return new Date(date.getFullYear() - 1, date.getMonth(), 1);
+                    })}
+                    style={[styles.monthYearButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
+                  >
+                    <Feather name="chevron-left" size={18} color={colors.text} />
+                  </TouchableOpacity>
+                  <Text style={[styles.monthYearText, { color: colors.text }]}>{selectedMonthDate?.getFullYear()}</Text>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Next year"
+                    onPress={() => setSelectedMonthDate((current) => {
+                      const date = current ?? new Date();
+                      return new Date(date.getFullYear() + 1, date.getMonth(), 1);
+                    })}
+                    style={[styles.monthYearButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
+                  >
+                    <Feather name="chevron-right" size={18} color={colors.text} />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.monthGrid}>
+                  {monthOptions.map((month) => {
+                    const active = selectedMonthDate?.getMonth() === month.value;
+                    return (
+                      <TouchableOpacity
+                        key={month.value}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${month.label} ${selectedMonthDate?.getFullYear()}`}
+                        accessibilityState={{ selected: active }}
+                        onPress={() => setSelectedMonthDate((current) =>
+                          new Date(current?.getFullYear() ?? new Date().getFullYear(), month.value, 1))}
+                        style={[styles.monthOption, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
+                      >
+                        <Text style={[styles.monthOptionText, { color: active ? colors.primary : colors.text }]}>{month.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : selectedDateRange === 'single' ? (
               <View style={styles.dateSelectionRow}>
                 <TouchableOpacity
                   activeOpacity={0.8}
@@ -1531,16 +1802,18 @@ export default function ActivityScreen() {
                 </TouchableOpacity>
               </View>
             )}
+            </ScrollView>
 
             <View style={styles.modalActions}>
               <TouchableOpacity
                 activeOpacity={0.85}
                 onPress={() => {
                   setSelectedDateRange('all');
+                  setSelectedMonthDate(null);
                   setSelectedDayDate(null);
                   setRangeStartDate(null);
                   setRangeEndDate(null);
-                  setShowDatePicker(false);
+                  setActiveFilterPopover(null);
                 }}
                 style={[styles.modalActionButton, { backgroundColor: colors.background, borderColor: colors.border }]}
               >
@@ -1551,34 +1824,39 @@ export default function ActivityScreen() {
                 activeOpacity={0.85}
                 onPress={() => {
                   if (selectedDateRange === 'single' && selectedDayDate) {
-                    setShowDatePicker(false);
+                    setActiveFilterPopover(null);
                     return;
                   }
                   if (selectedDateRange === 'range' && rangeStartDate && rangeEndDate) {
-                    setShowDatePicker(false);
+                    setActiveFilterPopover(null);
                     return;
                   }
-                  setShowDatePicker(false);
+                  setActiveFilterPopover(null);
                 }}
-                style={[styles.modalActionButton, { backgroundColor: '#35C72B', borderColor: '#35C72B' }]}
+                style={[styles.modalActionButton, { backgroundColor: colors.primary, borderColor: colors.primary }]}
               >
-                <Text style={[styles.modalActionText, { color: '#08110A' }]}>Apply</Text>
+                <Text style={[styles.modalActionText, { color: colors.primaryText }]}>Apply</Text>
               </TouchableOpacity>
             </View>
+            {filterPopoverPosition.placement !== 'center' ? (
+              <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
+            ) : null}
           </View>
         </View>
       </Modal>
 
-      <Modal transparent visible={showDistanceSheet} animationType="slide" onRequestClose={() => setShowDistanceSheet(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+      <Modal transparent visible={activeFilterPopover === 'distance'} animationType="fade" onRequestClose={() => setActiveFilterPopover(null)}>
+        <View style={styles.filterPopoverBackdrop}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close distance filter" onPress={() => setActiveFilterPopover(null)} style={StyleSheet.absoluteFill} />
+          <View style={[styles.filterPopoverCard, { left: filterPopoverPosition.left, top: filterPopoverPosition.top, width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.modalHeaderRow}>
-              <View style={styles.modalHeaderBadge}>
-                <Feather name="map-pin" size={14} color="#35C72B" />
+              <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
+                <Feather name="map-pin" size={14} color={colors.primary} />
               </View>
               <Text style={[styles.modalTitle, { color: colors.text }]}>Distance</Text>
             </View>
 
+            <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight - 60 }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
             <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Choose range</Text>
             {activityDistanceOptions.map((option) => {
               const active = selectedDistanceRange === option.value;
@@ -1588,12 +1866,12 @@ export default function ActivityScreen() {
                   activeOpacity={0.8}
                   onPress={() => {
                     setSelectedDistanceRange(option.value);
-                    setShowDistanceSheet(false);
+                    setActiveFilterPopover(null);
                   }}
-                  style={[styles.optionRow, { backgroundColor: active ? '#35C72B' : colors.background, borderColor: active ? '#35C72B' : colors.border }]}
+                  style={[styles.optionRow, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
                 >
-                  <Text style={[styles.optionText, { color: active ? '#08110A' : colors.text }]}>{option.label}</Text>
-                  {active && <Feather name="check" size={16} color="#08110A" />}
+                  <Text style={[styles.optionText, { color: active ? colors.primary : colors.text }]}>{option.label}</Text>
+                  {active && <Feather name="check" size={16} color={colors.primary} />}
                 </TouchableOpacity>
               );
             })}
@@ -1601,67 +1879,27 @@ export default function ActivityScreen() {
               activeOpacity={0.85}
               onPress={() => {
                 setSelectedDistanceRange('all');
-                setShowDistanceSheet(false);
+                setActiveFilterPopover(null);
               }}
               style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
             >
               <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
             </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal transparent visible={showSortSheet} animationType="slide" onRequestClose={() => setShowSortSheet(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-            <View style={styles.modalHeaderRow}>
-              <View style={styles.modalHeaderBadge}>
-                <Feather name="bar-chart-2" size={14} color="#35C72B" />
-              </View>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Sort by</Text>
-            </View>
-
-            <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Choose order</Text>
-            {activitySortOptions.map((option) => {
-              const active = sortBy === option.value;
-              return (
-                <TouchableOpacity
-                  key={option.value}
-                  activeOpacity={0.8}
-                  onPress={() => {
-                    setSortBy(option.value);
-                    setShowSortSheet(false);
-                  }}
-                  style={[styles.optionRow, { backgroundColor: active ? '#35C72B' : colors.background, borderColor: active ? '#35C72B' : colors.border }]}
-                >
-                  <Text style={[styles.optionText, { color: active ? '#08110A' : colors.text }]}>{option.label}</Text>
-                  {active && <Feather name="check" size={16} color="#08110A" />}
-                </TouchableOpacity>
-              );
-            })}
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => {
-                setSortBy('newest');
-                setShowSortSheet(false);
-              }}
-              style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
-            >
-              <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
-            </TouchableOpacity>
+            </ScrollView>
+            {filterPopoverPosition.placement !== 'center' ? (
+              <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
+            ) : null}
           </View>
         </View>
       </Modal>
 
       {showNativeDatePicker && (
-        <DateTimePicker
+        <ThemedCalendarPicker
+          title={selectedDateRange === 'single' ? 'Select activity date' : `Select ${datePickerTarget} date`}
           value={datePickerTarget === 'start' ? (selectedDateRange === 'range' ? rangeStartDate ?? new Date() : selectedDayDate ?? new Date()) : (selectedDateRange === 'range' ? rangeEndDate ?? new Date() : selectedDayDate ?? new Date())}
-          mode="date"
-          display="spinner"
-          onChange={(_, selectedDate) => {
+          onCancel={() => setShowNativeDatePicker(false)}
+          onConfirm={(selectedDate) => {
             setShowNativeDatePicker(false);
-            if (!selectedDate) return;
-
             if (selectedDateRange === 'single') {
               setSelectedDayDate(selectedDate);
               setSelectedDateRange('single');
@@ -1679,8 +1917,6 @@ export default function ActivityScreen() {
               }
               setSelectedDateRange('range');
             }
-
-            setShowDatePicker(true);
           }}
         />
       )}
@@ -1713,7 +1949,7 @@ export default function ActivityScreen() {
           ListFooterComponent={loadingMore
             ? (
               <View style={styles.footerLoaderPill}>
-                <ActivityIndicator color="#35C72B" size="small" />
+                <RunningLoader size={20} fillColor="#35C72B" />
                 <Text style={styles.footerCountText}>{footerCountText}</Text>
               </View>
             )
@@ -1782,7 +2018,7 @@ export default function ActivityScreen() {
                   </Animated.View>
                 )
                 : isDeletingActivities
-                ? <ActivityIndicator size="small" color="#FFFFFF" />
+                ? <RunningLoader size={20} fillColor="#FFFFFF" />
                 : <Feather name="trash-2" size={23} color="#FFFFFF" />}
               <Text style={styles.deleteButtonText}>
                 {deleteSuccess
@@ -1799,6 +2035,56 @@ export default function ActivityScreen() {
           <Text style={styles.toastText}>{selectionToast}</Text>
         </View>
       )}
+      <Modal
+        visible={pendingSaveActivity !== null}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => {
+          if (!pendingSaveActivity || savingActivityIds.has(String(pendingSaveActivity.id))) return;
+          setPendingSaveActivity(null);
+        }}
+      >
+        <View style={[styles.saveRouteBackdrop, { backgroundColor: colors.overlay }]}>
+          <View style={[styles.saveRouteDialog, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={[styles.saveRouteIcon, { backgroundColor: colors.selected }]}>
+              <Feather name="map" size={18} color={colors.primary} />
+            </View>
+            <Text style={[styles.saveRouteTitle, { color: colors.text }]}>Save route to My Routes?</Text>
+            <Text style={[styles.saveRouteMessage, { color: colors.textSecondary }]}>
+              Private keeps the route visible only to you. Public lets other signed-in Zy-Run users view it.
+            </Text>
+            <TouchableOpacity
+              accessibilityRole="button"
+              disabled={pendingSaveActivity === null || savingActivityIds.has(String(pendingSaveActivity?.id))}
+              onPress={() => pendingSaveActivity && void saveActivityRoute(pendingSaveActivity, false)}
+              style={[styles.saveVisibilityButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
+            >
+              {pendingSaveActivity && savingActivityIds.has(String(pendingSaveActivity.id))
+                ? <RunningLoader size={16} fillColor={colors.text} />
+                : <Feather name="lock" size={16} color={colors.text} />}
+              <Text style={[styles.saveVisibilityText, { color: colors.text }]}>Save Privately</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              disabled={pendingSaveActivity === null || savingActivityIds.has(String(pendingSaveActivity?.id))}
+              onPress={() => pendingSaveActivity && void saveActivityRoute(pendingSaveActivity, true)}
+              style={[styles.saveVisibilityButton, { backgroundColor: colors.selected, borderColor: colors.primary }]}
+            >
+              <Feather name="globe" size={16} color={colors.primary} />
+              <Text style={[styles.saveVisibilityText, { color: colors.primary }]}>Save Publicly</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              disabled={pendingSaveActivity !== null && savingActivityIds.has(String(pendingSaveActivity.id))}
+              onPress={() => setPendingSaveActivity(null)}
+              style={styles.saveRouteCancel}
+            >
+              <Text style={[styles.saveRouteCancelText, { color: colors.textSecondary }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
       </View>
     </SafeAreaView>
     </GestureHandlerRootView>
@@ -1831,11 +2117,18 @@ const styles = StyleSheet.create({
   activeFilterBadgeText: { color: '#D9F9DB', fontSize: 11, fontWeight: '700' },
   activeFilterPill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 5 },
   activeFilterPillText: { fontSize: 11, fontWeight: '600' },
-  filterRowBar: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: 8, paddingRight: 2, marginBottom: 10 },
+  filterRowBar: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: 8, marginBottom: 10 },
   filterBarButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, minHeight: 42 },
+  filterPopoverBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.12)' },
+  filterPopoverCard: { position: 'absolute', borderWidth: 1, borderRadius: 16, padding: 14, overflow: 'visible', elevation: 18, shadowColor: '#000000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.24, shadowRadius: 18 },
+  filterPopoverScroll: { flexGrow: 0, flexShrink: 1 },
+  filterPopoverScrollContent: { flexGrow: 0 },
+  filterPopoverCaret: { position: 'absolute', width: 14, height: 14, zIndex: 2, transform: [{ rotate: '45deg' }] },
+  filterPopoverCaretAbove: { bottom: -6 },
+  filterPopoverCaretBelow: { top: -6 },
   filterBarText: { fontSize: 12, fontWeight: '600' },
-  compactFilterButton: { flexShrink: 0, justifyContent: 'center', gap: 6, paddingHorizontal: 10 },
-  compactFilterText: { flexShrink: 0, fontSize: 12 },
+  compactFilterButton: { flex: 1, minWidth: 0, justifyContent: 'center', gap: 6, paddingHorizontal: 8 },
+  compactFilterText: { flexShrink: 1, minWidth: 0, fontSize: 12 },
   resetButton: { alignSelf: 'flex-start', marginBottom: 12, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, backgroundColor: '#23372A' },
   resetButtonText: { color: '#EF4444', fontSize: 12, fontWeight: '700' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.42)', justifyContent: 'flex-end' },
@@ -1850,6 +2143,13 @@ const styles = StyleSheet.create({
   segmentedRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   segmentedButton: { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 10, alignItems: 'center' },
   segmentedButtonText: { fontSize: 13, fontWeight: '700' },
+  monthPicker: { marginBottom: 14 },
+  monthYearRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 10 },
+  monthYearButton: { width: 34, height: 34, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  monthYearText: { minWidth: 56, textAlign: 'center', fontSize: 14, fontWeight: '700' },
+  monthGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  monthOption: { flexBasis: '22%', flexGrow: 1, minWidth: 48, borderWidth: 1, borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
+  monthOptionText: { fontSize: 12, fontWeight: '600' },
   customDateRow: { marginBottom: 14 },
   customDateButton: { borderWidth: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
   customDateButtonText: { fontSize: 13, fontWeight: '700' },
@@ -1874,26 +2174,41 @@ const styles = StyleSheet.create({
   dayCount: { fontSize: 11, fontWeight: '600' },
   toast: { position: 'absolute', alignSelf: 'center', bottom: 178, maxWidth: '90%', paddingHorizontal: 16, paddingVertical: 11, borderRadius: 22, backgroundColor: '#252A27', borderWidth: 1, borderColor: '#3C4B3F' },
   toastText: { color: '#F7F7F7', fontSize: 13, fontWeight: '600', textAlign: 'center' },
-  card: { height: 150, backgroundColor: '#242627', borderRadius: 25, paddingVertical: 14, paddingHorizontal: 15, marginBottom: 5, borderWidth: 1, borderColor: '#393C3E', overflow: 'hidden' },
+  card: { minHeight: 150, backgroundColor: '#242627', borderRadius: 25, paddingVertical: 14, paddingHorizontal: 15, marginBottom: 5, borderWidth: 1, borderColor: '#393C3E' },
   longPressProgressTrack: { position: 'absolute', top: 0, left: 0, height: 3, backgroundColor: '#35C72B', borderTopLeftRadius: 25, borderTopRightRadius: 3 },
   deleteTray: { position: 'absolute', left: 22, right: 22, bottom: 96, zIndex: 20, alignItems: 'center' },
   deleteButton: { minWidth: 190, minHeight: 58, borderRadius: 29, backgroundColor: '#E53935', borderWidth: 2, borderColor: '#E53935', elevation: 10, shadowColor: '#E53935', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.25, shadowRadius: 10 },
   deleteButtonAction: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 22, borderRadius: 27 },
   deleteButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-  cardContent: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden' },
+  cardContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  cardContentWithMenu: { paddingRight: 34 },
+  mapThumbnailWithMenu: { width: '29%' },
+  routeMenuButton: { position: 'absolute', right: 6, top: '50%', marginTop: -18, width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center', zIndex: 3 },
+  routeMenuButtonDisabled: { opacity: 0.5 },
+  routeSavedStatus: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 10, paddingTop: 9, borderTopWidth: StyleSheet.hairlineWidth },
+  routeSavedText: { fontSize: 12, fontWeight: '600' },
+  saveRouteBackdrop: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28 },
+  saveRouteDialog: { width: '100%', maxWidth: 360, borderWidth: 1, borderRadius: 24, padding: 18 },
+  saveRouteIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  saveRouteTitle: { fontSize: 17, fontWeight: '800' },
+  saveRouteMessage: { fontSize: 13, lineHeight: 18, marginTop: 6, marginBottom: 12 },
+  saveVisibilityButton: { minHeight: 46, borderRadius: 23, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 8 },
+  saveVisibilityText: { fontSize: 14, fontWeight: '700' },
+  saveRouteCancel: { minHeight: 38, alignItems: 'center', justifyContent: 'center', marginTop: 5 },
+  saveRouteCancelText: { fontSize: 13, fontWeight: '600' },
   cardCheckbox: { position: 'absolute', top: 7, right: 7, width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 2, zIndex: 2 },
   cardDetails: { flex: 1.05, minWidth: 0, paddingRight: 8 },
   activityType: { color: '#F7F7F7', fontSize: 18, lineHeight: 22, fontWeight: '800' },
   activityDate: { color: '#A9ADAF', fontSize: 12, lineHeight: 15, marginTop: 2 },
   distance: { color: '#35C72B', fontSize: 24, lineHeight: 28, fontWeight: '900', marginTop: 4 },
-  centerMetricsContainer: { flex: 0.95, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
-  metricRow: { width: 88, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', marginVertical: 3 },
+  centerMetricsContainer: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  metricRow: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', marginVertical: 3 },
   metricIcon: { width: 20, alignItems: 'center' },
-  metricText: { alignItems: 'flex-start', marginLeft: 4, minWidth: 0 },
+  metricText: { flex: 1, alignItems: 'flex-start', marginLeft: 4, minWidth: 0 },
   metricValue: { color: '#F7F7F7', fontSize: 12, lineHeight: 15, fontWeight: '900' },
   metricLabel: { color: '#A9ADAF', fontSize: 10, lineHeight: 12, marginTop: 1,width: '100%' },
-  mapThumbnailContainer: { position: 'relative', width: 132, height: 120, marginLeft: 10, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E5E7EB' },
-  mapThumbnailImage: { width: '100%', height: '100%' },
+  mapThumbnailContainer: { position: 'relative', width: '34%', aspectRatio: 1, minWidth: 0, marginLeft: 8, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E5E7EB' },
+  mapThumbnailImage: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
   mapPreviewPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E5E7EB' },
   mapOverlayTop: { position: 'absolute', top: 8, left: 8, right: 8, flexDirection: 'row', justifyContent: 'flex-start' },
   mapBadge: { backgroundColor: 'rgba(11, 14, 15, 0.58)', borderRadius: 999, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 8, paddingVertical: 4 },
@@ -1906,12 +2221,12 @@ const styles = StyleSheet.create({
   footerCountText: { color: '#D9F9DB', fontSize: 12, fontWeight: '700', letterSpacing: 0.2 },
   endMessage: { color: '#A9ADAF', textAlign: 'center', fontSize: 13, paddingVertical: 18 },
   skeletonList: { paddingTop: 4 },
-  skeletonCard: { height: 150, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden', backgroundColor: '#171A1A', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 12, borderWidth: 1, borderColor: '#243C2B' },
-  skeletonMain: { width: '70%', paddingRight: 6 },
+  skeletonCard: { minHeight: 150, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#171A1A', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 12, borderWidth: 1, borderColor: '#243C2B' },
+  skeletonMain: { flex: 1, minWidth: 0, paddingRight: 6 },
   skeletonShort: { width: '55%', height: 12, borderRadius: 5, backgroundColor: '#294A32' },
   skeletonTiny: { width: '35%', height: 8, borderRadius: 4, backgroundColor: '#26352A', marginTop: 4 },
   skeletonDistance: { width: '48%', height: 18, borderRadius: 6, backgroundColor: '#245C32', marginTop: 7 },
   skeletonMetrics: { width: '78%', height: 24, borderRadius: 7, backgroundColor: '#202A22', marginTop: 7 },
-  skeletonMap: { width: 105, height: 105, borderRadius: 18, overflow: 'hidden', backgroundColor: '#202A22' },
+  skeletonMap: { width: '34%', aspectRatio: 1, minWidth: 0, borderRadius: 18, overflow: 'hidden', backgroundColor: '#202A22' },
   empty: { color: '#A9ADAF', textAlign: 'center', fontSize: 16, marginTop: 40 },
 });

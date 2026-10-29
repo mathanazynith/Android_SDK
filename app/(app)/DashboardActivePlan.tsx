@@ -2,13 +2,20 @@ import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../../constants/theme';
-import type { CurrentWorkout } from '../../service/workoutPlan';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
+import type { CurrentWorkout } from '../../service/workoutPlan';
 
 type DashboardActivePlanProps = {
   todayWorkout: CurrentWorkout | null;
   nextWorkout: CurrentWorkout | null;
 };
+
+const popularWorkouts = [
+  { title: '30 MIN', subtitle: 'Easy Run', icon: 'activity' as const },
+  { title: '70 MIN', subtitle: 'Long Run', icon: 'clock' as const },
+  { title: '10 x 400m', subtitle: 'Interval Run', icon: 'target' as const },
+  { title: '20 MIN', subtitle: 'Tempo Run', icon: 'trending-up' as const },
+];
 
 const detailsFor = (workout: CurrentWorkout | null) => {
   if (!workout) return '';
@@ -29,11 +36,47 @@ export default function DashboardActivePlan({ todayWorkout, nextWorkout }: Dashb
     ? [nextWorkout.title, detailsFor(nextWorkout), nextWorkout.notes].filter(Boolean).join('\n')
     : 'No upcoming workout is available.';
 
+  const handleStartTodayWorkout = () => {
+    if (isRestDay || !todayWorkout) {
+      router.push('/(app)/screens/map');
+      return;
+    }
+
+    router.push({
+      pathname: '/(app)/workout-setup',
+      params: {
+        workoutTitle: todayWorkout.title || 'Today\'s Workout',
+        workoutType: todayWorkout.workout_type,
+        targetPace: todayWorkout.target_pace || undefined,
+        duration: todayWorkout.duration ? String(Math.round(todayWorkout.duration / 60)) : undefined,
+        distance: todayWorkout.distance ? String(todayWorkout.distance) : undefined,
+        planSegments: todayWorkout.segments?.length ? JSON.stringify(todayWorkout.segments) : undefined,
+        workoutDbId: todayWorkout.id ? String(todayWorkout.id) : undefined,
+      },
+    });
+  };
+
+  const openPopularWorkoutSetup = (workout: typeof popularWorkouts[0]) => {
+    let presetId = 'preset-easy-run-30';
+    if (workout.subtitle === 'Interval Run') presetId = 'preset-interval-10x400';
+    if (workout.subtitle === 'Long Run') presetId = 'preset-long-run-70';
+    if (workout.subtitle === 'Easy Run') presetId = 'preset-easy-run-30';
+    if (workout.subtitle === 'Tempo Run') presetId = 'preset-tempo-run-20';
+
+    router.push({
+      pathname: '/(app)/workout-setup',
+      params: {
+        presetId,
+        workoutTitle: `${workout.title} ${workout.subtitle}`,
+      },
+    });
+  };
+
   return (
     <>
       <TouchableOpacity
         activeOpacity={0.9}
-        onPress={() => router.push({ pathname: '/(app)/screens/map', params: { workoutTitle: todayWorkout?.title || 'Current Workout' } })}
+        onPress={handleStartTodayWorkout}
         style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
       >
         <View style={styles.heading}>
@@ -43,7 +86,9 @@ export default function DashboardActivePlan({ todayWorkout, nextWorkout }: Dashb
         <Text style={[styles.description, { color: colors.text }]}>{todayDescription}</Text>
         <View style={[styles.button, { backgroundColor: BRAND_GREEN }]}>
           <Feather name="activity" size={21} color="#081009" />
-          <Text style={styles.buttonText}>Record Workout</Text>
+          <Text style={styles.buttonText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+            {isRestDay ? 'Rest Day' : 'Record Workout'}
+          </Text>
         </View>
       </TouchableOpacity>
 
@@ -62,12 +107,21 @@ export default function DashboardActivePlan({ todayWorkout, nextWorkout }: Dashb
         <Text style={[styles.description, { color: colors.text }]}>{nextDescription}</Text>
       </TouchableOpacity>
 
-      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <View style={styles.heading}>
-          <Feather name="flag" size={25} color={BRAND_GREEN} />
-          <Text style={[styles.title, { color: colors.text }]}>TARGET (RACE)</Text>
-        </View>
-        <Text style={[styles.emptyTarget, { color: colors.textSecondary }]}>No target or race information is available.</Text>
+      {/* POPULAR WORKOUTS ROW FOR TRAINING PLAN USERS */}
+      <Text style={[styles.sectionTitle, { color: colors.text }]}>POPULAR WORKOUTS</Text>
+      <View style={styles.workoutRow}>
+        {popularWorkouts.map((workout) => (
+          <TouchableOpacity
+            key={workout.subtitle}
+            style={[styles.workoutCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            onPress={() => openPopularWorkoutSetup(workout)}
+          >
+            <Feather name={workout.icon} size={30} color={BRAND_GREEN} />
+            <Text style={[styles.workoutTitle, { color: colors.text }]}>{workout.title}</Text>
+            <Text style={[styles.workoutSubtitle, { color: colors.textSecondary }]}>{workout.subtitle}</Text>
+            <View style={styles.exploreButton}><Text style={styles.exploreText}>EXPLORE</Text></View>
+          </TouchableOpacity>
+        ))}
       </View>
     </>
   );
@@ -78,7 +132,13 @@ const styles = StyleSheet.create({
   heading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   title: { flex: 1, color: '#F2F2F2', fontSize: 20, fontWeight: '800' },
   description: { color: '#E0E2E1', fontSize: 17, lineHeight: 24, marginVertical: 15 },
-  button: { minHeight: 51, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, borderRadius: 18, backgroundColor: Colors.primary },
-  buttonText: { color: '#081009', fontSize: 17, fontWeight: '800' },
-  emptyTarget: { color: '#AEB0B2', fontSize: 16, marginTop: 15 },
+  button: { width: '100%', alignSelf: 'center', minHeight: 51, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, borderRadius: 18, backgroundColor: Colors.primary },
+  buttonText: { flexShrink: 1, color: '#081009', fontSize: 17, fontWeight: '800' },
+  sectionTitle: { color: '#F2F2F2', fontSize: 21, fontWeight: '800', marginBottom: 12, marginTop: 6 },
+  workoutRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10, marginBottom: 14 },
+  workoutCard: { width: '48.5%', minHeight: 122, padding: 13, borderRadius: 22, backgroundColor: '#242627', borderWidth: 1.25, borderColor: '#65686A' },
+  workoutTitle: { color: '#F7F7F7', fontSize: 17, fontWeight: '800', marginTop: 12 },
+  workoutSubtitle: { color: '#E0E2E1', fontSize: 15, marginTop: 3 },
+  exploreButton: { display: 'none' },
+  exploreText: { color: '#DFF7E3', fontSize: 13, fontWeight: '800' },
 });

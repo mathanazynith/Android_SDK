@@ -9,6 +9,7 @@ import { activityTimingOverrides } from './activityTimingOverrides';
 export interface BackendGpsPoint {
   latitude: number;
   longitude: number;
+  accuracy?: number | null;
   timestamp?: string;
   is_extra_distance?: boolean;
   is_paused?: boolean;
@@ -282,14 +283,25 @@ export interface BackendActivity {
   pause_events?: BackendPauseEvent[];
   pauses?: BackendPauseEvent[];
   processing_status: string;
-  is_processed: boolean;
+  is_processed?: boolean;
+  is_saved_to_my_routes?: boolean;
+  saved_route_id?: number | null;
+  saved_route_is_public?: boolean;
   segments?: ActivitySegmentSplits[];
   extra?: ActivityExtraSplits | null;
+}
+
+export interface SavedRunRouteVisibility {
+  id: number;
+  is_public: boolean;
 }
 
 const ACTIVITY_HISTORY_PATH = (
   process.env.EXPO_PUBLIC_ACTIVITY_HISTORY_PATH || '/rundata/activities/'
 ).trim();
+const RUN_ROUTES_PATH = (
+  process.env.EXPO_PUBLIC_RUN_ROUTES_PATH || '/rundata/run-routes/'
+).replace(/\/+$/, '');
 const ACTIVITY_HISTORY_CACHE_KEY = 'activity_history_first_page_v3';
 
 export interface ActivityHistoryPage {
@@ -512,6 +524,8 @@ const toCachedActivity = (activity: BackendActivity): BackendActivity => ({
   route_generated: activity.route_generated,
   processing_status: activity.processing_status,
   is_processed: activity.is_processed,
+  is_saved_to_my_routes: activity.is_saved_to_my_routes,
+  saved_route_id: activity.saved_route_id,
 });
 
 export const activityAPI = {
@@ -521,7 +535,7 @@ export const activityAPI = {
         limit,
         ...(cursor ? { cursor, last_id: cursor } : {}),
         // Route geometry is fetched only for an individual activity, never in the list payload.
-        fields: 'id,activity_type,distance,moving_time,elapsed_time,start_time,end_time,avg_pace,processing_status,is_processed,thumbnail_url',
+        fields: 'id,activity_type,distance,moving_time,elapsed_time,start_time,end_time,avg_pace,processing_status,is_processed,thumbnail_url,is_saved_to_my_routes,saved_route_id',
       },
     });
     if (__DEV__ && cursor === null) {
@@ -557,6 +571,15 @@ export const activityAPI = {
     const response = await api.get(getActivityDetailPath(activityId));
     const payload = response.data?.data ?? response.data;
     return applySdkDistance(normalizeActivity(payload as BackendActivity));
+  },
+
+  async saveRoute(activityId: BackendActivity['id']): Promise<{ routeId: number | null }> {
+    const response = await api.post(`${getActivityDetailPath(activityId)}save-route/`, {});
+    await storage.removeItem(ACTIVITY_HISTORY_CACHE_KEY).catch(() => undefined);
+    const payload = response.data?.data ?? response.data;
+    const savedRoute = payload?.route ?? payload?.run_route ?? payload;
+    const routeId = Number(savedRoute?.id ?? savedRoute?.run_route_id ?? savedRoute?.route_id ?? savedRoute?.saved_route_id);
+    return { routeId: Number.isInteger(routeId) && routeId > 0 ? routeId : null };
   },
 
   async delete(activityId: BackendActivity['id']): Promise<string> {
@@ -679,6 +702,20 @@ export const activityAPI = {
       );
     }
     return result as CropActivityResult;
+  },
+
+};
+
+export const runRouteAPI = {
+  async get(routeId: number): Promise<SavedRunRouteVisibility> {
+    const response = await api.get(`${RUN_ROUTES_PATH}/${encodeURIComponent(String(routeId))}/`);
+    return (response.data?.data ?? response.data) as SavedRunRouteVisibility;
+  },
+
+  async setVisibility(routeId: number, isPublic: boolean): Promise<void> {
+    await api.patch(`${RUN_ROUTES_PATH}/${encodeURIComponent(String(routeId))}/visibility/`, {
+      is_public: isPublic,
+    });
   },
 
 };

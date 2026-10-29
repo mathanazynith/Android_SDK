@@ -34,6 +34,7 @@ interface DistanceTimePaceSelectorProps {
   paceLabel?: string;
   pacePlaceholder?: string;
   showHeader?: boolean;
+  showDistanceSelector?: boolean;
   showTimeInput?: boolean;
   showPace?: boolean;
   maxDistanceKm?: number | null;
@@ -93,6 +94,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
   paceLabel = "Estimated pace",
   pacePlaceholder = "Enter distance and time to calculate pace",
   showHeader = true,
+  showDistanceSelector = true,
   showTimeInput = true,
   showPace = true,
   maxDistanceKm,
@@ -262,7 +264,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
         </View>
       ) : null}
 
-      <RunTypeSelector
+      {showDistanceSelector ? <RunTypeSelector
         label={distanceLabel}
         options={distanceOptions.map((option) => ({
           id: option.id,
@@ -272,10 +274,10 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
         }))}
         selectedValue={selectedValue}
         onSelect={handleOptionSelect}
-      />
+      /> : null}
 
       <View style={styles.customSection}>
-        {isCustomSelected ? (
+        {showDistanceSelector && isCustomSelected ? (
           <DistanceInput
             label={customDistanceLabel}
             value={customValues?.[distanceField] || ""}
@@ -290,6 +292,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
           <ScrollTimePicker
             label={timeLabel}
             value={customValues?.[timeField]}
+            allowEmpty={!selectedTimeValue}
             hint={undefined}
             onChange={(value) => onCustomChange?.(timeField, value)}
             maxHours={99}

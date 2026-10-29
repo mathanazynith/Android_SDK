@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-    Dimensions,
     GestureResponderEvent,
     PanResponder,
     StyleSheet,
@@ -32,11 +31,13 @@ export const CustomSlider: React.FC<CustomSliderProps> = ({
 }) => {
   const TRACK_HEIGHT = 4;
   const THUMB_RADIUS = 12;
-  const TRACK_WIDTH = Dimensions.get('window').width - 64; // Account for padding
+  const [trackWidth, setTrackWidth] = React.useState(0);
+  const TRACK_WIDTH = trackWidth;
 
   const range = maximumValue - minimumValue;
-  const normalizedValue = (value - minimumValue) / range;
-  const thumbPosition = normalizedValue * (TRACK_WIDTH - 2 * THUMB_RADIUS);
+  const normalizedValue = range > 0 ? (value - minimumValue) / range : 0;
+  const thumbTravelWidth = Math.max(0, TRACK_WIDTH - 2 * THUMB_RADIUS);
+  const thumbPosition = normalizedValue * thumbTravelWidth;
 
   const panResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
@@ -50,8 +51,9 @@ export const CustomSlider: React.FC<CustomSliderProps> = ({
   });
 
   const handleSliderMove = (xPosition: number) => {
-    let newPosition = Math.max(THUMB_RADIUS, Math.min(xPosition, TRACK_WIDTH - THUMB_RADIUS));
-    let normalizedPosition = (newPosition - THUMB_RADIUS) / (TRACK_WIDTH - 2 * THUMB_RADIUS);
+    if (thumbTravelWidth === 0 || range <= 0) return;
+    const newPosition = Math.max(THUMB_RADIUS, Math.min(xPosition, TRACK_WIDTH - THUMB_RADIUS));
+    const normalizedPosition = (newPosition - THUMB_RADIUS) / thumbTravelWidth;
     let newValue = minimumValue + normalizedPosition * range;
 
     // Apply step
@@ -68,10 +70,10 @@ export const CustomSlider: React.FC<CustomSliderProps> = ({
           styles.track,
           {
             height: TRACK_HEIGHT,
-            width: TRACK_WIDTH,
             backgroundColor: maximumTrackTintColor,
           },
         ]}
+          onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}
         {...panResponder.panHandlers}
       >
         {/* Filled track */}
@@ -113,6 +115,7 @@ const styles = StyleSheet.create({
     height: 40,
   },
   track: {
+    width: '100%',
     position: 'relative',
     borderRadius: 2,
   },

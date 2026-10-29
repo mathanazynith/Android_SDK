@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Easing, FlatList, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Animated, Easing, FlatList, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
-import { useTheme } from '../../../contexts/ThemeContext';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { RunningLoader } from '../../../components/common/RunningLoader';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { useAuth } from '../../../service/auth';
 import { workoutPlanService, type CurrentWorkout, type UserWorkoutResponse } from '../../../service/workoutPlan';
 import {
@@ -299,10 +300,19 @@ export default function CalendarScreen() {
     if (boundedIndex !== selectedWeekIndex) setSelectedWeekIndex(boundedIndex);
   };
 
-  if (isWorkoutPlanLoading && !plan) return <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}><StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} /><View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /><Text style={[styles.message, { color: colors.textSecondary }]}>Loading your training plan...</Text></View></SafeAreaView>;
-  if (!plan) return <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}><StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} /><View style={styles.center}><Text style={[styles.error, { color: colors.text }]}>{workoutPlanError || 'No training plan is available.'}</Text><TouchableOpacity onPress={() => fetchWorkoutPlan(true)} style={[styles.retry, { backgroundColor: colors.primary }]}><Text style={[styles.retryText, { color: colors.primaryText }]}>Retry</Text></TouchableOpacity></View></SafeAreaView>;
+  if (isWorkoutPlanLoading && !plan) {
+    return (
+      <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
+        <View style={styles.center}>
+          <RunningLoader size={64} label="Loading your training plan..." />
+        </View>
+      </SafeAreaView>
+    );
+  }
+  if (!plan) return <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}><StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} /><View style={styles.center}><Text style={[styles.error, { color: colors.text }]}>{workoutPlanError || 'No training plan is available.'}</Text><TouchableOpacity onPress={() => fetchWorkoutPlan(true)} style={[styles.retry, { backgroundColor: colors.primary }]}><Text style={[styles.retryText, { color: colors.primaryText }]}>Retry</Text></TouchableOpacity></View></SafeAreaView>;
 
-  return <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}><StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} /><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+  return <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}><StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} /><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
     <RunningPlanHeader planName={plan.name} focusLabel={plan.focus} userName={userName} />
     <Animated.View style={{ opacity: weekHeaderOpacity, transform: [{ translateY: weekHeaderTranslateY }] }}>
       <TrainingCalendarCard weekLabel={selectedWeek?.label ?? ''} rangeLabel={selectedWeek?.dateRange ?? ''} statusText={selectedWeek?.statusText ?? ''} totalWeeks={plan.totalWeeks} currentWeekIndex={selectedWeekIndex + 1} onPrevious={() => changeWeek(-1)} onNext={() => changeWeek(1)} previousDisabled={selectedWeekIndex <= 0} nextDisabled={selectedWeekIndex >= plan.weeks.length - 1} />

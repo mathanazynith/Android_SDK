@@ -1,12 +1,14 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
+const secureStoreKey = (key: string) => key.replace(/[^a-zA-Z0-9._-]/g, "_");
+
 export const storage = {
   async getItem(key: string) {
     if (Platform.OS === "web") {
       return localStorage.getItem(key);
     }
-    return SecureStore.getItemAsync(key);
+    return SecureStore.getItemAsync(secureStoreKey(key));
   },
 
   async setItem(key: string, value: string) {
@@ -14,7 +16,7 @@ export const storage = {
       localStorage.setItem(key, value);
       return;
     }
-    return SecureStore.setItemAsync(key, value);
+    return SecureStore.setItemAsync(secureStoreKey(key), value);
   },
 
   async removeItem(key: string) {
@@ -22,7 +24,7 @@ export const storage = {
       localStorage.removeItem(key);
       return;
     }
-    return SecureStore.deleteItemAsync(key);
+    return SecureStore.deleteItemAsync(secureStoreKey(key));
   },
 
   // Storage Keys

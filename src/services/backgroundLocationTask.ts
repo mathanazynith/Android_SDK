@@ -6,7 +6,7 @@ import * as TaskManager from 'expo-task-manager';
 import { AppState } from 'react-native';
 import { ActivityPauseEventPayload, RawGpsPayload } from '../types/running';
 import { calculateDistanceMeters } from '../utils/distance';
-import { appendActiveRunPoints, readActiveRunJournal } from './activeRunJournal';
+import { appendActiveRunPoints, appendPausedRunPoints, readActiveRunJournal } from './activeRunJournal';
 import { updateLiveTrackingNotification, WORKOUT_FOREGROUND_NOTIFICATION_ID } from './liveTrackingNotification';
 
 export const BACKGROUND_LOCATION_TASK_NAME = 'zyrun-background-location-task';
@@ -15,10 +15,12 @@ const BACKGROUND_LOCATION_SESSION_URI = `${FileSystem.documentDirectory ?? ''}zy
 const secureStoreKey = (rawKey: string): string => rawKey.replace(/[^a-zA-Z0-9._-]/g, '_');
 const SAFE_BACKGROUND_LOCATION_SESSION_KEY = secureStoreKey(BACKGROUND_LOCATION_SESSION_KEY);
 let sessionWriteChain: Promise<void> = Promise.resolve();
+let backgroundTaskChain: Promise<void> = Promise.resolve();
 
 export interface BackgroundLocationSessionState {
   active: boolean;
   paused?: boolean;
+  autoPaused?: boolean;
   confirmationPromptVisible?: boolean;
   runId?: string | null;
   userId?: string | null;
@@ -33,7 +35,9 @@ export interface BackgroundLocationSessionState {
 }
 
 declare global {
-  var __ZYRUN_BACKGROUND_LOCATION_LISTENER__: ((payload: RawGpsPayload) => void) | undefined;
+  var __ZYRUN_BACKGROUND_LOCATION_LISTENER__: (
+    (payload: RawGpsPayload, paused?: boolean, fromDurableJournal?: boolean) => void
+  ) | undefined;
 }
 
 const readSessionState = async (): Promise<BackgroundLocationSessionState | null> => {
@@ -89,7 +93,7 @@ export const clearBackgroundLocationSession = async (): Promise<void> => {
 };
 
 export const setBackgroundLocationListener = (
-  listener?: (payload: RawGpsPayload) => void
+  listener?: (payload: RawGpsPayload, paused?: boolean, fromDurableJournal?: boolean) => void
 ): void => {
   globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__ = listener;
 };
@@ -104,74 +108,90 @@ const hydrateLocationPayload = (location: Location.LocationObject): RawGpsPayloa
   timestamp: location.timestamp,
 });
 
-TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, async ({ data, error }) => {
-  if (error) {
-    console.warn('[BackgroundLocationTask] Task error', error.message);
-    return;
-  }
+export const flushBackgroundLocationTask = (): Promise<void> => backgroundTaskChain;
 
-  const locations = (data as { locations?: Location.LocationObject[] } | undefined)?.locations ?? [];
-  if (!locations.length) return;
+TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, ({ data, error }) => {
+  backgroundTaskChain = backgroundTaskChain
+    .catch((previousError) => {
+      console.warn('[BackgroundLocationTask] Previous task batch failed', previousError);
+    })
+    .then(async () => {
+      if (error) {
+        console.warn('[BackgroundLocationTask] Task error', error.message);
+        return;
+      }
 
-  const payloads = locations
-    .map(hydrateLocationPayload)
-    .sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
-  const payload = payloads[payloads.length - 1];
-  const previous = await readSessionState();
-  if (!previous?.active || previous.paused) return;
+      const locations = (data as { locations?: Location.LocationObject[] } | undefined)?.locations ?? [];
+      if (!locations.length) return;
 
-  const nextState: BackgroundLocationSessionState = {
-    active: true,
-    paused: false,
-    runId: previous?.runId ?? null,
-    userId: previous?.userId ?? null,
-    startedAt: previous?.startedAt ?? null,
-    lastLocation: payload,
-    updatedAt: Date.now(),
-    distanceKm: previous.distanceKm,
-    elapsedSeconds: previous.elapsedSeconds,   
-    paceMinutesPerKm: previous.paceMinutesPerKm,
-    movementConfirmed: previous.movementConfirmed,
-    confirmationPromptVisible: previous.confirmationPromptVisible,
-    pauseEvents: previous.pauseEvents,
-  };
+      const payloads = locations
+        .map(hydrateLocationPayload)
+        .sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+      const payload = payloads[payloads.length - 1];
+      const previous = await readSessionState();
+      if (!previous?.active) return;
+      const paused = Boolean(previous.paused);
 
-  await persistBackgroundLocationSession(nextState);
+      const nextState: BackgroundLocationSessionState = {
+        ...previous,
+        active: true,
+        lastLocation: payload,
+        updatedAt: Date.now(),
+      };
 
-  // Keep the screen-on watchPositionAsync pipeline completely untouched. The
-  // journal remains the durable hand-off when Android delivers a batch during
-  // the active/background transition; duplicate points are ignored by the journal.
-  await appendActiveRunPoints(payloads);
+      await persistBackgroundLocationSession(nextState);
 
-  if (AppState.currentState === 'active') return;
+      if (paused) {
+        await appendPausedRunPoints(payloads, Math.max(1, previous.pauseEvents?.length ?? 1));
+      } else {
+        await appendActiveRunPoints(payloads);
+      }
 
-  const journal = await readActiveRunJournal();
-  const journalDistanceKm = (journal?.points.slice(1).reduce((total, point, index) => (
-    total + calculateDistanceMeters(journal.points[index], point)
-  ), 0) ?? 0) / 1000;
-  const distanceKm = journal?.points.length && journal.points.length > 1
-    ? journalDistanceKm
-    : (previous.distanceKm ?? 0);
-  const elapsedSeconds = previous.elapsedSeconds ?? (previous.startedAt
-    ? Math.max(0, (Date.now() - new Date(previous.startedAt).getTime()) / 1000)
-    : 0);
-  updateLiveTrackingNotification({
-    runId: previous.runId,
-    distanceKm,
-    elapsedSeconds,
-    paceMinutesPerKm: previous.paceMinutesPerKm ?? (distanceKm > 0 ? elapsedSeconds / 60 / distanceKm : 0),
-    status: 'running',
-    startedAt: previous.startedAt,
-  });
-  nextState.distanceKm = distanceKm;
-  nextState.elapsedSeconds = elapsedSeconds;
-  nextState.paceMinutesPerKm = previous.paceMinutesPerKm ?? (distanceKm > 0 ? elapsedSeconds / 60 / distanceKm : 0);
-  await persistBackgroundLocationSession(nextState);
+      const journal = await readActiveRunJournal();
+      if (!paused && (journal?.points.length ?? 0) >= 2) {
+        nextState.movementConfirmed = true;
+      }
 
-  if (typeof globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__ === 'function') {
-    payloads.forEach(globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__);
-  }
+      if (AppState.currentState === 'active') {
+        await persistBackgroundLocationSession(nextState);
+        return;
+      }
 
+      if (paused) {
+        if (typeof globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__ === 'function') {
+          payloads.forEach((point) => globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__?.(point, true, true));
+        }
+        return;
+      }
+
+      const journalDistanceKm = (journal?.points.slice(1).reduce((total, point, index) => (
+        total + calculateDistanceMeters(journal.points[index], point)
+      ), 0) ?? 0) / 1000;
+      const distanceKm = journal?.points.length && journal.points.length > 1
+        ? journalDistanceKm
+        : (previous.distanceKm ?? 0);
+      const elapsedSeconds = previous.elapsedSeconds ?? (previous.startedAt
+        ? Math.max(0, (Date.now() - new Date(previous.startedAt).getTime()) / 1000)
+        : 0);
+      updateLiveTrackingNotification({
+        runId: previous.runId,
+        distanceKm,
+        elapsedSeconds,
+        paceMinutesPerKm: previous.paceMinutesPerKm ?? (distanceKm > 0 ? elapsedSeconds / 60 / distanceKm : 0),
+        status: 'running',
+        startedAt: previous.startedAt,
+      });
+      nextState.distanceKm = distanceKm;
+      nextState.elapsedSeconds = elapsedSeconds;
+      nextState.paceMinutesPerKm = previous.paceMinutesPerKm ?? (distanceKm > 0 ? elapsedSeconds / 60 / distanceKm : 0);
+      await persistBackgroundLocationSession(nextState);
+
+      if (typeof globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__ === 'function') {
+        payloads.forEach((point) => globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__?.(point, false, true));
+      }
+    });
+
+  return backgroundTaskChain;
 });
 
 export const startBackgroundLocationTracking = async (): Promise<void> => {

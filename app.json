@@ -4,17 +4,17 @@
     "slug": "zy-run",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/ZyRunLOGO.png",
+    "icon": "./assets/Zy-Run_Official.png",
     "scheme": "com.zyapp",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/ZyRunLOGO.png"
+      "icon": "./assets/Zy-Run_Official.png"
     },
     "android": {
-      "icon": "./assets/ZyRunLOGO.png",
+      "icon": "./assets/images/zyrun-adaptive-foreground.png",
       "adaptiveIcon": {
-        "backgroundColor": "#FAFAFA",
-        "foregroundImage": "./assets/ZyRunLOGO.png"
+        "backgroundColor": "#090B0A",
+        "foregroundImage": "./assets/images/zyrun-adaptive-foreground.png"
       },
       "permissions": [
         "POST_NOTIFICATIONS",
@@ -26,7 +26,7 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/ZyRunLOGO.png",
+      "favicon": "./assets/Zy-Run_Official.png",
       "bundler": "metro"
     },
     "plugins": [
@@ -34,13 +34,15 @@
       [
         "expo-notifications",
         {
-          "defaultChannel": "zyrun-business-notifications"
+          "defaultChannel": "zyrun-business-notifications",
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#22C55E"
         }
       ],
       [
         "expo-location",
         {
-          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": false,
           "isAndroidForegroundServiceEnabled": true,
           "isAndroidMotionActivityEnabled": true,
           "locationAlwaysAndWhenInUsePermission": "Allow this app to access your location even when the app is in the background to track your run.",
@@ -57,8 +59,8 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#FAFAFA",
-          "image": "./assets/ZyRunLOGO.png",
+          "backgroundColor": "#090B0A",
+          "image": "./assets/Zy-Run_Official.png",
           "imageWidth": 200
         }
       ],

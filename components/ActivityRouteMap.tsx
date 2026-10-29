@@ -1,12 +1,13 @@
 import { Feather } from '@expo/vector-icons';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, StatusBar, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import type { BackendGpsPoint, BackendPauseEvent, BackendPolylineRoute } from '../src/services/activityApi';
-import { buildActivityRouteGroups } from '../src/utils/activityRouteGroups';
-import { createCatmullRomPolyline } from '../src/utils/catmullRom';
+import { getGpsOptimizationConfig } from '../src/services/gpsOptimizationConfig';
+import { RdpSimplifier } from '../src/services/rdpSimplifier';
+import { buildActivityRouteGroups, mergeActivityRouteGroups } from '../src/utils/activityRouteGroups';
 import { decodePolyline } from '../src/utils/polylineDecoder';
 
 export interface ActivityMapStats {
@@ -85,6 +86,47 @@ const formatPace = (secondsPerKm?: number) => {
   return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')} /km`;
 };
 
+const routeSimplifier = new RdpSimplifier();
+const simplifyRouteForDisplay = (points: RouteCoordinate[]) => routeSimplifier.simplifyPreservingTurns(
+  points,
+  getGpsOptimizationConfig().livePolylineJitterToleranceMeters,
+);
+const ROUTE_OVERLAP_TOLERANCE_METERS = 8;
+
+const distanceToRouteMeters = (point: RouteCoordinate, routes: RouteCoordinate[][]) => {
+  const longitudeScale = 111_320 * Math.cos((point.latitude * Math.PI) / 180);
+  let minimumDistance = Number.POSITIVE_INFINITY;
+
+  for (const route of routes) {
+    for (let index = 1; index < route.length; index += 1) {
+      const startX = (route[index - 1].longitude - point.longitude) * longitudeScale;
+      const startY = (route[index - 1].latitude - point.latitude) * 111_320;
+      const endX = (route[index].longitude - point.longitude) * longitudeScale;
+      const endY = (route[index].latitude - point.latitude) * 111_320;
+      const segmentX = endX - startX;
+      const segmentY = endY - startY;
+      const segmentLengthSquared = segmentX * segmentX + segmentY * segmentY;
+      const projection = segmentLengthSquared === 0
+        ? 0
+        : Math.max(0, Math.min(1, -(startX * segmentX + startY * segmentY) / segmentLengthSquared));
+      const distance = Math.hypot(startX + projection * segmentX, startY + projection * segmentY);
+      minimumDistance = Math.min(minimumDistance, distance);
+    }
+  }
+
+  return minimumDistance;
+};
+
+const areRoutesOverlapping = (route: RouteCoordinate[], otherRoutes: RouteCoordinate[][]) => {
+  const validOtherRoutes = otherRoutes.filter((otherRoute) => otherRoute.length >= 2);
+  if (route.length < 2 || validOtherRoutes.length === 0) return false;
+
+  return route.every((point) => distanceToRouteMeters(point, validOtherRoutes) <= ROUTE_OVERLAP_TOLERANCE_METERS)
+    && validOtherRoutes.every((otherRoute) => otherRoute.every(
+      (point) => distanceToRouteMeters(point, [route]) <= ROUTE_OVERLAP_TOLERANCE_METERS,
+    ));
+};
+
 function ActivityRouteMap({
   encodedPolyline,
   plannedEncodedPolyline,
@@ -103,6 +145,8 @@ function ActivityRouteMap({
   onPreviewSnapshot,
 }: ActivityRouteMapProps) {
   const { colors, isDark } = useTheme();
+  const { height: windowHeight } = useWindowDimensions();
+  const detailMapHeight = Math.min(340, Math.max(210, windowHeight * 0.34));
   const mapRef = useRef<MapView | null>(null);
   const fullScreenMapRef = useRef<MapView | null>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -160,7 +204,19 @@ function ActivityRouteMap({
     () => buildActivityRouteGroups(savedGpsPoints),
     [savedGpsPoints],
   );
-  const useSavedRouteGroups = savedRouteGroups.some((group) => group.coordinates.length >= 2)
+  const hasPauseRouteBoundaries = (pauseEvents?.length ?? 0) > 0
+    || (pauseRoutes?.length ?? 0) > 0
+    || (pausePoints?.length ?? 0) > 0
+    || savedRouteGroups.some((group) => group.type === 'pause');
+  const hasExtraRouteBoundaries = extraRoutePoints.length > 1
+    || savedRouteGroups.some((group) => group.type === 'extra');
+  const useUnifiedRoute = !hasPauseRouteBoundaries && !hasExtraRouteBoundaries;
+  const displaySavedRouteGroups = useMemo(
+    () => useUnifiedRoute ? mergeActivityRouteGroups(savedRouteGroups) : savedRouteGroups,
+    [savedRouteGroups, useUnifiedRoute],
+  );
+  const hasSavedGpsPoints = (savedGpsPoints?.length ?? 0) > 0;
+  const useSavedRouteGroups = hasSavedGpsPoints
     && !(cropStartIndex !== undefined && cropEndIndex !== undefined);
 
   const visibleRoutePoints = useMemo(() => {
@@ -174,25 +230,25 @@ function ActivityRouteMap({
   }, [cropEndIndex, cropStartIndex, routePoints]);
 
   const smoothedVisibleRoutePoints = useMemo(
-    () => createCatmullRomPolyline(visibleRoutePoints),
+    () => simplifyRouteForDisplay(visibleRoutePoints),
     [visibleRoutePoints],
   );
   const smoothedPlannedRoutePoints = useMemo(
-    () => createCatmullRomPolyline(plannedRoutePoints),
+    () => simplifyRouteForDisplay(plannedRoutePoints),
     [plannedRoutePoints],
   );
   const smoothedExtraRoutePoints = useMemo(
-    () => createCatmullRomPolyline(extraRoutePoints),
+    () => simplifyRouteForDisplay(extraRoutePoints),
     [extraRoutePoints],
   );
   const smoothedSavedRouteGroups = useMemo(
-    () => savedRouteGroups
+    () => displaySavedRouteGroups
       .filter((group) => group.coordinates.length >= 2)
       .map((group) => ({
         type: group.type,
-        coordinates: createCatmullRomPolyline(group.coordinates),
+        coordinates: simplifyRouteForDisplay(group.coordinates),
       })),
-    [savedRouteGroups],
+    [displaySavedRouteGroups],
   );
   const smoothedRunningRouteGroups = useMemo(() => {
     if (cropStartIndex !== undefined && cropEndIndex !== undefined) {
@@ -203,8 +259,14 @@ function ActivityRouteMap({
         .filter((group) => group.type === 'running')
         .map((group) => group.coordinates);
     }
+    if (useUnifiedRoute) {
+      const coordinates = routePoints.length >= 2
+        ? smoothedVisibleRoutePoints
+        : backendRunningRouteGroups.flat();
+      return coordinates.length >= 2 ? [simplifyRouteForDisplay(coordinates)] : [];
+    }
     if (backendRunningRouteGroups.length > 0) {
-      return backendRunningRouteGroups.map((points) => createCatmullRomPolyline(points));
+      return backendRunningRouteGroups.map(simplifyRouteForDisplay);
     }
     if (plannedRoutePoints.length >= 2 || extraRoutePoints.length >= 2) return [];
     return smoothedVisibleRoutePoints.length >= 2 ? [smoothedVisibleRoutePoints] : [];
@@ -216,8 +278,15 @@ function ActivityRouteMap({
     plannedRoutePoints.length,
     smoothedSavedRouteGroups,
     smoothedVisibleRoutePoints,
+    routePoints.length,
+    useUnifiedRoute,
     useSavedRouteGroups,
   ]);
+  const showPlannedRoute = useMemo(
+    () => smoothedPlannedRoutePoints.length > 1
+      && !areRoutesOverlapping(smoothedPlannedRoutePoints, smoothedRunningRouteGroups),
+    [smoothedPlannedRoutePoints, smoothedRunningRouteGroups],
+  );
   const savedPauseMarkers = useMemo(() => {
     const eventMarkers = (pauseEvents ?? []).flatMap((event, index) => {
       const sequence = event.sequence ?? index + 1;
@@ -279,7 +348,7 @@ function ActivityRouteMap({
       ? smoothedSavedRouteGroups
         .filter((group) => group.type === 'pause')
         .map((group) => group.coordinates)
-      : backendPauseRouteGroups.map((points) => createCatmullRomPolyline(points)),
+      : backendPauseRouteGroups.map(simplifyRouteForDisplay),
     [backendPauseRouteGroups, smoothedSavedRouteGroups, useSavedRouteGroups],
   );
   const smoothedExtraRouteGroups = useMemo(
@@ -297,7 +366,7 @@ function ActivityRouteMap({
         ...smoothedRunningRouteGroups.flat(),
         ...smoothedPauseRouteGroups.flat(),
       ]),
-    ...smoothedPlannedRoutePoints,
+    ...(showPlannedRoute ? smoothedPlannedRoutePoints : []),
     ...(useSavedRouteGroups ? [] : smoothedExtraRouteGroups.flat()),
   ], [
     smoothedExtraRouteGroups,
@@ -305,6 +374,7 @@ function ActivityRouteMap({
     smoothedPlannedRoutePoints,
     smoothedRunningRouteGroups,
     smoothedSavedRouteGroups,
+    showPlannedRoute,
     useSavedRouteGroups,
   ]);
 
@@ -382,7 +452,9 @@ function ActivityRouteMap({
   const runningCoordinates = smoothedRunningRouteGroups.flat();
   const pauseCoordinates = smoothedPauseRouteGroups.flat();
   const routePointCoordinates = useSavedRouteGroups
-    ? smoothedSavedRouteGroups.flatMap((group) => group.coordinates)
+    ? smoothedSavedRouteGroups
+      .filter((group) => group.type === 'running')
+      .flatMap((group) => group.coordinates)
     : [];
   const extraCoordinates = smoothedExtraRouteGroups.flat();
   const firstPoint = routePointCoordinates[0]
@@ -398,7 +470,13 @@ function ActivityRouteMap({
 
   return (
     <>
-      <View style={[styles.mapContainer, variant === 'preview' && styles.previewMapContainer]}>
+      <View
+        style={[
+          styles.mapContainer,
+          { height: variant === 'preview' ? 110 : detailMapHeight },
+          variant === 'preview' && styles.previewMapContainer,
+        ]}
+      >
         <MapView
           ref={mapRef}
           provider={PROVIDER_GOOGLE}
@@ -438,7 +516,7 @@ function ActivityRouteMap({
               strokeWidth={variant === 'preview' ? 2 : 3}
             />
           ))}
-          {smoothedPlannedRoutePoints.length > 1 && (
+          {showPlannedRoute && (
             <Polyline coordinates={smoothedPlannedRoutePoints} strokeColor="#35C72B" strokeWidth={variant === 'preview' ? 2 : 3} />
           )}
           {smoothedExtraRouteGroups.map((coordinates, index) => (
@@ -542,7 +620,7 @@ function ActivityRouteMap({
                   strokeWidth={4}
                 />
               ))}
-              {smoothedPlannedRoutePoints.length > 1 && (
+              {showPlannedRoute && (
                 <Polyline coordinates={smoothedPlannedRoutePoints} strokeColor="#35C72B" strokeWidth={4} />
               )}
               {smoothedExtraRouteGroups.map((coordinates, index) => (

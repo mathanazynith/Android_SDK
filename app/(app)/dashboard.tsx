@@ -2,10 +2,11 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import NotificationBell from '../../components/NotificationBell';
+import { RunningLoader } from '../../components/common/RunningLoader';
 import MotionEntrance from '../../components/MotionEntrance';
+import NotificationBell from '../../components/NotificationBell';
 import SettingsMenu from '../../components/SettingsMenu';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
@@ -13,6 +14,7 @@ import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../service/auth';
 import { getFcmToken } from '../../service/fcmService';
 import { registerNotificationDevice } from '../../service/notificationService';
+import { isAssessmentProfileComplete } from '../../utils/profileEligibility';
 import { useResponsive } from '../../utils/responsive';
 import DashboardActivePlan from './DashboardActivePlan';
 import DashboardNoPlan from './DashboardNoPlan';
@@ -108,10 +110,7 @@ export default function DashboardScreen() {
   // }, []);
 
   const profile = user?.profile;
-  const canStartAssessment = Boolean(
-    user?.username && profile?.gender &&
-    profile?.date_of_birth && profile?.height_cm && profile?.weight_kg,
-  );
+  const canStartAssessment = isAssessmentProfileComplete(user);
   const userName = user?.username?.trim() || user?.email?.split('@')[0]?.trim() || 'Runner';
   // const parsedTemperature = weather?.temperature == null ? null : Number(weather.temperature);
   // const weatherTemperature = parsedTemperature != null && Number.isFinite(parsedTemperature)
@@ -151,6 +150,7 @@ export default function DashboardScreen() {
 
   const handleSettingsOption = (option: string) => {
     setSettingsVisible(false);
+    if (option === 'Activities') router.push('/(app)/activity');
     if (option === 'Edit Profile') router.push('/(app)/profile/edit');
     if (option === 'Change Password' || option === 'Set Password') router.push('/(app)/screens/change-password');
     if (option === 'Notifications') router.push('/(app)/screens/notifications');
@@ -164,7 +164,11 @@ export default function DashboardScreen() {
   };
 
   if (isWorkoutPlanLoading && !workoutPlan) {
-    return <View style={[styles.center, { backgroundColor: colors.background }]}><ActivityIndicator size="large" color={BRAND_GREEN} /><Text style={[styles.centerText, { color: colors.text }]}>Loading your dashboard...</Text></View>;
+    return (
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
+        <RunningLoader size={64} label="Loading your dashboard..." />
+      </View>
+    );
   }
 
   if (workoutPlanError && !workoutPlan) {
@@ -193,7 +197,7 @@ export default function DashboardScreen() {
                 style={[styles.weather, { backgroundColor: colors.surface, borderColor: BRAND_GREEN }]}
                 onPress={() => router.push('./screens/weather-details')}
               >
-                {loadingWeather ? <ActivityIndicator size="small" color={BRAND_GREEN} /> : weather?.iconUrl ? <Image source={{ uri: weather.iconUrl }} style={{ width: spacing(24), height: spacing(24) }} /> : <Feather name={weatherIcon} size={spacing(24)} color={BRAND_GREEN} />}
+                {loadingWeather ? <RunningLoader size={22} fillColor={BRAND_GREEN} /> : weather?.iconUrl ? <Image source={{ uri: weather.iconUrl }} style={{ width: spacing(24), height: spacing(24) }} /> : <Feather name={weatherIcon} size={spacing(24)} color={BRAND_GREEN} />}
                 <View>
                   <Text style={[styles.weatherValue, { color: colors.text }]} numberOfLines={1}>{weather?.city || weather?.locationName || 'Current location'}</Text>
                   <Text style={[styles.weatherValue, { color: colors.textSecondary }]}>{weatherTemperature}</Text>

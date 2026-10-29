@@ -1,5 +1,6 @@
 import React from "react";
 import { View, TouchableOpacity, Text, StyleSheet } from "react-native";
+import { Feather } from "@expo/vector-icons";
 import { BRAND_GREEN, useTheme } from "../../../../contexts/ThemeContext";
 
 interface YesNoProps {
@@ -61,22 +62,28 @@ const YesNo: React.FC<YesNoProps> = ({ value, onChange }) => {
   return (
     <View style={styles.container}>
       <TouchableOpacity
-        style={[styles.button, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }, value === true && { backgroundColor: colors.surface, borderColor: BRAND_GREEN }]}
+        style={[styles.button, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }, value === true && styles.buttonSelected]}
+        accessibilityRole="radio"
+        accessibilityState={{ selected: value === true }}
         onPress={() => onChange(true)}
         activeOpacity={0.7}
       >
-        <Text style={[styles.buttonText, { color: colors.text }, value === true && { color: BRAND_GREEN }] }>
-          Yes
-        </Text>
+        <View style={styles.buttonContent}>
+          <Text style={[styles.buttonText, { color: colors.text }, value === true && styles.buttonTextSelected]}>Yes</Text>
+          {value === true && <Feather name="check-circle" size={20} color="#0D0D0D" />}
+        </View>
       </TouchableOpacity>
       <TouchableOpacity
-        style={[styles.button, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }, value === false && { backgroundColor: colors.surface, borderColor: BRAND_GREEN }]}
+        style={[styles.button, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }, value === false && styles.buttonSelected]}
+        accessibilityRole="radio"
+        accessibilityState={{ selected: value === false }}
         onPress={() => onChange(false)}
         activeOpacity={0.7}
       >
-        <Text style={[styles.buttonText, { color: colors.text }, value === false && { color: BRAND_GREEN }] }>
-          No
-        </Text>
+        <View style={styles.buttonContent}>
+          <Text style={[styles.buttonText, { color: colors.text }, value === false && styles.buttonTextSelected]}>No</Text>
+          {value === false && <Feather name="check-circle" size={20} color="#0D0D0D" />}
+        </View>
       </TouchableOpacity>
     </View>
   );
@@ -99,6 +106,13 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "transparent",
   },
+  buttonSelected: {
+    backgroundColor: BRAND_GREEN,
+    borderColor: "#15803D",
+    borderWidth: 2,
+  },
+  buttonContent: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
+  buttonTextSelected: { color: "#0D0D0D", fontWeight: "700" },
   selectedYes: {
     backgroundColor: "#132e13",
     borderColor: "#34C759",

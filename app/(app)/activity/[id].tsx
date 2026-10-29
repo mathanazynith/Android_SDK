@@ -2,28 +2,30 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import ActivitySplitsModal from '../../../components/ActivitySplitsModal';
-import { useTheme } from '../../../contexts/ThemeContext';
+import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage } from '../../../service/api';
-import { activityAPI, BackendActivity, normalizeActivitySplits } from '../../../src/services/activityApi';
+import { activityAPI, BackendActivity, normalizeActivitySplits, runRouteAPI } from '../../../src/services/activityApi';
 import { ActivityExtraSplits, ActivitySegmentSplits } from '../../../src/types/activity';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
 
 const formatDuration = (seconds: number) => {
+  if (!Number.isFinite(seconds)) return '--';
   const totalSeconds = Math.max(0, Math.floor(seconds));
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const secondsRemaining = totalSeconds % 60;
   return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secondsRemaining).padStart(2, '0')}`
-    : `${minutes}:${String(secondsRemaining).padStart(2, '0')}`;
+    ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secondsRemaining).padStart(2, '0')}`
+    : `${minutes} min ${secondsRemaining} sec`;
 };
 
 const formatPace = (secondsPerKm: number) => {
@@ -33,25 +35,61 @@ const formatPace = (secondsPerKm: number) => {
 };
 
 const formatSpeed = (metersPerSecond: number) => `${(Math.max(0, metersPerSecond) * 3.6).toFixed(1)} km/h`;
+const formatBackendSpeed = (speed: number) => Number.isFinite(speed) ? `${speed} Km/hr` : '--';
 
-function DetailMetric({ label, value }: { label: string; value: string }) {
+const formatRecordedDate = (value: string) => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? '--'
+    : `${date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} at ${date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+};
+
+const formatActivityDate = (value: string) => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? '--'
+    : `${date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} at ${date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+};
+
+function DetailMetric({
+  label,
+  value,
+  fullWidth = false,
+  singleLine = false,
+}: {
+  label: string;
+  value: string;
+  fullWidth?: boolean;
+  singleLine?: boolean;
+}) {
   const { colors } = useTheme();
   return (
-    <View style={styles.metric}>
-      <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>{label}</Text>
-      <Text style={[styles.metricValue, { color: colors.text }]}>{value}</Text>
+    <View style={[styles.metric, fullWidth && styles.metricFullWidth]}>
+      <Text style={[styles.metricLabel, fullWidth && styles.metricLabelInline, { color: colors.textSecondary }]}>{label}</Text>
+      <Text
+        numberOfLines={singleLine ? 1 : undefined}
+        adjustsFontSizeToFit={singleLine}
+        minimumFontScale={singleLine ? 0.75 : undefined}
+        style={[styles.metricValue, fullWidth && styles.metricValueInline, { color: colors.text }]}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
 
 export default function ActivityDetailScreen() {
   const { colors, isDark } = useTheme();
-  const { id, cropStart, cropEnd } = useLocalSearchParams<{
+  const { id, cropStart, cropEnd, savedRouteId: savedRouteIdParam } = useLocalSearchParams<{
     id: string;
     cropStart?: string;
     cropEnd?: string;
+    savedRouteId?: string;
   }>();
   const [activity, setActivity] = useState<BackendActivity | null>(null);
+  const [savedRouteId, setSavedRouteId] = useState<number | null>(null);
+  const [savedRouteIsPublic, setSavedRouteIsPublic] = useState<boolean | null>(null);
+  const [isUpdatingRouteVisibility, setIsUpdatingRouteVisibility] = useState(false);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +113,23 @@ export default function ActivityDetailScreen() {
     setLoading(true);
     try {
       setError(null);
-      setActivity(await activityAPI.get(id));
+      const loadedActivity = await activityAPI.get(id);
+      setActivity(loadedActivity);
+      const parsedRouteId = Number(savedRouteIdParam ?? loadedActivity.saved_route_id);
+      if (Number.isInteger(parsedRouteId) && parsedRouteId > 0) {
+        try {
+          const route = await runRouteAPI.get(parsedRouteId);
+          setSavedRouteId(parsedRouteId);
+          setSavedRouteIsPublic(route.is_public);
+        } catch (routeError) {
+          setSavedRouteId(null);
+          setSavedRouteIsPublic(null);
+          console.warn('[ActivityDetail] Could not load saved-route visibility', routeError);
+        }
+      } else {
+        setSavedRouteId(null);
+        setSavedRouteIsPublic(null);
+      }
     } catch (requestError) {
       const message = getBackendErrorMessage(requestError, 'Unable to load workout details.');
       setError(message);
@@ -83,7 +137,7 @@ export default function ActivityDetailScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, savedRouteIdParam]);
 
   useEffect(() => {
     // The request applies its state updates asynchronously after the screen mounts.
@@ -136,11 +190,41 @@ export default function ActivityDetailScreen() {
 
     Alert.alert(
       'Delete workout?',
-      `Delete this ${activity.activity_type.toLowerCase()} from your workout history? This cannot be undone.`,
+      `Delete this ${activity.activity_type.toLowerCase()} from your workout history? Any route saved from it will also be removed from My Routes and public suggestions if published. This cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: () => void deleteActivity() },
       ],
+    );
+  };
+
+  const applyRouteVisibility = async (isPublic: boolean) => {
+    if (savedRouteId === null || isUpdatingRouteVisibility) return;
+    setIsUpdatingRouteVisibility(true);
+    try {
+      await runRouteAPI.setVisibility(savedRouteId, isPublic);
+      setSavedRouteIsPublic(isPublic);
+    } catch (requestError) {
+      Alert.alert('Could not change route visibility', getBackendErrorMessage(requestError, 'Please try again.'));
+    } finally {
+      setIsUpdatingRouteVisibility(false);
+    }
+  };
+
+  const requestRouteVisibility = (isPublic: boolean) => {
+    if (!isPublic) {
+      void applyRouteVisibility(false);
+      return;
+    }
+
+    Alert.alert(
+      'Make route public?',
+      'Other signed-in Zy-Run users will be able to view this route.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Make Public', onPress: () => { void applyRouteVisibility(true); } },
+      ],
+      { cancelable: true },
     );
   };
 
@@ -162,7 +246,7 @@ export default function ActivityDetailScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
       <View style={styles.header}>
         <TouchableOpacity accessibilityLabel="Back to workout history" onPress={handleBack} style={styles.backButton}>
@@ -176,7 +260,7 @@ export default function ActivityDetailScreen() {
               onPress={() => router.push(`/activity/crop/${activity.id}`)}
               style={styles.cropButton}
             >
-              <Feather name="crop" size={20} color="#FFB020" />
+              <Feather name="scissors" size={20} color="#FFB020" />
             </TouchableOpacity>
             <TouchableOpacity
               accessibilityLabel="Open split details"
@@ -192,7 +276,7 @@ export default function ActivityDetailScreen() {
               style={styles.deleteButton}
             >
               {deleting
-                ? <ActivityIndicator size="small" color="#FF6B6B" />
+                ? <RunningLoader size={18} fillColor="#FF6B6B" />
                 : <Feather name="trash-2" size={20} color="#FF6B6B" />}
             </TouchableOpacity>
           </View>
@@ -201,8 +285,7 @@ export default function ActivityDetailScreen() {
 
       {loading ? (
         <View style={styles.centerState}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={[styles.stateText, { color: colors.textSecondary }]}>Loading activity details...</Text>
+          <RunningLoader size={64} label="Loading activity details..." />
         </View>
       ) : error ? (
         <View style={styles.centerState}>
@@ -213,72 +296,98 @@ export default function ActivityDetailScreen() {
           </TouchableOpacity>
         </View>
       ) : activity ? (
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <MotionEntrance>
-            <Text style={[styles.activityType, { color: colors.text }]}>{activity.activity_type.toUpperCase() === 'WALK' ? 'Walk' : 'Run'}</Text>
-          <Text style={[styles.date, { color: colors.textSecondary }]}>
-            {new Date(activity.start_time).toLocaleString(undefined, {
-              weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
-            })}
-          </Text>
+        <View style={styles.activityBody}>
+          <View style={styles.routePanel}>
+            <Text style={[styles.sectionTitle, styles.routeTitle, { color: colors.text }]}>Route</Text>
+            <ActivityRouteMap
+              encodedPolyline={activity.encoded_polyline}
+              plannedEncodedPolyline={activity.planned_encoded_polyline}
+              extraEncodedPolyline={activity.extra_encoded_polyline}
+              savedGpsPoints={activity.route?.points ?? activity.gps_points}
+              runningRoutes={activity.route?.running_routes}
+              pauseRoutes={activity.route?.pause_routes}
+              pauseEvents={activity.pause_events ?? activity.route?.pause_events}
+              pausePoints={activity.route?.pause_points}
+              cropStartIndex={Number.isFinite(cropStartIndex) ? cropStartIndex : undefined}
+              cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
+              enableFullScreen
+            />
+            {savedRouteId !== null && savedRouteIsPublic !== null ? (
+              <View style={[styles.routeVisibilityRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <View style={styles.routeVisibilityCopy}>
+                  <Text style={[styles.routeVisibilityTitle, { color: colors.text }]}>Saved route</Text>
+                  <Text style={[styles.routeVisibilityHint, { color: colors.textSecondary }]}>
+                    {savedRouteIsPublic ? 'Public · visible to other signed-in users' : 'Private · visible only to you'}
+                  </Text>
+                </View>
+                <Switch
+                  value={savedRouteIsPublic}
+                  onValueChange={requestRouteVisibility}
+                  disabled={isUpdatingRouteVisibility}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor={colors.surface}
+                  accessibilityLabel={`Make saved route ${savedRouteIsPublic ? 'private' : 'public'}`}
+                />
+              </View>
+            ) : null}
+          </View>
 
-            <View style={[styles.heroCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Text style={[styles.heroLabel, { color: colors.textSecondary }]}>Distance</Text>
-              <Text style={[styles.distance, { color: colors.primary }]}>{formatDistance(activity.distance)}</Text>
-              <Text style={[styles.status, { color: colors.textTertiary }]}>{activity.processing_status.toLowerCase()}</Text>
+          <ScrollView
+            style={styles.detailsScroll}
+            contentContainerStyle={styles.detailsContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <MotionEntrance>
+            <Text style={[styles.workoutHeading, { color: colors.text }]}>Workout Details</Text>
+            <Text style={[styles.date, { color: colors.textSecondary }]}>
+              {formatActivityDate(activity.start_time)}
+            </Text>
+            <View style={styles.workoutTypeRow}>
+              <Text style={[styles.workoutType, { color: colors.text }]}>
+                {activity.activity_type.toUpperCase() === 'WALK' ? 'Walk' : 'Run'}
+              </Text>
+              <Text style={[styles.workoutStatus, { color: colors.text }]}>
+                {activity.processing_status.toUpperCase()}
+              </Text>
             </View>
 
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Route</Text>
-          <ActivityRouteMap
-            encodedPolyline={activity.encoded_polyline}
-            plannedEncodedPolyline={activity.planned_encoded_polyline}
-            extraEncodedPolyline={activity.extra_encoded_polyline}
-            savedGpsPoints={activity.route?.points ?? activity.gps_points}
-            runningRoutes={activity.route?.running_routes}
-            pauseRoutes={activity.route?.pause_routes}
-            pauseEvents={activity.pause_events ?? activity.route?.pause_events}
-            pausePoints={activity.route?.pause_points}
-            cropStartIndex={Number.isFinite(cropStartIndex) ? cropStartIndex : undefined}
-            cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
-            enableFullScreen
-            activityStats={{
-              distance: activity.distance,
-              duration: activity.moving_time || activity.elapsed_time,
-              pace: activity.avg_pace,
-              elevationGain: activity.elevation_gain,
-              activityType: activity.activity_type,
-            }}
-          />
-
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Performance</Text>
-            <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <DetailMetric label="Distance" value={formatDistance(activity.distance)} />
               <DetailMetric label="Moving time" value={formatDuration(activity.moving_time)} />
-              <DetailMetric label="Elapsed time" value={formatDuration(activity.elapsed_time)} />
               <DetailMetric label="Average pace" value={formatPace(activity.avg_pace)} />
-              <DetailMetric label="Average speed" value={formatSpeed(activity.avg_speed)} />
-              <DetailMetric label="Max speed" value={formatSpeed(activity.max_speed)} />
               <DetailMetric label="Calories" value={`${Math.round(activity.calories)} kcal`} />
             </View>
 
-            {(activity.planned_distance_km !== null && activity.planned_distance_km !== undefined)
-              || (activity.extra_distance_km !== null && activity.extra_distance_km !== undefined) ? (
-              <>
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Distance breakdown</Text>
-                <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <DetailMetric label="Planned distance" value={formatDistance(Number(activity.planned_distance ?? (activity.planned_distance_km ?? 0) * 1000))} />
-                  <DetailMetric label="Extra distance" value={formatDistance(Number(activity.extra_distance ?? (activity.extra_distance_km ?? 0) * 1000))} />
-                </View>
-              </>
-            ) : null}
-
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Route data</Text>
-            <View style={[styles.metricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <DetailMetric label="Elevation gain" value={`${Math.round(activity.elevation_gain)} m`} />
-              <DetailMetric label="Elevation loss" value={`${Math.round(activity.elevation_loss)} m`} />
-              <DetailMetric label="Route processed" value={activity.is_processed ? 'Yes' : 'No'} />
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Distance breakdown</Text>
+            <View style={[styles.metricsCard, styles.verticalMetricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <DetailMetric fullWidth label="Distance" value={formatDistance(activity.distance)} />
+              <DetailMetric
+                fullWidth
+                label="Planned distance"
+                value={formatDistance(activity.distance)}
+              />
+              <DetailMetric
+                fullWidth
+                label="Extra distance"
+                value={activity.extra_distance != null
+                  ? (Number(activity.extra_distance) > 0 ? formatDistance(Number(activity.extra_distance)) : 'No extra distance')
+                  : activity.extra_distance_km != null
+                    ? (Number(activity.extra_distance_km) > 0 ? formatDistance(Number(activity.extra_distance_km) * 1000) : 'No extra distance')
+                    : 'No extra distance'}
+              />
+              <DetailMetric fullWidth label="Elapsed time" value={formatDuration(activity.elapsed_time)} />
+                <DetailMetric fullWidth label="Moving time" value={formatDuration(activity.moving_time)} />
+              <DetailMetric fullWidth label="Average pace" value={formatPace(activity.avg_pace)} />
+              <DetailMetric fullWidth label="Average speed" value={formatBackendSpeed(activity.avg_speed)} />
+              <DetailMetric fullWidth label="Max speed" value={formatSpeed(activity.max_speed)} />
+              <DetailMetric fullWidth label="Calories" value={`${Math.round(activity.calories)} kcal`} />
+              <DetailMetric fullWidth label="Elevation gain" value={`${Math.round(activity.elevation_gain)} m`} />
+              <DetailMetric fullWidth label="Elevation loss" value={`${Math.round(activity.elevation_loss)} m`} />
+              <DetailMetric fullWidth singleLine label="Recorded" value={formatRecordedDate(activity.end_time)} />
             </View>
-          </MotionEntrance>
-        </ScrollView>
+            </MotionEntrance>
+          </ScrollView>
+        </View>
       ) : null}
       <ActivitySplitsModal
         visible={splitsVisible}
@@ -307,18 +416,30 @@ const styles = StyleSheet.create({
   deleteButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
   headerTitle: { fontSize: 19, fontWeight: '700' },
   headerSpacer: { width: 42 },
-  content: { paddingTop: 16, paddingBottom: 38 },
-  activityType: { fontSize: 32, fontWeight: '700' },
+  activityBody: { flex: 1, minHeight: 0 },
+  routePanel: { flexShrink: 0, paddingTop: 12 },
+  routeTitle: { marginTop: 0 },
+  routeVisibilityRow: { minHeight: 60, flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10, paddingHorizontal: 12, borderWidth: 1, borderRadius: 10 },
+  routeVisibilityCopy: { flex: 1, minWidth: 0 },
+  routeVisibilityTitle: { fontSize: 13, fontWeight: '700' },
+  routeVisibilityHint: { fontSize: 11, marginTop: 3 },
+  detailsScroll: { flex: 1 },
+  detailsContent: { paddingBottom: 38 },
+  workoutHeading: { fontSize: 24, fontWeight: '700', marginTop: 26 },
   date: { fontSize: 15, marginTop: 5 },
-  heroCard: { borderRadius: 26, borderWidth: 1, padding: 22, marginTop: 26 },
-  heroLabel: { fontSize: 15 },
-  distance: { fontSize: 42, fontWeight: '700', marginTop: 5 },
-  status: { fontSize: 13, marginTop: 10, textTransform: 'capitalize' },
+  workoutTypeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 24 },
+  workoutType: { fontSize: 20, fontWeight: '700' },
+  workoutStatus: { fontSize: 14, fontWeight: '700' },
+  summaryCard: { borderRadius: 22, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 8, marginTop: 26 },
   sectionTitle: { fontSize: 21, fontWeight: '700', marginTop: 26, marginBottom: 12 },
   metricsCard: { borderRadius: 22, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 8 },
+  verticalMetricsCard: { flexDirection: 'column' },
   metric: { width: '50%', padding: 14 },
+  metricFullWidth: { width: '100%', minHeight: 42, paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
   metricLabel: { fontSize: 13 },
+  metricLabelInline: { flex: 1, flexShrink: 1 },
   metricValue: { fontSize: 17, fontWeight: '700', marginTop: 5 },
+  metricValueInline: { flex: 1, marginTop: 0, flexShrink: 1, textAlign: 'right' },
   centerState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28 },
   stateText: { fontSize: 16, textAlign: 'center', marginTop: 13 },
   retryButton: { borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, marginTop: 18 },

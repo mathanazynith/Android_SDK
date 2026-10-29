@@ -1,26 +1,27 @@
 import { Alert } from '@/components/ThemedAlert';
-import React from "react";
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { router, useFocusEffect } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { useAuth } from "../../../service/auth";
-import { Colors } from "../../../constants/theme";
-import { resolveApiUrl } from "../../../service/api";
+import { LinearGradient } from "expo-linear-gradient";
+import { router, useFocusEffect } from "expo-router";
+import React from "react";
+import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
+import { RunningLoader } from "../../../components/common/RunningLoader";
 import MotionEntrance from "../../../components/MotionEntrance";
+import { Colors } from "../../../constants/theme";
+import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
+import { resolveApiUrl } from "../../../service/api";
+import { useAuth } from "../../../service/auth";
 import { subscriptionAPI, type UserSubscription } from "../../../src/services/subscriptionApi";
 
-type DetailRowProps = { label: string; value: string };
+type DetailRowProps = { label: string; value: string; multiline?: boolean };
 
-function DetailRow({ label, value }: DetailRowProps) {
+function DetailRow({ label, value, multiline = false }: DetailRowProps) {
   const { colors } = useTheme();
   return (
     <View style={[styles.detailRow, { borderBottomColor: colors.border }]}>
       <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{label}</Text>
-      <Text style={[styles.detailValue, { color: colors.text }]} numberOfLines={1}>{value}</Text>
+      <Text style={[styles.detailValue, { color: colors.text }]} numberOfLines={multiline ? 2 : 1}>{value}</Text>
     </View>
   );
 }
@@ -68,8 +69,8 @@ const formatSubscriptionAmount = (subscription: UserSubscription) => {
 };
 
 export default function ProfileScreen() {
-  const { colors, isDark } = useTheme();
-  const { user, logout, uploadProfilePicture } = useAuth();
+  const { colors } = useTheme();
+  const { user, uploadProfilePicture } = useAuth();
   const [isUploadingPicture, setIsUploadingPicture] = React.useState(false);
   const [activeSubscription, setActiveSubscription] = React.useState<UserSubscription | null>(null);
 
@@ -100,20 +101,6 @@ export default function ProfileScreen() {
     router.replace('/(app)/dashboard');
   };
 
-  const handleLogout = () => {
-    Alert.alert("Logout", "Are you sure you want to logout?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Logout",
-        style: "destructive",
-        onPress: async () => {
-          await logout();
-          router.replace("/(auth)/login");
-        },
-      },
-    ]);
-  };
-
   const selectProfilePicture = async (source: "camera" | "gallery") => {
     try {
       const permission = source === "camera"
@@ -127,7 +114,7 @@ export default function ProfileScreen() {
 
       const result = source === "camera"
         ? await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.85 })
-        : await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.85, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+        : await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.85, mediaTypes: ['images'] });
 
       const asset = result.canceled ? null : result.assets[0];
       if (!asset) return;
@@ -155,8 +142,8 @@ export default function ProfileScreen() {
 
   if (!user) {
     return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading...</Text>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+        <Text style={[styles.loadingText, { color: colors.text }]}>Loading...</Text>
       </View>
     );
   }
@@ -170,16 +157,16 @@ export default function ProfileScreen() {
   const profilePictureUri = resolveApiUrl(profilePicture);
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.scrollContent}
+        style={[styles.container, { backgroundColor: colors.background }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 }]}
         showsVerticalScrollIndicator={false}
         scrollEnabled
       >
         <MotionEntrance>
           <LinearGradient
-            colors={["#39C80B", "#16A600"]}
+            colors={[BRAND_GREEN, "#16A600"]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.hero}
@@ -191,29 +178,28 @@ export default function ProfileScreen() {
               onPress={handleBackPress}
               style={styles.circleButton}
             >
-              <Feather name="chevron-left" size={29} color={colors.text} />
+              <Feather name="chevron-left" size={29} color={colors.primaryText} />
             </TouchableOpacity>
-            <Text style={styles.heroTitle}>Profile</Text>
+            <Text style={[styles.heroTitle, { color: colors.primaryText }]}>Profile</Text>
             <TouchableOpacity
               accessibilityLabel="Edit profile"
               accessibilityRole="button"
               onPress={() => router.push("/(app)/profile/edit")}
               style={styles.editButton}
             >
-              <Text style={styles.editButtonText}>Edit</Text>
+              <Text style={[styles.editButtonText, { color: colors.primaryText }]}>Edit</Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.profileIdentity}>
             <View style={styles.avatar}>
-              {profilePictureUri ? <Image source={{ uri: profilePictureUri }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initials}</Text>}
-              {isUploadingPicture ? <View style={styles.uploadOverlay}><ActivityIndicator color="#FFFFFF" /></View> : null}
-              <TouchableOpacity accessibilityLabel="Change profile picture" accessibilityRole="button" onPress={openPictureOptions} style={styles.cameraBadge} disabled={isUploadingPicture}>
-                <Feather name="camera" size={16} color={BRAND_GREEN} />
+              {profilePictureUri ? <Image source={{ uri: profilePictureUri }} style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: colors.primaryText }]}>{initials}</Text>}
+              {isUploadingPicture ? <View style={styles.uploadOverlay}><RunningLoader size={32} fillColor="#FFFFFF" /></View> : null}
+              <TouchableOpacity accessibilityLabel="Change profile picture" accessibilityRole="button" onPress={openPictureOptions} style={[styles.cameraBadge, { backgroundColor: colors.surface, borderColor: colors.primary }]} disabled={isUploadingPicture}>
+                <Feather name="camera" size={16} color={colors.primary} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.name}>{displayName}</Text>
-            <Text style={styles.username}>@{user.username || "user"}</Text>
+            <Text style={[styles.name, { color: colors.primaryText }]} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8}>{displayName}</Text>
           </View>
           </LinearGradient>
         </MotionEntrance>
@@ -266,9 +252,9 @@ export default function ProfileScreen() {
         </TouchableOpacity>
         </MotionEntrance>
 
-        <MotionEntrance delay={90}>
+        <MotionEntrance delay={90} style={styles.detailsEntrance}>
         <View style={[styles.detailsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <DetailRow label="Email" value={user.email || "--"} />
+          <DetailRow label="Email" value={user.email || "--"} multiline />
           <DetailRow label="Phone Number" value={user.phone_number || profile?.phone_number || "--"} />
           <DetailRow label="Date of Birth" value={formatDate(profile?.date_of_birth)} />
           <DetailRow label="Age" value={calculateAge(profile?.date_of_birth)} />
@@ -280,37 +266,16 @@ export default function ProfileScreen() {
         </View>
         </MotionEntrance>
 
-        <MotionEntrance delay={135}>
-        <View style={[styles.logoutCard, { backgroundColor: isDark ? '#351F20' : '#FEF2F2', borderColor: isDark ? '#6B2B2B' : '#FECACA' }]}>
-          <View style={styles.logoutCopy}>
-            <Text style={[styles.logoutTitle, { color: colors.text }]}>Sign out</Text>
-            <Text style={[styles.logoutHint, { color: colors.textSecondary }]}>
-              You’ll need to sign in again to access your account.
-            </Text>
-          </View>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="Log out of your account"
-            onPress={handleLogout}
-            style={styles.logoutButton}
-          >
-            <Feather name="log-out" size={18} color="#DC2626" />
-            <Text style={styles.logoutText}>Log out</Text>
-          </TouchableOpacity>
-        </View>
-        </MotionEntrance>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#090B0C",
-  },
-  container: { flex: 1, backgroundColor: "#090B0C" },
-  scrollContent: { paddingBottom: 118 },
+  safeArea: { flex: 1 },
+  container: { flex: 1 },
+  scrollContent: { flexGrow: 1, justifyContent: "flex-start" },
+  detailsEntrance: { flexGrow: 1 },
   loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
   loadingText: { color: Colors.text, fontSize: 16 },
   hero: {
@@ -333,8 +298,7 @@ const styles = StyleSheet.create({
   uploadOverlay: { ...StyleSheet.absoluteFill, borderRadius: 41, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.42)" },
   cameraBadge: { position: "absolute", right: -6, bottom: -4, width: 29, height: 29, borderRadius: 15, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#26B705", backgroundColor: "#FFFFFF" },
   name: { color: "#FFFFFF", fontSize: 18, lineHeight: 23, fontWeight: "700", textAlign: "center" },
-  username: { color: "rgba(255,255,255,0.72)", fontSize: 14, fontWeight: "500", marginTop: 0 },
-  detailsCard: { marginHorizontal: 16, marginTop: 12, borderRadius: 20, backgroundColor: "#242627", borderWidth: 1.25, borderColor: "#66686A", paddingHorizontal: 15, paddingVertical: 5, shadowColor: "#000000", shadowOpacity: 0.2, shadowOffset: { width: 0, height: 6 }, shadowRadius: 10, elevation: 3 },
+  detailsCard: { flex: 1, marginHorizontal: 16, marginTop: 12, borderRadius: 20, backgroundColor: "#242627", borderWidth: 1.25, borderColor: "#66686A", paddingHorizontal: 15, paddingVertical: 5, shadowColor: "#000000", shadowOpacity: 0.2, shadowOffset: { width: 0, height: 6 }, shadowRadius: 10, elevation: 3 },
   subscriptionCard: { minHeight: 70, marginHorizontal: 16, marginTop: 12, paddingHorizontal: 14, borderRadius: 17, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 12, overflow: "hidden" },
   activeSubscriptionCard: { borderLeftWidth: 3, borderLeftColor: BRAND_GREEN, paddingLeft: 12 },
   subscriptionIcon: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center" },
@@ -348,13 +312,7 @@ const styles = StyleSheet.create({
   statusBadge: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 5 },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
   statusBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.4 },
-  detailRow: { minHeight: 34, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#515354" },
-  detailLabel: { flex: 0.45, color: "#BDBEC0", fontSize: 13, fontWeight: "500" },
-  detailValue: { flex: 0.55, color: "#F7F7F7", fontSize: 13, fontWeight: "700", textAlign: "right" },
-  logoutCard: { minHeight: 82, marginHorizontal: 16, marginTop: 16, padding: 14, borderRadius: 17, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 12 },
-  logoutCopy: { flex: 1, gap: 4 },
-  logoutTitle: { fontSize: 14, fontWeight: "800" },
-  logoutHint: { fontSize: 11, lineHeight: 15, fontWeight: "500" },
-  logoutButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: "rgba(220,38,38,0.35)", backgroundColor: "rgba(220,38,38,0.08)" },
-  logoutText: { color: "#DC2626", fontSize: 13, fontWeight: "700" },
+  detailRow: { flexGrow: 1, minHeight: 34, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#515354" },
+  detailLabel: { flex: 0.42, color: "#BDBEC0", fontSize: 13, fontWeight: "500" },
+  detailValue: { flex: 0.58, minWidth: 0, color: "#F7F7F7", fontSize: 13, fontWeight: "700", textAlign: "right", flexWrap: "wrap" },
 });

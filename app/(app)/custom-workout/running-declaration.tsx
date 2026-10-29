@@ -157,7 +157,7 @@ export default function RunningDeclaration() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
       <KeyboardAvoidingView
         style={styles.container}
@@ -346,6 +346,7 @@ const styles = StyleSheet.create({
   },
   label: { marginBottom: 8, color: Colors.text, fontSize: 15, fontWeight: "500" },
   input: {
+    minWidth: 0,
     minHeight: 50,
     paddingHorizontal: 16,
     color: Colors.text,
@@ -357,15 +358,16 @@ const styles = StyleSheet.create({
   },
   notesInput: { minHeight: 75, textAlignVertical: "top", paddingTop: 10 },
   row: { flexDirection: "row", gap: 10 },
-  flex: { flex: 1 },
+  flex: { flex: 1, minWidth: 0 },
   inputHelper: { color: Colors.textMuted, fontSize: 12, marginTop: 6 },
   unitButton: {
-    minWidth: 86,
-    height: 50,
+    minWidth: 0,
+    minHeight: 50,
+    flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 14,
+    paddingHorizontal: 10,
     backgroundColor: "#2A2A2D",
     borderWidth: 1,
     borderColor: "#3E3E42",

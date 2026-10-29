@@ -1,6 +1,7 @@
 // FrontEnd/components/PrimaryButton.tsx
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle } from 'react-native';
+import { TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
+import { RunningLoader } from './RunningLoader';
 import { BorderRadius, Typography, Spacing } from '../../constants/theme';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import { useResponsive } from '../../utils/responsive';
@@ -78,7 +79,7 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
       activeOpacity={0.8}
     >
       {loading ? (
-        <ActivityIndicator color={getTextColor()} />
+        <RunningLoader size={22} fillColor={getTextColor()} />
       ) : (
         <>
           {leftIcon && <>{leftIcon}</>}

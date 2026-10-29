@@ -362,6 +362,8 @@ export const assessmentAPI = {
     api.post(`/assessments/${assessmentId}/answers/back/`),
   getResults: (assessmentId: number) =>
     api.get(`/assessments/${assessmentId}/results/`),
+  checkAPI: (assessmentId: number, payload: Record<string, unknown>) =>
+    api.post(`/assessments/${assessmentId}/race-prediction/check/`, payload),
 };
 
 // The server generates and persists the user's Couch-to-5K calendar after a
@@ -369,7 +371,7 @@ export const assessmentAPI = {
 // result, which only contains recommendation metadata.
 export const workoutPlanAPI = {
   getCurrent: () => api.get("/workout-plans/current/"),
-  endCurrent: () => api.post("/workout-plans/end/"),
+  endCurrent: (reason: string) => api.post("/workout-plans/end/", { reason }),
   setBenchmark: (workoutId: number, is_benchmark: boolean) =>
     api.patch(`/workouts/${workoutId}/`, { is_benchmark }),
 };

@@ -1,4 +1,4 @@
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../../constants/theme';
@@ -20,6 +20,22 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
   const { colors } = useTheme();
   const openCustomWorkout = () => router.push('/(app)/questionnaire');
 
+  const openWorkoutSetup = (workout: typeof popularWorkouts[0]) => {
+    let presetId = 'preset-easy-run-30';
+    if (workout.subtitle === 'Interval Run') presetId = 'preset-interval-10x400';
+    if (workout.subtitle === 'Long Run') presetId = 'preset-long-run-70';
+    if (workout.subtitle === 'Easy Run') presetId = 'preset-easy-run-30';
+    if (workout.subtitle === 'Tempo Run') presetId = 'preset-tempo-run-20';
+
+    router.push({
+      pathname: '/(app)/workout-setup',
+      params: {
+        presetId,
+        workoutTitle: `${workout.title} ${workout.subtitle}`,
+      },
+    });
+  };
+
   return (
     <>
       <View style={[styles.card, styles.customWorkoutCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -35,28 +51,42 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
         </View>
       <TouchableOpacity style={styles.button} onPress={() => router.push('/(app)/custom-workout')}>
         <Feather name="edit-3" size={26} color={Colors.primary} />
-        <Text style={styles.buttonText}>CREATE CUSTOM WORKOUT</Text>
+        <Text style={styles.buttonText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>CREATE CUSTOM WORKOUT</Text>
       </TouchableOpacity>
       </View>
 
       <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <Text style={[styles.cardTitle, { color: BRAND_GREEN }]}>Screening Quiz</Text>
+        <Text style={[styles.cardTitle, { color: BRAND_GREEN }]}>Get Plan Assessment</Text>
         <Text style={[styles.description, { color: colors.text }]}>A new adventure begins!</Text>
-        <TouchableOpacity style={[styles.button, { backgroundColor: BRAND_GREEN }, !canStartAssessment && styles.buttonDisabled]} onPress={onStartAssessment} disabled={!canStartAssessment}>
-          <Feather name="trending-up" size={21} color="#081009" />
-          <Text style={styles.buttonText}>Get Started</Text>
+        <TouchableOpacity
+          style={[styles.planButton, { backgroundColor: colors.primary }, !canStartAssessment && styles.buttonDisabled]}
+          onPress={onStartAssessment}
+          accessibilityHint={canStartAssessment
+            ? 'Starts the assessment to create your running plan.'
+            : 'Prompts you to complete your profile before starting the assessment.'}
+          activeOpacity={0.85}
+        >
+          <View style={styles.planIconTile}>
+            <MaterialCommunityIcons name="run" size={22} color="#ECFDF5" />
+          </View>
+          <Text style={[styles.buttonText, styles.planButtonText, { color: colors.primaryText }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>Get Plan</Text>
+          <Feather name="arrow-right" size={21} color={colors.primaryText} />
         </TouchableOpacity>
       </View>
 
       <TouchableOpacity style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]} onPress={() => router.push('/(app)/screens/map')}>
         <Feather name="play" size={24} color="#081009" />
-        <Text style={styles.recordText}>Record Workout</Text>
+        <Text style={styles.recordText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>Record Workout</Text>
       </TouchableOpacity>
 
       <Text style={[styles.sectionTitle, { color: colors.text }]}>POPULAR WORKOUTS</Text>
       <View style={styles.workoutRow}>
         {popularWorkouts.map((workout) => (
-          <TouchableOpacity key={workout.subtitle} style={[styles.workoutCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => router.push('/(app)/screens/map')}>
+          <TouchableOpacity
+            key={workout.subtitle}
+            style={[styles.workoutCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            onPress={() => openWorkoutSetup(workout)}
+          >
             <Feather name={workout.icon} size={30} color={BRAND_GREEN} />
             <Text style={[styles.workoutTitle, { color: colors.text }]}>{workout.title}</Text>
             <Text style={[styles.workoutSubtitle, { color: colors.textSecondary }]}>{workout.subtitle}</Text>
@@ -77,11 +107,14 @@ const styles = StyleSheet.create({
   infoLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 9 ,fontWeight: 'bold'},
   infoText: { flex: 1, fontSize: 14, lineHeight: 20 },
   description: { color: '#E0E2E1', fontSize: 16, lineHeight: 22, marginVertical: 14 },
-  button: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, borderRadius: 19, backgroundColor: Colors.primary },
+  button: { width: '100%', alignSelf: 'center', minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, borderRadius: 19, backgroundColor: Colors.primary },
+  planButton: { width: '100%', alignSelf: 'center', minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, borderRadius: 16 },
+  planIconTile: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 11, backgroundColor: '#15803D' },
+  planButtonText: { flex: 1, textAlign: 'left' },
   buttonDisabled: { opacity: 0.45 },
-  buttonText: { color: '#081009', fontSize: 16, fontWeight: '800', textAlign: 'center' },
-  recordButton: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 22, borderRadius: 22, backgroundColor: Colors.primary },
-  recordText: { color: '#081009', fontSize: 16, fontWeight: '800' },
+  buttonText: { flexShrink: 1, color: '#081009', fontSize: 16, fontWeight: '800', textAlign: 'center' },
+  recordButton: { width: '100%', alignSelf: 'center', minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 22, borderRadius: 22, backgroundColor: Colors.primary },
+  recordText: { flexShrink: 1, color: '#081009', fontSize: 16, fontWeight: '800' },
   sectionTitle: { color: '#F2F2F2', fontSize: 21, fontWeight: '800', marginBottom: 12 },
   workoutRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 },
   workoutCard: { width: '48.5%', minHeight: 122, padding: 13, borderRadius: 22, backgroundColor: '#242627', borderWidth: 1.25, borderColor: '#65686A' },
