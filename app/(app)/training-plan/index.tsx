@@ -1,9 +1,10 @@
 import { Alert } from '@/components/ThemedAlert';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { PanResponder, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RunningLoader } from '../../../components/common/RunningLoader';
+import EndActivePlanModal from '../../../components/EndActivePlanModal';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -175,13 +176,14 @@ const toWorkoutDetail = (
 export default function TrainingPlanScreen() {
   const { colors, isDark } = useTheme();
   const params = useLocalSearchParams<{ selectedWeek?: string }>();
-  const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
+  const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan, endWorkoutPlan } = useQuestionnaire();
   const [selectedWeekIndex, setSelectedWeekIndex] = useState(() => {
     const requestedWeek = Number.parseInt(String(params.selectedWeek ?? ''), 10);
     return Number.isFinite(requestedWeek) && requestedWeek > 0 ? requestedWeek - 1 : 0;
   });
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutDetail | null>(null);
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+  const [isEndPlanModalVisible, setIsEndPlanModalVisible] = useState(false);
   const [benchmarkAssignments, setBenchmarkAssignments] = useState<Record<string, PlanBenchmarkAssignment>>({});
   const [dbPlanWorkouts, setDbPlanWorkouts] = useState<UserWorkoutResponse[]>([]);
 
@@ -278,6 +280,11 @@ export default function TrainingPlanScreen() {
     setSelectedDayIndex((current) => Math.max(0, Math.min(6, current + direction)));
   };
 
+  const handleConfirmEndPlan = async (reason: string) => {
+    await endWorkoutPlan(reason);
+    router.replace('/(app)/dashboard');
+  };
+
   const weekSwipeResponder = PanResponder.create({
     onMoveShouldSetPanResponder: (_, gestureState) => (
       Math.abs(gestureState.dx) > 12 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2
@@ -357,7 +364,23 @@ export default function TrainingPlanScreen() {
           <LegendItem label="Slow Run" color="#54B735" />
           <LegendItem label="Rest Day" color={colors.textTertiary} />
         </View>
+        <View style={[styles.endPlanSection, { borderTopColor: colors.border }]}>
+          <TouchableOpacity
+            style={styles.endPlanButton}
+            onPress={() => setIsEndPlanModalVisible(true)}
+            accessibilityRole="button"
+          >
+            <Text style={styles.endPlanButtonText}>End Active Plan</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
+
+      <EndActivePlanModal
+        visible={isEndPlanModalVisible}
+        planName={plan.name}
+        onClose={() => setIsEndPlanModalVisible(false)}
+        onConfirm={handleConfirmEndPlan}
+      />
 
       <WorkoutModal
         visible={selectedWorkout !== null}
@@ -439,6 +462,9 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 118 },
   timelineWrapper: { marginTop: 8 },
   legend: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12, paddingHorizontal: 4, paddingTop: 8, paddingBottom: 10 },
+  endPlanSection: { marginTop: 10, paddingTop: 12, paddingBottom: 8, borderTopWidth: StyleSheet.hairlineWidth },
+  endPlanButton: { minHeight: 46, justifyContent: 'center', alignItems: 'center', borderRadius: 10, backgroundColor: '#D32F2F' },
+  endPlanButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   legendDot: { width: 7, height: 7, borderRadius: 4 },
   legendLabel: { fontSize: 10 },

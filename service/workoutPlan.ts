@@ -76,8 +76,8 @@ export const workoutPlanService = {
     if (isNoTrainingPlanResponse(response.data)) return null;
     return response.data as CurrentWorkoutPlan;
   },
-  async endCurrent(): Promise<void> {
-    await workoutPlanAPI.endCurrent();
+  async endCurrent(reason: string): Promise<void> {
+    await workoutPlanAPI.endCurrent(reason);
   },
 
   /**

@@ -371,7 +371,7 @@ export const assessmentAPI = {
 // result, which only contains recommendation metadata.
 export const workoutPlanAPI = {
   getCurrent: () => api.get("/workout-plans/current/"),
-  endCurrent: () => api.post("/workout-plans/end/"),
+  endCurrent: (reason: string) => api.post("/workout-plans/end/", { reason }),
   setBenchmark: (workoutId: number, is_benchmark: boolean) =>
     api.patch(`/workouts/${workoutId}/`, { is_benchmark }),
 };

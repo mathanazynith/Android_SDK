@@ -42,7 +42,7 @@
       [
         "expo-location",
         {
-          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": false,
           "isAndroidForegroundServiceEnabled": true,
           "isAndroidMotionActivityEnabled": true,
           "locationAlwaysAndWhenInUsePermission": "Allow this app to access your location even when the app is in the background to track your run.",

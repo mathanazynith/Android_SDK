@@ -108,7 +108,7 @@ interface QuestionnaireContextType {
   workoutPlanError: string | null;
   isWorkoutPlanLoading: boolean;
   fetchWorkoutPlan: (force?: boolean) => Promise<CurrentWorkoutPlan | null>;
-  endWorkoutPlan: () => Promise<void>;
+  endWorkoutPlan: (reason: string) => Promise<void>;
   canGoBack: boolean;
   loadQuestions: () => Promise<void>;
   startAssessment: () => Promise<void>;
@@ -358,11 +358,11 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     return request;
   }, [workoutPlan]);
 
-  const endWorkoutPlan = useCallback(async () => {
+  const endWorkoutPlan = useCallback(async (reason: string) => {
     setIsWorkoutPlanLoading(true);
     setWorkoutPlanError(null);
     try {
-      await workoutPlanService.endCurrent();
+      await workoutPlanService.endCurrent(reason);
       setWorkoutPlan(null);
       setAssessmentResult(null);
       setAssessmentResultLoaded(false);

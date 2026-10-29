@@ -556,7 +556,7 @@ export default function MapScreen() {
     setRouteSegments(routeSegmentsRef.current);
   }, []);
 
-  const requestLocation = useCallback(async () => {
+  const requestLocation = useCallback(async (): Promise<boolean> => {
     try {
       setLoading(true);
 
@@ -574,20 +574,10 @@ export default function MapScreen() {
             },
           ]
         );
-        return;
+        return false;
       }
 
       await LocationService.enableHighAccuracyProvider();
-
-      if (Platform.OS === 'android') {
-        const backgroundGranted = await LocationService.requestBackgroundPermissions();
-        if (!backgroundGranted) {
-          Alert.alert(
-            'Background Location',
-            'Background location access helps track your run even when the app is in background.'
-          );
-        }
-      }
 
       setPermissionGranted(true);
 
@@ -616,9 +606,11 @@ export default function MapScreen() {
       moveMapToLocation(currentLocation.latitude, currentLocation.longitude);
       addLog('?? Precise location access granted');
       addLog(`?? Accuracy: ${(currentLocation.accuracy ?? 0).toFixed(1)}m`);
+      return true;
     } catch (error) {
       console.error('Location error:', error);
       Alert.alert('Location Error', 'Unable to get your current location. Please make sure GPS is enabled.');
+      return false;
     } finally {
       setLoading(false);
     }
@@ -1248,19 +1240,8 @@ export default function MapScreen() {
       }
 
       if (!permissionGranted) {
-        await requestLocation();
-        return;
-      }
-
-      if (Platform.OS === 'android') {
-        const backgroundPermission = await Location.getBackgroundPermissionsAsync();
-        if (backgroundPermission.status !== 'granted') {
-          Alert.alert(
-            'Background location required',
-            'Allow background location in Android settings before recording so your route can continue while the screen is off.'
-          );
-          return;
-        }
+        const foregroundLocationGranted = await requestLocation();
+        if (!foregroundLocationGranted) return;
       }
 
       let selectedWorkout: BackendWorkout | null = null;
@@ -1329,29 +1310,18 @@ export default function MapScreen() {
         pauseEvents: pauseEventsRef.current,
       });
 
-      // Start the foreground service only after the task can durably journal
-      // fixes, but before any optional network or location lookup awaits.
+      // Start the location foreground service while the app is visible. This
+      // supports an active run with foreground permission without requiring
+      // the separate all-the-time permission.
       try {
         await startBackgroundLocationTracking();
         backgroundServiceStartedForAttempt = true;
       } catch (error) {
-        console.error('[BackgroundLocationTask] Unable to start location foreground service', error);
-        await persistBackgroundLocationSession({
-          active: false,
-          runId,
-          userId,
-          startedAt,
-          updatedAt: Date.now(),
-          movementConfirmed: false,
-          pauseEvents: pauseEventsRef.current,
-        });
-        await clearBackgroundLocationSession();
-        await clearActiveRunJournal();
+        console.warn('[BackgroundLocationTask] Unable to start background tracking; foreground GPS will continue', error);
         Alert.alert(
-          'Background tracking unavailable',
-          'The location service could not start, so the workout was not started. Please check location and notification permissions, then try again.'
+          'Background GPS unavailable',
+          'Your workout will record while Zy-Run is open, but location tracking may stop if you switch apps or turn off the screen.'
         );
-        return;
       }
 
       // Only query backend training plan if this is NOT a custom workout execution plan.
