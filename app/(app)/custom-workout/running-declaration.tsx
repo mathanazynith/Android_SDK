@@ -17,12 +17,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
+import { TargetPaceRangePicker } from "../../../components/TargetPaceRangePicker";
 import { Colors } from "../../../constants/theme";
 import { secondsToTimeString, timeStringToSeconds } from "../../../service/customWorkout";
 import {
   formatSecondsToPace,
   getMaxDistanceForUnit,
-  getPaceUnitLabel,
   getUnitFullLabel,
   getUnitLabel,
   normalizeUnit,
@@ -55,8 +55,6 @@ const targetTypeOptions: { label: string; value: StepTargetType; description: st
   },
 ];
 
-const PACE_DIFF_MIN_SEC = 15; // Minimum difference between fastest and lowest pace
-
 const parseExistingPaces = (paceStr?: string | null) => {
   if (!paceStr) return { faster: 270, slower: 330 }; // Default: 4:30 and 5:30
   if (paceStr.includes("-")) {
@@ -73,8 +71,8 @@ const parseExistingPaces = (paceStr?: string | null) => {
   const single = parsePaceToSeconds(paceStr);
   if (single) {
     return {
-      faster: Math.max(120, single - 15),
-      slower: Math.min(900, single + 15),
+      faster: Math.max(60, single - 15),
+      slower: Math.min(3600, single + 15),
     };
   }
   return { faster: 270, slower: 330 };
@@ -174,31 +172,8 @@ export default function RunningDeclaration() {
   // Notes
   const [notes, setNotes] = useState(existing?.notes || "");
 
-  // Pace Stepper handlers (5-second increments)
-  const isFasterPaceAtMax = fasterPaceSec >= slowerPaceSec - PACE_DIFF_MIN_SEC;
-  const isSlowerPaceAtMin = slowerPaceSec <= fasterPaceSec + PACE_DIFF_MIN_SEC;
-
-  const adjustFasterPace = (deltaSeconds: number) => {
-    setFasterPaceSec((prev) => {
-      const next = prev + deltaSeconds;
-      if (next < 120) return 120; // 2:00 /km minimum
-      const maxAllowed = slowerPaceSec - PACE_DIFF_MIN_SEC;
-      return next <= maxAllowed ? next : maxAllowed;
-    });
-  };
-
-  const adjustSlowerPace = (deltaSeconds: number) => {
-    setSlowerPaceSec((prev) => {
-      const next = prev + deltaSeconds;
-      const minAllowed = fasterPaceSec + PACE_DIFF_MIN_SEC;
-      if (next < minAllowed) return minAllowed;
-      return Math.min(900, next); // 15:00 /km maximum
-    });
-  };
-
   const fasterPaceStr = formatSecondsToPace(fasterPaceSec, unit, false);
   const slowerPaceStr = formatSecondsToPace(slowerPaceSec, unit, false);
-  const paceUnitLabel = getPaceUnitLabel(unit);
 
   // Median Pace: average of fastest and lowest pace
   const medianPaceSec = Math.round((fasterPaceSec + slowerPaceSec) / 2);
@@ -330,6 +305,8 @@ export default function RunningDeclaration() {
       rest: existing?.rest || "",
       skipLastRest: existing?.skipLastRest ?? true,
       skipRest: existing?.skipRest ?? !existing?.rest,
+      groupId: existing?.groupId,
+      groupRepeat: existing?.groupRepeat,
       notes: notes.trim(),
     };
 
@@ -359,7 +336,7 @@ export default function RunningDeclaration() {
             <Feather name="arrow-left" size={26} color={Colors.text} />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
-            <Text style={styles.headerBadge}>RUNNING</Text>
+            <Text style={styles.headerBadge}>RUN</Text>
             <Text style={styles.headerTitle}>Configure Step</Text>
           </View>
           <TouchableOpacity onPress={saveStep} style={styles.doneHeader}>
@@ -385,82 +362,32 @@ export default function RunningDeclaration() {
 
           {/* 1. TYPE DROPDOWN (Duration / Distance) */}
           <Text style={styles.sectionLabel}>TARGET TYPE</Text>
-          <View style={styles.section}>
-            {/* <Text style={styles.label}>Type Dropdown</Text> */}
-            {/* <TouchableOpacity
-              style={styles.dropdownButton}
-              onPress={() => setTypeDropdownVisible(true)}
-              activeOpacity={0.8}
-            >
-              <View style={styles.dropdownLeft}>
-                <View style={styles.dropdownIconCircle}>
-                  <Feather
-                    name={stepType === "duration" ? "clock" : "navigation"}
-                    size={18}
-                    color={Colors.primary}
-                  />
-                </View>
-                <View>
-                  <Text style={styles.dropdownTitle}>
-                    {stepType === "duration" ? "Duration" : "Distance"}
-                  </Text>
-                  <Text style={styles.dropdownSubtitle}>
-                    {stepType === "duration"
-                      ? "Control step by time (scroller)"
-                      : "Control step by distance (text box)"}
-                  </Text>
-                </View>
+          <TouchableOpacity
+            style={styles.dropdownCard}
+            onPress={() => setTypeDropdownVisible(true)}
+            activeOpacity={0.8}
+          >
+            <View style={styles.dropdownLeft}>
+              <View style={styles.dropdownIconCircle}>
+                <Feather
+                  name={stepType === "duration" ? "clock" : "navigation"}
+                  size={18}
+                  color={Colors.primary}
+                />
               </View>
-              <Feather name="chevron-down" size={20} color={Colors.textSecondary} />
-            </TouchableOpacity> */}
-
-            {/* Quick Segmented Toggle */}
-            <View style={styles.segmentedRow}>
-              <TouchableOpacity
-                style={[
-                  styles.segmentOption,
-                  stepType === "duration" && styles.segmentOptionActive,
-                ]}
-                onPress={() => selectTargetType("duration")}
-              >
-                <Feather
-                  name="clock"
-                  size={15}
-                  color={stepType === "duration" ? Colors.background : Colors.textSecondary}
-                />
-                <Text
-                  style={[
-                    styles.segmentOptionText,
-                    stepType === "duration" && styles.segmentOptionTextActive,
-                  ]}
-                >
-                  Duration
+              <View>
+                <Text style={styles.dropdownTitle}>
+                  {stepType === "duration" ? "Duration" : "Distance"}
                 </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.segmentOption,
-                  stepType === "distance" && styles.segmentOptionActive,
-                ]}
-                onPress={() => selectTargetType("distance")}
-              >
-                <Feather
-                  name="navigation"
-                  size={15}
-                  color={stepType === "distance" ? Colors.background : Colors.textSecondary}
-                />
-                <Text
-                  style={[
-                    styles.segmentOptionText,
-                    stepType === "distance" && styles.segmentOptionTextActive,
-                  ]}
-                >
-                  Distance
+                <Text style={styles.dropdownSubtitle}>
+                  {stepType === "duration"
+                    ? "Control step by time (scroller)"
+                    : "Control step by distance (text box)"}
                 </Text>
-              </TouchableOpacity>
+              </View>
             </View>
-          </View>
+            <Feather name="chevron-down" size={20} color={Colors.textSecondary} />
+          </TouchableOpacity>
 
           {/* 2. CONDITIONAL TARGET INPUT (Duration Scroller OR Distance Text Box) */}
           <Text style={styles.sectionLabel}>
@@ -475,6 +402,7 @@ export default function RunningDeclaration() {
                   value={durationString}
                   allowEmpty={false}
                   onChange={(val) => setDurationString(val)}
+                  accentColor={Colors.primary}
                 />
               </View>
             ) : (
@@ -525,80 +453,16 @@ export default function RunningDeclaration() {
           {/* 3. PACE SECTION: TWO PACES (Fastest Pace & Lowest Pace) */}
           <Text style={styles.sectionLabel}>TARGET PACE RANGE</Text>
           <View style={styles.section}>
-            <View style={styles.paceHeaderRow}>
-              <Text style={styles.paceRangeDisplay}>
-                {fasterPaceStr}–{slowerPaceStr}{" "}
-                <Text style={styles.paceUnitText}>{paceUnitLabel}</Text>
-              </Text>
-              <View style={styles.medianBadge}>
-                <Text style={styles.medianBadgeText}>
-                  Median: {medianPaceStr}
-                </Text>
-              </View>
-            </View>
-
-            {/* Stepper Cards */}
-            <View style={styles.stepperRow}>
-              {/* Fastest Pace Card */}
-              <View style={styles.stepperCard}>
-                <Text style={styles.stepperLabel}>Fastest pace</Text>
-                <Text style={styles.stepperValue}>{fasterPaceStr}</Text>
-                <View style={styles.stepperButtonsRow}>
-                  <TouchableOpacity
-                    style={styles.stepperBtn}
-                    onPress={() => adjustFasterPace(-5)}
-                    activeOpacity={0.7}
-                    accessibilityLabel="Decrease fastest pace"
-                  >
-                    <Feather name="minus" size={18} color={Colors.primary} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.stepperBtn,
-                      isFasterPaceAtMax && styles.stepperBtnDisabled,
-                    ]}
-                    onPress={() => adjustFasterPace(5)}
-                    disabled={isFasterPaceAtMax}
-                    activeOpacity={0.7}
-                    accessibilityLabel="Increase fastest pace"
-                  >
-                    <Feather name="plus" size={18} color={Colors.primary} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Lowest Pace Card */}
-              <View style={styles.stepperCard}>
-                <Text style={styles.stepperLabel}>Lowest pace</Text>
-                <Text style={styles.stepperValue}>{slowerPaceStr}</Text>
-                <View style={styles.stepperButtonsRow}>
-                  <TouchableOpacity
-                    style={[
-                      styles.stepperBtn,
-                      isSlowerPaceAtMin && styles.stepperBtnDisabled,
-                    ]}
-                    onPress={() => adjustSlowerPace(-5)}
-                    disabled={isSlowerPaceAtMin}
-                    activeOpacity={0.7}
-                    accessibilityLabel="Decrease lowest pace"
-                  >
-                    <Feather name="minus" size={18} color={Colors.primary} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.stepperBtn}
-                    onPress={() => adjustSlowerPace(5)}
-                    activeOpacity={0.7}
-                    accessibilityLabel="Increase lowest pace"
-                  >
-                    <Feather name="plus" size={18} color={Colors.primary} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-
-            <Text style={styles.helper}>
-              Adjust in 5-second increments. The median pace ({medianPaceStr}) will calculate your {stepType === "duration" ? "distance" : "duration"}.
-            </Text>
+            <TargetPaceRangePicker
+              fasterPaceSec={fasterPaceSec}
+              slowerPaceSec={slowerPaceSec}
+              onChange={(faster, slower) => {
+                setFasterPaceSec(faster);
+                setSlowerPaceSec(slower);
+              }}
+              unit={unit}
+              accentColor={Colors.primary}
+            />
           </View>
 
           {/* 4. CALCULATED VALUES DISPLAY CARD */}
@@ -803,18 +667,32 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
 
-  // Dropdown Button
+  // Clean Single Card Dropdown
+  dropdownCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#1C1C1E",
+    borderWidth: 1,
+    borderColor: "#2C2C2E",
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    marginHorizontal: 16,
+    marginBottom: 6,
+  },
   dropdownButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#2A2A2D",
+    backgroundColor: "#1C1C1E",
     borderWidth: 1,
-    borderColor: "#3E3E42",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 12,
+    borderColor: "#2C2C2E",
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    marginHorizontal: 16,
+    marginBottom: 6,
   },
   dropdownLeft: {
     flexDirection: "row",

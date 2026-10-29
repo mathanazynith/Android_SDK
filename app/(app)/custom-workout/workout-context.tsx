@@ -183,23 +183,70 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
 
   const addRepeatRun = useCallback(() => {
     setWorkout((current) => {
-      const existingGroup = current.runs.find((r) => Boolean(r.groupId));
-      const groupId = existingGroup?.groupId || `run-group-${Date.now()}`;
+      // Case A: No runs exist yet -> create new run directly with repeat group
+      if (current.runs.length === 0) {
+        const newGroupId = `run-group-${Date.now()}`;
+        const newStep: WorkoutStep = {
+          title: "Running",
+          stepType: "Run",
+          inputType: "DISTANCE",
+          duration: "00:25:00",
+          distance: "5.00",
+          unit: "Kilometers (km)",
+          pace: "5:00",
+          repeat: 2,
+          groupRepeat: 2,
+          groupId: newGroupId,
+          rest: "00:01:00",
+          skipLastRest: true,
+          skipRest: false,
+          notes: "",
+        };
+        return {
+          ...current,
+          runs: [newStep],
+        };
+      }
 
+      // Check if an existing repeat group exists
+      const existingGroup = current.runs.find(
+        (r) => Boolean(r.groupId) || (r.repeat != null && r.repeat > 1)
+      );
+
+      // Case B: Runs exist, but none are in a repeat group yet ("if has only card")
+      // Convert the existing single card(s) into a repeat group!
+      if (!existingGroup) {
+        const newGroupId = `run-group-${Date.now()}`;
+        return {
+          ...current,
+          runs: current.runs.map((r) => ({
+            ...r,
+            groupId: newGroupId,
+            repeat: Math.max(r.repeat || 1, 2),
+            groupRepeat: Math.max(r.groupRepeat || 1, 2),
+            rest: r.rest && r.rest !== "00:00:00" ? r.rest : "00:01:00",
+            skipLastRest: r.skipLastRest ?? true,
+          })),
+        };
+      }
+
+      // Case C: A repeat group already exists -> append another repeat step into this group
+      const targetGroupId = existingGroup.groupId || `run-group-${Date.now()}`;
+      const groupRepeat = existingGroup.groupRepeat || existingGroup.repeat || 2;
       const newRepeatStep: WorkoutStep = {
         title: "Running",
         stepType: "Run",
-        inputType: "DURATION",
-        duration: "00:05:00",
-        distance: "1.00",
+        inputType: "DISTANCE",
+        duration: "00:25:00",
+        distance: "5.00",
         unit: "Kilometers (km)",
-        pace: "05:00 /km",
-        repeat: 1,
+        pace: "5:00",
+        repeat: groupRepeat,
         rest: "00:01:00",
         skipLastRest: true,
         skipRest: false,
-        groupId,
-        groupRepeat: 1,
+        groupId: targetGroupId,
+        groupRepeat,
         notes: "",
       };
 

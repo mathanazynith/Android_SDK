@@ -239,7 +239,7 @@ export default function StatsScreen() {
   const styles = getThemeStyles(isDark);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [period, setPeriod] = useState<PeriodFilter>('week');
+  const [period, setPeriod] = useState<PeriodFilter>('all');
   const [activities, setActivities] = useState<UnifiedActivity[]>([]);
   const [selectedPointKey, setSelectedPointKey] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
@@ -261,7 +261,19 @@ export default function StatsScreen() {
     try {
       let backendList: BackendActivity[] = [];
       try {
-        backendList = await activityAPI.list(1000);
+        const cached = await activityAPI.getCachedFirstPage();
+        if (cached?.activities && cached.activities.length > 0) {
+          backendList = cached.activities;
+        }
+      } catch {
+        // continue
+      }
+
+      try {
+        const freshList = await activityAPI.listAll(1000);
+        if (freshList && freshList.length > 0) {
+          backendList = freshList;
+        }
       } catch (err) {
         console.warn('Could not fetch backend activities for stats:', err);
       }
@@ -629,6 +641,7 @@ export default function StatsScreen() {
         avgPaceSeconds: activePoint.paceSecondsPerKm,
         totalDurationSeconds: activePoint.durationSeconds,
         totalWorkouts: activePoint.workoutCount,
+        totalHistoryWorkouts: activities.length,
       };
     }
 
@@ -641,14 +654,17 @@ export default function StatsScreen() {
         ? `${selectedYear}`
         : 'All Time';
 
+    const totalHistoryRuns = activities.filter((a) => a.activityType === 'RUN').length;
+
     return {
       title: `Overview Metrics (${periodLabel})`,
-      runs: stats.runCount,
+      runs: period === 'all' ? stats.runCount : (stats.runCount > 0 ? stats.runCount : totalHistoryRuns),
       distanceKm: stats.totalDistanceKm,
       calories: stats.totalCalories,
       avgPaceSeconds: stats.averagePaceSeconds,
       totalDurationSeconds: stats.totalDurationSeconds,
-      totalWorkouts: stats.totalWorkouts,
+      totalWorkouts: period === 'all' ? stats.totalWorkouts : activities.length,
+      totalHistoryWorkouts: activities.length,
     };
   }, [selectedPointKey, activePoint, activities, period, selectedYear, selectedMonth, stats]);
 
@@ -830,8 +846,8 @@ export default function StatsScreen() {
           <Text style={styles.headerTitle}>Statistics</Text>
           <Text style={styles.headerSubtitle}>
             {isDark
-              ? stats.totalWorkouts > 0
-                ? `${stats.totalWorkouts} ${stats.totalWorkouts === 1 ? 'workout' : 'workouts'} recorded`
+              ? activities.length > 0
+                ? `${activities.length} ${activities.length === 1 ? 'workout' : 'workouts'} recorded in history`
                 : 'Track your running performance'
               : 'Track your running'}
           </Text>
@@ -1027,7 +1043,7 @@ export default function StatsScreen() {
             <Text style={styles.sectionTitle}>{activeMetrics.title}</Text>
             <Text style={styles.sectionSubBadge}>
               {activeMetrics.totalWorkouts > 0
-                ? `${activeMetrics.totalWorkouts} ${activeMetrics.totalWorkouts === 1 ? 'workout' : 'workouts'}`
+                ? `${activeMetrics.totalWorkouts} in history`
                 : '0 workouts'}
             </Text>
           </View>

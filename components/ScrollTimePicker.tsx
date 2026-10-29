@@ -15,6 +15,7 @@ interface ScrollTimePickerProps {
   error?: string;
   onChange: (value: string) => void;
   maxHours?: number;
+  accentColor?: string;
 }
 
 const ITEM_HEIGHT = 50;
@@ -42,12 +43,33 @@ const parseTimeValue = (timeValue: string | undefined, maxHours: number, allowEm
 const formatTimeValue = ({ hours, minutes, seconds }: TimeParts) =>
   `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 
-const WheelValue = ({ value, unit, selected }: { value: number; unit: string; selected: boolean }) => {
+const WheelValue = ({
+  value,
+  unit,
+  selected,
+  accentColor,
+}: {
+  value: number;
+  unit: string;
+  selected: boolean;
+  accentColor?: string;
+}) => {
   const { colors } = useTheme();
-  return <Text style={[styles.itemText, { color: colors.textTertiary, opacity: selected ? 1 : 0.72 }, selected && { color: colors.textPrimary }] }>
-    <Text>{String(value).padStart(2, '0')}</Text>
-    <Text style={{ color: selected ? colors.primary : colors.textSecondary }}>{unit}</Text>
-  </Text>;
+  const highlightColor = accentColor || colors.primary;
+  return (
+    <Text
+      style={[
+        styles.itemText,
+        { color: colors.textTertiary, opacity: selected ? 1 : 0.72 },
+        selected && { color: colors.textPrimary },
+      ]}
+    >
+      <Text>{String(value).padStart(2, "0")}</Text>
+      <Text style={{ color: selected ? highlightColor : colors.textSecondary }}>
+        {unit}
+      </Text>
+    </Text>
+  );
 };
 
 /**
@@ -69,6 +91,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
   error,
   onChange,
   maxHours = 99,
+  accentColor,
 }) => {
   const { colors } = useTheme();
   const [time, setTime] = useState<TimeParts>(() => parseTimeValue(value, maxHours, allowEmpty));
@@ -177,9 +200,28 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
     <View style={styles.card}>
       {label ? <Text style={[styles.label, { color: colors.text }]}>{label}</Text> : null}
       {/* Time Picker */}
-      <View style={[styles.pickerContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <View
+        style={[
+          styles.pickerContainer,
+          {
+            backgroundColor: colors.surface,
+            borderColor: accentColor ? `${accentColor}35` : colors.border,
+          },
+        ]}
+      >
         <View style={styles.highlightOverlay} pointerEvents="none">
-          <View style={styles.centerLine} />
+          <View
+            style={[
+              styles.centerLine,
+              accentColor
+                ? {
+                    backgroundColor: `${accentColor}12`,
+                    borderTopColor: `${accentColor}2E`,
+                    borderBottomColor: `${accentColor}2E`,
+                  }
+                : undefined,
+            ]}
+          />
         </View>
 
         {/* Hours Column */}
@@ -200,7 +242,12 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
           >
             {hoursArray.map((hour) => (
               <View key={`hour-${hour}`} style={styles.item}>
-                <WheelValue value={hour} unit="h" selected={hour === time.hours} />
+                <WheelValue
+                  value={hour}
+                  unit="h"
+                  selected={hour === time.hours}
+                  accentColor={accentColor}
+                />
               </View>
             ))}
           </ScrollView>
@@ -227,7 +274,12 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
           >
             {minutesArray.map((minute) => (
               <View key={`minute-${minute}`} style={styles.item}>
-                <WheelValue value={minute} unit="m" selected={minute === time.minutes} />
+                <WheelValue
+                  value={minute}
+                  unit="m"
+                  selected={minute === time.minutes}
+                  accentColor={accentColor}
+                />
               </View>
             ))}
           </ScrollView>
@@ -254,7 +306,12 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
           >
             {secondsArray.map((second) => (
               <View key={`second-${second}`} style={styles.item}>
-                <WheelValue value={second} unit="s" selected={second === time.seconds} />
+                <WheelValue
+                  value={second}
+                  unit="s"
+                  selected={second === time.seconds}
+                  accentColor={accentColor}
+                />
               </View>
             ))}
           </ScrollView>
@@ -262,9 +319,25 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
       </View>
 
       {/* Selected time display */}
-      <View style={[styles.selectedTimeContainer, { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderWidth: 1 }]}>
+      <View
+        style={[
+          styles.selectedTimeContainer,
+          {
+            backgroundColor: colors.surfaceRaised,
+            borderColor: accentColor ? `${accentColor}44` : colors.border,
+            borderWidth: 1,
+          },
+        ]}
+      >
         <Text style={[styles.selectedLabel, { color: colors.textSecondary }]}>Selected:</Text>
-        <Text style={[styles.selectedTime, { color: colors.textPrimary }]}>{selectedTime}</Text>
+        <Text
+          style={[
+            styles.selectedTime,
+            { color: accentColor || colors.textPrimary },
+          ]}
+        >
+          {selectedTime}
+        </Text>
       </View>
 
       {/* Error message */}

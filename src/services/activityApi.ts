@@ -458,10 +458,13 @@ export const normalizeHistoryPage = async (
   const normalized = await Promise.all(rawSlice.map(normalizeActivity).map(applySdkDistance));
   const activities = normalized.filter((activity) => {
     const activityType = String(activity.activity_type).toUpperCase();
+    const hasDistance = Number(activity.distance) > 0;
+    const hasTime = Number(activity.moving_time || activity.elapsed_time) > 0;
+    const isCompleted = !activity.processing_status || activity.processing_status === 'COMPLETED';
     return (
       (activityType === 'RUN' || activityType === 'WALK') &&
-      activity.processing_status === 'COMPLETED' &&
-      Number(activity.distance) > 0
+      isCompleted &&
+      (hasDistance || hasTime)
     );
   });
   const parsedResponseLimit = Number(source.limit ?? limit);
@@ -550,8 +553,21 @@ export const activityAPI = {
     }
   },
 
+  async listAll(limit = 1000): Promise<BackendActivity[]> {
+    try {
+      const page = await this.listPage(null, limit);
+      if (page.activities && page.activities.length > 0) {
+        return page.activities;
+      }
+    } catch (err) {
+      console.warn('[ActivityAPI] listAll network error:', err);
+    }
+    const cached = await this.getCachedFirstPage();
+    return cached?.activities ?? [];
+  },
+
   async list(limit = 1000): Promise<BackendActivity[]> {
-    return (await this.listPage(null, limit)).activities;
+    return this.listAll(limit);
   },
 
   async get(activityId: BackendActivity['id']): Promise<BackendActivity> {
