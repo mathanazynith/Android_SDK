@@ -457,14 +457,12 @@ export default function CustomWorkoutOverview() {
 
   const { mode } = useLocalSearchParams<{ mode?: string }>();
   const [isEditing, setIsEditing] = useState<boolean>(!workout.id || mode === "edit");
-
-  useEffect(() => {
-    if (mode === "edit" || !workout.id) {
-      setIsEditing(true);
-    } else {
-      setIsEditing(false);
-    }
-  }, [mode, workout.id]);
+  const [prevEditKey, setPrevEditKey] = useState(`${workout.id}-${mode}`);
+  const currentEditKey = `${workout.id}-${mode}`;
+  if (prevEditKey !== currentEditKey) {
+    setPrevEditKey(currentEditKey);
+    setIsEditing(!workout.id || mode === "edit");
+  }
 
   const [selectedRun, setSelectedRun] = useState<number | null>(
     workout.runs.length ? 0 : null,
@@ -477,7 +475,12 @@ export default function CustomWorkoutOverview() {
   // 3-dot Action Menu and DatePicker states
   const [showActionMenu, setShowActionMenu] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [isBenchmark, setIsBenchmark] = useState(false);
+  const [isBenchmark, setIsBenchmark] = useState(() => workout.isBenchmark ?? false);
+  const [prevBenchmarkId, setPrevBenchmarkId] = useState(workout.id);
+  if (prevBenchmarkId !== workout.id) {
+    setPrevBenchmarkId(workout.id);
+    setIsBenchmark(workout.isBenchmark ?? false);
+  }
   const [assignedRoute, setAssignedRoute] = useState<SuggestedRoute | null>(null);
   const [isRemovingRoute, setIsRemovingRoute] = useState(false);
 
@@ -530,16 +533,17 @@ export default function CustomWorkoutOverview() {
   };
 
   useEffect(() => {
-    if (workout.id) {
-      setIsBenchmark(workout.isBenchmark ?? false);
+    let active = true;
+    if (workout.id && workout.isBenchmark === undefined) {
       BenchmarkStore.isBenchmark(workout.id).then((local) => {
-        if (workout.isBenchmark === undefined) {
+        if (active) {
           setIsBenchmark(local);
         }
       });
-    } else {
-      setIsBenchmark(workout.isBenchmark ?? false);
     }
+    return () => {
+      active = false;
+    };
   }, [workout.id, workout.isBenchmark]);
 
   const handleToggleBenchmark = async () => {

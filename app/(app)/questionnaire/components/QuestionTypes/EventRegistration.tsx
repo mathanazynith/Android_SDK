@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useRef } from "react";
-import { View, Text, TextInput, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, TextInput, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import DatePicker from "../../QuestionTypes/DatePicker";
 import DistanceTimePaceSelector from "../../QuestionTypes/DistanceTimePaceSelector";
@@ -99,7 +99,7 @@ export function RacePredictionCard({
   const trainingDates = prediction?.training_period?.start_date && prediction.training_period.target_date
     ? `${prediction.training_period.start_date} – ${prediction.training_period.target_date}`
     : null;
-  const rows: Array<[string, string | null | undefined]> = [
+  const rows: [string, string | null | undefined][] = [
     ["Your goal", prediction?.goal_time],
     ["Predicted race time", prediction?.predicted_time],
     ["Your goal pace", prediction?.goal_pace],
@@ -169,23 +169,27 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   const [distanceState, setDistanceState] = useState(value?.targetDistance || value?.distance || customValues?.distance || "");
   const [targetTime, setTargetTime] = useState(value?.targetTime || customValues?.targetTime || "");
   const [selectedDistanceValue, setSelectedDistanceValue] = useState<string | undefined>(selectedValue);
-  // Selecting a preset triggers both onSelect and onCustomChange. State does
-  // not update between those callbacks, so this preserves the new option ID
-  // instead of allowing onCustomChange to write the old one back.
   const selectedDistanceValueRef = useRef<string | undefined>(selectedValue);
 
-  React.useEffect(() => {
+  const [prevSelectedValue, setPrevSelectedValue] = useState(selectedValue);
+  if (prevSelectedValue !== selectedValue) {
+    setPrevSelectedValue(selectedValue);
     setSelectedDistanceValue(selectedValue);
-    selectedDistanceValueRef.current = selectedValue;
-  }, [selectedValue]);
+  }
 
-  React.useEffect(() => {
-    setDistanceState(value?.targetDistance || value?.distance || customValues?.distance || "");
-  }, [value?.targetDistance, value?.distance, customValues?.distance]);
+  const incomingDistance = value?.targetDistance || value?.distance || customValues?.distance || "";
+  const [prevIncomingDistance, setPrevIncomingDistance] = useState(incomingDistance);
+  if (prevIncomingDistance !== incomingDistance) {
+    setPrevIncomingDistance(incomingDistance);
+    setDistanceState(incomingDistance);
+  }
 
-  React.useEffect(() => {
-    setTargetTime(value?.targetTime || customValues?.targetTime || "");
-  }, [value?.targetTime, customValues?.targetTime]);
+  const incomingTargetTime = value?.targetTime || customValues?.targetTime || "";
+  const [prevIncomingTargetTime, setPrevIncomingTargetTime] = useState(incomingTargetTime);
+  if (prevIncomingTargetTime !== incomingTargetTime) {
+    setPrevIncomingTargetTime(incomingTargetTime);
+    setTargetTime(incomingTargetTime);
+  }
 
   // Shared state for all custom values (distance, time, unit) - pace is computed only
   const normalizedCustomValues = useMemo(() => {

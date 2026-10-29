@@ -550,8 +550,8 @@ export const activityAPI = {
     }
   },
 
-  async list(): Promise<BackendActivity[]> {
-    return (await this.listPage(null)).activities;
+  async list(limit = 1000): Promise<BackendActivity[]> {
+    return (await this.listPage(null, limit)).activities;
   },
 
   async get(activityId: BackendActivity['id']): Promise<BackendActivity> {

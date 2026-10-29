@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -85,11 +85,11 @@ export const RunningLoader: React.FC<RunningLoaderProps> = ({
     ? Math.min(1, Math.max(0, progress > 1 ? progress / 100 : progress))
     : 0;
 
-  // Animated values
-  const fillAnim = useRef(new Animated.Value(isIndeterminate ? 0 : normalizedProgress)).current;
-  const strideAnim = useRef(new Animated.Value(0)).current;
-  const windAnim = useRef(new Animated.Value(0)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+  // Animated values initialized once using lazy state
+  const [fillAnim] = useState(() => new Animated.Value(isIndeterminate ? 0 : normalizedProgress));
+  const [strideAnim] = useState(() => new Animated.Value(0));
+  const [windAnim] = useState(() => new Animated.Value(0));
+  const [pulseAnim] = useState(() => new Animated.Value(1));
 
   // Keep a tracked numeric value for percentage text display
   const [currentProgressPct, setCurrentProgressPct] = React.useState(
@@ -100,8 +100,10 @@ export const RunningLoader: React.FC<RunningLoaderProps> = ({
   const defaultUnfilled = isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(15, 23, 42, 0.18)';
   const effectiveUnfilledColor = unfilledColor || defaultUnfilled;
 
-  // 1. Stride / Running motion loop (vertical bobbing + forward athletic lean)
+  // 1. Stride / Running motion loop (vertical bobbing + forward athletic lean, only needed for silhouette)
   useEffect(() => {
+    if (isLottie) return;
+
     const strideLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(strideAnim, {
@@ -121,11 +123,11 @@ export const RunningLoader: React.FC<RunningLoaderProps> = ({
     strideLoop.start();
 
     return () => strideLoop.stop();
-  }, [strideAnim]);
+  }, [strideAnim, isLottie]);
 
   // 2. Speed / Wind streak lines loop
   useEffect(() => {
-    if (!effectiveShowSpeedLines) return;
+    if (!effectiveShowSpeedLines || isLottie) return;
 
     const windLoop = Animated.loop(
       Animated.timing(windAnim, {
@@ -138,7 +140,7 @@ export const RunningLoader: React.FC<RunningLoaderProps> = ({
     windLoop.start();
 
     return () => windLoop.stop();
-  }, [windAnim, effectiveShowSpeedLines]);
+  }, [windAnim, effectiveShowSpeedLines, isLottie]);
 
   // 3. Fill animation (determinate vs indeterminate)
   useEffect(() => {
@@ -208,44 +210,49 @@ export const RunningLoader: React.FC<RunningLoaderProps> = ({
     }
   }, [isIndeterminate, normalizedProgress, fillAnim, pulseAnim, showPercentage]);
 
-  // Interpolations for runner physics
-  const bobbingTranslateY = strideAnim.interpolate({
+  // Interpolations for runner physics (memoized to prevent re-creation)
+  const bobbingTranslateY = useMemo(() => strideAnim.interpolate({
     inputRange: [0, 0.5, 1],
     outputRange: [0, -size * (isSmall ? 0.08 : 0.12), 0],
-  });
+  }), [strideAnim, size, isSmall]);
 
-  const athleticTilt = strideAnim.interpolate({
+  const athleticTilt = useMemo(() => strideAnim.interpolate({
     inputRange: [0, 0.5, 1],
     outputRange: ['-6deg', '-12deg', '-6deg'],
-  });
+  }), [strideAnim]);
 
   // Dynamic ground shadow reacts inversely to airborne height
-  const shadowScaleX = strideAnim.interpolate({
+  const shadowScaleX = useMemo(() => strideAnim.interpolate({
     inputRange: [0, 0.5, 1],
     outputRange: [1.2, 0.72, 1.2],
-  });
+  }), [strideAnim]);
 
-  const shadowOpacity = strideAnim.interpolate({
+  const shadowOpacity = useMemo(() => strideAnim.interpolate({
     inputRange: [0, 0.5, 1],
     outputRange: [0.38, 0.14, 0.38],
-  });
+  }), [strideAnim]);
 
   // Wind speed streak offsets
-  const windTranslateX = windAnim.interpolate({
+  const windTranslateX = useMemo(() => windAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0, -size * 0.35],
-  });
+  }), [windAnim, size]);
 
-  const windOpacity = windAnim.interpolate({
+  const windOpacity = useMemo(() => windAnim.interpolate({
     inputRange: [0, 0.5, 1],
     outputRange: [0.65, 0.35, 0],
-  });
+  }), [windAnim]);
 
   // Fill dimension (height or width depending on direction)
-  const fillDimension = fillAnim.interpolate({
+  const fillDimension = useMemo(() => fillAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0, size],
-  });
+  }), [fillAnim, size]);
+
+  const emojiHaloOpacity = useMemo(() => fillAnim.interpolate({
+    inputRange: [0, 0.2, 1],
+    outputRange: [0.2, 0.6, 1],
+  }), [fillAnim]);
 
   return (
     <View
@@ -376,10 +383,7 @@ export const RunningLoader: React.FC<RunningLoaderProps> = ({
                     borderRadius: (size * 1.15) / 2,
                     borderColor: fillColor,
                     borderWidth: 2.5,
-                    opacity: fillAnim.interpolate({
-                      inputRange: [0, 0.2, 1],
-                      outputRange: [0.2, 0.6, 1],
-                    }),
+                    opacity: emojiHaloOpacity,
                   },
                 ]}
               />

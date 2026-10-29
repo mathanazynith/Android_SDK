@@ -2059,7 +2059,7 @@ export default function MapScreen() {
   const renderedRouteSegments = useMemo(
     () => routeSegments.map((segment) => ({
       ...segment,
-      coordinates: pathProcessorRef.current?.simplifyLivePolyline(segment.coordinates) ?? segment.coordinates,
+      coordinates: PathProcessor.simplifyLivePolyline(segment.coordinates),
     })),
     [routeSegments],
   );
@@ -2121,49 +2121,7 @@ export default function MapScreen() {
           minZoomLevel={10}
           maxZoomLevel={20}
         >
-          {/*
-            Keep the route overlay mounted for the map's full lifetime. Android
-            Fabric can crash when a Polyline is conditionally inserted while
-            native GPS updates are being processed (addViewAt index/count).
-          */}
-          {/* {routeSegments.map((segment) => (
-            <Polyline
-              key={`route-${segment.id}`}
-              coordinates={segment.coordinates}
-              strokeWidth={3}
-              strokeColor={segment.traceType === 'active'
-                ? '#20D000'
-                : segment.traceType === 'pause'
-                  ? 'rgba(32,208,0,0.35)'
-                  : '#9CA3AF'}
-              lineCap="round"
-              lineJoin="round"
-              geodesic={true}
-            />
-          ))}
-          {plannedRouteCoordinates.length > 1 && (
-            <Polyline
-              key="assigned-route"
-              coordinates={plannedRouteCoordinates}
-              strokeWidth={4}
-              strokeColor={routeStatus.color}
-              lineDashPattern={[10, 7]}
-              lineCap="round"
-              lineJoin="round"
-              geodesic={true}
-            />
-          )}
-          {pauseMarkers.map((marker) => (
-            <Marker
-              key={`pause-marker-${marker.id}`}
-              coordinate={marker.coordinate}
-              pinColor={marker.type === 'pause' ? '#FFB800' : '#20D000'}
-              title={marker.type === 'pause' ? 'Paused' : 'Resumed'}
-              description={new Date(marker.timestamp).toLocaleTimeString()}
-            />
-          ))}
-        </MapView> */}
-        {renderedRouteSegments.map((segment) => (
+          {renderedRouteSegments.map((segment) => (
             <Polyline
               key={segment.id}
               coordinates={segment.coordinates}

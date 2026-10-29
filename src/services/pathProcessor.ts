@@ -244,11 +244,17 @@ export class PathProcessor {
     return [...this.displayPoints];
   }
 
-  public simplifyLivePolyline(points: RunningCoordinate[]): RunningCoordinate[] {
-    return this.rdp.simplifyPreservingTurns(
+  private static readonly sharedRdp = new RdpSimplifier(DEFAULT_RDP_SIMPLIFIER_CONFIG);
+
+  public static simplifyLivePolyline(points: RunningCoordinate[]): RunningCoordinate[] {
+    return PathProcessor.sharedRdp.simplifyPreservingTurns(
       points,
       getGpsOptimizationConfig().livePolylineJitterToleranceMeters
     );
+  }
+
+  public simplifyLivePolyline(points: RunningCoordinate[]): RunningCoordinate[] {
+    return PathProcessor.simplifyLivePolyline(points);
   }
 
   public getFilteredPoints(): RunningPathPoint[] {

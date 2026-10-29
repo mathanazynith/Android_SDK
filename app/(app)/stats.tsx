@@ -32,6 +32,8 @@ import MotionEntrance from '../../components/MotionEntrance';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { customWorkoutAPI, type UserWorkoutResponse } from '../../service/customWorkout';
+import { workoutPlanAPI } from '../../service/api';
+import { type CurrentWorkout } from '../../service/workoutPlan';
 import { activityAPI, BackendActivity } from '../../src/services/activityApi';
 import ActivityStore from '../../src/services/activityStore';
 import { BenchmarkStore } from '../../src/services/benchmarkStore';
@@ -259,22 +261,21 @@ export default function StatsScreen() {
     try {
       let backendList: BackendActivity[] = [];
       try {
-        backendList = await activityAPI.list();
+        backendList = await activityAPI.list(1000);
       } catch (err) {
         console.warn('Could not fetch backend activities for stats:', err);
       }
 
       const localList = ActivityStore.list();
-      const unified = normalizeActivities(backendList, localList);
-      setActivities(unified);
 
+      let customList: UserWorkoutResponse[] = [];
       try {
         const [customRes, benchIds, planBenchList] = await Promise.all([
           customWorkoutAPI.list(),
           BenchmarkStore.getBenchmarkIds(),
           PlanBenchmarkStore.getActiveBenchmarkList(),
         ]);
-        const customList: UserWorkoutResponse[] = Array.isArray(customRes.data)
+        customList = Array.isArray(customRes.data)
           ? customRes.data
           : ((customRes.data as any)?.results || []);
         setCustomWorkouts(customList);
@@ -288,13 +289,42 @@ export default function StatsScreen() {
         console.warn('Error loading custom workouts for stats benchmarks:', err);
         console.warn('Error loading plan benchmarks for stats:', err);
       }
+
+      // Collect plan workouts from training plan
+      const planWorkoutsList: CurrentWorkout[] = [];
+      let currentPlan = workoutPlan;
+      if (!currentPlan) {
+        try {
+          const planRes = await workoutPlanAPI.getCurrent();
+          if (planRes?.data?.weeks) {
+            currentPlan = planRes.data;
+          }
+        } catch {
+          // No current plan
+        }
+      }
+      if (currentPlan?.weeks) {
+        for (const wk of currentPlan.weeks) {
+          if (Array.isArray(wk.workouts)) {
+            planWorkoutsList.push(...wk.workouts);
+          }
+        }
+      }
+
+      // Unify workouts from ALL sides:
+      // 1. Backend activities (free runs, quick runs, walks, completed runs)
+      // 2. Local activities
+      // 3. Custom workouts
+      // 4. Training plan workouts
+      const unified = normalizeActivities(backendList, localList, customList, planWorkoutsList);
+      setActivities(unified);
     } catch (e) {
       console.warn('Error loading stats activities:', e);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [workoutPlan]);
 
   /* eslint-disable react-hooks/immutability */
   useFocusEffect(
@@ -593,7 +623,7 @@ export default function StatsScreen() {
       const runs = pointActs.filter((a) => a.activityType === 'RUN').length;
       return {
         title: `Overview Metrics (${activePoint.label})`,
-        runs: runs > 0 ? runs : activePoint.workoutCount,
+        runs,
         distanceKm: activePoint.value,
         calories: pointActs.reduce((acc, a) => acc + a.calories, 0),
         avgPaceSeconds: activePoint.paceSecondsPerKm,
@@ -613,7 +643,7 @@ export default function StatsScreen() {
 
     return {
       title: `Overview Metrics (${periodLabel})`,
-      runs: stats.runCount > 0 ? stats.runCount : stats.totalWorkouts,
+      runs: stats.runCount,
       distanceKm: stats.totalDistanceKm,
       calories: stats.totalCalories,
       avgPaceSeconds: stats.averagePaceSeconds,
@@ -801,7 +831,7 @@ export default function StatsScreen() {
           <Text style={styles.headerSubtitle}>
             {isDark
               ? stats.totalWorkouts > 0
-                ? `${stats.totalWorkouts} activities recorded`
+                ? `${stats.totalWorkouts} ${stats.totalWorkouts === 1 ? 'workout' : 'workouts'} recorded`
                 : 'Track your running performance'
               : 'Track your running'}
           </Text>
@@ -941,7 +971,7 @@ export default function StatsScreen() {
               <View style={styles.tooltipLeft}>
                 <Text style={styles.tooltipTitle}>{activePoint.fullLabel}</Text>
                 <Text style={styles.tooltipSub}>
-                  {activePoint.workoutCount} {activePoint.workoutCount === 1 ? 'activity' : 'activities'}
+                  {activePoint.workoutCount} {activePoint.workoutCount === 1 ? 'workout' : 'workouts'}
                 </Text>
               </View>
               <View style={styles.tooltipRight}>
@@ -996,7 +1026,9 @@ export default function StatsScreen() {
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>{activeMetrics.title}</Text>
             <Text style={styles.sectionSubBadge}>
-              {activeMetrics.totalWorkouts > 0 ? `${activeMetrics.totalWorkouts} activities` : '0 activities'}
+              {activeMetrics.totalWorkouts > 0
+                ? `${activeMetrics.totalWorkouts} ${activeMetrics.totalWorkouts === 1 ? 'workout' : 'workouts'}`
+                : '0 workouts'}
             </Text>
           </View>
         </MotionEntrance>

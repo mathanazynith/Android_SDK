@@ -48,7 +48,7 @@ const AssessmentNextButton = ({
   disabledTextColor: string;
   onPress: () => void;
 }) => {
-  const opacity = React.useRef(new Animated.Value(disabled ? 0.42 : 1)).current;
+  const [opacity] = useState(() => new Animated.Value(disabled ? 0.42 : 1));
 
   useEffect(() => {
     const animation = Animated.timing(opacity, {
@@ -753,16 +753,17 @@ export default function QuestionnaireScreen() {
       : (isCompleteCandidate(eventCandidate) ? eventCandidate : null);
 
     const requestId = ++racePredictionRequestId.current;
-    if (!assessmentId || !candidate) {
-      setRacePrediction(null);
-      setIsRacePredictionLoading(false);
-      setRacePredictionError(null);
-      return;
-    }
-
-    setIsRacePredictionLoading(true);
-    setRacePredictionError(null);
     const timer = setTimeout(async () => {
+      if (requestId !== racePredictionRequestId.current) return;
+      if (!assessmentId || !candidate) {
+        setRacePrediction(null);
+        setIsRacePredictionLoading(false);
+        setRacePredictionError(null);
+        return;
+      }
+
+      setIsRacePredictionLoading(true);
+      setRacePredictionError(null);
       const answers = [candidate.dateQuestion, candidate.startQuestion, candidate.distanceQuestion, candidate.timeQuestion]
         .filter((question, index, list): question is Question => Boolean(question) && list.indexOf(question) === index)
         .map((question) => {

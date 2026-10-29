@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { View, Text, TextInput, StyleSheet } from "react-native";
  
 interface RunningStatsProps {
@@ -9,33 +9,47 @@ interface RunningStatsProps {
   };
   onChange: (value: any) => void;
 }
+
+const calculatePaceString = (distStr: string, timeStr: string) => {
+  const dist = parseFloat(distStr);
+  const timeInMinutes = parseFloat(timeStr);
+  if (dist > 0 && timeInMinutes > 0) {
+    const calculatedPace = timeInMinutes / dist;
+    const minutes = Math.floor(calculatedPace);
+    const seconds = Math.round((calculatedPace - minutes) * 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')} min/km`;
+  }
+  return "";
+};
  
 const RunningStats: React.FC<RunningStatsProps> = ({ value, onChange }) => {
   const [distance, setDistance] = useState(value?.distance || "");
   const [time, setTime] = useState(value?.time || "");
-  const [pace, setPace] = useState(value?.pace || "");
- 
-  // Calculate pace when distance or time changes
-  useEffect(() => {
-    if (distance && time && parseFloat(distance) > 0 && parseFloat(time) > 0) {
-      const dist = parseFloat(distance);
-      const timeInMinutes = parseFloat(time);
-      const calculatedPace = timeInMinutes / dist;
-      const minutes = Math.floor(calculatedPace);
-      const seconds = Math.round((calculatedPace - minutes) * 60);
-      const paceString = `${minutes}:${seconds.toString().padStart(2, '0')} min/km`;
-      setPace(paceString);
-     
-      // Update parent with all values
-      onChange({
-        distance,
-        time,
-        pace: paceString
-      });
-    } else {
-      setPace("");
-    }
-  }, [distance, time]);
+
+  const pace = useMemo(
+    () => calculatePaceString(distance, time),
+    [distance, time]
+  );
+
+  const handleDistanceChange = useCallback((newDistance: string) => {
+    setDistance(newDistance);
+    const calculatedPace = calculatePaceString(newDistance, time);
+    onChange({
+      distance: newDistance,
+      time,
+      pace: calculatedPace,
+    });
+  }, [time, onChange]);
+
+  const handleTimeChange = useCallback((newTime: string) => {
+    setTime(newTime);
+    const calculatedPace = calculatePaceString(distance, newTime);
+    onChange({
+      distance,
+      time: newTime,
+      pace: calculatedPace,
+    });
+  }, [distance, onChange]);
  
   return (
     <View style={styles.container}>
@@ -44,7 +58,7 @@ const RunningStats: React.FC<RunningStatsProps> = ({ value, onChange }) => {
         <TextInput
           style={styles.input}
           value={distance}
-          onChangeText={setDistance}
+          onChangeText={handleDistanceChange}
           placeholder="Enter distance in km"
           keyboardType="numeric"
         />
@@ -55,7 +69,7 @@ const RunningStats: React.FC<RunningStatsProps> = ({ value, onChange }) => {
         <TextInput
           style={styles.input}
           value={time}
-          onChangeText={setTime}
+          onChangeText={handleTimeChange}
           placeholder="Enter time in minutes"
           keyboardType="numeric"
         />
