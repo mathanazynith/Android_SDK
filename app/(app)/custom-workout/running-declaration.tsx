@@ -40,21 +40,6 @@ const unitOptions: { label: string; value: DistanceUnitType }[] = [
   { label: "Miles (mi)", value: "mi" },
 ];
 
-const targetTypeOptions: { label: string; value: StepTargetType; description: string; icon: "clock" | "navigation" }[] = [
-  {
-    label: "Duration",
-    value: "duration",
-    description: "Set step target by running time",
-    icon: "clock",
-  },
-  {
-    label: "Distance",
-    value: "distance",
-    description: "Set step target by distance (km, m, mi)",
-    icon: "navigation",
-  },
-];
-
 const parseExistingPaces = (paceStr?: string | null) => {
   if (!paceStr) return { faster: 270, slower: 330 }; // Default: 4:30 and 5:30
   if (paceStr.includes("-")) {
@@ -88,7 +73,7 @@ export default function RunningDeclaration() {
       : undefined;
 
   // Step Title
-  const [title, setTitle] = useState(existing?.title || "Running");
+  const [title] = useState(existing?.title || "Running");
 
   // Step Target Type: 'duration' or 'distance'
   const initialType: StepTargetType =
@@ -170,7 +155,7 @@ export default function RunningDeclaration() {
   const [slowerPaceSec, setSlowerPaceSec] = useState<number>(initialPaces.slower);
 
   // Notes
-  const [notes, setNotes] = useState(existing?.notes || "");
+  const [notes] = useState(existing?.notes || "");
 
   const fasterPaceStr = formatSecondsToPace(fasterPaceSec, unit, false);
   const slowerPaceStr = formatSecondsToPace(slowerPaceSec, unit, false);
@@ -333,7 +318,7 @@ export default function RunningDeclaration() {
             style={styles.headerIcon}
             accessibilityLabel="Go back"
           >
-            <Feather name="arrow-left" size={26} color={Colors.text} />
+            <Feather name="arrow-left" size={24} color={Colors.text} />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
             <Text style={styles.headerBadge}>RUN</Text>
@@ -347,31 +332,21 @@ export default function RunningDeclaration() {
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          bounces={false}
         >
-          {/* Step Title Input */}
-          {/* <View style={styles.titleSection}>
-            <Text style={styles.label}>STEP TITLE</Text>
-            <TextInput
-              value={title}
-              onChangeText={setTitle}
-              placeholder="e.g. Running, Speed Interval, Tempo"
-              placeholderTextColor={Colors.textMuted}
-              style={styles.input}
-            />
-          </View> */}
-
-          {/* 1. TYPE DROPDOWN (Duration / Distance) */}
+          {/* Target Type: Dropdown Selector */}
           <Text style={styles.sectionLabel}>TARGET TYPE</Text>
           <TouchableOpacity
-            style={styles.dropdownCard}
+            style={styles.dropdownButton}
             onPress={() => setTypeDropdownVisible(true)}
-            activeOpacity={0.8}
+            activeOpacity={0.7}
           >
             <View style={styles.dropdownLeft}>
               <View style={styles.dropdownIconCircle}>
                 <Feather
                   name={stepType === "duration" ? "clock" : "navigation"}
-                  size={18}
+                  size={16}
                   color={Colors.primary}
                 />
               </View>
@@ -382,35 +357,28 @@ export default function RunningDeclaration() {
                 <Text style={styles.dropdownSubtitle}>
                   {stepType === "duration"
                     ? "Control step by time (scroller)"
-                    : "Control step by distance (text box)"}
+                    : `Control step by distance (${getUnitLabel(unit)})`}
                 </Text>
               </View>
             </View>
-            <Feather name="chevron-down" size={20} color={Colors.textSecondary} />
+            <Feather name="chevron-down" size={18} color={Colors.textSecondary} />
           </TouchableOpacity>
 
-          {/* 2. CONDITIONAL TARGET INPUT (Duration Scroller OR Distance Text Box) */}
+          {/* Conditional Target Input */}
           <Text style={styles.sectionLabel}>
             {stepType === "duration" ? "RUN DURATION" : "RUN DISTANCE"}
           </Text>
           <View style={styles.section}>
             {stepType === "duration" ? (
-              // Option A: Duration -> Shows Time Scroller
-              <View>
-                <Text style={styles.label}>Select Duration (HH:MM:SS)</Text>
-                <ScrollTimePicker
-                  value={durationString}
-                  allowEmpty={false}
-                  onChange={(val) => setDurationString(val)}
-                  accentColor={Colors.primary}
-                />
-              </View>
+              <ScrollTimePicker
+                value={durationString}
+                allowEmpty={false}
+                onChange={(val) => setDurationString(val)}
+                accentColor={Colors.primary}
+                compact={true}
+              />
             ) : (
-              // Option B: Distance -> Shows Text Box with Unit Selector
               <View>
-                <Text style={styles.label}>
-                  Enter Distance ({getUnitLabel(unit)})
-                </Text>
                 <View style={styles.row}>
                   <TextInput
                     value={distance}
@@ -429,28 +397,26 @@ export default function RunningDeclaration() {
                     <Text style={styles.unitText}>{getUnitLabel(unit)}</Text>
                     <Feather
                       name="chevron-down"
-                      size={18}
+                      size={16}
                       color={Colors.textSecondary}
                     />
                   </TouchableOpacity>
                 </View>
 
-                {/* Meter Validation Notice */}
-                {unit === "m" && (
+                {unit === "m" ? (
                   <Text style={styles.inputHelper}>
-                    Minimum distance for meters is 10 m (automatically adjusted).
+                    Minimum distance for meters is 10 m (auto-adjusted).
                   </Text>
-                )}
-                {unit !== "m" && (
+                ) : (
                   <Text style={styles.inputHelper}>
-                    Maximum distance: {getMaxDistanceForUnit(unit)} {getUnitLabel(unit)}
+                    Max distance: {getMaxDistanceForUnit(unit)} {getUnitLabel(unit)}
                   </Text>
                 )}
               </View>
             )}
           </View>
 
-          {/* 3. PACE SECTION: TWO PACES (Fastest Pace & Lowest Pace) */}
+          {/* Target Pace Range */}
           <Text style={styles.sectionLabel}>TARGET PACE RANGE</Text>
           <View style={styles.section}>
             <TargetPaceRangePicker
@@ -465,56 +431,36 @@ export default function RunningDeclaration() {
             />
           </View>
 
-          {/* 4. CALCULATED VALUES DISPLAY CARD */}
-          <Text style={styles.sectionLabel}>
-            {stepType === "duration" ? "CALCULATED DISTANCE" : "CALCULATED DURATION"}
-          </Text>
-          <View style={styles.resultCard}>
-            <View style={styles.resultHeader}>
-              <View style={styles.resultIconCircle}>
+          {/* Dynamic Result Banner */}
+          <View style={styles.resultBanner}>
+            <View style={styles.resultBannerLeft}>
+              <View style={styles.resultBannerIcon}>
                 <Feather
                   name={stepType === "duration" ? "map-pin" : "clock"}
-                  size={18}
+                  size={15}
                   color={Colors.primary}
                 />
               </View>
-              <View style={styles.flex}>
-                <Text style={styles.resultTitle}>
-                  {stepType === "duration" ? "Estimated Distance" : "Estimated Duration"}
+              <View>
+                <Text style={styles.resultBannerTitle}>
+                  {stepType === "duration" ? "Est. Distance" : "Est. Duration"}
                 </Text>
-                <Text style={styles.resultSubtitle}>
-                  Computed from {stepType === "duration" ? durationString : `${distance || "0"} ${getUnitLabel(unit)}`} at median pace {medianPaceStr}
+                <Text style={styles.resultBannerSubtitle}>
+                  @ {medianPaceStr} median
                 </Text>
               </View>
             </View>
 
-            <View style={styles.resultValueContainer}>
-              <Text style={styles.resultBigValue}>
-                {stepType === "duration"
-                  ? calculatedDistanceInfo.text
-                  : calculatedDurationInfo.text}
-              </Text>
-              <Text style={styles.resultValueSubtext}>
-                {stepType === "duration"
-                  ? `approx. ${calculatedDistanceInfo.text}`
-                  : `approx. ${calculatedDurationInfo.text}`}
-              </Text>
-            </View>
+            <Text style={styles.resultBannerValue}>
+              {stepType === "duration"
+                ? calculatedDistanceInfo.text
+                : calculatedDurationInfo.text}
+            </Text>
           </View>
-
-          {/* Save Button */}
-          {/* <TouchableOpacity
-            style={styles.saveButton}
-            onPress={saveStep}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.saveText}>SAVE RUNNING STEP</Text>
-            <Feather name="check" size={20} color={Colors.background} />
-          </TouchableOpacity> */}
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Target Type Dropdown Modal */}
+      {/* Target Type Modal */}
       <Modal
         visible={typeDropdownVisible}
         transparent
@@ -530,30 +476,50 @@ export default function RunningDeclaration() {
             onPress={(event) => event.stopPropagation()}
           >
             <Text style={styles.modalTitle}>SELECT TARGET TYPE</Text>
-            {targetTypeOptions.map((option) => (
-              <TouchableOpacity
-                key={option.value}
-                style={styles.option}
-                onPress={() => selectTargetType(option.value)}
-              >
-                <View style={styles.optionLeft}>
-                  <Feather
-                    name={option.icon}
-                    size={20}
-                    color={stepType === option.value ? Colors.primary : Colors.textSecondary}
-                  />
-                  <View>
-                    <Text style={styles.optionText}>{option.label}</Text>
-                    <Text style={styles.optionDescription}>
-                      {option.description}
-                    </Text>
-                  </View>
+
+            <TouchableOpacity
+              style={styles.option}
+              onPress={() => selectTargetType("duration")}
+            >
+              <View style={styles.optionLeft}>
+                <Feather
+                  name="clock"
+                  size={18}
+                  color={stepType === "duration" ? Colors.primary : Colors.textSecondary}
+                />
+                <View>
+                  <Text style={styles.optionText}>Duration</Text>
+                  <Text style={styles.optionDescription}>
+                    Control step by time (scroller)
+                  </Text>
                 </View>
-                {stepType === option.value && (
-                  <Feather name="check" size={21} color={Colors.primary} />
-                )}
-              </TouchableOpacity>
-            ))}
+              </View>
+              {stepType === "duration" && (
+                <Feather name="check" size={20} color={Colors.primary} />
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.option}
+              onPress={() => selectTargetType("distance")}
+            >
+              <View style={styles.optionLeft}>
+                <Feather
+                  name="navigation"
+                  size={18}
+                  color={stepType === "distance" ? Colors.primary : Colors.textSecondary}
+                />
+                <View>
+                  <Text style={styles.optionText}>Distance</Text>
+                  <Text style={styles.optionDescription}>
+                    Control step by distance (text box)
+                  </Text>
+                </View>
+              </View>
+              {stepType === "distance" && (
+                <Feather name="check" size={20} color={Colors.primary} />
+              )}
+            </TouchableOpacity>
           </Pressable>
         </Pressable>
       </Modal>
@@ -597,314 +563,154 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.background },
   container: { flex: 1, backgroundColor: "#101010" },
   header: {
-    minHeight: 70,
+    minHeight: 52,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
     backgroundColor: "#000",
     borderBottomWidth: 1,
     borderBottomColor: "#222222",
   },
-  headerIcon: { width: 55 },
+  headerIcon: { width: 48 },
   headerCenter: { alignItems: "center" },
   headerBadge: {
     color: Colors.primary,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     letterSpacing: 1,
   },
-  headerTitle: { color: Colors.text, fontSize: 20, fontWeight: "700" },
-  doneHeader: { minWidth: 55, alignItems: "flex-end" },
+  headerTitle: { color: Colors.text, fontSize: 17, fontWeight: "700" },
+  doneHeader: { minWidth: 48, alignItems: "flex-end" },
   doneText: { color: Colors.primary, fontSize: 14, fontWeight: "800" },
-  content: { paddingBottom: 40 },
-  titleSection: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-  },
-  sectionLabel: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 8,
-    color: Colors.textSecondary,
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.8,
-  },
-  section: {
-    padding: 16,
-    backgroundColor: "#1C1C1E",
-    marginHorizontal: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#2C2C2E",
-  },
-  label: { marginBottom: 8, color: Colors.text, fontSize: 14, fontWeight: "600" },
-  input: {
-    minHeight: 50,
-    paddingHorizontal: 16,
-    color: Colors.text,
-    backgroundColor: "#2A2A2D",
-    borderWidth: 1,
-    borderColor: "#3E3E42",
-    borderRadius: 10,
-    fontSize: 16,
-  },
-  notesInput: { minHeight: 75, textAlignVertical: "top", paddingTop: 10 },
-  row: { flexDirection: "row", gap: 10 },
-  flex: { flex: 1 },
-  inputHelper: { color: Colors.textMuted, fontSize: 12, marginTop: 6 },
-  errorText: { color: "#EF4444", fontWeight: "600" },
-  warningBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 6,
-  },
-  warningText: {
-    color: "#EF4444",
-    fontSize: 12,
-    fontWeight: "500",
-  },
+  content: { paddingBottom: 16 },
 
-  // Clean Single Card Dropdown
-  dropdownCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#1C1C1E",
-    borderWidth: 1,
-    borderColor: "#2C2C2E",
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    marginHorizontal: 16,
-    marginBottom: 6,
-  },
+  // Target Type Dropdown
   dropdownButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     backgroundColor: "#1C1C1E",
     borderWidth: 1,
-    borderColor: "#2C2C2E",
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    borderColor: "rgba(48, 209, 88, 0.3)",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     marginHorizontal: 16,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   dropdownLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
   },
   dropdownIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(34, 197, 94, 0.15)",
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(48, 209, 88, 0.15)",
     alignItems: "center",
     justifyContent: "center",
   },
   dropdownTitle: {
     color: Colors.text,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "700",
   },
   dropdownSubtitle: {
     color: Colors.textMuted,
-    fontSize: 12,
+    fontSize: 11,
     marginTop: 1,
   },
 
-  // Quick Segmented Selector
-  segmentedRow: {
-    flexDirection: "row",
-    backgroundColor: "#2A2A2D",
-    borderRadius: 10,
-    padding: 3,
-    gap: 4,
-  },
-  segmentOption: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  segmentOptionActive: {
-    backgroundColor: Colors.primary,
-  },
-  segmentOptionText: {
+  sectionLabel: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 6,
     color: Colors.textSecondary,
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  segmentOptionTextActive: {
-    color: Colors.background,
+    fontSize: 11,
     fontWeight: "700",
+    letterSpacing: 0.8,
   },
-
-  unitButton: {
-    minWidth: 86,
-    height: 50,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
+  section: {
+    padding: 12,
+    backgroundColor: "#1C1C1E",
+    marginHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#2C2C2E",
+  },
+  label: { marginBottom: 6, color: Colors.text, fontSize: 12, fontWeight: "600" },
+  input: {
+    minHeight: 44,
+    height: 44,
+    paddingHorizontal: 12,
+    color: Colors.text,
     backgroundColor: "#2A2A2D",
     borderWidth: 1,
     borderColor: "#3E3E42",
-    borderRadius: 10,
+    borderRadius: 8,
+    fontSize: 15,
   },
-  unitText: { color: Colors.text, fontSize: 16, fontWeight: "600" },
-  helper: { color: Colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 10 },
+  row: { flexDirection: "row", gap: 8 },
+  flex: { flex: 1 },
+  inputHelper: { color: Colors.textMuted, fontSize: 10, marginTop: 6 },
 
-  // Pace Steppers
-  paceHeaderRow: {
+  unitButton: {
+    minWidth: 76,
+    height: 44,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 14,
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  paceRangeDisplay: {
-    color: Colors.primary,
-    fontSize: 24,
-    fontWeight: "800",
-  },
-  paceUnitText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: Colors.textSecondary,
-  },
-  medianBadge: {
-    backgroundColor: "rgba(34, 197, 94, 0.15)",
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    backgroundColor: "#2A2A2D",
+    borderWidth: 1,
+    borderColor: "#3E3E42",
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(34, 197, 94, 0.3)",
   },
-  medianBadgeText: {
-    color: Colors.primary,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  stepperRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  stepperCard: {
-    flex: 1,
-    backgroundColor: "#262629",
-    borderRadius: 14,
-    padding: 12,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#3A3A3E",
-  },
-  stepperLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: Colors.textSecondary,
-    marginBottom: 4,
-  },
-  stepperValue: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: Colors.text,
-    marginBottom: 8,
-  },
-  stepperButtonsRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  stepperBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "rgba(34, 197, 94, 0.15)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stepperBtnDisabled: {
-    opacity: 0.35,
-  },
+  unitText: { color: Colors.text, fontSize: 14, fontWeight: "600" },
 
-  // Calculated Result Card
-  resultCard: {
-    marginHorizontal: 16,
-    padding: 18,
-    backgroundColor: "#16231A",
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: "rgba(34, 197, 94, 0.35)",
-  },
-  resultHeader: {
+  // Result Banner
+  resultBanner: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    marginBottom: 12,
+    justifyContent: "space-between",
+    marginHorizontal: 16,
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: "rgba(48, 209, 88, 0.12)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(48, 209, 88, 0.3)",
   },
-  resultIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  resultBannerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  resultBannerIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: "rgba(34, 197, 94, 0.2)",
     alignItems: "center",
     justifyContent: "center",
   },
-  resultTitle: {
+  resultBannerTitle: {
     color: Colors.primary,
-    fontSize: 15,
+    fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 0.5,
   },
-  resultSubtitle: {
+  resultBannerSubtitle: {
     color: Colors.textMuted,
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: 10,
+    marginTop: 1,
   },
-  resultValueContainer: {
-    backgroundColor: "#0F1A12",
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    alignItems: "center",
-  },
-  resultBigValue: {
-    color: "#22C55E",
-    fontSize: 32,
-    fontWeight: "900",
-    letterSpacing: 0.5,
-  },
-  resultValueSubtext: {
-    color: Colors.textSecondary,
-    fontSize: 12,
-    fontWeight: "500",
-    marginTop: 2,
-  },
-
-  // Save Button
-  saveButton: {
-    minHeight: 54,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    marginHorizontal: 16,
-    marginTop: 28,
-    backgroundColor: Colors.primary,
-    borderRadius: 14,
-  },
-  saveText: {
-    color: Colors.background,
-    fontSize: 15,
+  resultBannerValue: {
+    color: Colors.primary,
+    fontSize: 17,
     fontWeight: "800",
     letterSpacing: 0.5,
   },

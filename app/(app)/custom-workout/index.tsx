@@ -47,26 +47,6 @@ const unitOptions: { label: string; value: DistanceUnitType }[] = [
   { label: "Miles (mi)", value: "mi" },
 ];
 
-const targetTypeOptions: {
-  label: string;
-  value: StepTargetType;
-  description: string;
-  icon: "clock" | "navigation";
-}[] = [
-  {
-    label: "Duration",
-    value: "duration",
-    description: "Control warmup by time (scroller)",
-    icon: "clock",
-  },
-  {
-    label: "Distance",
-    value: "distance",
-    description: "Control warmup by distance (text box)",
-    icon: "navigation",
-  },
-];
-
 const parseExistingPaces = (paceStr?: string | null) => {
   // Default warmup pace: 6:40 /km (400s) -> 6:10 (370s) to 7:10 (430s)
   if (!paceStr) return { faster: 370, slower: 430 };
@@ -313,7 +293,7 @@ export function CustomWorkoutWarmUp() {
             style={styles.headerIcon}
             accessibilityLabel="Go back"
           >
-            <Feather name="arrow-left" size={26} color={Colors.text} />
+            <Feather name="arrow-left" size={24} color={Colors.text} />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
             <Text style={[styles.headerBadge, { color: WARMUP_COLOR }]}>WARM UP</Text>
@@ -327,19 +307,24 @@ export function CustomWorkoutWarmUp() {
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          bounces={false}
         >
-          {/* 1. TYPE DROPDOWN: Clean single card without double-box */}
+          {/* Target Type: Dropdown Selector */}
           <Text style={styles.sectionLabel}>TARGET TYPE</Text>
           <TouchableOpacity
-            style={styles.dropdownCard}
+            style={[
+              styles.dropdownButton,
+              { borderColor: WARMUP_BORDER },
+            ]}
             onPress={() => setTypeDropdownVisible(true)}
-            activeOpacity={0.8}
+            activeOpacity={0.7}
           >
             <View style={styles.dropdownLeft}>
               <View style={[styles.dropdownIconCircle, { backgroundColor: WARMUP_LIGHT_BG }]}>
                 <Feather
                   name={stepType === "duration" ? "clock" : "navigation"}
-                  size={18}
+                  size={16}
                   color={WARMUP_COLOR}
                 />
               </View>
@@ -350,33 +335,28 @@ export function CustomWorkoutWarmUp() {
                 <Text style={styles.dropdownSubtitle}>
                   {stepType === "duration"
                     ? "Control warmup by time (scroller)"
-                    : "Control warmup by distance (text box)"}
+                    : `Control warmup by distance (${getUnitLabel(unit)})`}
                 </Text>
               </View>
             </View>
-            <Feather name="chevron-down" size={20} color={Colors.textSecondary} />
+            <Feather name="chevron-down" size={18} color={Colors.textSecondary} />
           </TouchableOpacity>
 
-          {/* 2. CONDITIONAL TARGET INPUT */}
+          {/* Conditional Target Input */}
           <Text style={styles.sectionLabel}>
             {stepType === "duration" ? "WARMUP DURATION" : "WARMUP DISTANCE"}
           </Text>
           <View style={styles.section}>
             {stepType === "duration" ? (
-              <View>
-                <Text style={styles.label}>Select Duration (HH:MM:SS)</Text>
-                <ScrollTimePicker
-                  value={durationString}
-                  allowEmpty={false}
-                  onChange={(val) => setDurationString(val)}
-                  accentColor={WARMUP_COLOR}
-                />
-              </View>
+              <ScrollTimePicker
+                value={durationString}
+                allowEmpty={false}
+                onChange={(val) => setDurationString(val)}
+                accentColor={WARMUP_COLOR}
+                compact={true}
+              />
             ) : (
               <View>
-                <Text style={styles.label}>
-                  Enter Distance ({getUnitLabel(unit)})
-                </Text>
                 <View style={styles.row}>
                   <TextInput
                     value={distance}
@@ -395,7 +375,7 @@ export function CustomWorkoutWarmUp() {
                     <Text style={styles.unitText}>{getUnitLabel(unit)}</Text>
                     <Feather
                       name="chevron-down"
-                      size={18}
+                      size={16}
                       color={Colors.textSecondary}
                     />
                   </TouchableOpacity>
@@ -403,18 +383,18 @@ export function CustomWorkoutWarmUp() {
 
                 {unit === "m" ? (
                   <Text style={styles.inputHelper}>
-                    Minimum distance for meters is 10 m (automatically adjusted).
+                    Minimum distance for meters is 10 m (auto-adjusted).
                   </Text>
                 ) : (
                   <Text style={styles.inputHelper}>
-                    Maximum distance: {getMaxDistanceForUnit(unit)} {getUnitLabel(unit)}
+                    Max distance: {getMaxDistanceForUnit(unit)} {getUnitLabel(unit)}
                   </Text>
                 )}
               </View>
             )}
           </View>
 
-          {/* 3. PACE SECTION: Fastest Pace & Lowest Pace Steppers */}
+          {/* Target Pace Range */}
           <Text style={styles.sectionLabel}>TARGET PACE RANGE</Text>
           <View style={styles.section}>
             <TargetPaceRangePicker
@@ -429,46 +409,44 @@ export function CustomWorkoutWarmUp() {
             />
           </View>
 
-          {/* 4. DYNAMIC ESTIMATED RESULT CARD */}
+          {/* Dynamic Result Banner */}
           <View
             style={[
-              styles.resultCard,
+              styles.resultBanner,
               { backgroundColor: WARMUP_LIGHT_BG, borderColor: WARMUP_BORDER },
             ]}
           >
-            <View style={styles.resultHeader}>
-              <View style={[styles.resultIconCircle, { backgroundColor: WARMUP_LIGHT_BG }]}>
+            <View style={styles.resultBannerLeft}>
+              <View
+                style={[
+                  styles.resultBannerIcon,
+                  { backgroundColor: "rgba(255, 87, 34, 0.2)" },
+                ]}
+              >
                 <Feather
                   name={stepType === "duration" ? "map-pin" : "clock"}
-                  size={18}
+                  size={15}
                   color={WARMUP_COLOR}
                 />
               </View>
-              <View style={styles.flex}>
-                <Text style={styles.resultTitle}>
-                  {stepType === "duration" ? "Estimated Distance" : "Estimated Duration"}
+              <View>
+                <Text style={[styles.resultBannerTitle, { color: WARMUP_COLOR }]}>
+                  {stepType === "duration" ? "Est. Distance" : "Est. Duration"}
                 </Text>
-                <Text style={styles.resultSubtitle}>
-                  Computed from {stepType === "duration" ? durationString : `${distance || "0"} ${getUnitLabel(unit)}`} at median pace {medianPaceStr}
+                <Text style={styles.resultBannerSubtitle}>
+                  @ {medianPaceStr} median
                 </Text>
               </View>
             </View>
 
-            <View style={styles.resultValueContainer}>
-              <Text style={[styles.resultBigValue, { color: WARMUP_COLOR }]}>
-                {stepType === "duration"
-                  ? calculatedDistanceInfo.text
-                  : calculatedDurationInfo.text}
-              </Text>
-              <Text style={styles.resultValueSubtext}>
-                {stepType === "duration"
-                  ? `approx. ${calculatedDistanceInfo.text}`
-                  : `approx. ${calculatedDurationInfo.text}`}
-              </Text>
-            </View>
+            <Text style={[styles.resultBannerValue, { color: WARMUP_COLOR }]}>
+              {stepType === "duration"
+                ? calculatedDistanceInfo.text
+                : calculatedDurationInfo.text}
+            </Text>
           </View>
 
-          {/* 5. NOTES (OPTIONAL) */}
+          {/* Notes (Optional) */}
           <Text style={styles.sectionLabel}>NOTES (OPTIONAL)</Text>
           <View style={styles.section}>
             <TextInput
@@ -483,7 +461,7 @@ export function CustomWorkoutWarmUp() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Target Type Dropdown Modal */}
+      {/* Target Type Modal */}
       <Modal
         visible={typeDropdownVisible}
         transparent
@@ -499,30 +477,50 @@ export function CustomWorkoutWarmUp() {
             onPress={(event) => event.stopPropagation()}
           >
             <Text style={styles.modalTitle}>SELECT TARGET TYPE</Text>
-            {targetTypeOptions.map((option) => (
-              <TouchableOpacity
-                key={option.value}
-                style={styles.option}
-                onPress={() => selectTargetType(option.value)}
-              >
-                <View style={styles.optionLeft}>
-                  <Feather
-                    name={option.icon}
-                    size={20}
-                    color={stepType === option.value ? WARMUP_COLOR : Colors.textSecondary}
-                  />
-                  <View>
-                    <Text style={styles.optionText}>{option.label}</Text>
-                    <Text style={styles.optionDescription}>
-                      {option.description}
-                    </Text>
-                  </View>
+
+            <TouchableOpacity
+              style={styles.option}
+              onPress={() => selectTargetType("duration")}
+            >
+              <View style={styles.optionLeft}>
+                <Feather
+                  name="clock"
+                  size={18}
+                  color={stepType === "duration" ? WARMUP_COLOR : Colors.textSecondary}
+                />
+                <View>
+                  <Text style={styles.optionText}>Duration</Text>
+                  <Text style={styles.optionDescription}>
+                    Control warmup by time (scroller)
+                  </Text>
                 </View>
-                {stepType === option.value && (
-                  <Feather name="check" size={21} color={WARMUP_COLOR} />
-                )}
-              </TouchableOpacity>
-            ))}
+              </View>
+              {stepType === "duration" && (
+                <Feather name="check" size={20} color={WARMUP_COLOR} />
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.option}
+              onPress={() => selectTargetType("distance")}
+            >
+              <View style={styles.optionLeft}>
+                <Feather
+                  name="navigation"
+                  size={18}
+                  color={stepType === "distance" ? WARMUP_COLOR : Colors.textSecondary}
+                />
+                <View>
+                  <Text style={styles.optionText}>Distance</Text>
+                  <Text style={styles.optionDescription}>
+                    Control warmup by distance (text box)
+                  </Text>
+                </View>
+              </View>
+              {stepType === "distance" && (
+                <Feather name="check" size={20} color={WARMUP_COLOR} />
+              )}
+            </TouchableOpacity>
           </Pressable>
         </Pressable>
       </Modal>
@@ -573,230 +571,150 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.background },
   container: { flex: 1, backgroundColor: "#101010" },
   header: {
-    minHeight: 70,
+    minHeight: 52,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
     backgroundColor: "#000",
     borderBottomWidth: 1,
     borderBottomColor: "#222222",
   },
-  headerIcon: { width: 55 },
+  headerIcon: { width: 48 },
   headerCenter: { alignItems: "center" },
   headerBadge: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     letterSpacing: 1,
   },
-  headerTitle: { color: Colors.text, fontSize: 20, fontWeight: "700" },
-  doneHeader: { minWidth: 55, alignItems: "flex-end" },
+  headerTitle: { color: Colors.text, fontSize: 17, fontWeight: "700" },
+  doneHeader: { minWidth: 48, alignItems: "flex-end" },
   doneText: { fontSize: 14, fontWeight: "800" },
-  content: { paddingBottom: 40 },
-  sectionLabel: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 8,
-    color: Colors.textSecondary,
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.8,
-  },
-  section: {
-    padding: 16,
-    backgroundColor: "#1C1C1E",
-    marginHorizontal: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#2C2C2E",
-  },
-  label: { marginBottom: 8, color: Colors.text, fontSize: 14, fontWeight: "600" },
-  input: {
-    minHeight: 50,
-    paddingHorizontal: 16,
-    color: Colors.text,
-    backgroundColor: "#2A2A2D",
-    borderWidth: 1,
-    borderColor: "#3E3E42",
-    borderRadius: 10,
-    fontSize: 16,
-  },
-  notesInput: { minHeight: 75, textAlignVertical: "top", paddingTop: 10 },
-  row: { flexDirection: "row", gap: 10 },
-  flex: { flex: 1 },
-  inputHelper: { color: Colors.textMuted, fontSize: 12, marginTop: 6 },
+  content: { paddingBottom: 16 },
 
-  // Clean Single Card Dropdown
-  dropdownCard: {
+  // Target Type Dropdown
+  dropdownButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     backgroundColor: "#1C1C1E",
     borderWidth: 1,
-    borderColor: "#2C2C2E",
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    borderColor: WARMUP_BORDER,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     marginHorizontal: 16,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   dropdownLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
   },
   dropdownIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
   },
   dropdownTitle: {
     color: Colors.text,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "700",
   },
   dropdownSubtitle: {
     color: Colors.textMuted,
-    fontSize: 12,
+    fontSize: 11,
     marginTop: 1,
   },
 
-  unitButton: {
-    minWidth: 86,
-    height: 50,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    backgroundColor: "#2A2A2D",
-    borderWidth: 1,
-    borderColor: "#3E3E42",
-    borderRadius: 10,
-  },
-  unitText: { color: Colors.text, fontSize: 16, fontWeight: "600" },
-  helper: { color: Colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 10 },
-
-  // Pace Steppers
-  paceHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 14,
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  paceRangeDisplay: {
-    fontSize: 24,
-    fontWeight: "800",
-  },
-  paceUnitText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: Colors.textSecondary,
-  },
-  medianBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  medianBadgeText: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  stepperRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  stepperCard: {
-    flex: 1,
-    backgroundColor: "#262629",
-    borderRadius: 14,
-    padding: 12,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#3A3A3E",
-  },
-  stepperLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: Colors.textSecondary,
-    marginBottom: 4,
-  },
-  stepperValue: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: Colors.text,
-    marginBottom: 8,
-  },
-  stepperButtonsRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  stepperBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stepperBtnDisabled: {
-    opacity: 0.35,
-  },
-
-  // Calculated Result Card
-  resultCard: {
-    marginHorizontal: 16,
-    marginTop: 14,
-    padding: 18,
-    borderRadius: 16,
-    borderWidth: 1.5,
-  },
-  resultHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 14,
-  },
-  resultIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  resultTitle: {
-    color: Colors.text,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  resultSubtitle: {
-    color: Colors.textSecondary,
-    fontSize: 12,
-    marginTop: 2,
-    lineHeight: 16,
-  },
-  resultValueContainer: {
-    backgroundColor: "#101012",
-    borderRadius: 12,
-    paddingVertical: 14,
+  sectionLabel: {
     paddingHorizontal: 16,
-    alignItems: "center",
+    paddingTop: 14,
+    paddingBottom: 6,
+    color: Colors.textSecondary,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+  },
+  section: {
+    padding: 12,
+    backgroundColor: "#1C1C1E",
+    marginHorizontal: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "#2C2C2E",
   },
-  resultBigValue: {
-    fontSize: 28,
+  label: { marginBottom: 6, color: Colors.text, fontSize: 12, fontWeight: "600" },
+  input: {
+    minHeight: 44,
+    height: 44,
+    paddingHorizontal: 12,
+    color: Colors.text,
+    backgroundColor: "#2A2A2D",
+    borderWidth: 1,
+    borderColor: "#3E3E42",
+    borderRadius: 8,
+    fontSize: 15,
+  },
+  notesInput: { minHeight: 44, textAlignVertical: "top", paddingTop: 8 },
+  row: { flexDirection: "row", gap: 8 },
+  flex: { flex: 1 },
+  inputHelper: { color: Colors.textMuted, fontSize: 10, marginTop: 6 },
+
+  unitButton: {
+    minWidth: 76,
+    height: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 10,
+    backgroundColor: "#2A2A2D",
+    borderWidth: 1,
+    borderColor: "#3E3E42",
+    borderRadius: 8,
+  },
+  unitText: { color: Colors.text, fontSize: 14, fontWeight: "600" },
+
+  // Result Banner
+  resultBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginHorizontal: 16,
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  resultBannerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  resultBannerIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resultBannerTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  resultBannerSubtitle: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    marginTop: 1,
+  },
+  resultBannerValue: {
+    fontSize: 17,
     fontWeight: "800",
     letterSpacing: 0.5,
-  },
-  resultValueSubtext: {
-    color: Colors.textMuted,
-    fontSize: 12,
-    marginTop: 3,
-    fontWeight: "500",
   },
 
   overlay: {

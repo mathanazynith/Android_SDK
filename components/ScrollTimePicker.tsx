@@ -5,7 +5,7 @@ import {
   Text,
   View
 } from 'react-native';
-import { BRAND_GREEN, useTheme } from '../contexts/ThemeContext';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface ScrollTimePickerProps {
   label?: string;
@@ -16,9 +16,11 @@ interface ScrollTimePickerProps {
   onChange: (value: string) => void;
   maxHours?: number;
   accentColor?: string;
+  compact?: boolean;
 }
 
 const ITEM_HEIGHT = 50;
+const COMPACT_ITEM_HEIGHT = 32;
 const VISIBLE_ITEMS = 3;
 const SCROLL_VIEW_HEIGHT = ITEM_HEIGHT * VISIBLE_ITEMS;
 export const DEFAULT_TIME_VALUE = '01:00:00';
@@ -48,18 +50,20 @@ const WheelValue = ({
   unit,
   selected,
   accentColor,
+  compact = false,
 }: {
   value: number;
   unit: string;
   selected: boolean;
   accentColor?: string;
+  compact?: boolean;
 }) => {
   const { colors } = useTheme();
   const highlightColor = accentColor || colors.primary;
   return (
     <Text
       style={[
-        styles.itemText,
+        compact ? styles.itemTextCompact : styles.itemText,
         { color: colors.textTertiary, opacity: selected ? 1 : 0.72 },
         selected && { color: colors.textPrimary },
       ]}
@@ -92,11 +96,15 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
   onChange,
   maxHours = 99,
   accentColor,
+  compact = false,
 }) => {
   const { colors } = useTheme();
   const [time, setTime] = useState<TimeParts>(() => parseTimeValue(value, maxHours, allowEmpty));
   const timeRef = useRef(time);
   const didApplyDefaultRef = useRef(false);
+
+  const itemHeight = compact ? COMPACT_ITEM_HEIGHT : ITEM_HEIGHT;
+  const scrollViewHeight = itemHeight * VISIBLE_ITEMS;
 
   // Refs for scroll views
   const hoursScrollRef = useRef<ScrollView>(null);
@@ -119,37 +127,37 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
   const selectedTime = useMemo(() => formatTimeValue(time), [time]);
 
   const scrollIndexFromOffset = useCallback((offsetY: number, length: number) => {
-    const index = Math.round(offsetY / ITEM_HEIGHT);
+    const index = Math.round(offsetY / itemHeight);
     return Math.max(0, Math.min(index, length - 1));
-  }, []);
+  }, [itemHeight]);
 
   // Helper functions to scroll to specific values
   const scrollToHour = useCallback((targetHour: number, animated: boolean = true) => {
     if (hoursScrollRef.current) {
       hoursScrollRef.current.scrollTo({
-        y: Math.max(0, targetHour * ITEM_HEIGHT),
+        y: Math.max(0, targetHour * itemHeight),
         animated,
       });
     }
-  }, []);
+  }, [itemHeight]);
 
   const scrollToMinute = useCallback((targetMinute: number, animated: boolean = true) => {
     if (minutesScrollRef.current) {
       minutesScrollRef.current.scrollTo({
-        y: Math.max(0, targetMinute * ITEM_HEIGHT),
+        y: Math.max(0, targetMinute * itemHeight),
         animated,
       });
     }
-  }, []);
+  }, [itemHeight]);
 
   const scrollToSecond = useCallback((targetSecond: number, animated: boolean = true) => {
     if (secondsScrollRef.current) {
       secondsScrollRef.current.scrollTo({
-        y: Math.max(0, targetSecond * ITEM_HEIGHT),
+        y: Math.max(0, targetSecond * itemHeight),
         animated,
       });
     }
-  }, []);
+  }, [itemHeight]);
 
   const scrollToTime = useCallback((nextTime: TimeParts, animated = false) => {
     scrollToHour(nextTime.hours, animated);
@@ -197,19 +205,30 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
 
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, compact && styles.cardCompact]}>
       {label ? <Text style={[styles.label, { color: colors.text }]}>{label}</Text> : null}
       {/* Time Picker */}
       <View
         style={[
           styles.pickerContainer,
           {
+            height: scrollViewHeight,
+            borderRadius: compact ? 12 : 20,
             backgroundColor: colors.surface,
             borderColor: accentColor ? `${accentColor}35` : colors.border,
           },
         ]}
       >
-        <View style={styles.highlightOverlay} pointerEvents="none">
+        <View
+          style={[
+            styles.highlightOverlay,
+            {
+              height: itemHeight,
+              transform: [{ translateY: -itemHeight / 2 }],
+            },
+          ]}
+          pointerEvents="none"
+        >
           <View
             style={[
               styles.centerLine,
@@ -225,28 +244,32 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
         </View>
 
         {/* Hours Column */}
-        <View style={styles.columnWrapper}>
+        <View style={[styles.columnWrapper, { height: scrollViewHeight }]}>
           <ScrollView
             ref={hoursScrollRef}
-            style={styles.scrollColumn}
-            contentContainerStyle={styles.scrollContainer}
+            style={[styles.scrollColumn, { height: scrollViewHeight }]}
+            contentContainerStyle={{
+              paddingTop: itemHeight,
+              paddingBottom: itemHeight,
+            }}
             scrollEventThrottle={16}
             onMomentumScrollEnd={(event) => finalizeScroll('hours', event.nativeEvent.contentOffset.y)}
             onScrollEndDrag={(event) => finalizeScroll('hours', event.nativeEvent.contentOffset.y)}
             scrollEnabled={true}
             nestedScrollEnabled={true}
             showsVerticalScrollIndicator={false}
-            snapToInterval={ITEM_HEIGHT}
+            snapToInterval={itemHeight}
             snapToAlignment="center"
             decelerationRate="normal"
           >
             {hoursArray.map((hour) => (
-              <View key={`hour-${hour}`} style={styles.item}>
+              <View key={`hour-${hour}`} style={[styles.item, { height: itemHeight }]}>
                 <WheelValue
                   value={hour}
                   unit="h"
                   selected={hour === time.hours}
                   accentColor={accentColor}
+                  compact={compact}
                 />
               </View>
             ))}
@@ -254,31 +277,43 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
         </View>
 
         {/* Separator */}
-        <Text style={styles.separator}>:</Text>
+        <Text
+          style={[
+            styles.separator,
+            compact && styles.separatorCompact,
+            { height: itemHeight, lineHeight: itemHeight },
+          ]}
+        >
+          :
+        </Text>
 
         {/* Minutes Column */}
-        <View style={styles.columnWrapper}>
+        <View style={[styles.columnWrapper, { height: scrollViewHeight }]}>
           <ScrollView
             ref={minutesScrollRef}
-            style={styles.scrollColumn}
-            contentContainerStyle={styles.scrollContainer}
+            style={[styles.scrollColumn, { height: scrollViewHeight }]}
+            contentContainerStyle={{
+              paddingTop: itemHeight,
+              paddingBottom: itemHeight,
+            }}
             scrollEventThrottle={16}
             onMomentumScrollEnd={(event) => finalizeScroll('minutes', event.nativeEvent.contentOffset.y)}
             onScrollEndDrag={(event) => finalizeScroll('minutes', event.nativeEvent.contentOffset.y)}
             scrollEnabled={true}
             nestedScrollEnabled={true}
             showsVerticalScrollIndicator={false}
-            snapToInterval={ITEM_HEIGHT}
+            snapToInterval={itemHeight}
             snapToAlignment="center"
             decelerationRate="normal"
           >
             {minutesArray.map((minute) => (
-              <View key={`minute-${minute}`} style={styles.item}>
+              <View key={`minute-${minute}`} style={[styles.item, { height: itemHeight }]}>
                 <WheelValue
                   value={minute}
                   unit="m"
                   selected={minute === time.minutes}
                   accentColor={accentColor}
+                  compact={compact}
                 />
               </View>
             ))}
@@ -286,31 +321,43 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
         </View>
 
         {/* Separator */}
-        <Text style={styles.separator}>:</Text>
+        <Text
+          style={[
+            styles.separator,
+            compact && styles.separatorCompact,
+            { height: itemHeight, lineHeight: itemHeight },
+          ]}
+        >
+          :
+        </Text>
 
         {/* Seconds Column */}
-        <View style={styles.columnWrapper}>
+        <View style={[styles.columnWrapper, { height: scrollViewHeight }]}>
           <ScrollView
             ref={secondsScrollRef}
-            style={styles.scrollColumn}
-            contentContainerStyle={styles.scrollContainer}
+            style={[styles.scrollColumn, { height: scrollViewHeight }]}
+            contentContainerStyle={{
+              paddingTop: itemHeight,
+              paddingBottom: itemHeight,
+            }}
             scrollEventThrottle={16}
             onMomentumScrollEnd={(event) => finalizeScroll('seconds', event.nativeEvent.contentOffset.y)}
             onScrollEndDrag={(event) => finalizeScroll('seconds', event.nativeEvent.contentOffset.y)}
             scrollEnabled={true}
             nestedScrollEnabled={true}
             showsVerticalScrollIndicator={false}
-            snapToInterval={ITEM_HEIGHT}
+            snapToInterval={itemHeight}
             snapToAlignment="center"
             decelerationRate="normal"
           >
             {secondsArray.map((second) => (
-              <View key={`second-${second}`} style={styles.item}>
+              <View key={`second-${second}`} style={[styles.item, { height: itemHeight }]}>
                 <WheelValue
                   value={second}
                   unit="s"
                   selected={second === time.seconds}
                   accentColor={accentColor}
+                  compact={compact}
                 />
               </View>
             ))}
@@ -321,7 +368,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
       {/* Selected time display */}
       <View
         style={[
-          styles.selectedTimeContainer,
+          compact ? styles.selectedTimeContainerCompact : styles.selectedTimeContainer,
           {
             backgroundColor: colors.surfaceRaised,
             borderColor: accentColor ? `${accentColor}44` : colors.border,
@@ -329,10 +376,17 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
           },
         ]}
       >
-        <Text style={[styles.selectedLabel, { color: colors.textSecondary }]}>Selected:</Text>
         <Text
           style={[
-            styles.selectedTime,
+            compact ? styles.selectedLabelCompact : styles.selectedLabel,
+            { color: colors.textSecondary },
+          ]}
+        >
+          Selected:
+        </Text>
+        <Text
+          style={[
+            compact ? styles.selectedTimeCompact : styles.selectedTime,
             { color: accentColor || colors.textPrimary },
           ]}
         >
@@ -350,6 +404,11 @@ const styles = StyleSheet.create({
   card: {
     marginTop: 8,
     marginBottom: 8,
+  },
+
+  cardCompact: {
+    marginTop: 6,
+    marginBottom: 6,
   },
 
   label: {
@@ -404,6 +463,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
+  itemTextCompact: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#9CA3AF',
+    opacity: 0.35,
+    textAlign: 'center',
+  },
+
   itemTextSelected: {
     fontSize: 20,
     fontWeight: '600',
@@ -429,6 +496,11 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     marginHorizontal: 8,
     zIndex: 1,
+  },
+
+  separatorCompact: {
+    fontSize: 15,
+    marginHorizontal: 4,
   },
 
   scrollContainer: {
@@ -468,9 +540,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
+  selectedTimeContainerCompact: {
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#202124',
+    borderRadius: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+
   selectedLabel: {
     color: '#8E8E93',
     fontSize: 13,
+    fontWeight: '500',
+  },
+
+  selectedLabelCompact: {
+    color: '#8E8E93',
+    fontSize: 11,
     fontWeight: '500',
   },
 
@@ -479,6 +568,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     letterSpacing: 2,
+  },
+
+  selectedTimeCompact: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 1.5,
   },
 
   errorText: {

@@ -185,7 +185,7 @@ function StepSuggestionBox({
       <Text style={[styles.suggestionTitle, { color }]} numberOfLines={1}>
         {title}
       </Text>
-      <View
+      {/* <View
         style={[
           styles.suggestionActionBadge,
           { backgroundColor: `${color}22` },
@@ -193,7 +193,7 @@ function StepSuggestionBox({
       >
         <Feather name="plus" size={11} color={color} style={{ marginRight: 3 }} />
         <Text style={[styles.suggestionActionText, { color }]}>Add</Text>
-      </View>
+      </View> */}
     </TouchableOpacity>
   );
 }
@@ -615,17 +615,13 @@ export default function CustomWorkoutOverview() {
     setWorkoutDate,
     setNotes,
     reset,
-    addEmptyRun,
     addRepeatRun,
-    addRunAfter,
     removeWarmUp,
     removeRun,
     removeCooldown,
-    duplicateRunGroup,
     updateRun,
     updateRunRepeat,
     updateRunRest,
-    updateRunSkipRest,
     updateRunSkipLastRest,
     updateGroupRepeat,
     saveWorkout,
@@ -811,7 +807,7 @@ export default function CustomWorkoutOverview() {
       unit: "Kilometers (km)",
       pace: "5:00",
       repeat: 1,
-      rest: "00:01:00",
+      rest: "",
       skipLastRest: true,
       notes: "",
     });
@@ -976,28 +972,6 @@ export default function CustomWorkoutOverview() {
       return groups;
     }, []);
   }, [workout.runs]);
-
-  const getGroupStats = (items: { step: WorkoutStep; index: number }[]) => {
-    const totalGroupRunSeconds = items.reduce(
-      (sum, { step }) => sum + estimatedStepSeconds(step) * (step.repeat || 1),
-      0
-    );
-    const totalGroupRestSeconds = items.reduce(
-      (sum, { step }) => sum + estimatedRestSeconds(step),
-      0
-    );
-    const totalGroupSeconds = totalGroupRunSeconds + totalGroupRestSeconds;
-    const totalGroupDistance = items.reduce(
-      (sum, { step }) => sum + distanceInKm(step) * (step.repeat || 1),
-      0
-    );
-
-    return {
-      totalGroupRunSeconds,
-      totalGroupSeconds,
-      totalGroupDistance,
-    };
-  };
 
   const handleSave = async () => {
     if (!workout.runs.length) {
@@ -1303,19 +1277,6 @@ export default function CustomWorkoutOverview() {
                       confirmDelete(singleStep.title || "Run Step", () => removeRun(singleIndex))
                     }
                   />
-                  {singleStep.rest && singleStep.rest !== "00:00:00" ? (
-                    <RestCard
-                      duration={singleStep.rest}
-                      skipLastRest={singleStep.skipLastRest ?? true}
-                      repeatCount={singleStep.repeat || 1}
-                      editable={isEditing}
-                      onPress={() => openRestModal(singleIndex)}
-                      onDelete={() => deleteRestConfig(singleIndex)}
-                      onToggleSkipLastRest={(val) => updateRunSkipLastRest(singleIndex, val)}
-                    />
-                  ) : isEditing ? (
-                    <AddRecoveryCard onPress={() => openRestModal(singleIndex)} />
-                  ) : null}
                 </View>
               );
             })

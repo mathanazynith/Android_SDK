@@ -15,7 +15,7 @@ import {
   type DistanceUnitType,
 } from "../src/utils/workoutCalculations";
 
-const ITEM_HEIGHT = 32;
+const ITEM_HEIGHT = 28;
 const VISIBLE_ITEMS = 3;
 const SCROLL_HEIGHT = ITEM_HEIGHT * VISIBLE_ITEMS;
 const MINUTES_LIST = Array.from({ length: 60 }, (_, i) => i + 1); // 1 to 60 mins
@@ -286,7 +286,7 @@ function PaceCard({
           activeOpacity={0.7}
           accessibilityLabel={`Decrease ${title} by 5 seconds`}
         >
-          <Feather name="minus" size={18} color={accentColor} />
+          <Feather name="minus" size={15} color={accentColor} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -295,7 +295,7 @@ function PaceCard({
           activeOpacity={0.7}
           accessibilityLabel={`Increase ${title} by 5 seconds`}
         >
-          <Feather name="plus" size={18} color={accentColor} />
+          <Feather name="plus" size={15} color={accentColor} />
         </TouchableOpacity>
       </View>
     </View>
@@ -397,7 +397,6 @@ export function TargetPaceRangePicker({
       {/* Instructional Helper */}
       <Text style={styles.helperText}>
         Scroll minutes &amp; seconds in the middle or tap - / + to adjust by 5s.
-        Minimum 15s difference is maintained.
       </Text>
     </View>
   );
@@ -411,56 +410,57 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 12,
+    marginBottom: 8,
   },
   summaryLeft: {
     flexDirection: "column",
   },
   rangeText: {
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: "700",
     color: Colors.text,
     letterSpacing: 0.5,
   },
   summaryUnit: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "500",
     color: Colors.textSecondary,
   },
   diffBadge: {
-    fontSize: 11,
+    fontSize: 10,
     color: Colors.textMuted,
-    marginTop: 2,
+    marginTop: 1,
     fontWeight: "500",
   },
   medianBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
     borderWidth: 1,
   },
   medianBadgeText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
   },
   stepperRow: {
     flexDirection: "row",
-    gap: 12,
+    gap: 8,
   },
   stepperCard: {
     flex: 1,
     backgroundColor: "#262629",
-    borderRadius: 14,
-    padding: 12,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#3A3A3E",
   },
   stepperLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
     color: Colors.textSecondary,
-    marginBottom: 6,
+    marginBottom: 2,
   },
   wheelContainer: {
     flexDirection: "row",
@@ -469,15 +469,15 @@ const styles = StyleSheet.create({
     height: SCROLL_HEIGHT,
     width: "100%",
     position: "relative",
-    marginVertical: 4,
+    marginVertical: 2,
   },
   wheelCenterPill: {
     position: "absolute",
     top: ITEM_HEIGHT,
-    left: 8,
-    right: 8,
+    left: 4,
+    right: 4,
     height: ITEM_HEIGHT,
-    borderRadius: 8,
+    borderRadius: 6,
     borderWidth: 1,
     zIndex: 0,
   },
@@ -496,57 +496,57 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   wheelText: {
-    fontSize: 16,
+    fontSize: 15,
     textAlign: "center",
   },
   wheelTextActive: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "800",
     letterSpacing: 0.5,
   },
   wheelTextInactive: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "500",
     color: Colors.textMuted,
     opacity: 0.35,
   },
   colonBox: {
-    width: 14,
+    width: 12,
     height: ITEM_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 1,
   },
   colonText: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "800",
-    lineHeight: 22,
+    lineHeight: 20,
   },
   unitUnderWheel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "500",
     color: Colors.textMuted,
-    marginBottom: 10,
-    marginTop: 2,
+    marginBottom: 4,
+    marginTop: 1,
   },
   stepperButtonsRow: {
     flexDirection: "row",
-    gap: 12,
+    gap: 8,
     alignItems: "center",
     justifyContent: "center",
   },
   stepperBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
   },
   helperText: {
     color: Colors.textMuted,
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: 10,
+    fontSize: 10,
+    lineHeight: 14,
+    marginTop: 6,
     textAlign: "center",
   },
 });
