@@ -20,7 +20,7 @@ interface ScrollTimePickerProps {
 }
 
 const ITEM_HEIGHT = 50;
-const COMPACT_ITEM_HEIGHT = 32;
+const COMPACT_ITEM_HEIGHT = 46;
 const VISIBLE_ITEMS = 3;
 const SCROLL_VIEW_HEIGHT = ITEM_HEIGHT * VISIBLE_ITEMS;
 export const DEFAULT_TIME_VALUE = '01:00:00';
@@ -464,7 +464,7 @@ const styles = StyleSheet.create({
   },
 
   itemTextCompact: {
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '500',
     color: '#9CA3AF',
     opacity: 0.35,
@@ -499,8 +499,8 @@ const styles = StyleSheet.create({
   },
 
   separatorCompact: {
-    fontSize: 15,
-    marginHorizontal: 4,
+    fontSize: 18,
+    marginHorizontal: 6,
   },
 
   scrollContainer: {
@@ -541,9 +541,9 @@ const styles = StyleSheet.create({
   },
 
   selectedTimeContainerCompact: {
-    marginTop: 8,
+    marginTop: 10,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
     backgroundColor: '#202124',
     borderRadius: 10,
     flexDirection: 'row',
@@ -559,7 +559,7 @@ const styles = StyleSheet.create({
 
   selectedLabelCompact: {
     color: '#8E8E93',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
   },
 
@@ -572,7 +572,7 @@ const styles = StyleSheet.create({
 
   selectedTimeCompact: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
     letterSpacing: 1.5,
   },
