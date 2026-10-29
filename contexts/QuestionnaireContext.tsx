@@ -17,7 +17,6 @@ import type {
 } from "../service/questionnaire/questionnaireService";
 import { assessmentService } from "../service/questionnaire/questionnaireService";
 import { storage } from "../service/storage";
-import { validateAnswer } from "../service/validation/AssessmentValidator";
 import { CurrentWorkoutPlan, isNoTrainingPlanResponse, workoutPlanService } from "../service/workoutPlan";
 import { PlanBenchmarkStore } from "../src/services/planBenchmarkStore";
 
@@ -85,6 +84,11 @@ const extractQuestionValidationErrors = (
 
   return result;
 };
+
+const getBackendValidationMessage = (payload: BackendValidationPayload | null | undefined) =>
+  payload?.validation_errors
+    ?.map((item) => String(item?.message ?? item?.error ?? item?.detail ?? "").trim())
+    .find(Boolean) ?? null;
 
 interface QuestionnaireContextType {
   questions: Question[];
@@ -480,11 +484,6 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       const numericId = getNumericId(questionId);
       const key = String(numericId);
 
-      const validationResult = validateCurrentAnswer(key, value, true);
-      if (!validationResult.valid) {
-        return;
-      }
-
       // Server-side errors describe the previously submitted values. Once the
       // user edits an answer, wait for the next submission before showing them.
       setValidationErrors({});
@@ -529,36 +528,6 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       });
     },
     []
-  );
-
-  const validateCurrentAnswer = useCallback(
-    (questionId: string, value: any, allowIncompleteSelectionCount = false) => {
-      const question = questions.find((item) => String(item.backendId ?? getNumericId(item.id)) === String(getNumericId(questionId)));
-      if (!question) return { valid: true };
-
-      const key = String(getNumericId(questionId));
-      const existingAnswer = allAnswers[key];
-
-      const validationResult = validateAnswer({
-        question,
-        answer: value,
-        allAnswers,
-        questions,
-        allowIncompleteSelectionCount,
-      });
-
-      if (!validationResult.valid) {
-        setError(validationResult.message || "Invalid answer");
-        return validationResult;
-      }
-
-      if (existingAnswer?.value !== value) {
-        setError(null);
-      }
-
-      return validationResult;
-    },
-    [allAnswers, questions]
   );
 
   // ------------------------------------------------------------------
@@ -626,18 +595,6 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
   const goToNext = async () => {
     if (!assessmentId || !currentNavigation) return;
 
-    // Validate required questions
-    for (const question of currentPageQuestions) {
-      if (question.isRequired) {
-        const key = String(question.backendId ?? getNumericId(question.id));
-        const answer = allAnswers[key];
-        if (!answer || answer.value === undefined || answer.value === null || answer.value === "") {
-          setError(`Please answer question: ${question.question}`);
-          return;
-        }
-      }
-    }
-
     try {
       setIsLoading(true);
       setError(null);
@@ -645,32 +602,26 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
 
       const previousNavigation = currentNavigation;
 
-      for (const question of currentPageQuestions) {
-        const key = String(question.backendId ?? getNumericId(question.id));
-        const answer = allAnswers[key];
-        const validationResult = validateAnswer({
-          question,
-          answer: answer?.value,
-          allAnswers,
-          questions,
-        });
-        if (!validationResult.valid) {
-          setError(validationResult.message || "Invalid answer");
-          return;
-        }
-      }
-
       const payload = buildAnswersPayload();
-      if (payload.length === 0) {
-        setError("No answers to submit");
-        return;
-      }
 
       const finalPageNumber = Math.max(0, ...questions.map((question) => question.page_no ?? 0));
       const isFinalPageSubmission = finalPageNumber === 0 || previousNavigation.page_no >= finalPageNumber;
-      if (isFinalPageSubmission) setCompletedPlanCheckAssessmentId(null);
 
       const result = await assessmentService.submitAnswers(assessmentId, payload);
+
+      // Some backend deployments return validation failures with HTTP 200.
+      // Treat the body as authoritative and keep the current page in that case.
+      if (result.validationErrors.length > 0) {
+        const validationPayload = { validation_errors: result.validationErrors };
+        const fieldErrors = extractQuestionValidationErrors(validationPayload);
+        setValidationErrors(fieldErrors);
+        setError(
+          Object.keys(fieldErrors).length > 0 ? null : getBackendValidationMessage(validationPayload)
+        );
+        return;
+      }
+
+      if (isFinalPageSubmission) setCompletedPlanCheckAssessmentId(null);
 
       // Save current navigation to history only on successful submit
       if (previousNavigation) {
@@ -702,13 +653,15 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       // Answers remain in allAnswers - no clearing!
 
     } catch (err: any) {
-      const fieldErrors = extractQuestionValidationErrors(err?.response?.data);
+      const backendPayload = err?.response?.data as BackendValidationPayload | undefined;
+      const fieldErrors = extractQuestionValidationErrors(backendPayload);
       setValidationErrors(fieldErrors);
-      setError(
-        Object.keys(fieldErrors).length > 0
+      const hasBackendValidationErrors = Boolean(backendPayload?.validation_errors?.length);
+      setError(hasBackendValidationErrors
+        ? Object.keys(fieldErrors).length > 0
           ? null
-          : getBackendErrorMessage(err, "Failed to submit answers")
-      );
+          : getBackendValidationMessage(backendPayload)
+        : getBackendErrorMessage(err, "Failed to submit answers"));
     } finally {
       setIsLoading(false);
     }

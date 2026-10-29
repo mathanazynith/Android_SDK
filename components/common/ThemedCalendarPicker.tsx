@@ -18,11 +18,17 @@ const startOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(
 const sameDay = (left: Date, right: Date) => left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate();
 const beforeDay = (left: Date, right: Date) => new Date(left.getFullYear(), left.getMonth(), left.getDate()) < new Date(right.getFullYear(), right.getMonth(), right.getDate());
 const afterDay = (left: Date, right: Date) => new Date(left.getFullYear(), left.getMonth(), left.getDate()) > new Date(right.getFullYear(), right.getMonth(), right.getDate());
+const clampToBounds = (date: Date, minimumDate?: Date, maximumDate?: Date) => {
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  if (minimumDate && beforeDay(day, minimumDate)) return new Date(minimumDate.getFullYear(), minimumDate.getMonth(), minimumDate.getDate());
+  if (maximumDate && afterDay(day, maximumDate)) return new Date(maximumDate.getFullYear(), maximumDate.getMonth(), maximumDate.getDate());
+  return day;
+};
 
 export default function ThemedCalendarPicker({ value, title, onCancel, onConfirm, minimumDate, maximumDate }: ThemedCalendarPickerProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [selectedDate, setSelectedDate] = useState(() => new Date(value.getFullYear(), value.getMonth(), value.getDate()));
+  const [selectedDate, setSelectedDate] = useState(() => clampToBounds(value, minimumDate, maximumDate));
   const [displayMonth, setDisplayMonth] = useState(() => startOfMonth(value));
   const [showYears, setShowYears] = useState(false);
 
@@ -101,13 +107,13 @@ export default function ThemedCalendarPicker({ value, title, onCancel, onConfirm
                   const day = index - firstWeekday + 1;
                   if (day < 1 || day > daysInMonth) return <View key={`empty-${index}`} style={styles.dayCell} />;
                   const date = new Date(year, month, day);
-                  const active = sameDay(date, selectedDate);
                   const today = sameDay(date, new Date());
                   const disabled = Boolean((minimumDate && beforeDay(date, minimumDate)) || (maximumDate && afterDay(date, maximumDate)));
+                  const active = sameDay(date, selectedDate) && !disabled;
                   return (
                     <View key={date.toISOString()} style={styles.dayCell}>
-                      <TouchableOpacity accessibilityRole="button" accessibilityLabel={date.toLocaleDateString()} accessibilityState={{ selected: active, disabled }} disabled={disabled} onPress={() => chooseDay(day)} style={[styles.dayButton, active && { backgroundColor: colors.primary }, today && !active && { borderColor: colors.primary, borderWidth: 1 }, disabled && styles.disabledDay]}>
-                        <Text style={[styles.dayText, { color: active ? colors.primaryText : colors.textSecondary }]}>{day}</Text>
+                      <TouchableOpacity accessibilityRole="button" accessibilityLabel={date.toLocaleDateString()} accessibilityState={{ selected: active, disabled }} disabled={disabled} onPress={() => chooseDay(day)} style={[styles.dayButton, active && { backgroundColor: colors.primary }, today && !active && !disabled && { borderColor: colors.primary, borderWidth: 1 }, disabled && styles.disabledDay]}>
+                        <Text style={[styles.dayText, { color: active ? colors.primaryText : disabled ? colors.textTertiary : colors.textSecondary }]}>{day}</Text>
                       </TouchableOpacity>
                     </View>
                   );
@@ -152,7 +158,7 @@ const styles = StyleSheet.create({
   dayCell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: "center", justifyContent: "center" },
   dayButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   dayText: { fontSize: 14, fontWeight: "600" },
-  disabledDay: { opacity: 0.28 },
+  disabledDay: { opacity: 0.62 },
   yearScroll: { maxHeight: 310, marginBottom: 12 },
   yearGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" },
   yearCell: { width: "30%", minHeight: 42, borderRadius: 10, alignItems: "center", justifyContent: "center" },

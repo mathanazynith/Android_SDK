@@ -29,7 +29,6 @@ import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
 import { assessmentAPI } from "../../../service/api";
 import { useAuth } from "../../../service/auth";
 import type { Question } from "../../../service/questionnaire/questionnaireService";
-import { validateAnswer } from "../../../service/validation/AssessmentValidator";
 import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import { calculatePace, timeToSeconds } from "../../../utils/validators";
 
@@ -594,8 +593,6 @@ export default function QuestionnaireScreen() {
   const [isNoPlanModalDismissed, setIsNoPlanModalDismissed] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [validationErrorQuestionId, setValidationErrorQuestionId] = useState<string | null>(null);
-  const [daySelectionError, setDaySelectionError] = useState<string | null>(null);
   const [racePrediction, setRacePrediction] = useState<RacePrediction | null>(null);
   const [isRacePredictionLoading, setIsRacePredictionLoading] = useState(false);
   const [racePredictionError, setRacePredictionError] = useState<string | null>(null);
@@ -848,26 +845,9 @@ export default function QuestionnaireScreen() {
     unit?: string | null,
     customValues?: any
   ) => {
-    const question = questions.find((item) => String(item.backendId ?? getNumericId(item.id)) === String(getNumericId(questionId)));
-    if (question) {
-      const validationResult = validateAnswer({
-        question,
-        answer: value,
-        allAnswers,
-        questions,
-        allowIncompleteSelectionCount: true,
-      });
-      if (!validationResult.valid) {
-        setValidationErrorQuestionId(String(getNumericId(questionId)));
-        return;
-      }
-    }
-
-    // The replacement answer supersedes the rejected value. Clear the old
-    // server response now so it cannot keep Next disabled.
+    // Backend validation applies to the submitted answer. Let the user edit
+    // any value and clear stale server feedback until the next submission.
     clearValidationErrors();
-    setValidationErrorQuestionId(null);
-    setDaySelectionError(null);
     setAnswer(questionId, value, unit, customValues);
   };
 
@@ -889,27 +869,11 @@ export default function QuestionnaireScreen() {
 
     if (isEmptyCustom) {
       clearValidationErrors();
-      setValidationErrorQuestionId(null);
       setAnswer(questionId, undefined, undefined, null);
       return;
     }
 
-    const question = questions.find((item) => String(item.backendId ?? getNumericId(item.id)) === String(getNumericId(questionId)));
-    if (question) {
-      const validationResult = validateAnswer({
-        question,
-        answer: updatedCustomValues,
-        allAnswers,
-        questions,
-      });
-      if (!validationResult.valid) {
-        setValidationErrorQuestionId(String(getNumericId(questionId)));
-        return;
-      }
-    }
-
     clearValidationErrors();
-    setValidationErrorQuestionId(null);
     setAnswer(questionId, undefined, undefined, updatedCustomValues);
   };
 
@@ -985,29 +949,6 @@ export default function QuestionnaireScreen() {
 
   const handleNext = async () => {
     setIsNoPlanModalDismissed(false);
-    const runningDaysQuestion = currentPageQuestions.find(
-      (question) => /which days of the week.*usually run/i.test(question.question)
-    );
-    if (runningDaysQuestion) {
-      const selectedDays = getAnswerForQuestion(runningDaysQuestion).value;
-      const countQuestion = questions.find(
-        (question) => /how many days per week.*run/i.test(question.question)
-      );
-      const countAnswer = countQuestion ? getAnswerForQuestion(countQuestion).value : undefined;
-      const selectedCountOption = countQuestion?.options?.find(
-        (option) => String(option.value) === String(countAnswer)
-      );
-      const requiredCount = Number(
-        selectedCountOption?.numeric_value ?? selectedCountOption?.label ?? countAnswer
-      );
-
-      if (Number.isFinite(requiredCount) && (!Array.isArray(selectedDays) || selectedDays.length !== requiredCount)) {
-        setValidationErrorQuestionId(String(runningDaysQuestion.backendId ?? getNumericId(runningDaysQuestion.id)));
-        setDaySelectionError(`Please select exactly ${requiredCount} running days.`);
-        return;
-      }
-    }
-
     setIsSubmitting(true);
     try {
       setPageTransitionDirection('forward');
@@ -1105,61 +1046,6 @@ export default function QuestionnaireScreen() {
     if (currentDistance <= 21.1) return 42.2;
     return 42.2;
   })();
-
-  const getLiveDateValidationMessages = (question: Question): string[] => {
-    const slug = String(question.slug ?? "").toUpperCase();
-    const answer = getAnswerForQuestion(question).value;
-    if (!answer || !["EVENT_DATE", "GOAL_ACHIEVEMENT_DATE", "TRAINING_START_DATE", "START_TRAINING_DATE"].includes(slug)) {
-      return [];
-    }
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const selectedDate = new Date(`${answer}T00:00:00`);
-    if (Number.isNaN(selectedDate.getTime())) return [];
-
-    if (slug === "TRAINING_START_DATE" || slug === "START_TRAINING_DATE") {
-      if (selectedDate < today) return ["The running start date cannot be in the past."];
-      const latestStart = new Date(today);
-      latestStart.setDate(latestStart.getDate() + (slug === "TRAINING_START_DATE" ? 9 : 10));
-      if (selectedDate > latestStart) {
-        return [slug === "TRAINING_START_DATE"
-          ? "Please choose a running start date within the next 10 days."
-          : "The start training date should be within 10 days from joining."];
-      }
-      return [];
-    }
-
-    const isEventDate = slug === "EVENT_DATE";
-    const distanceQuestion = questions.find((item) => String(item.slug ?? "").toUpperCase() === (isEventDate ? "EVENT_DISTANCE" : "RUNNING_GOAL"));
-    const startDateQuestion = questions.find((item) => String(item.slug ?? "").toUpperCase() === (isEventDate ? "TRAINING_START_DATE" : "START_TRAINING_DATE"));
-    if (!distanceQuestion || !startDateQuestion) return [];
-
-    const distanceAnswer = getAnswerForQuestion(distanceQuestion);
-    const option = distanceQuestion.options?.find((item) => String(item.id) === String(distanceAnswer.value));
-    let distanceKm = getDistanceInKilometers(option);
-    if (!distanceKm && option?.requires_input) {
-      const customDistance = Number(distanceAnswer.customValues?.distance ?? distanceAnswer.customValues?.targetDistance);
-      if (Number.isFinite(customDistance) && customDistance > 0) {
-        distanceKm = getDistanceUnitCode(distanceAnswer.customValues?.unit) === "mile" ? customDistance * 1.60934 : customDistance;
-      }
-    }
-    const startValue = getAnswerForQuestion(startDateQuestion).value;
-    if (!distanceKm || !startValue) return [];
-    const startDate = new Date(`${startValue}T00:00:00`);
-    if (Number.isNaN(startDate.getTime())) return [];
-
-    const minimumDays = distanceKm <= 5 ? 28 : distanceKm <= 10 ? 56 : distanceKm <= 15 ? 70 : distanceKm <= 21.1 ? (isEventDate ? 98 : 84) : 126;
-    const earliestDate = new Date(startDate);
-    earliestDate.setDate(earliestDate.getDate() + minimumDays);
-    if (selectedDate >= earliestDate) return [];
-
-    const label = distanceKm <= 5 ? "5K" : distanceKm <= 10 ? "10K" : distanceKm <= 15 ? "15K" : distanceKm <= 21.1 ? "Half Marathon" : "Full Marathon";
-    const weeks = minimumDays / 7;
-    return [isEventDate
-      ? `For a ${label} event, the event date must be at least ${weeks} weeks from start date.`
-      : `The goal achievable date must be at least ${minimumDays} days from start date.`];
-  };
 
   const getDerivedComputedValue = (question: Question) => {
     const normalizedSlug = String(question.slug ?? question.question ?? "").toLowerCase();
@@ -1301,14 +1187,6 @@ export default function QuestionnaireScreen() {
       return timeToSeconds(String(value)) !== null;
     }
 
-    const selectionValidation = validateAnswer({
-      question,
-      answer: value,
-      allAnswers,
-      questions,
-    });
-    if (!selectionValidation.valid) return false;
-
     if (question.type === "multiple" && /which days of the week.*usually run/i.test(question.question)) {
       return Number.isFinite(requiredRunningDaysCount)
         && requiredRunningDaysCount > 0
@@ -1336,9 +1214,8 @@ export default function QuestionnaireScreen() {
     return true;
   };
 
-  // Next is available as soon as all required answers on the current page are
-  // complete. Inline validation communicates invalid values as they are edited;
-  // the backend remains the final check when Next is pressed.
+  // Required answers control button availability. Validation messages come
+  // from the backend after submission.
   const isRecentLongRunGroupComplete = !recentLongRunGroup || (() => {
     const distanceAnswer = getAnswerForQuestion(recentLongRunGroup.singleQuestion);
     const selectedOption = recentLongRunGroup.singleQuestion.options?.find(
@@ -1438,9 +1315,9 @@ export default function QuestionnaireScreen() {
           direction={pageTransitionDirection === 'forward' ? 'right' : 'left'}
           style={styles.pageContainer}
         >
-          {(error || validationErrorQuestionId || daySelectionError) && (
+          {error && (
             <View style={styles.validationBanner}>
-              <Text style={styles.validationBannerText}>{error || daySelectionError || "This answer does not meet the configured validation rules."}</Text>
+              <Text style={styles.validationBannerText}>{error}</Text>
             </View>
           )}
           {recentLongRunGroup && (
@@ -1491,9 +1368,9 @@ export default function QuestionnaireScreen() {
               racePredictionError={racePredictionError}
               validationMessages={{
                 eventName: getQuestionValidationMessages(eventRegistrationGroup.eventNameQuestion),
-                eventDate: [...getQuestionValidationMessages(eventRegistrationGroup.eventDateQuestion), ...getLiveDateValidationMessages(eventRegistrationGroup.eventDateQuestion)],
+                eventDate: getQuestionValidationMessages(eventRegistrationGroup.eventDateQuestion),
                 trainingStartDate: eventRegistrationGroup.trainingStartDateQuestion
-                  ? [...getQuestionValidationMessages(eventRegistrationGroup.trainingStartDateQuestion), ...getLiveDateValidationMessages(eventRegistrationGroup.trainingStartDateQuestion)]
+                  ? getQuestionValidationMessages(eventRegistrationGroup.trainingStartDateQuestion)
                   : [],
                 distance: eventRegistrationGroup.distanceQuestion
                   ? getQuestionValidationMessages(eventRegistrationGroup.distanceQuestion)
@@ -1563,10 +1440,7 @@ export default function QuestionnaireScreen() {
                 ...answerData.customValues,
                 ...(computedOverride !== undefined ? { derivedValue: computedOverride } : {}),
               };
-              const validationMessages = [
-                ...getQuestionValidationMessages(question),
-                ...getLiveDateValidationMessages(question),
-              ];
+              const validationMessages = getQuestionValidationMessages(question);
               const isRaceGoalTimeQuestion = question.type === "time"
                 && /(?:goal|target).*(?:time|finish)|(?:time|finish).*event/i.test(`${question.question} ${question.slug ?? ""}`);
 
@@ -1594,7 +1468,6 @@ export default function QuestionnaireScreen() {
                     onCustomChange={(questionKey: string, field: string, val: string) =>
                       handleCustomChange(questionKey, field, val)
                     }
-                    isInvalid={validationErrorQuestionId === String(question.backendId ?? getNumericId(question.id))}
                   />
                   {validationMessages.map((message) => (
                     <Text key={message} style={styles.questionValidationText}>

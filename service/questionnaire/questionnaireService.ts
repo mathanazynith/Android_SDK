@@ -262,6 +262,7 @@ class AssessmentService {
   complete: boolean;
   navigation: Navigation | null;
   computedResponses: any;
+  validationErrors: Array<Record<string, any>>;
 }> {
 
   // DEBUG: Convert Question 7 value to number
@@ -300,6 +301,7 @@ class AssessmentService {
     complete: data.complete,
     navigation: data.navigation || null,
     computedResponses: data.computed_responses || {},
+    validationErrors: Array.isArray(data.validation_errors) ? data.validation_errors : [],
   };
 }
 

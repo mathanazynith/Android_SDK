@@ -40,7 +40,7 @@ import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage, resolveApiUrl } from '../../../service/api';
-import { activityAPI, BackendActivity } from '../../../src/services/activityApi';
+import { activityAPI, BackendActivity, runRouteAPI } from '../../../src/services/activityApi';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
 
@@ -322,7 +322,8 @@ const buildActivityRows = (
 
 interface ActivityCardProps {
   activity: BackendActivity;
-  onPress: (activityId: BackendActivity['id']) => void;
+  onPress: (activity: BackendActivity) => void;
+  onRouteMenu: (activity: BackendActivity) => void;
   onStartSelection: (activityId: BackendActivity['id']) => void;
   reduceMotion: boolean;
   selectionMode: boolean;
@@ -335,6 +336,7 @@ interface ActivityCardProps {
 const ActivityCard = memo(function ActivityCard({
   activity,
   onPress,
+  onRouteMenu,
   onStartSelection,
   reduceMotion,
   selectionMode,
@@ -425,7 +427,7 @@ const ActivityCard = memo(function ActivityCard({
       longPressHandledRef.current = false;
       return;
     }
-    onPress(activityId);
+    onPress(activity);
   };
 
   const handleStartSelection = useCallback(() => {
@@ -474,7 +476,7 @@ const ActivityCard = memo(function ActivityCard({
         ]}
       >
       <TouchableOpacity
-        style={styles.cardContent}
+        style={[styles.cardContent, !selectionMode && styles.cardContentWithMenu]}
         accessibilityRole="button"
         accessibilityLabel={`${activityName} activity, ${formatDistance(activity.distance)}, ${formatDuration(duration)}`}
         accessibilityHint={selectionMode ? 'Tap to select or deselect this activity for deletion.' : 'Open activity details, or long press to select this activity for deletion.'}
@@ -521,7 +523,7 @@ const ActivityCard = memo(function ActivityCard({
           </View>
         </View>
 
-        <View pointerEvents="none" style={styles.mapThumbnailContainer}>
+        <View pointerEvents="none" style={[styles.mapThumbnailContainer, !selectionMode && styles.mapThumbnailWithMenu]}>
           {thumbnailUri && !thumbnailFailed ? (
             <ExpoImage
               source={{ uri: thumbnailUri }}
@@ -571,6 +573,27 @@ const ActivityCard = memo(function ActivityCard({
           </View>
         </View>
       </TouchableOpacity>
+      {!selectionMode ? (
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={`More actions for ${activityName.toLowerCase()} activity`}
+          accessibilityHint="Save this activity route to My Routes."
+          disabled={busy}
+          onPress={(event) => {
+            event.stopPropagation();
+            onRouteMenu(activity);
+          }}
+          style={[styles.routeMenuButton, { backgroundColor: colors.surface, borderColor: colors.border }, busy && styles.routeMenuButtonDisabled]}
+        >
+          <Feather name="more-vertical" size={19} color={colors.textSecondary} />
+        </TouchableOpacity>
+      ) : null}
+      {!selectionMode && activity.is_saved_to_my_routes ? (
+        <View style={[styles.routeSavedStatus, { borderTopColor: colors.border }]}>
+          <Feather name="check-circle" size={15} color={colors.primary} />
+          <Text style={[styles.routeSavedText, { color: colors.textSecondary }]}>Saved to My Routes</Text>
+        </View>
+      ) : null}
       <Reanimated.View
         pointerEvents="none"
         style={[
@@ -584,7 +607,7 @@ const ActivityCard = memo(function ActivityCard({
           accessibilityState={{ checked: selected, disabled: busy }}
           accessibilityLabel={`${selected ? 'Deselect' : 'Select'} ${activityName.toLowerCase()} activity for deletion`}
           disabled={busy}
-          onPress={() => onPress(activityId)}
+          onPress={() => onPress(activity)}
           style={[
             styles.cardCheckbox,
             { backgroundColor: selected ? '#DC2626' : isDark ? '#111827' : '#FFFFFF' },
@@ -654,6 +677,8 @@ export default function ActivityScreen() {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const reduceMotion = useReducedMotion();
   const [activities, setActivities] = useState<BackendActivity[]>([]);
+  const [savingActivityIds, setSavingActivityIds] = useState<Set<string>>(() => new Set());
+  const [pendingSaveActivity, setPendingSaveActivity] = useState<BackendActivity | null>(null);
   const [visibleActivityIds, setVisibleActivityIds] = useState<Set<string>>(() => new Set());
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedActivityIds, setSelectedActivityIds] = useState<Set<string>>(() => new Set());
@@ -1074,6 +1099,128 @@ export default function ActivityScreen() {
     });
   }, [visibleActivities]);
 
+  const saveActivityRoute = useCallback(async (activity: BackendActivity, isPublic: boolean) => {
+    const activityKey = String(activity.id);
+    if (activity.is_saved_to_my_routes || savingActivityIds.has(activityKey)) return;
+    setSavingActivityIds((current) => new Set(current).add(activityKey));
+    try {
+      const { routeId } = await activityAPI.saveRoute(activity.id);
+      if (isPublic && routeId === null) {
+        setActivities((current) => current.map((item) => String(item.id) === activityKey
+          ? { ...item, is_saved_to_my_routes: true }
+          : item));
+        setPendingSaveActivity(null);
+        Alert.alert(
+          'Route saved privately',
+          'The route was saved, but the server did not return its route ID, so it could not be published.'
+        );
+        return;
+      }
+
+      if (isPublic && routeId !== null) {
+        try {
+          await runRouteAPI.setVisibility(routeId, true);
+        } catch (visibilityError) {
+          setActivities((current) => current.map((item) => String(item.id) === activityKey
+            ? { ...item, is_saved_to_my_routes: true, saved_route_id: routeId }
+            : item));
+          setPendingSaveActivity(null);
+          Alert.alert(
+            'Route saved privately',
+            `The route was saved, but could not be published. ${getBackendErrorMessage(visibilityError, 'Try again from My Routes.')}`
+          );
+          return;
+        }
+      }
+
+      setActivities((current) => current.map((item) => String(item.id) === activityKey
+        ? { ...item, is_saved_to_my_routes: true, saved_route_id: routeId }
+        : item));
+      setPendingSaveActivity(null);
+      showSelectionToast(`Route saved ${isPublic ? 'publicly' : 'privately'} to My Routes.`);
+    } catch (requestError) {
+      Alert.alert('Could not save route', getBackendErrorMessage(requestError, 'Please try again.'));
+    } finally {
+      setSavingActivityIds((current) => {
+        const next = new Set(current);
+        next.delete(activityKey);
+        return next;
+      });
+    }
+  }, [savingActivityIds, showSelectionToast]);
+
+  const updateActivityRouteVisibility = useCallback(async (
+    activity: BackendActivity,
+    routeId: number,
+    isPublic: boolean,
+  ) => {
+    const activityKey = String(activity.id);
+    if (savingActivityIds.has(activityKey)) return;
+    setSavingActivityIds((current) => new Set(current).add(activityKey));
+    try {
+      await runRouteAPI.setVisibility(routeId, isPublic);
+      setActivities((current) => current.map((item) => String(item.id) === activityKey
+        ? { ...item, is_saved_to_my_routes: true, saved_route_id: routeId, saved_route_is_public: isPublic }
+        : item));
+      showSelectionToast(`Route made ${isPublic ? 'public' : 'private'}.`);
+    } catch (requestError) {
+      Alert.alert('Could not change route visibility', getBackendErrorMessage(requestError, 'Please try again.'));
+    } finally {
+      setSavingActivityIds((current) => {
+        const next = new Set(current);
+        next.delete(activityKey);
+        return next;
+      });
+    }
+  }, [savingActivityIds, showSelectionToast]);
+
+  const openActivityRouteMenu = useCallback((activity: BackendActivity) => {
+    if (activity.is_saved_to_my_routes) {
+      const routeId = Number(activity.saved_route_id);
+      if (!Number.isInteger(routeId) || routeId <= 0) {
+        Alert.alert('Route already saved', 'This route is saved, but its route ID is missing from the History response.');
+        return;
+      }
+
+      void runRouteAPI.get(routeId).then((route) => {
+        const nextIsPublic = !route.is_public;
+        Alert.alert(
+          nextIsPublic ? 'Make route public?' : 'Make route private?',
+          nextIsPublic
+            ? 'Other signed-in Zy-Run users will be able to view this route.'
+            : 'Other users will no longer be able to view this route.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: nextIsPublic ? 'Make Public' : 'Make Private',
+              onPress: () => { void updateActivityRouteVisibility(activity, routeId, nextIsPublic); },
+            },
+          ],
+          { cancelable: true },
+        );
+      }).catch((requestError) => {
+        Alert.alert('Could not load route visibility', getBackendErrorMessage(requestError, 'Please try again.'));
+      });
+      return;
+    }
+
+    Alert.alert('Activity options', undefined, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Save to My Routes',
+        onPress: () => {
+          const routeProcessingComplete = activity.is_processed === true
+            || (activity.is_processed == null && activity.processing_status.toUpperCase() === 'COMPLETED');
+          if (!routeProcessingComplete || !activity.route_generated) {
+            Alert.alert('Route not ready', 'This activity needs to finish processing its route before it can be saved.');
+            return;
+          }
+          setPendingSaveActivity(activity);
+        },
+      },
+    ]);
+  }, [updateActivityRouteVisibility]);
+
   const deleteActivities = useCallback(async (targets: BackendActivity[]) => {
     if (targets.length === 0 || isDeletingActivities) return;
 
@@ -1169,11 +1316,17 @@ export default function ActivityScreen() {
       return;
     }
     const count = targets.length;
+    const savedRouteCount = targets.filter((activity) => (
+      activity.is_saved_to_my_routes || activity.saved_route_id
+    )).length;
+    const deleteMessage = savedRouteCount > 0
+      ? `${count === 1 ? 'This workout' : `These ${count} workouts`} ${count === 1 ? 'has' : 'have'} ${savedRouteCount} associated saved ${savedRouteCount === 1 ? 'route' : 'routes'} that will also be removed from My Routes${savedRouteCount === 1 ? ' (including its public listing, if enabled)' : ' (including any public listings, if enabled)'}. This cannot be undone.`
+      : count === 1
+        ? 'Delete this workout from your history? This cannot be undone.'
+        : `Delete ${count} workouts from your history? This cannot be undone.`;
     Alert.alert(
       count === 1 ? 'Delete workout?' : 'Delete selected workouts?',
-      count === 1
-        ? 'Delete this workout from your history? This cannot be undone.'
-        : `Delete ${count} workouts from your history? This cannot be undone.`,
+      deleteMessage,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -1192,12 +1345,18 @@ export default function ActivityScreen() {
     confirmDeleteActivities(selectedActivities);
   }, [confirmDeleteActivities, selectedActivities]);
 
-  const handleActivityPress = useCallback((activityId: BackendActivity['id']) => {
+  const handleActivityPress = useCallback((activity: BackendActivity) => {
     if (selectionMode) {
-      toggleActivitySelection(activityId);
+      toggleActivitySelection(activity.id);
       return;
     }
-    router.push(`/(app)/activity/${activityId}` as any);
+    router.push({
+      pathname: '/(app)/activity/[id]',
+      params: {
+        id: String(activity.id),
+        ...(activity.saved_route_id ? { savedRouteId: String(activity.saved_route_id) } : {}),
+      },
+    } as any);
   }, [selectionMode, toggleActivitySelection]);
 
   const renderActivityRow = useCallback(({ item }: { item: ActivityListRow }) => {
@@ -1240,13 +1399,14 @@ export default function ActivityScreen() {
       <ActivityCard
         activity={activity}
         onPress={handleActivityPress}
+        onRouteMenu={openActivityRouteMenu}
         onStartSelection={startActivitySelection}
         reduceMotion={reduceMotion}
         isVisible={visibleActivityIds.has(String(activity.id))}
         selectionMode={selectionMode}
         selected={selectedActivityIds.has(String(activity.id))}
         deleting={deletingActivityIds.has(String(activity.id))}
-        busy={isDeletingActivities}
+        busy={isDeletingActivities || savingActivityIds.has(String(activity.id))}
       />
     );
   }, [
@@ -1256,6 +1416,7 @@ export default function ActivityScreen() {
     deletingActivityIds,
     isDeletingActivities,
     handleActivityPress,
+    openActivityRouteMenu,
     reduceMotion,
     visibleActivityIds,
     selectedActivityIds,
@@ -1874,6 +2035,56 @@ export default function ActivityScreen() {
           <Text style={styles.toastText}>{selectionToast}</Text>
         </View>
       )}
+      <Modal
+        visible={pendingSaveActivity !== null}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => {
+          if (!pendingSaveActivity || savingActivityIds.has(String(pendingSaveActivity.id))) return;
+          setPendingSaveActivity(null);
+        }}
+      >
+        <View style={[styles.saveRouteBackdrop, { backgroundColor: colors.overlay }]}>
+          <View style={[styles.saveRouteDialog, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={[styles.saveRouteIcon, { backgroundColor: colors.selected }]}>
+              <Feather name="map" size={18} color={colors.primary} />
+            </View>
+            <Text style={[styles.saveRouteTitle, { color: colors.text }]}>Save route to My Routes?</Text>
+            <Text style={[styles.saveRouteMessage, { color: colors.textSecondary }]}>
+              Private keeps the route visible only to you. Public lets other signed-in Zy-Run users view it.
+            </Text>
+            <TouchableOpacity
+              accessibilityRole="button"
+              disabled={pendingSaveActivity === null || savingActivityIds.has(String(pendingSaveActivity?.id))}
+              onPress={() => pendingSaveActivity && void saveActivityRoute(pendingSaveActivity, false)}
+              style={[styles.saveVisibilityButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
+            >
+              {pendingSaveActivity && savingActivityIds.has(String(pendingSaveActivity.id))
+                ? <RunningLoader size={16} fillColor={colors.text} />
+                : <Feather name="lock" size={16} color={colors.text} />}
+              <Text style={[styles.saveVisibilityText, { color: colors.text }]}>Save Privately</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              disabled={pendingSaveActivity === null || savingActivityIds.has(String(pendingSaveActivity?.id))}
+              onPress={() => pendingSaveActivity && void saveActivityRoute(pendingSaveActivity, true)}
+              style={[styles.saveVisibilityButton, { backgroundColor: colors.selected, borderColor: colors.primary }]}
+            >
+              <Feather name="globe" size={16} color={colors.primary} />
+              <Text style={[styles.saveVisibilityText, { color: colors.primary }]}>Save Publicly</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              disabled={pendingSaveActivity !== null && savingActivityIds.has(String(pendingSaveActivity.id))}
+              onPress={() => setPendingSaveActivity(null)}
+              style={styles.saveRouteCancel}
+            >
+              <Text style={[styles.saveRouteCancelText, { color: colors.textSecondary }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
       </View>
     </SafeAreaView>
     </GestureHandlerRootView>
@@ -1970,6 +2181,21 @@ const styles = StyleSheet.create({
   deleteButtonAction: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 22, borderRadius: 27 },
   deleteButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   cardContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  cardContentWithMenu: { paddingRight: 34 },
+  mapThumbnailWithMenu: { width: '29%' },
+  routeMenuButton: { position: 'absolute', right: 6, top: '50%', marginTop: -18, width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center', zIndex: 3 },
+  routeMenuButtonDisabled: { opacity: 0.5 },
+  routeSavedStatus: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 10, paddingTop: 9, borderTopWidth: StyleSheet.hairlineWidth },
+  routeSavedText: { fontSize: 12, fontWeight: '600' },
+  saveRouteBackdrop: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28 },
+  saveRouteDialog: { width: '100%', maxWidth: 360, borderWidth: 1, borderRadius: 24, padding: 18 },
+  saveRouteIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  saveRouteTitle: { fontSize: 17, fontWeight: '800' },
+  saveRouteMessage: { fontSize: 13, lineHeight: 18, marginTop: 6, marginBottom: 12 },
+  saveVisibilityButton: { minHeight: 46, borderRadius: 23, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 8 },
+  saveVisibilityText: { fontSize: 14, fontWeight: '700' },
+  saveRouteCancel: { minHeight: 38, alignItems: 'center', justifyContent: 'center', marginTop: 5 },
+  saveRouteCancelText: { fontSize: 13, fontWeight: '600' },
   cardCheckbox: { position: 'absolute', top: 7, right: 7, width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 2, zIndex: 2 },
   cardDetails: { flex: 1.05, minWidth: 0, paddingRight: 8 },
   activityType: { color: '#F7F7F7', fontSize: 18, lineHeight: 22, fontWeight: '800' },

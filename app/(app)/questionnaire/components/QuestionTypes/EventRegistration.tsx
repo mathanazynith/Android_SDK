@@ -317,6 +317,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         <Text style={[styles.sectionLabel, { color: colors.textPrimary }]}>{labels?.eventDate || "When is your event?"}</Text>
         <DatePicker
           value={eventDate}
+          minimumDate={new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())}
           onChange={(date) => {
             setEventDate(date);
             emitChange({ eventDate: date });
