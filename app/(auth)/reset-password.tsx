@@ -24,10 +24,7 @@ export default function ResetPasswordScreen() {
     if (!value.trim()) {
       return "OTP is required";
     }
-    if (value.trim().length < 4) {
-      return "Please enter 6 digit OTP";
-    }
-    if (value.trim().length > 6) {
+    if (value.trim().length !== 6) {
       return "Please enter 6 digit OTP";
     }
     if (!/^\d+$/.test(value.trim())) {
@@ -60,7 +57,7 @@ export default function ResetPasswordScreen() {
     return "";
   };
 
-  const validateField = (field: string, value: string) => {
+  const validateField = (field: keyof typeof errors, value: string) => {
     let error = "";
     switch (field) {
       case "otpCode":
@@ -76,7 +73,7 @@ export default function ResetPasswordScreen() {
     setErrors((prev) => ({ ...prev, [field]: error }));
   };
 
-  const handleChange = (field: string, value: string) => {
+  const handleChange = (field: keyof typeof errors, value: string) => {
     switch (field) {
       case "otpCode":
         // Only allow numbers for OTP
@@ -87,9 +84,11 @@ export default function ResetPasswordScreen() {
       case "password":
         setPassword(value);
         validateField(field, value);
-        // Re-validate confirm password when password changes
         if (confirmPassword) {
-          validateField("confirmPassword", confirmPassword);
+          setErrors((previous) => ({
+            ...previous,
+            confirmPassword: confirmPassword === value ? "" : "Passwords do not match",
+          }));
         }
         break;
       case "confirmPassword":
@@ -112,12 +111,7 @@ export default function ResetPasswordScreen() {
       confirmPassword: confirmError,
     });
 
-    // Check if any error exists
     if (otpError || passwordError || confirmError) {
-      Alert.alert(
-        "Validation Error",
-        "Please fix all errors before submitting"
-      );
       return;
     }
 
@@ -141,27 +135,76 @@ export default function ResetPasswordScreen() {
         ]
       );
     } catch (error: any) {
-      
-      // Handle different error scenarios with user-friendly messages
+      const responseData = error?.response?.data;
+      const fieldError = (keys: string[]) => {
+        const sources = [responseData, responseData?.errors, responseData?.fields];
+        for (const source of sources) {
+          for (const key of keys) {
+            const value = source?.[key];
+            if (typeof value === "string" && value.trim()) return value;
+            if (Array.isArray(value)) {
+              const message = value.find((item) => typeof item === "string" && item.trim());
+              if (message) return message;
+            }
+          }
+        }
+        return "";
+      };
+      const otpFieldError = fieldError(["otp_code", "otp", "otpCode"]);
+      const passwordFieldError = fieldError(["password"]);
+      const confirmFieldError = fieldError(["password2", "confirm_password", "confirmPassword"]);
+      const responseMessage = [
+        responseData?.message,
+        responseData?.detail,
+        responseData?.error,
+      ].find((value) => typeof value === "string" && value.trim()) || "";
+      const messageLower = String(responseMessage).toLowerCase();
+      const mappedErrors = {
+        otpCode: otpFieldError || (
+          (error?.response?.status === 401 || /otp|one.time.password|verification code/.test(messageLower))
+            ? String(responseMessage || "The OTP is invalid or has expired.")
+            : ""
+        ),
+        password: passwordFieldError || (
+          /password/.test(messageLower) && !/confirm|match|password2/.test(messageLower)
+            ? String(responseMessage)
+            : ""
+        ),
+        confirmPassword: confirmFieldError || (
+          /confirm|match|password2/.test(messageLower)
+            ? String(responseMessage)
+            : ""
+        ),
+      };
+      if (mappedErrors.otpCode || mappedErrors.password || mappedErrors.confirmPassword) {
+        setErrors((previous) => ({
+          otpCode: mappedErrors.otpCode || previous.otpCode,
+          password: mappedErrors.password || previous.password,
+          confirmPassword: mappedErrors.confirmPassword || previous.confirmPassword,
+        }));
+        return;
+      }
+
       let errorMessage = "Password reset failed. Please try again.";
       let errorTitle = "Error";
       
       if (error.response) {
         const status = error.response.status;
-        const data = error.response.data;
+        const data = responseData;
         
         if (status === 400) {
-          if (data?.message?.toLowerCase().includes("expired")) {
+          const serverMessage = typeof data?.message === "string" ? data.message : "";
+          if (serverMessage.toLowerCase().includes("expired")) {
             errorTitle = "OTP Expired";
             errorMessage = "Your OTP has expired. Please request a new one from the forgot password page.";
-          } else if (data?.message?.toLowerCase().includes("invalid")) {
+          } else if (serverMessage.toLowerCase().includes("invalid")) {
             errorTitle = "Invalid OTP";
             errorMessage = "The OTP you entered is invalid. Please check and try again.";
-          } else if (data?.message?.toLowerCase().includes("password")) {
+          } else if (serverMessage.toLowerCase().includes("password")) {
             errorTitle = "Invalid Password";
-            errorMessage = data.message || "Password does not meet the requirements.";
+            errorMessage = serverMessage || "Password does not meet the requirements.";
           } else {
-            errorMessage = data?.message || "Invalid request. Please check your inputs.";
+            errorMessage = serverMessage || "Invalid request. Please check your inputs.";
           }
         } else if (status === 401) {
           errorMessage = "Invalid OTP. Please check and try again.";

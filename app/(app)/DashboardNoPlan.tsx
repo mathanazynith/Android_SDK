@@ -1,8 +1,9 @@
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../../constants/theme';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
+import DashboardText from '../../components/common/DashboardText';
 
 type DashboardNoPlanProps = {
   canStartAssessment: boolean;
@@ -17,7 +18,7 @@ const popularWorkouts = [
 ];
 
 export default function DashboardNoPlan({ canStartAssessment, onStartAssessment }: DashboardNoPlanProps) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const openCustomWorkout = () => router.push('/(app)/questionnaire');
 
   const openWorkoutSetup = (workout: typeof popularWorkouts[0]) => {
@@ -38,26 +39,29 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
 
   return (
     <>
-      <View style={[styles.card, styles.customWorkoutCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <View style={[styles.card, styles.customWorkoutCard, {
+        backgroundColor: colors.surface,
+        borderColor: isDark ? '#3A3A3A' : colors.border,
+      }]}>
         <View style={styles.heading}>
           {/* <Feather name="edit-3" size={25} color={BRAND_GREEN} /> */}
-          <Text style={[styles.cardTitle, { color: BRAND_GREEN }]}>Custom Workout</Text>
+          <DashboardText style={[styles.cardTitle, { color: BRAND_GREEN }]}>Custom Workout</DashboardText>
         </View>
         <View style={styles.infoList}>
           <View style={styles.infoLine}>
             {/* <Feather name="check-circle" size={16} color={BRAND_GREEN} /> */}
-            <Text style={[styles.infoText , { color: colors.text }]}>Flexible setup for personalized daily running routines.</Text>
+            <DashboardText style={[styles.infoText , { color: colors.text }]}>Flexible setup for personalized daily running routines.</DashboardText>
           </View>
         </View>
       <TouchableOpacity style={styles.button} onPress={() => router.push('/(app)/custom-workout')}>
-        <Feather name="edit-3" size={26} color={Colors.primary} />
-        <Text style={styles.buttonText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>CREATE CUSTOM WORKOUT</Text>
+          <Feather name="edit-3" size={26} color={Colors.primary} style={styles.buttonIcon} />
+          <DashboardText style={[styles.buttonText, styles.customWorkoutButtonText]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>CREATE CUSTOM WORKOUT</DashboardText>
       </TouchableOpacity>
       </View>
 
       <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <Text style={[styles.cardTitle, { color: BRAND_GREEN }]}>Get Plan Assessment</Text>
-        <Text style={[styles.description, { color: colors.text }]}>A new adventure begins!</Text>
+        <DashboardText style={[styles.cardTitle, { color: BRAND_GREEN }]}>Get Plan Assessment</DashboardText>
+        <DashboardText style={[styles.description, { color: colors.text }]}>A new adventure begins!</DashboardText>
         <TouchableOpacity
           style={[styles.planButton, { backgroundColor: colors.primary }, !canStartAssessment && styles.buttonDisabled]}
           onPress={onStartAssessment}
@@ -69,17 +73,17 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
           <View style={styles.planIconTile}>
             <MaterialCommunityIcons name="run" size={22} color="#ECFDF5" />
           </View>
-          <Text style={[styles.buttonText, styles.planButtonText, { color: colors.primaryText }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>Get Plan</Text>
+          <DashboardText style={[styles.buttonText, styles.planButtonText, { color: colors.primaryText }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>Get Plan</DashboardText>
           <Feather name="arrow-right" size={21} color={colors.primaryText} />
         </TouchableOpacity>
       </View>
 
       <TouchableOpacity style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]} onPress={() => router.push('/(app)/screens/map')}>
         <Feather name="play" size={24} color="#081009" />
-        <Text style={styles.recordText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>Record Workout</Text>
+        <DashboardText style={styles.recordText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>Record Workout</DashboardText>
       </TouchableOpacity>
 
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>POPULAR WORKOUTS</Text>
+      <DashboardText style={[styles.sectionTitle, { color: colors.text }]}>POPULAR WORKOUTS</DashboardText>
       <View style={styles.workoutRow}>
         {popularWorkouts.map((workout) => (
           <TouchableOpacity
@@ -88,9 +92,9 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
             onPress={() => openWorkoutSetup(workout)}
           >
             <Feather name={workout.icon} size={30} color={BRAND_GREEN} />
-            <Text style={[styles.workoutTitle, { color: colors.text }]}>{workout.title}</Text>
-            <Text style={[styles.workoutSubtitle, { color: colors.textSecondary }]}>{workout.subtitle}</Text>
-            <View style={styles.exploreButton}><Text style={styles.exploreText}>EXPLORE</Text></View>
+            <DashboardText style={[styles.workoutTitle, { color: colors.text }]}>{workout.title}</DashboardText>
+            <DashboardText style={[styles.workoutSubtitle, { color: colors.textSecondary }]}>{workout.subtitle}</DashboardText>
+            <View style={styles.exploreButton}><DashboardText style={styles.exploreText}>EXPLORE</DashboardText></View>
           </TouchableOpacity>
         ))}
       </View>
@@ -100,14 +104,16 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
 
 const styles = StyleSheet.create({
   card: { padding: 20, marginBottom: 14, borderRadius: 28, backgroundColor: '#242627', borderWidth: 1.25, borderColor: '#65686A' },
-  customWorkoutCard: { padding: 20 },
+  customWorkoutCard: { padding: 20, borderRadius: 16, borderWidth: 1 },
   heading: { flexDirection: 'row', alignItems: 'center', gap: 10, },
   cardTitle: { flex: 1, color: '#8BD69A', fontSize: 20, fontWeight: '800' },
   infoList: { gap: 10, marginVertical: 16 },
   infoLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 9 ,fontWeight: 'bold'},
   infoText: { flex: 1, fontSize: 14, lineHeight: 20 },
   description: { color: '#E0E2E1', fontSize: 16, lineHeight: 22, marginVertical: 14 },
-  button: { width: '100%', alignSelf: 'center', minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, borderRadius: 19, backgroundColor: Colors.primary },
+  button: { width: '100%', alignSelf: 'center', minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 19, backgroundColor: Colors.primary, position: 'relative' },
+  buttonIcon: { position: 'absolute', left: 14 },
+  customWorkoutButtonText: { flex: 1, marginHorizontal: 42 },
   planButton: { width: '100%', alignSelf: 'center', minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, borderRadius: 16 },
   planIconTile: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 11, backgroundColor: '#15803D' },
   planButtonText: { flex: 1, textAlign: 'left' },

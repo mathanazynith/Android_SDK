@@ -1124,7 +1124,7 @@ export default function CustomWorkoutOverview() {
             {workout.id ? (
               <TouchableOpacity
                 style={styles.suggestedRoutesButton}
-                onPress={() => router.push({ pathname: "/custom-workout/suggested-routes", params: { workoutId: String(workout.id) } })}
+                onPress={() => router.push({ pathname: "/(app)/custom-workout/suggested-routes", params: { workoutId: String(workout.id) } })}
                 activeOpacity={0.85}
               >
                 <Feather name="map" size={22} color="#39B800" />

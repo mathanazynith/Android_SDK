@@ -3,7 +3,6 @@ import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Animated,
-  Modal,
   TextInput as RNTextInput,
   ScrollView,
   StyleSheet,
@@ -590,7 +589,6 @@ export default function QuestionnaireScreen() {
   } = useQuestionnaire();
   const { user } = useAuth();
   const [pageTransitionDirection, setPageTransitionDirection] = useState<'forward' | 'backward'>('forward');
-  const [isNoPlanModalDismissed, setIsNoPlanModalDismissed] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [racePrediction, setRacePrediction] = useState<RacePrediction | null>(null);
@@ -647,19 +645,18 @@ export default function QuestionnaireScreen() {
       || !isWorkoutPlanLoaded
     ) return;
 
-    if (workoutPlan || workoutPlanError) {
+    if (workoutPlan) {
+      router.replace('/(app)/plan-recommendation');
+      return;
+    }
+
+    if (workoutPlanError) {
       router.replace('/(app)/running-plan');
       return;
     }
-  }, [isComplete, assessmentId, completedPlanCheckAssessmentId, isWorkoutPlanLoaded, isWorkoutPlanLoading, workoutPlan, workoutPlanError]);
 
-  const showNoPlanModal = isComplete
-    && completedPlanCheckAssessmentId === assessmentId
-    && isWorkoutPlanLoaded
-    && !isWorkoutPlanLoading
-    && !workoutPlan
-    && !workoutPlanError
-    && !isNoPlanModalDismissed;
+    router.replace('/(app)/plan-recommendation');
+  }, [isComplete, assessmentId, completedPlanCheckAssessmentId, isWorkoutPlanLoaded, isWorkoutPlanLoading, workoutPlan, workoutPlanError]);
 
   React.useEffect(() => {
     const findQuestion = (pattern: RegExp, type?: string) =>
@@ -948,7 +945,6 @@ export default function QuestionnaireScreen() {
   };
 
   const handleNext = async () => {
-    setIsNoPlanModalDismissed(false);
     setIsSubmitting(true);
     try {
       setPageTransitionDirection('forward');
@@ -1425,6 +1421,7 @@ export default function QuestionnaireScreen() {
             .filter((question) => !recentLongRunQuestionIds.has(question.id))
             .filter((question) => !eventRegistrationQuestionIds.has(question.id))
             .filter((question) => !/training\s+days?\s+available/i.test(`${question.question} ${question.slug ?? ""}`))
+            .filter((question) => !/goal[_\s-]*target[_\s-]*pace|goal.*target.*pace/i.test(`${question.question} ${question.slug ?? ""}`))
             .map((question) => {
               const numericKey = String(
                 question.backendId ?? getNumericId(question.id)
@@ -1516,41 +1513,6 @@ export default function QuestionnaireScreen() {
         />
       </View>
 
-      <Modal
-        visible={showNoPlanModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setIsNoPlanModalDismissed(true)}
-      >
-        <View style={[styles.noPlanModalBackdrop, { paddingTop: Math.max(24, insets.top + 16), paddingBottom: Math.max(24, insets.bottom + 16), backgroundColor: colors.overlay }]}>
-          <View style={[styles.noPlanModalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Feather name="info" size={28} color={BRAND_GREEN} />
-            <Text style={[styles.noPlanModalTitle, { color: colors.textPrimary }]}>
-              No training plan available
-            </Text>
-            <Text style={[styles.noPlanModalMessage, { color: colors.textSecondary }]}>
-              Review your assessment answers and try again.
-            </Text>
-            <TouchableOpacity
-              style={[styles.noPlanReviewButton, { backgroundColor: BRAND_GREEN }]}
-              onPress={() => {
-                setIsNoPlanModalDismissed(true);
-                handlePrevious();
-              }}
-              accessibilityRole="button"
-            >
-              <Text style={styles.noPlanReviewButtonText}>Review answers</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.noPlanDismissButton}
-              onPress={() => setIsNoPlanModalDismissed(true)}
-              accessibilityRole="button"
-            >
-              <Text style={[styles.noPlanDismissButtonText, { color: colors.textSecondary }]}>Dismiss</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -1826,12 +1788,4 @@ const styles = StyleSheet.create({
   assessmentTitleRow: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   backButton: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#202A22", borderWidth: 1, borderColor: "#34C759" },
   backButtonPlaceholder: { width: 44, height: 44 },
-  noPlanModalBackdrop: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
-  noPlanModalCard: { width: "100%", maxWidth: 400, alignItems: "center", borderRadius: 16, borderWidth: 1, padding: 24 },
-  noPlanModalTitle: { fontSize: 20, fontWeight: "700", textAlign: "center", marginTop: 14 },
-  noPlanModalMessage: { fontSize: 15, lineHeight: 22, textAlign: "center", marginTop: 8, marginBottom: 20 },
-  noPlanReviewButton: { width: "100%", alignItems: "center", borderRadius: 10, paddingVertical: 13 },
-  noPlanReviewButtonText: { color: "#102018", fontSize: 15, fontWeight: "700" },
-  noPlanDismissButton: { marginTop: 12, padding: 8 },
-  noPlanDismissButtonText: { fontSize: 14, fontWeight: "600" },
 });

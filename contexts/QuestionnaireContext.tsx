@@ -119,7 +119,7 @@ interface QuestionnaireContextType {
   setAnswer: (questionId: string, value: any, unit?: string | null, customValues?: Record<string, any> | null) => void;
   goToNext: () => Promise<void>;
   goToPrevious: () => Promise<void>;
-  reset: () => void;
+  reset: () => Promise<void>;
   // Backward compatibility for running-plan/index.tsx
   answers: AnswerRecord[];
   currentQuestionIndex: number;
@@ -169,6 +169,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
   const navigationHistory = useRef<PageState[]>([]);
   const forwardNavigationHistory = useRef<PageState[]>([]);
   const isStartingAssessment = useRef(false);
+  const isResettingAssessment = useRef(false);
 
   // Derive current page questions
   const getCurrentPageQuestions = useCallback((): Question[] => {
@@ -255,7 +256,12 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       resetState();
       return;
     }
-    if (assessmentId || currentNavigation || isStartingAssessment.current) {
+    if (
+      assessmentId
+      || currentNavigation
+      || isStartingAssessment.current
+      || isResettingAssessment.current
+    ) {
       return;
     }
 
@@ -265,6 +271,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
         if (!questions.length) {
           await loadQuestions();
         }
+        if (isResettingAssessment.current) return;
         if (!assessmentId && !currentNavigation) {
           await startAssessment();
         }
@@ -363,10 +370,17 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
   }, [workoutPlan]);
 
   const endWorkoutPlan = useCallback(async (reason: string) => {
+    const planId = workoutPlan?.id;
+    if (!planId) {
+      const message = "No active training plan is available to end. Refresh your plan and try again.";
+      setWorkoutPlanError(message);
+      throw new Error(message);
+    }
+
     setIsWorkoutPlanLoading(true);
     setWorkoutPlanError(null);
     try {
-      await workoutPlanService.endCurrent(reason);
+      await workoutPlanService.endPlan(planId, reason);
       setWorkoutPlan(null);
       setAssessmentResult(null);
       setAssessmentResultLoaded(false);
@@ -379,13 +393,19 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       await storage.removeItem(storage.KEYS.TRAINING_PLAN);
       await PlanBenchmarkStore.clearAll().catch(() => {});
     } catch (err: any) {
-      const message = getBackendErrorMessage(err, "Unable to end your training plan.");
+      const message = err?.response?.status === 404
+        ? "The active training plan could not be found. Refresh your plan and try again."
+        : getBackendErrorMessage(err, "Unable to end your training plan.");
+      console.error("[Questionnaire] Failed to end workout plan:", {
+        status: err?.response?.status,
+        message: err?.message,
+      });
       setWorkoutPlanError(message);
       throw new Error(message);
     } finally {
       setIsWorkoutPlanLoading(false);
     }
-  }, []);
+  }, [workoutPlan]);
 
   useEffect(() => {
     if (assessmentId && isComplete && !assessmentResultLoaded && !isAssessmentResultLoading) {
@@ -695,10 +715,21 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const reset = () => {
-    resetState();
-    if (user) {
-      loadQuestions().then(() => startAssessment());
+  const reset = async () => {
+    if (isResettingAssessment.current) return;
+    isResettingAssessment.current = true;
+    try {
+      resetState();
+      await Promise.all([
+        storage.removeItem(storage.KEYS.QUESTIONNAIRE_PROGRESS),
+        storage.removeItem(storage.KEYS.QUESTIONNAIRE_ANSWERS),
+      ]);
+      if (user) {
+        await loadQuestions();
+        await startAssessment();
+      }
+    } finally {
+      isResettingAssessment.current = false;
     }
   };
 

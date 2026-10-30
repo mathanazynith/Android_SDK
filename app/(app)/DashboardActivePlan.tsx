@@ -1,9 +1,10 @@
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../../constants/theme';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import type { CurrentWorkout } from '../../service/workoutPlan';
+import DashboardText from '../../components/common/DashboardText';
 
 type DashboardActivePlanProps = {
   todayWorkout: CurrentWorkout | null;
@@ -81,14 +82,14 @@ export default function DashboardActivePlan({ todayWorkout, nextWorkout }: Dashb
       >
         <View style={styles.heading}>
           <Feather name={isRestDay ? 'moon' : 'activity'} size={25} color={BRAND_GREEN} />
-          <Text style={[styles.title, { color: colors.text }]}>TODAY&apos;S WORKOUT</Text>
+          <DashboardText style={[styles.title, { color: colors.text }]}>TODAY&apos;S WORKOUT</DashboardText>
         </View>
-        <Text style={[styles.description, { color: colors.text }]}>{todayDescription}</Text>
+        <DashboardText style={[styles.description, { color: colors.text }]}>{todayDescription}</DashboardText>
         <View style={[styles.button, { backgroundColor: BRAND_GREEN }]}>
           <Feather name="activity" size={21} color="#081009" />
-          <Text style={styles.buttonText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+          <DashboardText style={styles.buttonText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
             {isRestDay ? 'Rest Day' : 'Record Workout'}
-          </Text>
+          </DashboardText>
         </View>
       </TouchableOpacity>
 
@@ -96,19 +97,22 @@ export default function DashboardActivePlan({ todayWorkout, nextWorkout }: Dashb
         activeOpacity={0.9}
         onPress={() => router.push({
           pathname: '/(app)/training-plan',
-          params: { selectedWeek: String(nextWorkout?.week_number ?? 1) },
+          params: {
+            selectedWeek: String(nextWorkout?.week_number ?? 1),
+            selectedDate: nextWorkout?.workout_date,
+          },
         })}
         style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
       >
         <View style={styles.heading}>
           <Feather name="arrow-right-circle" size={25} color={BRAND_GREEN} />
-          <Text style={[styles.title, { color: colors.text }]}>UP NEXT</Text>
+          <DashboardText style={[styles.title, { color: colors.text }]}>UP NEXT</DashboardText>
         </View>
-        <Text style={[styles.description, { color: colors.text }]}>{nextDescription}</Text>
+        <DashboardText style={[styles.description, { color: colors.text }]}>{nextDescription}</DashboardText>
       </TouchableOpacity>
 
       {/* POPULAR WORKOUTS ROW FOR TRAINING PLAN USERS */}
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>POPULAR WORKOUTS</Text>
+      <DashboardText style={[styles.sectionTitle, { color: colors.text }]}>POPULAR WORKOUTS</DashboardText>
       <View style={styles.workoutRow}>
         {popularWorkouts.map((workout) => (
           <TouchableOpacity
@@ -117,9 +121,9 @@ export default function DashboardActivePlan({ todayWorkout, nextWorkout }: Dashb
             onPress={() => openPopularWorkoutSetup(workout)}
           >
             <Feather name={workout.icon} size={30} color={BRAND_GREEN} />
-            <Text style={[styles.workoutTitle, { color: colors.text }]}>{workout.title}</Text>
-            <Text style={[styles.workoutSubtitle, { color: colors.textSecondary }]}>{workout.subtitle}</Text>
-            <View style={styles.exploreButton}><Text style={styles.exploreText}>EXPLORE</Text></View>
+            <DashboardText style={[styles.workoutTitle, { color: colors.text }]}>{workout.title}</DashboardText>
+            <DashboardText style={[styles.workoutSubtitle, { color: colors.textSecondary }]}>{workout.subtitle}</DashboardText>
+            <View style={styles.exploreButton}><DashboardText style={styles.exploreText}>EXPLORE</DashboardText></View>
           </TouchableOpacity>
         ))}
       </View>

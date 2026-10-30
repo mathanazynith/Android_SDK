@@ -1289,7 +1289,10 @@ export default function StatsScreen() {
                 key={yr}
                 style={[styles.modalItemRow, selectedYear === yr && styles.modalItemRowActive]}
                 onPress={() => {
-                  setSelectedYear(yr);
+                  triggerTransition(() => {
+                    setSelectedYear(yr);
+                    setSelectedPointKey(null);
+                  });
                   setShowYearModal(false);
                 }}
                 activeOpacity={0.7}

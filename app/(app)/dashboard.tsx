@@ -2,9 +2,10 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RunningLoader } from '../../components/common/RunningLoader';
+import DashboardText from '../../components/common/DashboardText';
 import MotionEntrance from '../../components/MotionEntrance';
 import NotificationBell from '../../components/NotificationBell';
 import SettingsMenu from '../../components/SettingsMenu';
@@ -111,7 +112,9 @@ export default function DashboardScreen() {
 
   const profile = user?.profile;
   const canStartAssessment = isAssessmentProfileComplete(user);
-  const userName = user?.username?.trim() || user?.email?.split('@')[0]?.trim() || 'Runner';
+  const firstName = user?.first_name?.trim();
+  const fallbackName = user?.username?.trim() || user?.email?.split('@')[0]?.trim() || 'Runner';
+  const userName = firstName || fallbackName.charAt(0).toUpperCase() + fallbackName.slice(1);
   // const parsedTemperature = weather?.temperature == null ? null : Number(weather.temperature);
   // const weatherTemperature = parsedTemperature != null && Number.isFinite(parsedTemperature)
   //   ? `${Math.round(parsedTemperature)}°C`
@@ -132,10 +135,10 @@ export default function DashboardScreen() {
   const today = new Date();
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const workouts = workoutPlan?.weeks.flatMap((week) => week.workouts) ?? [];
-  const todayWorkout = workouts.find((workout) => workout.workout_date === todayKey) ?? null;
+  const todayWorkout = workouts.find((workout) => workout.workout_date?.slice(0, 10) === todayKey) ?? null;
   const nextWorkout = workouts
-    .filter((workout) => workout.workout_date > todayKey)
-    .sort((a, b) => a.workout_date.localeCompare(b.workout_date))[0] ?? null;
+    .filter((workout) => workout.workout_date.slice(0, 10) > todayKey)
+    .sort((a, b) => a.workout_date.slice(0, 10).localeCompare(b.workout_date.slice(0, 10)))[0] ?? null;
 
   const startAssessment = () => {
     if (!canStartAssessment) {
@@ -172,13 +175,13 @@ export default function DashboardScreen() {
   }
 
   if (workoutPlanError && !workoutPlan) {
-    return <View style={[styles.center, { backgroundColor: colors.background }]}><Feather name="alert-circle" size={32} color="#FFB020" /><Text style={[styles.centerText, { color: colors.text }]}>{workoutPlanError}</Text><TouchableOpacity style={[styles.retry, { backgroundColor: BRAND_GREEN }]} onPress={() => void fetchWorkoutPlan(true)}><Text style={[styles.retryText, { color: colors.background }]}>Try again</Text></TouchableOpacity></View>;
+    return <View style={[styles.center, { backgroundColor: colors.background }]}><Feather name="alert-circle" size={32} color="#FFB020" /><DashboardText style={[styles.centerText, { color: colors.text }]}>{workoutPlanError}</DashboardText><TouchableOpacity style={[styles.retry, { backgroundColor: BRAND_GREEN }]} onPress={() => void fetchWorkoutPlan(true)}><DashboardText style={[styles.retryText, { color: colors.background }]}>Try again</DashboardText></TouchableOpacity></View>;
   }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.topBar, { borderBottomColor: colors.border, minHeight: spacing(82) + insets.top, paddingHorizontal: spacing(28), paddingTop: insets.top + spacing(8) }]}>
-        <Text style={[styles.pageTitle, { color: colors.text, fontSize: fontSize(28, 24, 30) }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>Dashboard</Text>
+        <DashboardText style={[styles.pageTitle, { color: colors.text, fontSize: fontSize(28, 24, 30) }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={1.2}>Dashboard</DashboardText>
         <View style={styles.headerActions}>
           <NotificationBell
             onPress={() => router.push('/(app)/screens/notifications')}
@@ -190,7 +193,7 @@ export default function DashboardScreen() {
       <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: spacing(20), paddingBottom: spacing(118) }]} showsVerticalScrollIndicator={false}>
         <MotionEntrance>
           <View style={[styles.greeting, { minHeight: spacing(82), paddingHorizontal: spacing(18), paddingVertical: spacing(14), marginBottom: spacing(14), backgroundColor: colors.surface }]}>
-            <Text style={[styles.greetingText, { color: colors.text, fontSize: fontSize(24, 20, 26) }]} numberOfLines={2}><Text>Hi </Text><Text style={[styles.name, { color: BRAND_GREEN }]}>{userName}</Text></Text>
+            <DashboardText style={[styles.greetingText, { color: colors.text, fontSize: fontSize(24, 20, 26) }]} numberOfLines={2}><DashboardText>Hi </DashboardText><DashboardText style={[styles.name, { color: BRAND_GREEN }]}>{userName}</DashboardText></DashboardText>
               {/*
               <TouchableOpacity
                 accessibilityLabel="Open current weather details"
@@ -199,13 +202,13 @@ export default function DashboardScreen() {
               >
                 {loadingWeather ? <RunningLoader size={22} fillColor={BRAND_GREEN} /> : weather?.iconUrl ? <Image source={{ uri: weather.iconUrl }} style={{ width: spacing(24), height: spacing(24) }} /> : <Feather name={weatherIcon} size={spacing(24)} color={BRAND_GREEN} />}
                 <View>
-                  <Text style={[styles.weatherValue, { color: colors.text }]} numberOfLines={1}>{weather?.city || weather?.locationName || 'Current location'}</Text>
-                  <Text style={[styles.weatherValue, { color: colors.textSecondary }]}>{weatherTemperature}</Text>
+                  <DashboardText style={[styles.weatherValue, { color: colors.text }]} numberOfLines={1}>{weather?.city || weather?.locationName || 'Current location'}</DashboardText>
+                  <DashboardText style={[styles.weatherValue, { color: colors.textSecondary }]}>{weatherTemperature}</DashboardText>
                   <View style={styles.weatherHumidity}>
                     <Feather name="droplet" size={spacing(11)} color={colors.textSecondary} />
-                    <Text style={[styles.weatherValue, { color: colors.textSecondary }]}>{weatherHumidity}</Text>
+                    <DashboardText style={[styles.weatherValue, { color: colors.textSecondary }]}>{weatherHumidity}</DashboardText>
                   </View>
-                  {weatherError ? <Text style={[styles.weatherStatus, { color: colors.textTertiary }]}>{weatherError}</Text> : null}
+                  {weatherError ? <DashboardText style={[styles.weatherStatus, { color: colors.textTertiary }]}>{weatherError}</DashboardText> : null}
                 </View>
               </TouchableOpacity>
               */}
@@ -228,9 +231,9 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0B0E0F' },
   topBar: { minHeight: 82, paddingHorizontal: 28, paddingTop: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#282B2D' },
-  pageTitle: { color: '#F7F7F7', fontSize: 28, fontWeight: '700', fontStyle: 'italic' },
+  pageTitle: { color: '#F7F7F7', fontSize: 28, fontWeight: '700', fontStyle: 'italic', flex: 1, flexShrink: 1, minWidth: 0 },
   headerButton: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: '#25282A', borderWidth: 1, borderColor: '#55595B' },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0 },
   content: { paddingHorizontal: 20, paddingBottom: 118 },
   greeting: { minHeight: 82, paddingHorizontal: 18, paddingVertical: 14, marginBottom: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#050607', borderRadius: 22 },
   greetingText: { color: '#F7F7F7', fontSize: 24, fontWeight: '700', flex: 1, marginRight: 10 },

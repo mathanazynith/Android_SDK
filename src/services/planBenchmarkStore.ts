@@ -91,12 +91,8 @@ export const PlanBenchmarkStore = {
       workoutKey,
       assignedAt: assignment.assignedAt || Date.now(),
     };
+    await storage.setItem(STORAGE_KEY, JSON.stringify(all));
     cachedAssignments = all;
-    try {
-      await storage.setItem(STORAGE_KEY, JSON.stringify(all));
-    } catch (err) {
-      console.warn('[PlanBenchmarkStore] Error saving assignment:', err);
-    }
     notifyListeners(all);
   },
 
@@ -106,7 +102,21 @@ export const PlanBenchmarkStore = {
   async removeAssignment(workoutKey: string, matchingDbId?: number): Promise<void> {
     if (!workoutKey && !matchingDbId) return;
     const all = await this.getAssignments();
-    if (workoutKey) delete all[workoutKey];
+    const isDateKey = /^\d{4}-\d{2}-\d{2}/.test(workoutKey);
+    const matchingKeys = Object.keys(all).filter((key) => (
+      key === workoutKey
+      || (matchingDbId != null && all[key]?.workoutDbId === matchingDbId)
+      || (
+        isDateKey
+        && all[key]?.planWorkoutDate != null
+        && all[key].planWorkoutDate.slice(0, 10) === workoutKey.slice(0, 10)
+      )
+    ));
+    if (!matchingKeys.length) return;
+    matchingKeys.forEach((key) => delete all[key]);
+    await storage.setItem(STORAGE_KEY, JSON.stringify(all));
+    cachedAssignments = all;
+    notifyListeners(all);
   },
 
   /**
@@ -168,4 +178,3 @@ export const PlanBenchmarkStore = {
 };
 
 export default PlanBenchmarkStore;
-

@@ -56,7 +56,7 @@ export default function RunningPlanScreen() {
     </MotionEntrance>
     <MotionEntrance delay={140}>
     <View style={styles.buttonArea}>
-      <TouchableOpacity style={[styles.calendarButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => router.push('/(app)/calendar')}><Text style={[styles.calendarButtonText, { color: colors.primary }]}>View Training Calendar</Text></TouchableOpacity>
+      <TouchableOpacity style={[styles.calendarButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => router.push('/(app)/training-plan')}><Text style={[styles.calendarButtonText, { color: colors.primary }]}>View Training Calendar</Text></TouchableOpacity>
       <TouchableOpacity style={styles.endPlanButton} onPress={handleEndPlan} accessibilityRole="button"><Text style={styles.endPlanButtonText}>End Plan</Text></TouchableOpacity>
     </View>
     </MotionEntrance>

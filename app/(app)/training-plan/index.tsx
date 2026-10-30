@@ -1,6 +1,6 @@
 import { Alert } from '@/components/ThemedAlert';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PanResponder, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RunningLoader } from '../../../components/common/RunningLoader';
@@ -15,7 +15,6 @@ import {
 } from '../../../src/services/planBenchmarkStore';
 import Timeline from '../calendar/components/Timeline';
 import TrainingCalendarCard from '../calendar/components/TrainingCalendarCard';
-import WorkoutModal from '../calendar/components/WorkoutModal';
 import type { RunningPlanData, WorkoutDetail } from '../calendar/components/types';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -24,6 +23,15 @@ const formatDateKey = (date: Date) => {
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
   const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const normalizeDateKey = (value: string) => value.slice(0, 10);
+
+const localDateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
 
@@ -59,9 +67,14 @@ const createRestWorkout = (weekNumber: number, displayOrder: number, workoutDate
 });
 
 const completeWeek = (week: { week_number: number; workouts: CurrentWorkout[] }, planStartDate: string) => {
-  const existingDates = week.workouts.map((workout) => workout.workout_date).filter(Boolean).sort();
-  const weekStart = existingDates.length ? mondayFor(existingDates[0]) : addDays(mondayFor(planStartDate), (week.week_number - 1) * 7);
-  const workoutsByDate = new Map(week.workouts.map((workout) => [workout.workout_date, workout]));
+  const existingDates = week.workouts.map((workout) => normalizeDateKey(workout.workout_date)).filter(Boolean).sort();
+  const weekStart = existingDates.length
+    ? mondayFor(existingDates[0])
+    : addDays(mondayFor(normalizeDateKey(planStartDate)), (week.week_number - 1) * 7);
+  const workoutsByDate = new Map(week.workouts.map((workout) => [
+    normalizeDateKey(workout.workout_date),
+    { ...workout, workout_date: normalizeDateKey(workout.workout_date) },
+  ]));
 
   return Array.from({ length: 7 }, (_, index) => {
     const workoutDate = addDays(weekStart, index);
@@ -75,7 +88,7 @@ const iconForWorkout = (workout: CurrentWorkout): WorkoutDetail['iconName'] => {
   if (label.includes('interval')) return 'flash-outline';
   if (label.includes('tempo')) return 'speedometer-outline';
   if (label.includes('recovery')) return 'bicycle-outline';
-  if (label.includes('long')) return 'walk-outline';
+  if (label.includes('long')) return 'flame';
   return 'walk-outline';
 };
 
@@ -175,14 +188,14 @@ const toWorkoutDetail = (
 
 export default function TrainingPlanScreen() {
   const { colors, isDark } = useTheme();
-  const params = useLocalSearchParams<{ selectedWeek?: string }>();
+  const params = useLocalSearchParams<{ selectedWeek?: string; selectedDate?: string }>();
   const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan, endWorkoutPlan } = useQuestionnaire();
   const [selectedWeekIndex, setSelectedWeekIndex] = useState(() => {
     const requestedWeek = Number.parseInt(String(params.selectedWeek ?? ''), 10);
     return Number.isFinite(requestedWeek) && requestedWeek > 0 ? requestedWeek - 1 : 0;
   });
-  const [selectedWorkout, setSelectedWorkout] = useState<WorkoutDetail | null>(null);
-  const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
+  const initializedSelection = useRef<string | null>(null);
   const [isEndPlanModalVisible, setIsEndPlanModalVisible] = useState(false);
   const [benchmarkAssignments, setBenchmarkAssignments] = useState<Record<string, PlanBenchmarkAssignment>>({});
   const [dbPlanWorkouts, setDbPlanWorkouts] = useState<UserWorkoutResponse[]>([]);
@@ -269,15 +282,54 @@ export default function TrainingPlanScreen() {
 
   const safeWeekIndex = plan ? Math.min(selectedWeekIndex, Math.max(0, plan.weeks.length - 1)) : 0;
   const selectedWeek = plan?.weeks[safeWeekIndex] ?? null;
+  const selectedWorkoutIndex = selectedWeek?.workouts.findIndex((workout) => workout.rawDate === selectedDateKey) ?? -1;
+  const selectedDayIndex = selectedWorkoutIndex >= 0 ? selectedWorkoutIndex : 0;
   const selectedDay = selectedWeek?.workouts[selectedDayIndex] ?? selectedWeek?.workouts[0] ?? null;
+
+  useEffect(() => {
+    if (!plan || !workoutPlan) return;
+    const selectionKey = `${workoutPlan.id}:${String(params.selectedWeek ?? '')}:${String(params.selectedDate ?? '')}`;
+    if (initializedSelection.current === selectionKey) return;
+
+    const requestedDate = String(params.selectedDate ?? '').slice(0, 10);
+    const requestedDateWeek = requestedDate
+      ? plan.weeks.findIndex((week) => week.workouts.some((workout) => workout.rawDate === requestedDate))
+      : -1;
+    const requestedWeek = Number.parseInt(String(params.selectedWeek ?? ''), 10);
+    const today = localDateKey(new Date());
+    const currentWeek = plan.weeks.findIndex((week) => week.workouts.some((workout) => workout.rawDate === today));
+    const weekIndex = requestedDateWeek >= 0
+      ? requestedDateWeek
+      : Number.isFinite(requestedWeek) && requestedWeek > 0
+        ? Math.min(requestedWeek - 1, plan.weeks.length - 1)
+        : currentWeek >= 0
+          ? currentWeek
+          : 0;
+    const week = plan.weeks[weekIndex];
+    const preferredDate = requestedDateWeek >= 0
+      ? requestedDate
+      : week?.workouts.some((workout) => workout.rawDate === today)
+        ? today
+        : week?.workouts[0]?.rawDate;
+
+    initializedSelection.current = selectionKey;
+    setSelectedWeekIndex(weekIndex);
+    setSelectedDateKey(preferredDate ?? null);
+  }, [params.selectedDate, params.selectedWeek, plan, workoutPlan]);
 
   const changeWeek = (direction: -1 | 1) => {
     if (!plan) return;
-    setSelectedWeekIndex((current) => Math.max(0, Math.min(plan.weeks.length - 1, safeWeekIndex + direction)));
+    const nextIndex = Math.max(0, Math.min(plan.weeks.length - 1, safeWeekIndex + direction));
+    const nextWeek = plan.weeks[nextIndex];
+    const today = localDateKey(new Date());
+    const nextSelection = nextWeek?.workouts.find((workout) => workout.rawDate === today) ?? nextWeek?.workouts[0];
+    setSelectedWeekIndex(nextIndex);
+    setSelectedDateKey(nextSelection?.rawDate ?? null);
   };
 
   const changeDay = (direction: -1 | 1) => {
-    setSelectedDayIndex((current) => Math.max(0, Math.min(6, current + direction)));
+    const nextIndex = Math.max(0, Math.min(6, selectedDayIndex + direction));
+    setSelectedDateKey(selectedWeek?.workouts[nextIndex]?.rawDate ?? null);
   };
 
   const handleConfirmEndPlan = async (reason: string) => {
@@ -348,8 +400,11 @@ export default function TrainingPlanScreen() {
               workouts={selectedWeek?.workouts ?? []}
               selectedWorkoutId={selectedDay?.id}
               onSelectWorkout={(workout) => {
-                setSelectedDayIndex(Math.max(0, (workout.displayOrder ?? 1) - 1));
-                setSelectedWorkout(workout);
+                setSelectedDateKey(workout.rawDate ?? null);
+                router.push({
+                  pathname: '/(app)/training-plan/workout-details',
+                  params: { workout: JSON.stringify(workout) },
+                });
               }}
               onSwapWorkout={(workout: WorkoutDetail) => {
                 Alert.alert('Swap Session', `Swap ${workout.title} to a different day.`);
@@ -382,68 +437,6 @@ export default function TrainingPlanScreen() {
         onConfirm={handleConfirmEndPlan}
       />
 
-      <WorkoutModal
-        visible={selectedWorkout !== null}
-        workout={selectedWorkout}
-        onClose={() => setSelectedWorkout(null)}
-        onUpdateBenchmark={(workoutId, isBenchmark, assignment, workoutDbId) => {
-          const effectiveDbId = workoutDbId || assignment?.workoutDbId || selectedWorkout?.workoutDbId;
-          const rawDate = selectedWorkout?.rawDate;
-          const weekNumber = selectedWorkout?.weekNumber;
-          const displayOrder = selectedWorkout?.displayOrder;
-          const weekOrderKey = weekNumber != null && displayOrder != null ? `${weekNumber}-${displayOrder}` : null;
-
-          if (isBenchmark && assignment) {
-            setBenchmarkAssignments((prev) => ({
-              ...prev,
-              [workoutId]: assignment,
-              ...(assignment.planWorkoutDate ? { [assignment.planWorkoutDate]: assignment } : {}),
-              ...(rawDate ? { [rawDate]: assignment } : {}),
-              ...(rawDate ? { [rawDate.slice(0, 10)]: assignment } : {}),
-              ...(effectiveDbId ? { [String(effectiveDbId)]: assignment } : {}),
-              ...(weekOrderKey ? { [weekOrderKey]: assignment } : {}),
-            }));
-          } else {
-            setBenchmarkAssignments((prev) => {
-              const copy = { ...prev };
-              delete copy[workoutId];
-              if (rawDate) {
-                delete copy[rawDate];
-                delete copy[rawDate.slice(0, 10)];
-              }
-              if (effectiveDbId) delete copy[String(effectiveDbId)];
-              if (weekOrderKey) delete copy[weekOrderKey];
-              Object.keys(copy).forEach((k) => {
-                if (effectiveDbId && copy[k]?.workoutDbId === effectiveDbId) {
-                  delete copy[k];
-                }
-              });
-              return copy;
-            });
-          }
-          if (selectedWorkout) {
-            setSelectedWorkout({
-              ...selectedWorkout,
-              isBenchmark,
-              benchmarkTitle: isBenchmark ? assignment?.benchmarkTitle || selectedWorkout.title : undefined,
-              benchmarkType: isBenchmark ? assignment?.benchmarkType || 'plan' : undefined,
-              workoutDbId: effectiveDbId || selectedWorkout.workoutDbId,
-            });
-          }
-          setDbPlanWorkouts((prev) =>
-            prev.map((w) => {
-              const isTarget =
-                (effectiveDbId && w.id === effectiveDbId) ||
-                (rawDate && w.workout_date && w.workout_date.slice(0, 10) === rawDate.slice(0, 10)) ||
-                (weekNumber != null &&
-                  displayOrder != null &&
-                  w.week_number === weekNumber &&
-                  w.display_order === displayOrder);
-              return isTarget ? { ...w, is_benchmark: isBenchmark } : w;
-            })
-          );
-        }}
-      />
     </SafeAreaView>
   );
 }

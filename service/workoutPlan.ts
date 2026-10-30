@@ -76,8 +76,8 @@ export const workoutPlanService = {
     if (isNoTrainingPlanResponse(response.data)) return null;
     return response.data as CurrentWorkoutPlan;
   },
-  async endCurrent(reason: string): Promise<void> {
-    await workoutPlanAPI.endCurrent(reason);
+  async endPlan(planId: number, reason: string): Promise<void> {
+    await workoutPlanAPI.endPlan(planId, reason);
   },
 
   /**
@@ -236,7 +236,7 @@ export const workoutPlanService = {
             `[workoutPlanService] Backend patch on workout id=${match.id} failed:`,
             patchErr?.response?.data || patchErr?.message
           );
-          return { ...match, is_benchmark: isBenchmark };
+          throw patchErr;
         }
       }
 

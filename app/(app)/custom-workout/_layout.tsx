@@ -10,7 +10,9 @@ export default function CustomWorkoutLayout() {
         screenLayout={({ route, children }) => (
           <TabZoomTransition key={route.key}>{children}</TabZoomTransition>
         )}
-      />
+      >
+        <Stack.Screen name="suggested-routes" />
+      </Stack>
     </CustomWorkoutProvider>
   );
 }
