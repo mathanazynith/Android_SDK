@@ -42,7 +42,6 @@ type StepTargetType = "duration" | "distance";
 
 const unitOptions: { label: string; value: DistanceUnitType }[] = [
   { label: "Kilometers (km)", value: "km" },
-  { label: "Meters (m)", value: "m" },
   { label: "Miles (mi)", value: "mi" },
 ];
 
@@ -85,7 +84,10 @@ export default function Cooldown() {
   const [typeDropdownVisible, setTypeDropdownVisible] = useState(false);
 
   // Unit
-  const [unit, setUnit] = useState<DistanceUnitType>(normalizeUnit(existing?.unit));
+  const [unit, setUnit] = useState<DistanceUnitType>(() => {
+    const norm = normalizeUnit(existing?.unit);
+    return norm === "m" ? "km" : norm;
+  });
   const [unitModalVisible, setUnitModalVisible] = useState(false);
 
   // Duration State (Default 00:00:00 if blank)
@@ -449,7 +451,7 @@ export default function Cooldown() {
                   {stepType === "duration" ? "Est. Distance" : "Est. Duration"}
                 </Text>
                 <Text style={styles.resultBannerSubtitle}>
-                  @ {medianPaceStr} median
+                  @ {medianPaceStr} pace
                 </Text>
               </View>
             </View>

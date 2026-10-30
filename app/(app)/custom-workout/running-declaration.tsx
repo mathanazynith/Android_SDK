@@ -466,7 +466,7 @@ export default function RunningDeclaration() {
                   {stepType === "duration" ? "Est. Distance" : "Est. Duration"}
                 </Text>
                 <Text style={styles.resultBannerSubtitle}>
-                  @ {medianPaceStr} median
+                  @ {medianPaceStr} pace
                 </Text>
               </View>
             </View>

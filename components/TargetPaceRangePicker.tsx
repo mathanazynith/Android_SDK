@@ -377,7 +377,7 @@ export function TargetPaceRangePicker({
           ]}
         >
           <Text style={[styles.medianBadgeText, { color: effectiveAccentColor }]}>
-            Median: {medianStr}
+           Pace: {medianStr}
           </Text>
         </View>
       </View>
