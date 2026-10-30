@@ -55,10 +55,16 @@ export const getPaceUnitLabel = (unit: DistanceUnitType): string => {
 
 export const parsePaceToSeconds = (paceStr?: string | null): number | null => {
   if (!paceStr) return null;
-  const match = paceStr.match(/(\d+)\s*:\s*(\d+(?:\.\d+)?)/);
-  if (!match) return null;
-  const min = parseInt(match[1], 10) || 0;
-  const sec = parseFloat(match[2]) || 0;
+  const matches = [...paceStr.matchAll(/(\d+)\s*:\s*(\d+(?:\.\d+)?)/g)];
+  if (!matches || matches.length === 0) return null;
+  if (matches.length >= 2) {
+    const sec1 = (parseInt(matches[0][1], 10) || 0) * 60 + (parseFloat(matches[0][2]) || 0);
+    const sec2 = (parseInt(matches[1][1], 10) || 0) * 60 + (parseFloat(matches[1][2]) || 0);
+    const avg = Math.round((sec1 + sec2) / 2);
+    return avg > 0 ? avg : null;
+  }
+  const min = parseInt(matches[0][1], 10) || 0;
+  const sec = parseFloat(matches[0][2]) || 0;
   const total = min * 60 + sec;
   return total > 0 ? total : null;
 };

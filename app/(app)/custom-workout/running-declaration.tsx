@@ -1,8 +1,9 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Feather } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BackHandler,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -18,7 +19,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { TargetPaceRangePicker } from "../../../components/TargetPaceRangePicker";
-import { Colors } from "../../../constants/theme";
+import { useTheme, type ThemeColors } from "../../../contexts/ThemeContext";
 import { secondsToTimeString, timeStringToSeconds } from "../../../service/customWorkout";
 import {
   formatSecondsToPace,
@@ -64,8 +65,10 @@ const parseExistingPaces = (paceStr?: string | null) => {
 };
 
 export default function RunningDeclaration() {
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const { index } = useLocalSearchParams<{ index?: string }>();
-  const { workout, addRun, updateRun } = useCustomWorkout();
+  const { workout, addRun, updateRun, removeRun } = useCustomWorkout();
   const runIndex = Number(index);
   const existing =
     Number.isInteger(runIndex) && runIndex >= 0
@@ -87,11 +90,9 @@ export default function RunningDeclaration() {
   const [unit, setUnit] = useState<DistanceUnitType>(normalizeUnit(existing?.unit));
   const [unitModalVisible, setUnitModalVisible] = useState(false);
 
-  // Duration State (Default 30 mins if blank)
+  // Duration State (Default 00:00:00 if blank)
   const [durationString, setDurationString] = useState<string>(
-    existing?.duration && existing.duration !== "00:00:00"
-      ? existing.duration
-      : "00:30:00"
+    existing?.duration || "00:00:00"
   );
 
   // Distance State (text box with auto 10m minimum for meters)
@@ -167,20 +168,8 @@ export default function RunningDeclaration() {
   // Selection handler for unit
   const selectUnit = (selected: DistanceUnitType) => {
     setUnit(selected);
+    setDistance((prev) => sanitizeDistanceInput(prev, selected));
     setUnitModalVisible(false);
-
-    if (selected === "m") {
-      const sanitized = sanitizeDistanceInput(distance, selected);
-      const num = parseFloat(sanitized.replace(",", "."));
-      // If chosen unit is meter: keep if above 10; otherwise fill least number as 10
-      if (!sanitized.trim() || isNaN(num) || num < 10) {
-        setDistance("10");
-      } else {
-        setDistance(sanitized);
-      }
-    } else {
-      setDistance((prev) => sanitizeDistanceInput(prev, selected));
-    }
   };
 
   // Selection handler for Target Type
@@ -297,16 +286,47 @@ export default function RunningDeclaration() {
 
     if (existing) {
       updateRun(runIndex, step);
-      router.back();
     } else {
       addRun(step);
+    }
+
+    if (router.canGoBack()) {
+      router.back();
+    } else {
       router.replace("/custom-workout/overview");
     }
   };
 
+  const handleBack = useCallback(() => {
+    const isExistingPlaceholder =
+      existing &&
+      (timeStringToSeconds(existing.duration) ?? 0) === 0 &&
+      (Number.parseFloat(existing.distance?.replace(",", ".") || "0") || 0) === 0;
+    if (isExistingPlaceholder && Number.isInteger(runIndex) && runIndex >= 0) {
+      removeRun(runIndex);
+    }
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/custom-workout/overview");
+    }
+  }, [existing, runIndex, removeRun]);
+
+  useEffect(() => {
+    const onBackPress = () => {
+      handleBack();
+      return true;
+    };
+    const backHandler = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+    return () => backHandler.remove();
+  }, [handleBack]);
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor={colors.background}
+      />
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -314,11 +334,11 @@ export default function RunningDeclaration() {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
-            onPress={() => router.back()}
+            onPress={handleBack}
             style={styles.headerIcon}
             accessibilityLabel="Go back"
           >
-            <Feather name="arrow-left" size={24} color={Colors.text} />
+            <Feather name="arrow-left" size={24} color={colors.icon} />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
             <Text style={styles.headerBadge}>RUN</Text>
@@ -347,7 +367,7 @@ export default function RunningDeclaration() {
                 <Feather
                   name={stepType === "duration" ? "clock" : "navigation"}
                   size={16}
-                  color={Colors.primary}
+                  color={colors.primary}
                 />
               </View>
               <View>
@@ -361,7 +381,7 @@ export default function RunningDeclaration() {
                 </Text>
               </View>
             </View>
-            <Feather name="chevron-down" size={18} color={Colors.textSecondary} />
+            <Feather name="chevron-down" size={18} color={colors.iconSecondary} />
           </TouchableOpacity>
 
           {/* Conditional Target Input */}
@@ -372,9 +392,9 @@ export default function RunningDeclaration() {
             {stepType === "duration" ? (
               <ScrollTimePicker
                 value={durationString}
-                allowEmpty={false}
+                allowEmpty={true}
                 onChange={(val) => setDurationString(val)}
-                accentColor={Colors.primary}
+                accentColor={colors.primary}
                 compact={true}
               />
             ) : (
@@ -386,7 +406,7 @@ export default function RunningDeclaration() {
                     onBlur={handleDistanceBlur}
                     onSubmitEditing={handleDistanceBlur}
                     placeholder={unit === "m" ? "10" : "e.g. 1.00"}
-                    placeholderTextColor={Colors.textMuted}
+                    placeholderTextColor={colors.placeholder}
                     keyboardType="decimal-pad"
                     style={[styles.input, styles.flex]}
                   />
@@ -398,7 +418,7 @@ export default function RunningDeclaration() {
                     <Feather
                       name="chevron-down"
                       size={16}
-                      color={Colors.textSecondary}
+                      color={colors.iconSecondary}
                     />
                   </TouchableOpacity>
                 </View>
@@ -427,7 +447,7 @@ export default function RunningDeclaration() {
                 setSlowerPaceSec(slower);
               }}
               unit={unit}
-              accentColor={Colors.primary}
+              accentColor={colors.primary}
             />
           </View>
 
@@ -438,7 +458,7 @@ export default function RunningDeclaration() {
                 <Feather
                   name={stepType === "duration" ? "map-pin" : "clock"}
                   size={15}
-                  color={Colors.primary}
+                  color={colors.primary}
                 />
               </View>
               <View>
@@ -485,7 +505,7 @@ export default function RunningDeclaration() {
                 <Feather
                   name="clock"
                   size={18}
-                  color={stepType === "duration" ? Colors.primary : Colors.textSecondary}
+                  color={stepType === "duration" ? colors.primary : colors.iconSecondary}
                 />
                 <View>
                   <Text style={styles.optionText}>Duration</Text>
@@ -495,7 +515,7 @@ export default function RunningDeclaration() {
                 </View>
               </View>
               {stepType === "duration" && (
-                <Feather name="check" size={20} color={Colors.primary} />
+                <Feather name="check" size={20} color={colors.primary} />
               )}
             </TouchableOpacity>
 
@@ -507,7 +527,7 @@ export default function RunningDeclaration() {
                 <Feather
                   name="navigation"
                   size={18}
-                  color={stepType === "distance" ? Colors.primary : Colors.textSecondary}
+                  color={stepType === "distance" ? colors.primary : colors.iconSecondary}
                 />
                 <View>
                   <Text style={styles.optionText}>Distance</Text>
@@ -517,7 +537,7 @@ export default function RunningDeclaration() {
                 </View>
               </View>
               {stepType === "distance" && (
-                <Feather name="check" size={20} color={Colors.primary} />
+                <Feather name="check" size={20} color={colors.primary} />
               )}
             </TouchableOpacity>
           </Pressable>
@@ -548,7 +568,7 @@ export default function RunningDeclaration() {
               >
                 <Text style={styles.optionText}>{option.label}</Text>
                 {unit === option.value && (
-                  <Feather name="check" size={21} color={Colors.primary} />
+                  <Feather name="check" size={21} color={colors.primary} />
                 )}
               </TouchableOpacity>
             ))}
@@ -559,198 +579,199 @@ export default function RunningDeclaration() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: Colors.background },
-  container: { flex: 1, backgroundColor: "#101010" },
-  header: {
-    minHeight: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    backgroundColor: "#000",
-    borderBottomWidth: 1,
-    borderBottomColor: "#222222",
-  },
-  headerIcon: { width: 48 },
-  headerCenter: { alignItems: "center" },
-  headerBadge: {
-    color: Colors.primary,
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 1,
-  },
-  headerTitle: { color: Colors.text, fontSize: 17, fontWeight: "700" },
-  doneHeader: { minWidth: 48, alignItems: "flex-end" },
-  doneText: { color: Colors.primary, fontSize: 14, fontWeight: "800" },
-  content: { paddingBottom: 16 },
+const createStyles = (colors: ThemeColors, isDark: boolean) =>
+  StyleSheet.create({
+    safeArea: { flex: 1, backgroundColor: colors.background },
+    container: { flex: 1, backgroundColor: colors.background },
+    header: {
+      minHeight: 52,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 16,
+      paddingVertical: 6,
+      backgroundColor: colors.background,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    headerIcon: { width: 48 },
+    headerCenter: { alignItems: "center" },
+    headerBadge: {
+      color: colors.primary,
+      fontSize: 10,
+      fontWeight: "700",
+      letterSpacing: 1,
+    },
+    headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: "700" },
+    doneHeader: { minWidth: 48, alignItems: "flex-end" },
+    doneText: { color: colors.primary, fontSize: 14, fontWeight: "800" },
+    content: { paddingBottom: 16 },
 
-  // Target Type Dropdown
-  dropdownButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#1C1C1E",
-    borderWidth: 1,
-    borderColor: "rgba(48, 209, 88, 0.3)",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginHorizontal: 16,
-    marginBottom: 4,
-  },
-  dropdownLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  dropdownIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(48, 209, 88, 0.15)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dropdownTitle: {
-    color: Colors.text,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  dropdownSubtitle: {
-    color: Colors.textMuted,
-    fontSize: 11,
-    marginTop: 1,
-  },
+    // Target Type Dropdown
+    dropdownButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(48, 209, 88, 0.3)" : "rgba(34, 197, 94, 0.35)",
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      marginHorizontal: 16,
+      marginBottom: 4,
+    },
+    dropdownLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    dropdownIconCircle: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: isDark ? "rgba(48, 209, 88, 0.15)" : "rgba(34, 197, 94, 0.15)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    dropdownTitle: {
+      color: colors.textPrimary,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+    dropdownSubtitle: {
+      color: colors.textTertiary,
+      fontSize: 11,
+      marginTop: 1,
+    },
 
-  sectionLabel: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 6,
-    color: Colors.textSecondary,
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.8,
-  },
-  section: {
-    padding: 12,
-    backgroundColor: "#1C1C1E",
-    marginHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#2C2C2E",
-  },
-  label: { marginBottom: 6, color: Colors.text, fontSize: 12, fontWeight: "600" },
-  input: {
-    minHeight: 44,
-    height: 44,
-    paddingHorizontal: 12,
-    color: Colors.text,
-    backgroundColor: "#2A2A2D",
-    borderWidth: 1,
-    borderColor: "#3E3E42",
-    borderRadius: 8,
-    fontSize: 15,
-  },
-  row: { flexDirection: "row", gap: 8 },
-  flex: { flex: 1 },
-  inputHelper: { color: Colors.textMuted, fontSize: 10, marginTop: 6 },
+    sectionLabel: {
+      paddingHorizontal: 16,
+      paddingTop: 14,
+      paddingBottom: 6,
+      color: colors.textSecondary,
+      fontSize: 11,
+      fontWeight: "700",
+      letterSpacing: 0.8,
+    },
+    section: {
+      padding: 12,
+      backgroundColor: colors.surface,
+      marginHorizontal: 16,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    label: { marginBottom: 6, color: colors.textPrimary, fontSize: 12, fontWeight: "600" },
+    input: {
+      minHeight: 44,
+      height: 44,
+      paddingHorizontal: 12,
+      color: colors.textPrimary,
+      backgroundColor: colors.surfaceRaised,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      fontSize: 15,
+    },
+    row: { flexDirection: "row", gap: 8 },
+    flex: { flex: 1 },
+    inputHelper: { color: colors.textTertiary, fontSize: 10, marginTop: 6 },
 
-  unitButton: {
-    minWidth: 76,
-    height: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 10,
-    backgroundColor: "#2A2A2D",
-    borderWidth: 1,
-    borderColor: "#3E3E42",
-    borderRadius: 8,
-  },
-  unitText: { color: Colors.text, fontSize: 14, fontWeight: "600" },
+    unitButton: {
+      minWidth: 76,
+      height: 44,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 10,
+      backgroundColor: colors.surfaceRaised,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+    },
+    unitText: { color: colors.textPrimary, fontSize: 14, fontWeight: "600" },
 
-  // Result Banner
-  resultBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginHorizontal: 16,
-    marginTop: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: "rgba(48, 209, 88, 0.12)",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(48, 209, 88, 0.3)",
-  },
-  resultBannerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  resultBannerIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "rgba(34, 197, 94, 0.2)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  resultBannerTitle: {
-    color: Colors.primary,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  resultBannerSubtitle: {
-    color: Colors.textMuted,
-    fontSize: 10,
-    marginTop: 1,
-  },
-  resultBannerValue: {
-    color: Colors.primary,
-    fontSize: 17,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
+    // Result Banner
+    resultBanner: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginHorizontal: 16,
+      marginTop: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      backgroundColor: isDark ? "rgba(48, 209, 88, 0.12)" : "rgba(34, 197, 94, 0.12)",
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(48, 209, 88, 0.3)" : "rgba(34, 197, 94, 0.35)",
+    },
+    resultBannerLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    resultBannerIcon: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: isDark ? "rgba(34, 197, 94, 0.2)" : "rgba(34, 197, 94, 0.18)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    resultBannerTitle: {
+      color: colors.primary,
+      fontSize: 12,
+      fontWeight: "700",
+    },
+    resultBannerSubtitle: {
+      color: colors.textTertiary,
+      fontSize: 10,
+      marginTop: 1,
+    },
+    resultBannerValue: {
+      color: colors.primary,
+      fontSize: 17,
+      fontWeight: "800",
+      letterSpacing: 0.5,
+    },
 
-  // Modals
-  overlay: {
-    flex: 1,
-    justifyContent: "center",
-    padding: 24,
-    backgroundColor: "rgba(0,0,0,0.75)",
-  },
-  modal: {
-    overflow: "hidden",
-    backgroundColor: "#222224",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#333336",
-  },
-  modalTitle: {
-    padding: 20,
-    color: Colors.textSecondary,
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.5,
-  },
-  option: {
-    minHeight: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#2C2C2E",
-  },
-  optionLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  optionText: { color: Colors.text, fontSize: 16, fontWeight: "600" },
-  optionDescription: { color: Colors.textMuted, fontSize: 12, marginTop: 2 },
-});
+    // Modals
+    overlay: {
+      flex: 1,
+      justifyContent: "center",
+      padding: 24,
+      backgroundColor: colors.overlay,
+    },
+    modal: {
+      overflow: "hidden",
+      backgroundColor: colors.surfaceRaised,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    modalTitle: {
+      padding: 20,
+      color: colors.textSecondary,
+      fontSize: 13,
+      fontWeight: "700",
+      letterSpacing: 0.5,
+    },
+    option: {
+      minHeight: 56,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+      borderTopWidth: 1,
+      borderTopColor: colors.divider,
+    },
+    optionLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
+    optionText: { color: colors.textPrimary, fontSize: 16, fontWeight: "600" },
+    optionDescription: { color: colors.textTertiary, fontSize: 12, marginTop: 2 },
+  });

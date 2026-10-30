@@ -160,8 +160,8 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         title: "Run",
         stepType: "Run",
         inputType: "DURATION",
-        duration: "",
-        distance: "",
+        duration: "00:00:00",
+        distance: "0.00",
         unit: "Kilometers (km)",
         pace: "",
         repeat: 1,
@@ -190,10 +190,10 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           title: "Run",
           stepType: "Run",
           inputType: "DISTANCE",
-          duration: "00:25:00",
-          distance: "5.00",
+          duration: "00:00:00",
+          distance: "0.00",
           unit: "Kilometers (km)",
-          pace: "5:00",
+          pace: "",
           repeat: 2,
           groupRepeat: 2,
           groupId: newGroupId,
@@ -237,10 +237,10 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         title: "Run",
         stepType: "Run",
         inputType: "DISTANCE",
-        duration: "00:25:00",
-        distance: "5.00",
+        duration: "00:00:00",
+        distance: "0.00",
         unit: "Kilometers (km)",
-        pace: "5:00",
+        pace: "",
         repeat: groupRepeat,
         rest: "00:01:00",
         skipLastRest: true,
@@ -434,9 +434,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           !isTimeBased && workout.warmUp.distance
             ? parseFloat(workout.warmUp.distance)
             : null;
-        const distanceUnit = isTimeBased
-          ? null
-          : canonicalDistanceUnit(workout.warmUp.unit, "Warmup");
+        const distanceUnit = canonicalDistanceUnit(workout.warmUp.unit, "Warmup");
 
         segments.push({
           segment_order: order++,
@@ -496,9 +494,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           !isTimeBased && workout.cooldown.distance
             ? parseFloat(workout.cooldown.distance)
             : null;
-        const distanceUnit = isTimeBased
-          ? null
-          : canonicalDistanceUnit(workout.cooldown.unit, "Cooldown");
+        const distanceUnit = canonicalDistanceUnit(workout.cooldown.unit, "Cooldown");
 
         segments.push({
           segment_order: order++,
@@ -598,15 +594,19 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           loadedGroupId = `run-group-${seg.id || seg.segment_order}`;
         }
 
+        const rawType = String(seg.segment_type || "").trim().toLowerCase();
+        const isWarmup = rawType === "warmup" || rawType.includes("warm");
+        const isCooldown = rawType === "cooldown" || rawType.includes("cool");
+        const resolvedType: CustomSegmentType = isWarmup
+          ? "Warmup"
+          : isCooldown
+          ? "Cooldown"
+          : "Run";
+
         const step: WorkoutStep = {
           id: seg.id,
-          title:
-            seg.segment_type === "Warmup"
-              ? "Warm Up"
-              : seg.segment_type === "Cooldown"
-              ? "Cool Down"
-              : "Run",
-          stepType: seg.segment_type,
+          title: isWarmup ? "Warm Up" : isCooldown ? "Cool Down" : "Run",
+          stepType: resolvedType,
           inputType: seg.input_type || "DURATION",
           duration: secondsToTimeString(seg.duration),
           distance: loadedDistance,
@@ -621,9 +621,9 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           groupRepeat: 1,
         };
 
-        if (seg.segment_type === "Warmup" && !loadedWarmUp) {
+        if (isWarmup && !loadedWarmUp) {
           loadedWarmUp = step;
-        } else if (seg.segment_type === "Cooldown" && !loadedCooldown) {
+        } else if (isCooldown && !loadedCooldown) {
           loadedCooldown = step;
         } else {
           loadedRuns.push(step);

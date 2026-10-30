@@ -3,7 +3,7 @@ import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { BackHandler, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
 import ThemedCalendarPicker from "../../../components/common/ThemedCalendarPicker";
@@ -30,26 +30,41 @@ const seconds = (value: string) => {
 };
 
 const distanceInKm = (step: WorkoutStep) => {
-  if (!step.distance || step.distance === "0" || step.distance.trim() === "") return 0;
-  const value = Number.parseFloat(step.distance) || 0;
-  if (value <= 0) return 0;
-  const unit = normalizeUnit(step.unit);
-  if (unit === "m") return value / 1000;
-  if (unit === "mi") return value * 1.609344;
-  return value;
+  if (step.distance && step.distance.trim() !== "") {
+    const raw = step.distance.replace(",", ".");
+    const value = Number.parseFloat(raw) || 0;
+    if (value > 0) {
+      const unit = normalizeUnit(step.unit);
+      if (unit === "m") return value / 1000;
+      if (unit === "mi") return value * 1.609344;
+      return value;
+    }
+  }
+  const stepSec = seconds(step.duration || "00:00:00");
+  if (stepSec > 0) {
+    const defaultPace = step.stepType === "Warmup" ? 400 : step.stepType === "Cooldown" ? 500 : 300;
+    const paceSec = parsePaceToSeconds(step.pace) || defaultPace;
+    return stepSec / paceSec;
+  }
+  return 0;
 };
 
 const estimatedStepSeconds = (step: WorkoutStep) => {
   const declaredTime = seconds(step.duration || "00:00:00");
   if (declaredTime > 0) return declaredTime;
-  const paceSec = parsePaceToSeconds(step.pace);
-  const distNum = Number.parseFloat(step.distance) || 0;
+  const defaultPace = step.stepType === "Warmup" ? 400 : step.stepType === "Cooldown" ? 500 : 300;
+  const paceSec = parsePaceToSeconds(step.pace) || defaultPace;
+  const raw = step.distance ? step.distance.replace(",", ".") : "";
+  const distNum = Number.parseFloat(raw) || 0;
   if (!paceSec || distNum <= 0) return 0;
   const unit = normalizeUnit(step.unit);
+  let distInKm = distNum;
   if (unit === "m") {
-    return (distNum / 1000) * paceSec;
+    distInKm = distNum / 1000;
+  } else if (unit === "mi") {
+    distInKm = distNum * 1.609344;
   }
-  return distNum * paceSec;
+  return Math.round(distInKm * paceSec);
 };
 
 const estimatedRestSeconds = (step: WorkoutStep) => {
@@ -80,11 +95,14 @@ const displayTime = (value: number) => {
   return `${s}s`;
 };
 
-const hasDistance = (step: WorkoutStep) =>
-  Boolean(step.distance && step.distance.trim() !== "" && step.distance !== "0" && step.distance !== "0.00");
+const hasDistance = (step: WorkoutStep) => {
+  if (!step.distance) return false;
+  const raw = step.distance.replace(",", ".");
+  return (Number.parseFloat(raw) || 0) > 0;
+};
 
 const hasDuration = (step: WorkoutStep) =>
-  Boolean(step.duration && step.duration.trim() !== "" && step.duration !== "00:00:00" && seconds(step.duration) > 0);
+  seconds(step.duration || "00:00:00") > 0;
 
 const hasPace = (step: WorkoutStep) =>
   Boolean(step.pace && step.pace.trim() !== "");
@@ -101,23 +119,29 @@ const stepTimeText = (step: WorkoutStep) => {
   return est > 0 ? displayTime(est) : "";
 };
 
-const hasText = (value?: string) => Boolean(value?.trim());
 const isEmptyStep = (step: WorkoutStep) =>
-  !hasText(step.distance) &&
-  !hasText(step.pace) &&
-  (!hasText(step.duration) || seconds(step.duration) === 0);
+  !hasDistance(step) && !hasDuration(step) && !hasPace(step);
 
 const routeDistanceText = (route: SuggestedRoute) =>
   `${(Number(route.distance || 0) / 1000).toFixed(2)} km`;
 
 function getStepCategory(step: WorkoutStep): "warmup" | "run" | "cooldown" {
-  if (step.stepType === "Warmup" || step.title?.toLowerCase().includes("warm")) {
+  const typeLower = String(step.stepType || "").toLowerCase();
+  const titleLower = String(step.title || "").toLowerCase();
+  if (typeLower === "warmup" || titleLower.includes("warm")) {
     return "warmup";
   }
-  if (step.stepType === "Cooldown" || step.title?.toLowerCase().includes("cool")) {
+  if (typeLower === "cooldown" || titleLower.includes("cool")) {
     return "cooldown";
   }
   return "run";
+}
+
+function getStepColor(step: WorkoutStep, defaultColor = "#30D158"): string {
+  const cat = getStepCategory(step);
+  if (cat === "warmup") return "#FF5722";
+  if (cat === "cooldown") return "#0A84FF";
+  return defaultColor;
 }
 
 function StepSilhouette({
@@ -761,10 +785,10 @@ export default function CustomWorkoutOverview() {
       title: currentStep.title || "Run",
       stepType: "Run",
       inputType: "DURATION",
-      duration: "00:05:00",
-      distance: "1.00",
+      duration: "00:00:00",
+      distance: "0.00",
       unit: "Kilometers (km)",
-      pace: "05:00 /km",
+      pace: "",
       repeat: 1,
       rest: "00:01:00",
       skipLastRest: true,
@@ -783,10 +807,10 @@ export default function CustomWorkoutOverview() {
       title: "Warm Up",
       stepType: "Warmup",
       inputType: "DURATION",
-      duration: "00:10:00",
-      distance: "1.50",
+      duration: "00:00:00",
+      distance: "0.00",
       unit: "Kilometers (km)",
-      pace: "6:40",
+      pace: "",
       repeat: 1,
       rest: "",
       skipLastRest: true,
@@ -802,10 +826,10 @@ export default function CustomWorkoutOverview() {
       title: "Run",
       stepType: "Run",
       inputType: "DISTANCE",
-      duration: "00:25:00",
-      distance: "5.00",
+      duration: "00:00:00",
+      distance: "0.00",
       unit: "Kilometers (km)",
-      pace: "5:00",
+      pace: "",
       repeat: 1,
       rest: "",
       skipLastRest: true,
@@ -821,10 +845,10 @@ export default function CustomWorkoutOverview() {
       title: "Cool Down",
       stepType: "Cooldown",
       inputType: "DURATION",
-      duration: "00:05:00",
-      distance: "0.60",
+      duration: "00:00:00",
+      distance: "0.00",
       unit: "Kilometers (km)",
-      pace: "8:20",
+      pace: "",
       repeat: 1,
       rest: "",
       skipLastRest: true,
@@ -1024,11 +1048,28 @@ export default function CustomWorkoutOverview() {
     if (restModalIndex === runIdx) setRestModalIndex(null);
   };
 
+  const handleHeaderBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(app)/custom-workout/cards");
+    }
+  }, []);
+
+  useEffect(() => {
+    const onBackPress = () => {
+      handleHeaderBack();
+      return true;
+    };
+    const backHandler = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+    return () => backHandler.remove();
+  }, [handleHeaderBack]);
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={handleHeaderBack}
           style={styles.headerCircleBtn}
           accessibilityLabel="Go back"
         >
@@ -1046,7 +1087,7 @@ export default function CustomWorkoutOverview() {
           }}
           activeOpacity={isEditing ? 0.7 : 1}
         >
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", flexShrink: 1, flexWrap: "wrap", justifyContent: "center" }}>
             <Text style={styles.headerTitle} numberOfLines={1}>
               {workout.title || "Custom Workout"}
             </Text>
@@ -1223,7 +1264,7 @@ export default function CustomWorkoutOverview() {
                       <View key={`${step.title}-${index}`}>
                         <StepCard
                           step={step}
-                          color="#30D158"
+                          color={getStepColor(step)}
                           index={index}
                           editable={isEditing}
                           selected={selectedRun === index}
@@ -1263,7 +1304,7 @@ export default function CustomWorkoutOverview() {
                 <View key={`single-run-${singleIndex}`}>
                   <StepCard
                     step={singleStep}
-                    color="#30D158"
+                    color={getStepColor(singleStep)}
                     index={singleIndex}
                     editable={isEditing}
                     selected={selectedRun === singleIndex}

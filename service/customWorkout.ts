@@ -170,7 +170,7 @@ export const cleanPaceString = (paceStr?: string | null): string | null => {
 
 export const canonicalDistanceUnit = (
   unitStr?: string | null,
-  stepType: CustomSegmentType = "Run"
+  _stepType: CustomSegmentType = "Run"
 ): DistanceUnit => {
   if (!unitStr) return "km";
   const lower = unitStr.toLowerCase().trim();
@@ -182,10 +182,9 @@ export const canonicalDistanceUnit = (
   if (lower === "mi" || lower.includes("mile") || lower.includes("(mi)")) {
     return "mi";
   }
-  // Check meters (only for Run segments)
+  // Check meters for all segment types (Warmup, Run, Cooldown)
   if (lower === "m" || lower === "meter" || lower === "meters" || lower.includes("(m)")) {
-    return stepType === "Run" ? "m" : "km";
+    return "m";
   }
   return "km";
 };
-

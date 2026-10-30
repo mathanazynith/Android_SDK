@@ -1,8 +1,9 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BackHandler,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -18,7 +19,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { TargetPaceRangePicker } from "../../../components/TargetPaceRangePicker";
-import { Colors } from "../../../constants/theme";
+import { useTheme, type ThemeColors } from "../../../contexts/ThemeContext";
 import { secondsToTimeString, timeStringToSeconds } from "../../../service/customWorkout";
 import {
   formatSecondsToPace,
@@ -70,7 +71,9 @@ const parseExistingPaces = (paceStr?: string | null) => {
 };
 
 export default function Cooldown() {
-  const { workout, setCooldown } = useCustomWorkout();
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+  const { workout, setCooldown, removeCooldown } = useCustomWorkout();
   const existing = workout.cooldown;
 
   // Step Target Type: 'duration' or 'distance'
@@ -85,11 +88,9 @@ export default function Cooldown() {
   const [unit, setUnit] = useState<DistanceUnitType>(normalizeUnit(existing?.unit));
   const [unitModalVisible, setUnitModalVisible] = useState(false);
 
-  // Duration State (Default 5 mins if blank)
+  // Duration State (Default 00:00:00 if blank)
   const [durationString, setDurationString] = useState<string>(
-    existing?.duration && existing.duration !== "00:00:00"
-      ? existing.duration
-      : "00:05:00"
+    existing?.duration || "00:00:00"
   );
 
   // Distance State
@@ -158,19 +159,8 @@ export default function Cooldown() {
 
   const selectUnit = (selected: DistanceUnitType) => {
     setUnit(selected);
+    setDistance((prev) => sanitizeDistanceInput(prev, selected));
     setUnitModalVisible(false);
-
-    if (selected === "m") {
-      const sanitized = sanitizeDistanceInput(distance, selected);
-      const num = parseFloat(sanitized.replace(",", "."));
-      if (!sanitized.trim() || isNaN(num) || num < 10) {
-        setDistance("10");
-      } else {
-        setDistance(sanitized);
-      }
-    } else {
-      setDistance((prev) => sanitizeDistanceInput(prev, selected));
-    }
   };
 
   const selectTargetType = (type: StepTargetType) => {
@@ -248,16 +238,12 @@ export default function Cooldown() {
     let finalDistance = effectiveDistance.trim();
 
     if (stepType === "duration") {
-      if (!finalDistance || parseFloat(finalDistance) <= 0) {
-        finalDistance =
-          unit === "m"
-            ? String(calculatedDistanceInfo.value)
-            : calculatedDistanceInfo.value.toFixed(2);
-      }
+      finalDistance =
+        unit === "m"
+          ? String(calculatedDistanceInfo.value)
+          : calculatedDistanceInfo.value.toFixed(2);
     } else {
-      if (!finalDuration || finalDuration === "00:00:00") {
-        finalDuration = calculatedDurationInfo.text;
-      }
+      finalDuration = calculatedDurationInfo.text;
     }
 
     setCooldown({
@@ -274,12 +260,43 @@ export default function Cooldown() {
       notes: notes.trim(),
     });
 
-    router.push("/custom-workout/overview");
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/custom-workout/overview");
+    }
   };
+
+  const handleBack = useCallback(() => {
+    const isExistingPlaceholder =
+      !existing ||
+      ((timeStringToSeconds(existing.duration) ?? 0) === 0 &&
+        (Number.parseFloat(existing.distance?.replace(",", ".") || "0") || 0) === 0);
+    if (isExistingPlaceholder) {
+      removeCooldown();
+    }
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/custom-workout/overview");
+    }
+  }, [existing, removeCooldown]);
+
+  useEffect(() => {
+    const onBackPress = () => {
+      handleBack();
+      return true;
+    };
+    const backHandler = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+    return () => backHandler.remove();
+  }, [handleBack]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor={colors.background}
+      />
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -287,11 +304,11 @@ export default function Cooldown() {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
-            onPress={() => router.back()}
+            onPress={handleBack}
             style={styles.headerIcon}
             accessibilityLabel="Go back"
           >
-            <Feather name="arrow-left" size={24} color={Colors.text} />
+            <Feather name="arrow-left" size={24} color={colors.icon} />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
             <Text style={[styles.headerBadge, { color: COOLDOWN_COLOR }]}>COOL DOWN</Text>
@@ -337,7 +354,7 @@ export default function Cooldown() {
                 </Text>
               </View>
             </View>
-            <Feather name="chevron-down" size={18} color={Colors.textSecondary} />
+            <Feather name="chevron-down" size={18} color={colors.iconSecondary} />
           </TouchableOpacity>
 
           {/* Conditional Target Input */}
@@ -348,7 +365,7 @@ export default function Cooldown() {
             {stepType === "duration" ? (
               <ScrollTimePicker
                 value={durationString}
-                allowEmpty={false}
+                allowEmpty={true}
                 onChange={(val) => setDurationString(val)}
                 accentColor={COOLDOWN_COLOR}
                 compact={true}
@@ -362,7 +379,7 @@ export default function Cooldown() {
                     onBlur={handleDistanceBlur}
                     onSubmitEditing={handleDistanceBlur}
                     placeholder={unit === "m" ? "10" : "e.g. 0.60"}
-                    placeholderTextColor={Colors.textMuted}
+                    placeholderTextColor={colors.placeholder}
                     keyboardType="decimal-pad"
                     style={[styles.input, styles.flex]}
                   />
@@ -374,7 +391,7 @@ export default function Cooldown() {
                     <Feather
                       name="chevron-down"
                       size={16}
-                      color={Colors.textSecondary}
+                      color={colors.iconSecondary}
                     />
                   </TouchableOpacity>
                 </View>
@@ -451,7 +468,7 @@ export default function Cooldown() {
               value={notes}
               onChangeText={setNotes}
               placeholder="e.g. Gentle walk, light stretching"
-              placeholderTextColor={Colors.textMuted}
+              placeholderTextColor={colors.placeholder}
               style={[styles.input, styles.notesInput]}
               multiline
             />
@@ -484,7 +501,7 @@ export default function Cooldown() {
                 <Feather
                   name="clock"
                   size={18}
-                  color={stepType === "duration" ? COOLDOWN_COLOR : Colors.textSecondary}
+                  color={stepType === "duration" ? COOLDOWN_COLOR : colors.iconSecondary}
                 />
                 <View>
                   <Text style={styles.optionText}>Duration</Text>
@@ -506,7 +523,7 @@ export default function Cooldown() {
                 <Feather
                   name="navigation"
                   size={18}
-                  color={stepType === "distance" ? COOLDOWN_COLOR : Colors.textSecondary}
+                  color={stepType === "distance" ? COOLDOWN_COLOR : colors.iconSecondary}
                 />
                 <View>
                   <Text style={styles.optionText}>Distance</Text>
@@ -558,192 +575,193 @@ export default function Cooldown() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: Colors.background },
-  container: { flex: 1, backgroundColor: "#101010" },
-  header: {
-    minHeight: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    backgroundColor: "#000",
-    borderBottomWidth: 1,
-    borderBottomColor: "#222222",
-  },
-  headerIcon: { width: 48 },
-  headerCenter: { alignItems: "center" },
-  headerBadge: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 1,
-  },
-  headerTitle: { color: Colors.text, fontSize: 17, fontWeight: "700" },
-  doneHeader: { minWidth: 48, alignItems: "flex-end" },
-  doneText: { fontSize: 14, fontWeight: "800" },
-  content: { paddingBottom: 16 },
+const createStyles = (colors: ThemeColors, isDark: boolean) =>
+  StyleSheet.create({
+    safeArea: { flex: 1, backgroundColor: colors.background },
+    container: { flex: 1, backgroundColor: colors.background },
+    header: {
+      minHeight: 52,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 16,
+      paddingVertical: 6,
+      backgroundColor: colors.background,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    headerIcon: { width: 48 },
+    headerCenter: { alignItems: "center" },
+    headerBadge: {
+      fontSize: 10,
+      fontWeight: "700",
+      letterSpacing: 1,
+    },
+    headerTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: "700" },
+    doneHeader: { minWidth: 48, alignItems: "flex-end" },
+    doneText: { fontSize: 14, fontWeight: "800" },
+    content: { paddingBottom: 16 },
 
-  // Target Type Dropdown
-  dropdownButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#1C1C1E",
-    borderWidth: 1,
-    borderColor: COOLDOWN_BORDER,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginHorizontal: 16,
-    marginBottom: 4,
-  },
-  dropdownLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  dropdownIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dropdownTitle: {
-    color: Colors.text,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  dropdownSubtitle: {
-    color: Colors.textMuted,
-    fontSize: 11,
-    marginTop: 1,
-  },
+    // Target Type Dropdown
+    dropdownButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: COOLDOWN_BORDER,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      marginHorizontal: 16,
+      marginBottom: 4,
+    },
+    dropdownLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    dropdownIconCircle: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    dropdownTitle: {
+      color: colors.textPrimary,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+    dropdownSubtitle: {
+      color: colors.textTertiary,
+      fontSize: 11,
+      marginTop: 1,
+    },
 
-  sectionLabel: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 6,
-    color: Colors.textSecondary,
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.8,
-  },
-  section: {
-    padding: 12,
-    backgroundColor: "#1C1C1E",
-    marginHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#2C2C2E",
-  },
-  label: { marginBottom: 6, color: Colors.text, fontSize: 12, fontWeight: "600" },
-  input: {
-    minHeight: 44,
-    height: 44,
-    paddingHorizontal: 12,
-    color: Colors.text,
-    backgroundColor: "#2A2A2D",
-    borderWidth: 1,
-    borderColor: "#3E3E42",
-    borderRadius: 8,
-    fontSize: 15,
-  },
-  notesInput: { minHeight: 44, textAlignVertical: "top", paddingTop: 8 },
-  row: { flexDirection: "row", gap: 8 },
-  flex: { flex: 1 },
-  inputHelper: { color: Colors.textMuted, fontSize: 10, marginTop: 6 },
+    sectionLabel: {
+      paddingHorizontal: 16,
+      paddingTop: 14,
+      paddingBottom: 6,
+      color: colors.textSecondary,
+      fontSize: 11,
+      fontWeight: "700",
+      letterSpacing: 0.8,
+    },
+    section: {
+      padding: 12,
+      backgroundColor: colors.surface,
+      marginHorizontal: 16,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    label: { marginBottom: 6, color: colors.textPrimary, fontSize: 12, fontWeight: "600" },
+    input: {
+      minHeight: 44,
+      height: 44,
+      paddingHorizontal: 12,
+      color: colors.textPrimary,
+      backgroundColor: colors.surfaceRaised,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      fontSize: 15,
+    },
+    notesInput: { minHeight: 44, textAlignVertical: "top", paddingTop: 8 },
+    row: { flexDirection: "row", gap: 8 },
+    flex: { flex: 1 },
+    inputHelper: { color: colors.textTertiary, fontSize: 10, marginTop: 6 },
 
-  unitButton: {
-    minWidth: 76,
-    height: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 10,
-    backgroundColor: "#2A2A2D",
-    borderWidth: 1,
-    borderColor: "#3E3E42",
-    borderRadius: 8,
-  },
-  unitText: { color: Colors.text, fontSize: 14, fontWeight: "600" },
+    unitButton: {
+      minWidth: 76,
+      height: 44,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 10,
+      backgroundColor: colors.surfaceRaised,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+    },
+    unitText: { color: colors.textPrimary, fontSize: 14, fontWeight: "600" },
 
-  // Result Banner
-  resultBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginHorizontal: 16,
-    marginTop: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  resultBannerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  resultBannerIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  resultBannerTitle: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  resultBannerSubtitle: {
-    color: Colors.textMuted,
-    fontSize: 10,
-    marginTop: 1,
-  },
-  resultBannerValue: {
-    fontSize: 17,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
+    // Result Banner
+    resultBanner: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginHorizontal: 16,
+      marginTop: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderRadius: 12,
+      borderWidth: 1,
+    },
+    resultBannerLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    resultBannerIcon: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    resultBannerTitle: {
+      fontSize: 12,
+      fontWeight: "700",
+    },
+    resultBannerSubtitle: {
+      color: colors.textTertiary,
+      fontSize: 10,
+      marginTop: 1,
+    },
+    resultBannerValue: {
+      fontSize: 17,
+      fontWeight: "800",
+      letterSpacing: 0.5,
+    },
 
-  // Modals
-  overlay: {
-    flex: 1,
-    justifyContent: "center",
-    padding: 24,
-    backgroundColor: "rgba(0,0,0,0.75)",
-  },
-  modal: {
-    overflow: "hidden",
-    backgroundColor: "#222224",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#333336",
-  },
-  modalTitle: {
-    padding: 20,
-    color: Colors.textSecondary,
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.5,
-  },
-  option: {
-    minHeight: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#2C2C2E",
-  },
-  optionLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  optionText: { color: Colors.text, fontSize: 16, fontWeight: "600" },
-  optionDescription: { color: Colors.textMuted, fontSize: 12, marginTop: 2 },
-});
+    // Modals
+    overlay: {
+      flex: 1,
+      justifyContent: "center",
+      padding: 24,
+      backgroundColor: colors.overlay,
+    },
+    modal: {
+      overflow: "hidden",
+      backgroundColor: colors.surfaceRaised,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    modalTitle: {
+      padding: 20,
+      color: colors.textSecondary,
+      fontSize: 13,
+      fontWeight: "700",
+      letterSpacing: 0.5,
+    },
+    option: {
+      minHeight: 56,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+      borderTopWidth: 1,
+      borderTopColor: colors.divider,
+    },
+    optionLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
+    optionText: { color: colors.textPrimary, fontSize: 16, fontWeight: "600" },
+    optionDescription: { color: colors.textTertiary, fontSize: 12, marginTop: 2 },
+  });

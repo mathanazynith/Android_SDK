@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { Colors } from "../constants/theme";
+import { useTheme, type ThemeColors } from "../contexts/ThemeContext";
 import {
   formatSecondsToPace,
   getPaceUnitLabel,
@@ -45,6 +45,8 @@ function PaceCard({
   accentColor,
   unit,
 }: PaceCardProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const minScrollRef = useRef<ScrollView>(null);
   const secScrollRef = useRef<ScrollView>(null);
   const isInternalScrollRef = useRef(false);
@@ -307,8 +309,12 @@ export function TargetPaceRangePicker({
   slowerPaceSec,
   onChange,
   unit,
-  accentColor = Colors.primary,
+  accentColor,
 }: TargetPaceRangePickerProps) {
+  const { colors } = useTheme();
+  const effectiveAccentColor = accentColor || colors.primary;
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   // Ensure constraint: slower >= faster + PACE_DIFF_MIN_SEC (15s)
   const handleFasterChange = useCallback(
     (nextFasterRaw: number) => {
@@ -365,12 +371,12 @@ export function TargetPaceRangePicker({
           style={[
             styles.medianBadge,
             {
-              backgroundColor: `${accentColor}18`,
-              borderColor: `${accentColor}35`,
+              backgroundColor: `${effectiveAccentColor}18`,
+              borderColor: `${effectiveAccentColor}35`,
             },
           ]}
         >
-          <Text style={[styles.medianBadgeText, { color: accentColor }]}>
+          <Text style={[styles.medianBadgeText, { color: effectiveAccentColor }]}>
             Median: {medianStr}
           </Text>
         </View>
@@ -382,14 +388,14 @@ export function TargetPaceRangePicker({
           title="Fastest pace"
           paceSec={fasterPaceSec}
           onPaceChange={handleFasterChange}
-          accentColor={accentColor}
+          accentColor={effectiveAccentColor}
           unit={unit}
         />
         <PaceCard
           title="Lowest pace"
           paceSec={slowerPaceSec}
           onPaceChange={handleSlowerChange}
-          accentColor={accentColor}
+          accentColor={effectiveAccentColor}
           unit={unit}
         />
       </View>
@@ -402,151 +408,152 @@ export function TargetPaceRangePicker({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    width: "100%",
-  },
-  summaryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  summaryLeft: {
-    flexDirection: "column",
-  },
-  rangeText: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: Colors.text,
-    letterSpacing: 0.5,
-  },
-  summaryUnit: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: Colors.textSecondary,
-  },
-  diffBadge: {
-    fontSize: 10,
-    color: Colors.textMuted,
-    marginTop: 1,
-    fontWeight: "500",
-  },
-  medianBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    borderWidth: 1,
-  },
-  medianBadgeText: {
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  stepperRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  stepperCard: {
-    flex: 1,
-    backgroundColor: "#262629",
-    borderRadius: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#3A3A3E",
-  },
-  stepperLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: Colors.textSecondary,
-    marginBottom: 2,
-  },
-  wheelContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    height: SCROLL_HEIGHT,
-    width: "100%",
-    position: "relative",
-    marginVertical: 2,
-  },
-  wheelCenterPill: {
-    position: "absolute",
-    top: ITEM_HEIGHT,
-    left: 4,
-    right: 4,
-    height: ITEM_HEIGHT,
-    borderRadius: 6,
-    borderWidth: 1,
-    zIndex: 0,
-  },
-  wheelColumn: {
-    flex: 1,
-    height: SCROLL_HEIGHT,
-    zIndex: 1,
-  },
-  wheelContent: {
-    paddingTop: ITEM_HEIGHT,
-    paddingBottom: ITEM_HEIGHT,
-  },
-  wheelItem: {
-    height: ITEM_HEIGHT,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  wheelText: {
-    fontSize: 15,
-    textAlign: "center",
-  },
-  wheelTextActive: {
-    fontSize: 18,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-  wheelTextInactive: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: Colors.textMuted,
-    opacity: 0.35,
-  },
-  colonBox: {
-    width: 12,
-    height: ITEM_HEIGHT,
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 1,
-  },
-  colonText: {
-    fontSize: 18,
-    fontWeight: "800",
-    lineHeight: 20,
-  },
-  unitUnderWheel: {
-    fontSize: 10,
-    fontWeight: "500",
-    color: Colors.textMuted,
-    marginBottom: 4,
-    marginTop: 1,
-  },
-  stepperButtonsRow: {
-    flexDirection: "row",
-    gap: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stepperBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  helperText: {
-    color: Colors.textMuted,
-    fontSize: 10,
-    lineHeight: 14,
-    marginTop: 6,
-    textAlign: "center",
-  },
-});
+const createStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    container: {
+      width: "100%",
+    },
+    summaryRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 8,
+    },
+    summaryLeft: {
+      flexDirection: "column",
+    },
+    rangeText: {
+      fontSize: 17,
+      fontWeight: "700",
+      color: colors.textPrimary,
+      letterSpacing: 0.5,
+    },
+    summaryUnit: {
+      fontSize: 12,
+      fontWeight: "500",
+      color: colors.textSecondary,
+    },
+    diffBadge: {
+      fontSize: 10,
+      color: colors.textTertiary,
+      marginTop: 1,
+      fontWeight: "500",
+    },
+    medianBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 6,
+      borderWidth: 1,
+    },
+    medianBadgeText: {
+      fontSize: 11,
+      fontWeight: "600",
+    },
+    stepperRow: {
+      flexDirection: "row",
+      gap: 8,
+    },
+    stepperCard: {
+      flex: 1,
+      backgroundColor: colors.surfaceRaised,
+      borderRadius: 12,
+      paddingVertical: 8,
+      paddingHorizontal: 6,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    stepperLabel: {
+      fontSize: 11,
+      fontWeight: "600",
+      color: colors.textSecondary,
+      marginBottom: 2,
+    },
+    wheelContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      height: SCROLL_HEIGHT,
+      width: "100%",
+      position: "relative",
+      marginVertical: 2,
+    },
+    wheelCenterPill: {
+      position: "absolute",
+      top: ITEM_HEIGHT,
+      left: 4,
+      right: 4,
+      height: ITEM_HEIGHT,
+      borderRadius: 6,
+      borderWidth: 1,
+      zIndex: 0,
+    },
+    wheelColumn: {
+      flex: 1,
+      height: SCROLL_HEIGHT,
+      zIndex: 1,
+    },
+    wheelContent: {
+      paddingTop: ITEM_HEIGHT,
+      paddingBottom: ITEM_HEIGHT,
+    },
+    wheelItem: {
+      height: ITEM_HEIGHT,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    wheelText: {
+      fontSize: 15,
+      textAlign: "center",
+    },
+    wheelTextActive: {
+      fontSize: 18,
+      fontWeight: "800",
+      letterSpacing: 0.5,
+    },
+    wheelTextInactive: {
+      fontSize: 13,
+      fontWeight: "500",
+      color: colors.textTertiary,
+      opacity: 0.35,
+    },
+    colonBox: {
+      width: 12,
+      height: ITEM_HEIGHT,
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 1,
+    },
+    colonText: {
+      fontSize: 18,
+      fontWeight: "800",
+      lineHeight: 20,
+    },
+    unitUnderWheel: {
+      fontSize: 10,
+      fontWeight: "500",
+      color: colors.textTertiary,
+      marginBottom: 4,
+      marginTop: 1,
+    },
+    stepperButtonsRow: {
+      flexDirection: "row",
+      gap: 8,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    stepperBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    helperText: {
+      color: colors.textTertiary,
+      fontSize: 10,
+      lineHeight: 14,
+      marginTop: 6,
+      textAlign: "center",
+    },
+  });
