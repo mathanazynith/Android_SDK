@@ -1,5 +1,5 @@
-import { Platform } from 'react-native';
 import * as Location from 'expo-location';
+import { Platform } from 'react-native';
 import { RawGpsPayload } from '../types/running';
 
 export class LocationService {
@@ -16,19 +16,6 @@ export class LocationService {
       await Location.enableNetworkProviderAsync();
     } catch {
       console.warn('[LocationManager] High-accuracy location was not enabled; location updates may be less frequent indoors');
-    }
-  }
-
-  public static async requestBackgroundPermissions(): Promise<boolean> {
-    try {
-      const { status } = await Location.requestBackgroundPermissionsAsync();
-      return status === 'granted';
-    } catch (error) {
-      console.warn(
-        '[LocationManager] requestBackgroundPermissionsAsync rejected. Ensure the Android native manifest includes ACCESS_BACKGROUND_LOCATION and reinstall the app.'
-      );
-      console.warn(error);
-      return false;
     }
   }
 

@@ -4,8 +4,14 @@ import { ActiveWorkoutSegment, BackendWorkout, WorkoutLap } from '../types/worko
 /** Voice is intentionally independent of GPS and workout transitions. */
 export class WorkoutVoiceService {
   private speaking = false;
+  private enabled = false;
   private readonly queue: string[] = [];
   private readonly completions: (() => void)[] = [];
+
+  public setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (!enabled) this.stop();
+  }
 
   public workoutStarted(workout: BackendWorkout): void {
     this.enqueue([
@@ -50,7 +56,7 @@ export class WorkoutVoiceService {
   }
 
   private enqueue(message: string): Promise<void> {
-    if (!message.trim()) return Promise.resolve();
+    if (!this.enabled || !message.trim()) return Promise.resolve();
     return new Promise<void>((resolve) => {
       this.queue.push(message.trim());
       this.completions.push(resolve);
@@ -59,7 +65,7 @@ export class WorkoutVoiceService {
   }
 
   private async playNext(): Promise<void> {
-    if (this.speaking) return;
+    if (!this.enabled || this.speaking) return;
     const message = this.queue.shift();
     if (!message) return;
     this.speaking = true;

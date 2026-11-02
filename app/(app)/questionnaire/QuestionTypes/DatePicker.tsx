@@ -12,9 +12,11 @@ import { useTheme } from '../../../../contexts/ThemeContext';
 interface DatePickerProps {
   value?: string;
   onChange: (value: string) => void;
+  minimumDate?: Date;
+  maximumDate?: Date;
 }
 
-const DatePicker: React.FC<DatePickerProps> = ({ value, onChange }) => {
+const DatePicker: React.FC<DatePickerProps> = ({ value, onChange, minimumDate, maximumDate }) => {
   const { colors } = useTheme();
   const [show, setShow] = useState(false);
   const selectedDate = value ? new Date(`${value}T00:00:00`) : new Date();
@@ -38,7 +40,7 @@ const DatePicker: React.FC<DatePickerProps> = ({ value, onChange }) => {
         <Ionicons name="calendar-outline" size={22} color={colors.primary} />
       </TouchableOpacity>
 
-      {show && <ThemedCalendarPicker value={selectedDate} title="Select date" onCancel={() => setShow(false)} onConfirm={(date) => { onChange(formatDateInputValue(date)); setShow(false); }} />}
+      {show && <ThemedCalendarPicker value={selectedDate} title="Select date" minimumDate={minimumDate} maximumDate={maximumDate} onCancel={() => setShow(false)} onConfirm={(date) => { onChange(formatDateInputValue(date)); setShow(false); }} />}
     </View>
   );
 };

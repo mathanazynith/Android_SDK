@@ -1,7 +1,7 @@
 import { Alert } from '@/components/ThemedAlert';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -26,6 +26,7 @@ interface GPSPoint {
 
 export default function CropActivityScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { height: windowHeight } = useWindowDimensions();
   const [activity, setActivity] = useState<BackendActivity | null>(null);
   const [gpsPoints, setGpsPoints] = useState<GPSPoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -271,7 +272,7 @@ export default function CropActivityScreen() {
         </View>
       ) : (
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.mapContainer}>
+        <View style={[styles.mapContainer, { height: Math.min(300, Math.max(180, windowHeight * 0.28)) }]}>
         <MapView
           ref={mapRef}
           provider={PROVIDER_GOOGLE}

@@ -2,7 +2,7 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -12,7 +12,7 @@ import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage } from '../../../service/api';
-import { activityAPI, BackendActivity, normalizeActivitySplits } from '../../../src/services/activityApi';
+import { activityAPI, BackendActivity, normalizeActivitySplits, runRouteAPI } from '../../../src/services/activityApi';
 import { ActivityExtraSplits, ActivitySegmentSplits } from '../../../src/types/activity';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
@@ -80,12 +80,16 @@ function DetailMetric({
 
 export default function ActivityDetailScreen() {
   const { colors, isDark } = useTheme();
-  const { id, cropStart, cropEnd } = useLocalSearchParams<{
+  const { id, cropStart, cropEnd, savedRouteId: savedRouteIdParam } = useLocalSearchParams<{
     id: string;
     cropStart?: string;
     cropEnd?: string;
+    savedRouteId?: string;
   }>();
   const [activity, setActivity] = useState<BackendActivity | null>(null);
+  const [savedRouteId, setSavedRouteId] = useState<number | null>(null);
+  const [savedRouteIsPublic, setSavedRouteIsPublic] = useState<boolean | null>(null);
+  const [isUpdatingRouteVisibility, setIsUpdatingRouteVisibility] = useState(false);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -109,7 +113,23 @@ export default function ActivityDetailScreen() {
     setLoading(true);
     try {
       setError(null);
-      setActivity(await activityAPI.get(id));
+      const loadedActivity = await activityAPI.get(id);
+      setActivity(loadedActivity);
+      const parsedRouteId = Number(savedRouteIdParam ?? loadedActivity.saved_route_id);
+      if (Number.isInteger(parsedRouteId) && parsedRouteId > 0) {
+        try {
+          const route = await runRouteAPI.get(parsedRouteId);
+          setSavedRouteId(parsedRouteId);
+          setSavedRouteIsPublic(route.is_public);
+        } catch (routeError) {
+          setSavedRouteId(null);
+          setSavedRouteIsPublic(null);
+          console.warn('[ActivityDetail] Could not load saved-route visibility', routeError);
+        }
+      } else {
+        setSavedRouteId(null);
+        setSavedRouteIsPublic(null);
+      }
     } catch (requestError) {
       const message = getBackendErrorMessage(requestError, 'Unable to load workout details.');
       setError(message);
@@ -117,7 +137,7 @@ export default function ActivityDetailScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, savedRouteIdParam]);
 
   useEffect(() => {
     // The request applies its state updates asynchronously after the screen mounts.
@@ -170,11 +190,41 @@ export default function ActivityDetailScreen() {
 
     Alert.alert(
       'Delete workout?',
-      `Delete this ${activity.activity_type.toLowerCase()} from your workout history? This cannot be undone.`,
+      `Delete this ${activity.activity_type.toLowerCase()} from your workout history? Any route saved from it will also be removed from My Routes and public suggestions if published. This cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: () => void deleteActivity() },
       ],
+    );
+  };
+
+  const applyRouteVisibility = async (isPublic: boolean) => {
+    if (savedRouteId === null || isUpdatingRouteVisibility) return;
+    setIsUpdatingRouteVisibility(true);
+    try {
+      await runRouteAPI.setVisibility(savedRouteId, isPublic);
+      setSavedRouteIsPublic(isPublic);
+    } catch (requestError) {
+      Alert.alert('Could not change route visibility', getBackendErrorMessage(requestError, 'Please try again.'));
+    } finally {
+      setIsUpdatingRouteVisibility(false);
+    }
+  };
+
+  const requestRouteVisibility = (isPublic: boolean) => {
+    if (!isPublic) {
+      void applyRouteVisibility(false);
+      return;
+    }
+
+    Alert.alert(
+      'Make route public?',
+      'Other signed-in Zy-Run users will be able to view this route.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Make Public', onPress: () => { void applyRouteVisibility(true); } },
+      ],
+      { cancelable: true },
     );
   };
 
@@ -262,6 +312,24 @@ export default function ActivityDetailScreen() {
               cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
               enableFullScreen
             />
+            {savedRouteId !== null && savedRouteIsPublic !== null ? (
+              <View style={[styles.routeVisibilityRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <View style={styles.routeVisibilityCopy}>
+                  <Text style={[styles.routeVisibilityTitle, { color: colors.text }]}>Saved route</Text>
+                  <Text style={[styles.routeVisibilityHint, { color: colors.textSecondary }]}>
+                    {savedRouteIsPublic ? 'Public · visible to other signed-in users' : 'Private · visible only to you'}
+                  </Text>
+                </View>
+                <Switch
+                  value={savedRouteIsPublic}
+                  onValueChange={requestRouteVisibility}
+                  disabled={isUpdatingRouteVisibility}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor={colors.surface}
+                  accessibilityLabel={`Make saved route ${savedRouteIsPublic ? 'private' : 'public'}`}
+                />
+              </View>
+            ) : null}
           </View>
 
           <ScrollView
@@ -351,6 +419,10 @@ const styles = StyleSheet.create({
   activityBody: { flex: 1, minHeight: 0 },
   routePanel: { flexShrink: 0, paddingTop: 12 },
   routeTitle: { marginTop: 0 },
+  routeVisibilityRow: { minHeight: 60, flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10, paddingHorizontal: 12, borderWidth: 1, borderRadius: 10 },
+  routeVisibilityCopy: { flex: 1, minWidth: 0 },
+  routeVisibilityTitle: { fontSize: 13, fontWeight: '700' },
+  routeVisibilityHint: { fontSize: 11, marginTop: 3 },
   detailsScroll: { flex: 1 },
   detailsContent: { paddingBottom: 38 },
   workoutHeading: { fontSize: 24, fontWeight: '700', marginTop: 26 },

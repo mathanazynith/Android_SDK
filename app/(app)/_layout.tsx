@@ -46,6 +46,7 @@ export default function AppLayout() {
       <Stack.Screen name="profile/edit" />
       <Stack.Screen name="profile/subscription" />
       <Stack.Screen name="questionnaire" options={{ headerShown: false }} />
+      <Stack.Screen name="plan-recommendation" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="training-plan" options={{ headerShown: false, animation: 'none' }} />
       <Stack.Screen name="calendar" options={{ headerShown: false }} />
       <Stack.Screen name="activity/index" options={{ headerShown: false, animation: 'none' }} />
@@ -70,6 +71,7 @@ export default function AppLayout() {
           <Stack.Screen name="history" />
           <Stack.Screen name="run" />
           <Stack.Screen name="questionnaire" options={{ headerShown: false }} />
+          <Stack.Screen name="plan-recommendation" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="training-plan" options={{ headerShown: false, animation: 'none' }} />
           <Stack.Screen name="calendar" options={{ headerShown: false }} />
           <Stack.Screen name="activity/index" options={{ headerShown: false, animation: 'none' }} />

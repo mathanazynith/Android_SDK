@@ -77,8 +77,8 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
           <Rating
             value={currentAnswer || 0}
             onChange={onAnswer}
-            min={question.validation?.min || 1}
-            max={question.validation?.max || 5}
+            min={Number(question.validation?.min || 1)}
+            max={Number(question.validation?.max || 5)}
           />
         );
       case "date":

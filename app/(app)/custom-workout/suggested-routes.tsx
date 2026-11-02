@@ -1,5 +1,5 @@
 import { Alert } from '@/components/ThemedAlert';
-import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -9,7 +9,6 @@ import { RunningLoader } from "../../../components/common/RunningLoader";
 import MotionEntrance from "../../../components/MotionEntrance";
 import { getBackendErrorMessage } from "../../../service/api";
 import { cacheAssignedRoute, customWorkoutAPI, type SuggestedRoute } from "../../../service/customWorkout";
-import { useSubscriptionAccess } from "../../../src/hooks/useSubscriptionAccess";
 
 const getRoutes = (
   value: SuggestedRoute[] | {
@@ -28,32 +27,34 @@ const formatDistance = (meters: number) => `${(Number(meters || 0) / 1000).toFix
 
 export default function SuggestedRoutesScreen() {
   const { workoutId } = useLocalSearchParams<{ workoutId?: string }>();
-  const { hasAccess, checking: checkingSubscription } = useSubscriptionAccess();
   const [routes, setRoutes] = useState<SuggestedRoute[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [assigningId, setAssigningId] = useState<number | null>(null);
   const [assignedId, setAssignedId] = useState<number | null>(null);
 
   const loadRoutes = useCallback(async () => {
-    if (!workoutId || !hasAccess) return;
+    const id = Number(workoutId);
+    if (!workoutId || !Number.isInteger(id) || id <= 0) {
+      setRoutes([]);
+      setLoading(false);
+      Alert.alert("Routes unavailable", "This workout is not linked to a saved workout.");
+      return;
+    }
+
     setLoading(true);
     try {
-      const response = await customWorkoutAPI.suggestedRoutes(Number(workoutId));
+      const response = await customWorkoutAPI.suggestedRoutes(id);
       setRoutes(getRoutes(response.data));
     } catch (error) {
       Alert.alert("Could not load routes", getBackendErrorMessage(error, "Please try again."));
     } finally {
       setLoading(false);
     }
-  }, [hasAccess, workoutId]);
+  }, [workoutId]);
 
   useFocusEffect(useCallback(() => {
-    if (!hasAccess) {
-      setRoutes([]);
-      return undefined;
-    }
     void loadRoutes();
-  }, [hasAccess, loadRoutes]));
+  }, [loadRoutes]));
 
   const assignRoute = async (route: SuggestedRoute) => {
     if (!workoutId) return;
@@ -73,62 +74,23 @@ export default function SuggestedRoutesScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, !hasAccess && styles.premiumContainer]}>
-      <StatusBar barStyle={hasAccess ? "light-content" : "dark-content"} />
-      <View style={[styles.header, !hasAccess && styles.premiumHeader]}>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      <View style={styles.header}>
         <TouchableOpacity
           onPress={() => router.back()}
-          style={[styles.closeButton, !hasAccess && styles.premiumCloseButton]}
+          style={styles.closeButton}
           accessibilityLabel="Close suggested routes"
         >
-          <Feather name="x" size={28} color={hasAccess ? "#FFFFFF" : "#111318"} />
+          <Feather name="x" size={28} color="#FFFFFF" />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, !hasAccess && styles.premiumHeaderTitle]}>Suggested Routes</Text>
+        <Text style={styles.headerTitle}>Suggested Routes</Text>
         <View style={styles.headerSpacer} />
       </View>
-      {checkingSubscription || (hasAccess && loading) ? (
+      {loading ? (
         <View style={styles.centerState}>
           <RunningLoader size={64} label="Finding routes..." />
         </View>
-      ) : !hasAccess ? (
-        <ScrollView contentContainerStyle={styles.premiumContent} showsVerticalScrollIndicator={false}>
-          <View style={styles.premiumHero}>
-            <View style={styles.premiumIconCircle}>
-              <MaterialCommunityIcons name="map" size={64} color="#39B800" />
-              <View style={styles.premiumCrownBadge}>
-                <MaterialCommunityIcons name="crown" size={25} color="#081006" />
-              </View>
-            </View>
-            <Text style={styles.premiumEyebrow}>PREMIUM FEATURE</Text>
-            <Text style={styles.premiumTitle}>Find the perfect route</Text>
-            <Text style={styles.premiumDescription}>Suggested Routes are available with a ZYRUN subscription.</Text>
-          </View>
-
-          <View style={styles.benefitsCard}>
-            {[
-              "Get routes near you that match your workout distance",
-              "Preview each route on the map before you run",
-              "Assign a route to any saved workout",
-              "Follow the assigned route live while you run",
-            ].map((benefit) => (
-              <View key={benefit} style={styles.benefitRow}>
-                <View style={styles.benefitCheck}><Feather name="check" size={15} color="#FFFFFF" /></View>
-                <Text style={styles.benefitText}>{benefit}</Text>
-              </View>
-            ))}
-          </View>
-
-          <TouchableOpacity
-            style={styles.subscribeButton}
-            onPress={() => router.push('/(app)/profile/subscription')}
-            activeOpacity={0.85}
-            accessibilityRole="button"
-          >
-            <MaterialCommunityIcons name="crown" size={23} color="#07110A" />
-            <Text style={styles.subscribeButtonText}>VIEW PLANS</Text>
-            <Feather name="arrow-right" size={25} color="#07110A" />
-          </TouchableOpacity>
-        </ScrollView>
       ) : (
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.subtitle}>Saved routes closest to this workout distance.</Text>
@@ -191,33 +153,16 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#0B0C0D" },
-  premiumContainer: { backgroundColor: "#FFFFFF" },
   header: { minHeight: 100, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 32 },
-  premiumHeader: { minHeight: 76, paddingHorizontal: 24 },
   closeButton: { width: 56, height: 56, borderRadius: 28, borderWidth: 1, borderColor: "#27292B", backgroundColor: "#101112", alignItems: "center", justifyContent: "center" },
-  premiumCloseButton: { width: 54, height: 54, borderWidth: 0, backgroundColor: "#F4F5F7" },
   headerTitle: { color: "#FFFFFF", fontSize: 30, fontWeight: "800" },
-  premiumHeaderTitle: { color: "#111318", fontSize: 21, fontWeight: "700" },
   headerSpacer: { width: 56 },
   content: { paddingHorizontal: 32, paddingBottom: 34 },
-  premiumContent: { paddingHorizontal: 32, paddingTop: 34, paddingBottom: 36 },
-  premiumHero: { alignItems: "center", paddingHorizontal: 4, marginBottom: 32 },
-  premiumIconCircle: { width: 156, height: 156, borderRadius: 78, backgroundColor: "#EAF7E5", alignItems: "center", justifyContent: "center", marginBottom: 32 },
-  premiumCrownBadge: { position: "absolute", right: 0, top: -4, width: 54, height: 54, borderRadius: 27, backgroundColor: "#39B800", alignItems: "center", justifyContent: "center" },
-  premiumEyebrow: { color: "#39B800", fontSize: 15, fontWeight: "900", letterSpacing: 2, marginBottom: 12 },
-  premiumTitle: { color: "#111318", fontSize: 28, fontWeight: "900", textAlign: "center", letterSpacing: -0.5 },
-  premiumDescription: { color: "#969BA6", fontSize: 17, lineHeight: 23, fontWeight: "500", textAlign: "center", marginTop: 12, maxWidth: 390 },
-  benefitsCard: { backgroundColor: "#F1F3F6", borderColor: "#C9EBC0", borderWidth: 1.5, borderRadius: 25, paddingHorizontal: 20, paddingVertical: 20, gap: 18, marginBottom: 28 },
-  benefitRow: { flexDirection: "row", alignItems: "flex-start", gap: 14 },
-  benefitCheck: { width: 25, height: 25, borderRadius: 13, backgroundColor: "#39B800", alignItems: "center", justifyContent: "center", marginTop: 1 },
-  benefitText: { flex: 1, color: "#17191D", fontSize: 16, lineHeight: 22, fontWeight: "600" },
   subtitle: { color: "#B9BABC", fontSize: 18, marginBottom: 32 },
   centerState: { paddingTop: 80, alignItems: "center" },
   emptyState: { alignItems: "center", paddingTop: 80, paddingHorizontal: 24 },
   emptyTitle: { color: "#FFFFFF", fontSize: 20, fontWeight: "800", marginTop: 16 },
   emptyText: { color: "#A7A8AA", fontSize: 15, textAlign: "center", marginTop: 8 },
-  subscribeButton: { minHeight: 62, marginTop: 4, paddingHorizontal: 24, borderRadius: 32, backgroundColor: "#39B800", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  subscribeButtonText: { flex: 1, color: "#07110A", fontSize: 18, fontWeight: "900", letterSpacing: 0.3 },
   routeCard: { backgroundColor: "#202326", borderRadius: 24, padding: 20, marginBottom: 18 },
   routeHeading: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 20 },
   routeDistance: { color: "#FFFFFF", fontSize: 28, fontWeight: "900" },

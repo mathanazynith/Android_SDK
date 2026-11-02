@@ -32,6 +32,18 @@ module.exports = () => {
           }
 
           channelMetadata.$["tools:replace"] = "android:value";
+
+          const colorMetadata = application?.["meta-data"]?.find(
+            (metadata) =>
+              metadata.$?.["android:name"] ===
+              "com.google.firebase.messaging.default_notification_color"
+          );
+
+          if (!colorMetadata) {
+            throw new Error("Firebase default notification color metadata was not found.");
+          }
+
+          colorMetadata.$["tools:replace"] = "android:resource";
           return manifestConfig;
         }),
       ...expo.plugins.map((plugin) => {

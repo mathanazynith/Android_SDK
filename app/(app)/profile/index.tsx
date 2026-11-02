@@ -114,7 +114,7 @@ export default function ProfileScreen() {
 
       const result = source === "camera"
         ? await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.85 })
-        : await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.85, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+        : await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.85, mediaTypes: ['images'] });
 
       const asset = result.canceled ? null : result.assets[0];
       if (!asset) return;

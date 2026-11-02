@@ -4,7 +4,7 @@ import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FlatList, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from "react-native";
+import { Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppInput } from "../../../components/common/AppInput";
 import { RunningLoader } from "../../../components/common/RunningLoader";
@@ -16,6 +16,7 @@ import { useAuth } from "../../../service/auth";
 import { getDistanceUnitCode, getDistanceUnitPreference, getHeightUnitLabel, getUnitSystemShortLabel, getWeightUnitLabel } from "../../../utils/distanceUnit";
 
 interface PickerItem { label: string; value: string; }
+type InlineSelector = "gender" | "bloodGroup" | "unitSystem";
 const parseDateInputValue = (value: string) => {
   const [year, month, day] = value.split("-").map(Number);
   return year && month && day ? new Date(year, month - 1, day) : new Date(2000, 0, 1);
@@ -49,47 +50,6 @@ const parseHeight = (value: string, unitSystem: "standard" | "imperial") => {
   return String(Math.round(inches * 2.54 * 10) / 10);
 };
 
-function Picker({ visible, onClose, data, selectedValue, onSelect, title }: { visible: boolean; onClose: () => void; data: PickerItem[]; selectedValue: string; onSelect: (value: string) => void; title: string }) {
-  const { colors } = useTheme();
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}><View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Close selector" onPress={onClose} style={StyleSheet.absoluteFill} />
-      <View style={[styles.modalContent, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
-      <Text style={[styles.modalTitle, { color: colors.text }]}>{title}</Text>
-      <FlatList
-        data={data}
-        keyExtractor={(item) => item.value}
-        contentContainerStyle={styles.modalOptions}
-        renderItem={({ item }) => {
-          const isSelected = selectedValue === item.value;
-          return (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: isSelected }}
-              android_ripple={{ color: colors.selected }}
-              style={[
-                styles.modalItem,
-                {
-                  backgroundColor: isSelected ? colors.selected : colors.surfaceRaised,
-                  borderColor: isSelected ? colors.primary : colors.border,
-                },
-              ]}
-              onPress={() => { onSelect(item.value); onClose(); }}
-            >
-              <Text style={[styles.modalItemText, { color: isSelected ? colors.primary : colors.text }]}>{item.label}</Text>
-              <View style={[styles.optionCheck, { backgroundColor: isSelected ? colors.primary : "transparent", borderColor: isSelected ? colors.primary : colors.border }]}>
-                {isSelected && <Feather name="check" color={colors.primaryText} size={14} />}
-              </View>
-            </Pressable>
-          );
-        }}
-      />
-      <TouchableOpacity onPress={onClose} style={styles.modalClose}><Text style={[styles.modalCloseText, { color: colors.textSecondary }]}>Cancel</Text></TouchableOpacity>
-    </View></View></Modal>
-  );
-}
-
 export default function EditProfileScreen() {
   const { colors } = useTheme();
   const { user, updateProfile, uploadProfilePicture, refreshProfile } = useAuth();
@@ -111,9 +71,7 @@ export default function EditProfileScreen() {
   const [unitSystem, setUnitSystem] = useState<"standard" | "imperial">(getDistanceUnitPreference(user?.profile?.distance_unit));
   const [loading, setLoading] = useState(false);
   const [isUploadingPicture, setIsUploadingPicture] = useState(false);
-  const [showGenderModal, setShowGenderModal] = useState(false);
-  const [showBloodModal, setShowBloodModal] = useState(false);
-  const [showUnitModal, setShowUnitModal] = useState(false);
+  const [expandedSelector, setExpandedSelector] = useState<InlineSelector | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [pendingDate, setPendingDate] = useState(() => new Date(2000, 0, 1));
   const [showPictureOptions, setShowPictureOptions] = useState(false);
@@ -121,6 +79,55 @@ export default function EditProfileScreen() {
   const GENDERS: PickerItem[] = [{ label: "Male", value: "Male" }, { label: "Female", value: "Female" }, { label: "Other", value: "Other" }];
   const BLOOD_GROUPS: PickerItem[] = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"].map((value) => ({ label: value, value }));
   const UNIT_SYSTEMS: PickerItem[] = [{ label: "Standard (km / cm / kg)", value: "standard" }, { label: "Imperial (mile / ft / in / lbs)", value: "imperial" }];
+  const renderInlineOptions = (
+    options: PickerItem[],
+    selectedValue: string,
+    onSelect: (value: string) => void,
+    layout: "compact" | "grid" | "list",
+  ) => (
+    <View
+      accessibilityRole="radiogroup"
+      style={[
+        styles.inlineOptions,
+        layout === "compact" && styles.inlineOptionsCompact,
+        layout === "grid" && styles.inlineOptionsGrid,
+        layout === "list" && styles.inlineOptionsList,
+        { backgroundColor: colors.surfaceRaised, borderColor: colors.border },
+      ]}
+    >
+      {options.map((option) => {
+        const selected = selectedValue === option.value;
+        return (
+          <Pressable
+            key={option.value}
+            accessibilityRole="radio"
+            accessibilityLabel={option.label}
+            accessibilityState={{ checked: selected }}
+            android_ripple={{ color: colors.selected }}
+            onPress={() => {
+              onSelect(option.value);
+              setExpandedSelector(null);
+            }}
+            style={[
+              styles.inlineOption,
+              layout === "compact" && styles.inlineOptionCompact,
+              layout === "grid" && styles.inlineOptionGrid,
+              layout === "list" && styles.inlineOptionList,
+              { backgroundColor: selected ? colors.selected : colors.surface, borderColor: selected ? colors.primary : colors.border },
+            ]}
+          >
+            <Text
+              numberOfLines={layout === "list" ? 1 : undefined}
+              style={[styles.inlineOptionText, layout === "grid" && styles.inlineOptionGridText, { color: selected ? colors.primary : colors.text }]}
+            >
+              {option.label}
+            </Text>
+            {selected ? <Feather name="check" size={15} color={colors.primary} /> : null}
+          </Pressable>
+        );
+      })}
+    </View>
+  );
   const hasChanges =
     dateOfBirth !== (user?.profile?.date_of_birth || "") ||
     gender !== (user?.profile?.gender || "") ||
@@ -136,7 +143,7 @@ export default function EditProfileScreen() {
       if (!permission.granted) { Alert.alert("Permission needed", `Allow ${source === "camera" ? "camera" : "photo library"} access to choose a profile picture.`); return; }
       const result = source === "camera"
         ? await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.85 })
-        : await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.85, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+        : await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.85, mediaTypes: ['images'] });
       const asset = result.canceled ? null : result.assets[0];
       if (!asset) return;
       setIsUploadingPicture(true);
@@ -291,8 +298,10 @@ export default function EditProfileScreen() {
         <AppInput label="Phone Number" value={phoneNumber} onChangeText={setPhoneNumber} onFocus={() => { focusedMeasurementInputRef.current = null; }} keyboardType="phone-pad" containerStyle={styles.phoneInput} inputStyle={[styles.flatInput, { borderBottomColor: colors.border }]} />
         <Pressable accessibilityRole="button" accessibilityLabel="Choose date of birth" onPress={openDatePicker} android_ripple={{ color: colors.selected }} style={[styles.formRow, { borderBottomColor: colors.border }]}><Text style={[styles.rowLabel, { color: colors.text }]}>Date of Birth</Text><View style={[styles.selectionPill, { backgroundColor: dateOfBirth ? colors.selected : colors.surfaceRaised }]}><Text style={[styles.dateText, { color: dateOfBirth ? colors.primary : colors.textSecondary }]}>{dateValue(dateOfBirth) || "Select"}</Text><Feather name="calendar" size={14} color={dateOfBirth ? colors.primary : colors.textSecondary} /></View></Pressable>
         <View style={[styles.formRow, { borderBottomColor: colors.border }]}><Text style={[styles.rowLabel, { color: colors.text }]}>Age</Text><View style={[styles.valuePill, { backgroundColor: dateOfBirth ? colors.selected : colors.surfaceRaised }]}><Text style={[styles.rowValueMuted, { color: dateOfBirth ? colors.primary : colors.textSecondary }]}>{ageValue(dateOfBirth)}</Text></View></View>
-        <Pressable accessibilityRole="button" accessibilityLabel={`Gender, ${gender || "not selected"}`} onPress={() => setShowGenderModal(true)} android_ripple={{ color: colors.selected }} style={[styles.formRow, { borderBottomColor: colors.border }]}><Text style={[styles.rowLabel, { color: colors.text }]}>Gender</Text><View style={styles.selectValue}><View style={[styles.selectionPill, { backgroundColor: gender ? colors.selected : colors.surfaceRaised }]}><Text style={[styles.rowValueMuted, { color: gender ? colors.primary : colors.textSecondary }]}>{gender || "Select"}</Text><Feather name="chevron-down" size={15} color={gender ? colors.primary : colors.textSecondary} /></View></View></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={`Blood group, ${bloodGroup || "not selected"}`} onPress={() => setShowBloodModal(true)} android_ripple={{ color: colors.selected }} style={[styles.formRow, styles.lastRow, { borderBottomColor: colors.border }]}><Text style={[styles.rowLabel, { color: colors.text }]}>Blood Group</Text><View style={styles.selectValue}><View style={[styles.selectionPill, { backgroundColor: bloodGroup ? colors.selected : colors.surfaceRaised }]}><Text style={[styles.rowValueMuted, { color: bloodGroup ? colors.primary : colors.textSecondary }]}>{bloodGroup || "Select"}</Text><Feather name="chevron-down" size={15} color={bloodGroup ? colors.primary : colors.textSecondary} /></View></View></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Gender, ${gender || "not selected"}`} accessibilityState={{ expanded: expandedSelector === "gender" }} onPress={() => setExpandedSelector(expandedSelector === "gender" ? null : "gender")} android_ripple={{ color: colors.selected }} style={[styles.formRow, { borderBottomColor: colors.border }]}><Text style={[styles.rowLabel, { color: colors.text }]}>Gender</Text><View style={styles.selectValue}><View style={[styles.selectionPill, { backgroundColor: gender ? colors.selected : colors.surfaceRaised }]}><Text style={[styles.rowValueMuted, { color: gender ? colors.primary : colors.textSecondary }]}>{gender || "Select"}</Text><Feather name={expandedSelector === "gender" ? "chevron-up" : "chevron-down"} size={15} color={gender ? colors.primary : colors.textSecondary} /></View></View></Pressable>
+        {expandedSelector === "gender" ? renderInlineOptions(GENDERS, gender, setGender, "compact") : null}
+        <Pressable accessibilityRole="button" accessibilityLabel={`Blood group, ${bloodGroup || "not selected"}`} accessibilityState={{ expanded: expandedSelector === "bloodGroup" }} onPress={() => setExpandedSelector(expandedSelector === "bloodGroup" ? null : "bloodGroup")} android_ripple={{ color: colors.selected }} style={[styles.formRow, { borderBottomColor: colors.border }]}><Text style={[styles.rowLabel, { color: colors.text }]}>Blood Group</Text><View style={styles.selectValue}><View style={[styles.selectionPill, { backgroundColor: bloodGroup ? colors.selected : colors.surfaceRaised }]}><Text style={[styles.rowValueMuted, { color: bloodGroup ? colors.primary : colors.textSecondary }]}>{bloodGroup || "Select"}</Text><Feather name={expandedSelector === "bloodGroup" ? "chevron-up" : "chevron-down"} size={15} color={bloodGroup ? colors.primary : colors.textSecondary} /></View></View></Pressable>
+        {expandedSelector === "bloodGroup" ? renderInlineOptions(BLOOD_GROUPS, bloodGroup, setBloodGroup, "grid") : null}
       </View>
       </View>
       </MotionEntrance>
@@ -301,7 +310,8 @@ export default function EditProfileScreen() {
       <View>
       <View style={styles.sectionHeading}><Feather name="activity" size={16} color={colors.primary} /><Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>MEASUREMENTS</Text></View>
       <View style={[styles.formCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <Pressable accessibilityRole="button" accessibilityLabel={`Unit system, ${getUnitSystemShortLabel(unitSystem)}`} onPress={() => setShowUnitModal(true)} android_ripple={{ color: colors.selected }} style={[styles.formRow, { borderBottomColor: colors.border }]}><Text style={[styles.rowLabel, { color: colors.text }]}>Unit System</Text><View style={styles.selectValue}><View style={[styles.selectionPill, { backgroundColor: colors.selected }]}><Text style={[styles.unitValue, { color: colors.primary }]}>{getUnitSystemShortLabel(unitSystem)}</Text><Feather name="chevron-down" size={15} color={colors.primary} /></View></View></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Unit system, ${getUnitSystemShortLabel(unitSystem)}`} accessibilityState={{ expanded: expandedSelector === "unitSystem" }} onPress={() => setExpandedSelector(expandedSelector === "unitSystem" ? null : "unitSystem")} android_ripple={{ color: colors.selected }} style={[styles.formRow, { borderBottomColor: colors.border }]}><Text style={[styles.rowLabel, { color: colors.text }]}>Unit System</Text><View style={styles.selectValue}><View style={[styles.selectionPill, { backgroundColor: colors.selected }]}><Text style={[styles.unitValue, { color: colors.primary }]}>{getUnitSystemShortLabel(unitSystem)}</Text><Feather name={expandedSelector === "unitSystem" ? "chevron-up" : "chevron-down"} size={15} color={colors.primary} /></View></View></Pressable>
+        {expandedSelector === "unitSystem" ? renderInlineOptions(UNIT_SYSTEMS, unitSystem, (value) => setUnitSystem(value === "imperial" ? "imperial" : "standard"), "list") : null}
         <View style={[styles.measurementRow, { borderBottomColor: colors.border }]}>
           <Text style={[styles.measurementLabel, { color: colors.text }]}>Height</Text>
           <View style={styles.measurementValue}>
@@ -349,7 +359,6 @@ export default function EditProfileScreen() {
       </View>
     </Modal>
     {showDatePicker && <ThemedCalendarPicker value={pendingDate} title="Date of birth" maximumDate={new Date()} onCancel={() => setShowDatePicker(false)} onConfirm={(date) => { setDateOfBirth(formatDateInputValue(date)); setShowDatePicker(false); }} />}
-    <Picker visible={showGenderModal} onClose={() => setShowGenderModal(false)} data={GENDERS} selectedValue={gender} onSelect={setGender} title="Select Gender" /><Picker visible={showBloodModal} onClose={() => setShowBloodModal(false)} data={BLOOD_GROUPS} selectedValue={bloodGroup} onSelect={setBloodGroup} title="Select Blood Group" /><Picker visible={showUnitModal} onClose={() => setShowUnitModal(false)} data={UNIT_SYSTEMS} selectedValue={unitSystem} onSelect={(value) => setUnitSystem(value === "imperial" ? "imperial" : "standard")} title="Select Unit System" />
   </KeyboardAvoidingView>;
 }
 
@@ -396,16 +405,18 @@ const styles = StyleSheet.create({
   saveButton: { minHeight: 54, borderRadius: 15, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9 },
   saveButtonDisabled: { opacity: 0.58 },
   saveButtonText: { fontSize: 15, fontWeight: "700" },
+  inlineOptions: { marginBottom: 8, padding: 8, borderWidth: 1, borderRadius: 12, gap: 7 },
+  inlineOptionsCompact: { flexDirection: "row" },
+  inlineOptionsGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
+  inlineOptionsList: { flexDirection: "column" },
+  inlineOption: { minHeight: 42, paddingHorizontal: 9, paddingVertical: 7, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 4, borderWidth: 1, borderRadius: 10 },
+  inlineOptionCompact: { flex: 1, minWidth: 0 },
+  inlineOptionGrid: { flexBasis: "21%", flexGrow: 1, minWidth: 50 },
+  inlineOptionList: { width: "100%", minHeight: 48, paddingHorizontal: 12 },
+  inlineOptionText: { flex: 1, fontSize: 14, fontWeight: "600" },
+  inlineOptionGridText: { fontSize: 13 },
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
-  modalContent: { maxHeight: "70%", padding: 20, paddingTop: 12, borderWidth: 1, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
-  modalTitle: { marginBottom: 12, fontSize: 18, fontWeight: "700", textAlign: "center" },
   sheetHandle: { width: 36, height: 4, marginBottom: 16, borderRadius: 2, alignSelf: "center" },
-  modalOptions: { paddingBottom: 4 },
-  modalItem: { minHeight: 54, marginBottom: 8, paddingHorizontal: 14, paddingVertical: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderRadius: 12, overflow: "hidden" },
-  modalItemText: { flex: 1, paddingRight: 12, fontSize: 16, fontWeight: "500" },
-  optionCheck: { width: 24, height: 24, borderWidth: 1.5, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  modalClose: { paddingTop: 18, alignItems: "center" },
-  modalCloseText: { fontSize: 15, fontWeight: "600" },
   actionSheet: { paddingHorizontal: 20, paddingTop: 12, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1 },
   actionSheetTitle: { marginBottom: 8, fontSize: 18, fontWeight: "700", textAlign: "center" },
   datePickerHeader: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

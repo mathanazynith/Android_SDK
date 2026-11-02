@@ -1,7 +1,7 @@
-import api, { API_BASE_URL } from '../../service/api';
-import { storage } from '../../service/storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import api, { API_BASE_URL } from '../../service/api';
+import { storage } from '../../service/storage';
 
 export type SubscriptionPricing = {
   id: number;
@@ -95,7 +95,7 @@ export type CreateSubscriptionResponse = {
 
 export const subscriptionAPI = {
   getPlans: () => api.get<SubscriptionPlan[]>('/subscriptions/plans/'),
-  getCurrent: () => api.get<{ subscription: UserSubscription | null }>('/subscriptions/current/'),
+  getCurrent: () => api.get<{ subscription: UserSubscription | null }>('/subscriptions/current-subscription-plan/'),
   create: (planId: number, pricingId: number) =>
     api.post<CreateSubscriptionResponse>('/subscriptions/create/', {
       plan_id: planId,

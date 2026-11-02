@@ -13,7 +13,6 @@ import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 
 const runnerLoopGreen = require('../../assets/animations/runner-loop-green.json');
 const runnerLoopMuted = require('../../assets/animations/runner-loop-muted.json');
-const runnerLoop = require('../../assets/animations/runner-loop.json');
 
 export interface RunningLoaderProps {
   /** Size of the runner icon in pixels. Default is 56. */
@@ -74,7 +73,7 @@ export const RunningLoader: React.FC<RunningLoaderProps> = ({
   const effectiveShowShadow = !isLottie && showShadow && !isSmall;
 
   // Resolved Lottie animation sources
-  const effectiveBaseSource = baseSource || (isDark ? runnerLoopMuted : runnerLoop);
+  const effectiveBaseSource = baseSource || runnerLoopMuted;
   const effectiveFillSource = fillSource || runnerLoopGreen;
 
   // Determine indeterminate mode: default to true if progress is not passed

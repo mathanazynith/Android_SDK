@@ -7,6 +7,7 @@ import { useEffect, useRef } from 'react';
 import { StatusBar } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { NotificationProvider } from '../contexts/NotificationContext';
+import { PauseSettingsProvider } from '../contexts/PauseSettingsContext';
 import { QuestionnaireProvider } from '../contexts/QuestionnaireContext';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
 import { AuthProvider } from '../service/auth';
@@ -80,20 +81,22 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <ThemeProvider>
-        <RootSurface>
-          <AuthProvider>
-            <NotificationProvider>
-              <QuestionnaireProvider>
-                <Stack screenOptions={{ headerShown: false }}>
-                  <Stack.Screen name="index" />
-                  <Stack.Screen name="oauthredirect" />
-                  <Stack.Screen name="(auth)" />
-                  <Stack.Screen name="(app)" />
-                </Stack>
-              </QuestionnaireProvider>
-            </NotificationProvider>
-          </AuthProvider>
-        </RootSurface>
+        <PauseSettingsProvider>
+          <RootSurface>
+            <AuthProvider>
+              <NotificationProvider>
+                <QuestionnaireProvider>
+                  <Stack screenOptions={{ headerShown: false }}>
+                    <Stack.Screen name="index" />
+                    <Stack.Screen name="oauthredirect" />
+                    <Stack.Screen name="(auth)" />
+                    <Stack.Screen name="(app)" />
+                  </Stack>
+                </QuestionnaireProvider>
+              </NotificationProvider>
+            </AuthProvider>
+          </RootSurface>
+        </PauseSettingsProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   );
