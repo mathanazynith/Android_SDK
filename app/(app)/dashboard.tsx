@@ -2,7 +2,8 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, AppState, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { offlineWorkoutQueue } from '../../src/services/offlineWorkoutQueue';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RunningLoader } from '../../components/common/RunningLoader';
 import DashboardText from '../../components/common/DashboardText';
@@ -38,7 +39,27 @@ export default function DashboardScreen() {
     fetchWorkoutPlan,
   } = useQuestionnaire();
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [offlinePendingCount, setOfflinePendingCount] = useState(0);
+  const [isSyncingOffline, setIsSyncingOffline] = useState(false);
   const permissionRequestStarted = useRef(false);
+
+  useEffect(() => {
+    const unsubscribe = offlineWorkoutQueue.subscribe((count) => {
+      setOfflinePendingCount(count);
+    });
+    void offlineWorkoutQueue.syncPending();
+
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void offlineWorkoutQueue.syncPending();
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      appStateSub.remove();
+    };
+  }, []);
   // const [weather, setWeather] = useState<WeatherData | null>(null);
   // const [loadingWeather, setLoadingWeather] = useState(true);
   // const [weatherError, setWeatherError] = useState<string | null>(null);
@@ -166,13 +187,6 @@ export default function DashboardScreen() {
     }
   };
 
-  if (isWorkoutPlanLoading && !workoutPlan) {
-    return (
-      <View style={[styles.center, { backgroundColor: colors.background }]}>
-        <RunningLoader size={64} label="Loading your dashboard..." />
-      </View>
-    );
-  }
 
   if (workoutPlanError && !workoutPlan) {
     return <View style={[styles.center, { backgroundColor: colors.background }]}><Feather name="alert-circle" size={32} color="#FFB020" /><DashboardText style={[styles.centerText, { color: colors.text }]}>{workoutPlanError}</DashboardText><TouchableOpacity style={[styles.retry, { backgroundColor: BRAND_GREEN }]} onPress={() => void fetchWorkoutPlan(true)}><DashboardText style={[styles.retryText, { color: colors.background }]}>Try again</DashboardText></TouchableOpacity></View>;
@@ -214,8 +228,94 @@ export default function DashboardScreen() {
               */}
           </View>
         </MotionEntrance>
+        {offlinePendingCount > 0 && (
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={async () => {
+              setIsSyncingOffline(true);
+              await offlineWorkoutQueue.syncPending();
+              setIsSyncingOffline(false);
+            }}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              backgroundColor: '#1E293B',
+              borderRadius: 14,
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              marginBottom: 16,
+              borderWidth: 1,
+              borderColor: '#38BDF8',
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+              <Feather name="cloud-off" size={20} color="#38BDF8" />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 14 }}>
+                  {offlinePendingCount} {offlinePendingCount === 1 ? 'workout' : 'workouts'} saved offline
+                </Text>
+                <Text style={{ color: '#94A3B8', fontSize: 12 }}>
+                  {isSyncingOffline ? 'Syncing to cloud...' : 'Tap to sync now or syncs automatically online'}
+                </Text>
+              </View>
+            </View>
+            {isSyncingOffline ? (
+              <ActivityIndicator size="small" color="#38BDF8" />
+            ) : (
+              <Feather name="refresh-cw" size={16} color="#38BDF8" />
+            )}
+          </TouchableOpacity>
+        )}
         <MotionEntrance delay={55}>
-          {workoutPlan ? <DashboardActivePlan todayWorkout={todayWorkout} nextWorkout={nextWorkout} /> : <DashboardNoPlan canStartAssessment={canStartAssessment} onStartAssessment={startAssessment} />}
+          {workoutPlan ? (
+            <DashboardActivePlan todayWorkout={todayWorkout} nextWorkout={nextWorkout} />
+          ) : workoutPlanError ? (
+            <View style={styles.offlineContainer}>
+              <TouchableOpacity
+                style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]}
+                onPress={() => router.push('/(app)/screens/map')}
+                activeOpacity={0.85}
+              >
+                <Feather name="play" size={24} color="#081009" />
+                <Text style={styles.recordText}>Record Workout</Text>
+              </TouchableOpacity>
+
+              <View style={[styles.offlineCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Feather name="wifi-off" size={28} color="#FFB020" style={{ marginBottom: 8 }} />
+                <Text style={[styles.offlineTitle, { color: colors.text }]}>
+                  Network connection error
+                </Text>
+                <Text style={[styles.offlineSubtext, { color: colors.textSecondary }]}>
+                  {workoutPlanError || 'Could not connect to the internet. You can still record workouts offline.'}
+                </Text>
+                <TouchableOpacity
+                  style={[styles.retryBtn, { backgroundColor: BRAND_GREEN }]}
+                  onPress={() => void fetchWorkoutPlan(true)}
+                  activeOpacity={0.85}
+                >
+                  <Feather name="refresh-cw" size={16} color="#081009" />
+                  <Text style={styles.retryBtnText}>Try again</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : isWorkoutPlanLoading ? (
+            <View style={styles.offlineContainer}>
+              <TouchableOpacity
+                style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]}
+                onPress={() => router.push('/(app)/screens/map')}
+                activeOpacity={0.85}
+              >
+                <Feather name="play" size={24} color="#081009" />
+                <Text style={styles.recordText}>Record Workout</Text>
+              </TouchableOpacity>
+              <View style={[styles.offlineCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <RunningLoader size={36} label="Loading your dashboard..." />
+              </View>
+            </View>
+          ) : (
+            <DashboardNoPlan canStartAssessment={canStartAssessment} onStartAssessment={startAssessment} />
+          )}
         </MotionEntrance>
       </ScrollView>
       <SettingsMenu
@@ -247,4 +347,58 @@ const styles = StyleSheet.create({
   centerText: { color: '#F7F7F7', textAlign: 'center', marginTop: 14 },
   retry: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 12 },
   retryText: { color: '#FFFFFF', fontWeight: '700' },
+  offlineContainer: { gap: 16 },
+  recordButton: {
+    width: '100%',
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    borderRadius: 20,
+    backgroundColor: BRAND_GREEN,
+    shadowColor: BRAND_GREEN,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  recordText: {
+    color: '#081009',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  offlineCard: {
+    borderRadius: 22,
+    borderWidth: 1.25,
+    padding: 22,
+    alignItems: 'center',
+  },
+  offlineTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  offlineSubtext: {
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 8,
+  },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 14,
+  },
+  retryBtnText: {
+    color: '#081009',
+    fontSize: 14,
+    fontWeight: '700',
+  },
 });

@@ -33,6 +33,7 @@ export class LocationService {
         speed: current.coords.speed ?? 0,
         heading: current.coords.heading ?? 0,
         timestamp: current.timestamp,
+        mocked: (current as any).mocked,
       };
 
 
@@ -93,6 +94,7 @@ export class LocationService {
         speed: location.coords.speed ?? 0,
         heading: location.coords.heading ?? 0,
         timestamp: location.timestamp,
+        mocked: (location as any).mocked,
       };
 
       callback(payload);

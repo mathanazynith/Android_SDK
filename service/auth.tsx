@@ -114,6 +114,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const isLoggingOut = useRef(false);
+
+  const storeUser = async (userObj: User | null) => {
+    try {
+      if (userObj) {
+        await storage.setItem(storage.KEYS.USER, JSON.stringify(userObj));
+      } else {
+        await storage.removeItem(storage.KEYS.USER);
+      }
+    } catch (e) {
+      console.warn('[Auth] Failed to persist user to storage', e);
+    }
+  };
   const [googleSignupData, setGoogleSignupData] = useState<{
     email: string;
     first_name: string;
@@ -122,15 +134,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const initializeAuth = async () => {
     try {
-      const token = await storage.getItem(storage.KEYS.ACCESS_TOKEN);
+      const [token, cachedUserJson] = await Promise.all([
+        storage.getItem(storage.KEYS.ACCESS_TOKEN),
+        storage.getItem(storage.KEYS.USER),
+      ]);
+
+      let restoredUser: User | null = null;
+      if (cachedUserJson) {
+        try {
+          restoredUser = normalizeUser(JSON.parse(cachedUserJson));
+        } catch (parseError) {
+          console.warn('[Auth] Failed to parse cached user', parseError);
+        }
+      }
+
       if (token) {
-        const response = await authAPI.getProfile();
+        if (!restoredUser) {
+          restoredUser = {
+            id: 1,
+            email: '',
+            username: 'Runner',
+            first_name: '',
+            last_name: '',
+          };
+        }
         isLoggingOut.current = false;
-        setUser(normalizeUser(response.data.data));
+        setUser(restoredUser);
+
+        try {
+          const response = await authAPI.getProfile();
+          isLoggingOut.current = false;
+          const freshUser = normalizeUser(response.data?.data || response.data);
+          if (freshUser) {
+            setUser(freshUser);
+            await storeUser(freshUser);
+          }
+        } catch (error: any) {
+          const status = error?.response?.status;
+          const isNetworkError =
+            !error?.response ||
+            error?.code === 'ECONNABORTED' ||
+            error?.message?.toLowerCase().includes('network') ||
+            error?.message?.toLowerCase().includes('timeout') ||
+            error?.message?.toLowerCase().includes('connection') ||
+            error?.message?.toLowerCase().includes('failed');
+
+          if (isNetworkError) {
+            console.log('[Auth] Offline mode detected during initialization; maintaining cached session.');
+            isLoggingOut.current = false;
+            setUser(restoredUser);
+          } else if (status === 401 || status === 403) {
+            await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
+            await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
+            await storeUser(null);
+            setUser(null);
+          }
+        }
+      } else {
+        await storeUser(null);
+        setUser(null);
       }
     } catch (error) {
-      await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
-      await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
+      console.warn('[Auth] Unexpected error during initializeAuth:', error);
     } finally {
       setIsLoading(false);
     }
@@ -192,7 +257,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { accessToken, refreshToken, user: loggedInUser } = resolveAuthPayload(response);
     await storeTokens(accessToken, refreshToken);
     isLoggingOut.current = false;
-    setUser(normalizeUser(loggedInUser));
+
+    let userToSet = normalizeUser(loggedInUser);
+    if (!userToSet || !userToSet.id) {
+      try {
+        const profileRes = await authAPI.getProfile();
+        userToSet = normalizeUser(profileRes.data?.data || profileRes.data);
+      } catch (profileError) {
+        console.warn('[Auth] Could not fetch profile right after login', profileError);
+      }
+    }
+
+    if (!userToSet) {
+      userToSet = {
+        id: 1,
+        email: identifier.includes('@') ? identifier : '',
+        username: identifier,
+        first_name: '',
+        last_name: '',
+      };
+    }
+
+    setUser(userToSet);
+    await storeUser(userToSet);
   };
 
   const signup = async (data: SignupData) => {
@@ -205,7 +292,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { accessToken, refreshToken, user: verifiedUser } = resolveAuthPayload(response);
     await storeTokens(accessToken, refreshToken);
     isLoggingOut.current = false;
-    setUser(normalizeUser(verifiedUser));
+
+    let userToSet = normalizeUser(verifiedUser);
+    if (!userToSet || !userToSet.id) {
+      try {
+        const profileRes = await authAPI.getProfile();
+        userToSet = normalizeUser(profileRes.data?.data || profileRes.data);
+      } catch (profileError) {
+        console.warn('[Auth] Could not fetch profile right after OTP verify', profileError);
+      }
+    }
+
+    if (!userToSet) {
+      userToSet = {
+        id: 1,
+        email,
+        username: email.split('@')[0] || 'Runner',
+        first_name: '',
+        last_name: '',
+      };
+    }
+
+    setUser(userToSet);
+    await storeUser(userToSet);
   };
 
   const resendOtp = async (email: string, purpose: string) => {
@@ -214,12 +323,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshProfile = async () => {
     const response = await authAPI.getProfile();
-    setUser(normalizeUser(response.data.data));
+    const userToSet = normalizeUser(response.data.data);
+    setUser(userToSet);
+    await storeUser(userToSet);
   };
 
   const updateProfile = async (data: ProfileData) => {
     const response = await authAPI.updateProfile(data);
-    setUser(normalizeUser(response.data.data));
+    const userToSet = normalizeUser(response.data.data);
+    setUser(userToSet);
+    await storeUser(userToSet);
   };
 
   const uploadProfilePicture = async (file: { uri: string; name: string; type: string }) => {
@@ -262,6 +375,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
       await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
+      await storeUser(null);
       setUser(null);
       setGoogleSignupData(null);
     }
@@ -329,13 +443,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         await storeTokens(tokens.access, tokens.refresh);
         isLoggingOut.current = false;
-        setUser(normalizeUser({
+        const googleUser = normalizeUser({
           ...normalizedUser,
           authProvider: normalizedUser.authProvider
             ?? normalizedUser.auth_provider
             ?? normalizedUser.provider
             ?? 'google',
-        }));
+        });
+        setUser(googleUser);
+        await storeUser(googleUser);
         setIsLoading(false);
         return { requiresSignup: false };
       }
