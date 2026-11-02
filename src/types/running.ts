@@ -13,6 +13,8 @@ export interface RawGpsPayload {
   speed?: number;
   heading?: number;
   timestamp?: number | string | Date;
+  mocked?: boolean;
+  isSimulator?: boolean;
 }
 
 export interface RunningGpsPoint extends RunningCoordinate {

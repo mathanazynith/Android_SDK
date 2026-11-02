@@ -27,6 +27,7 @@ export class PathProcessor {
   private readonly rdp: RdpSimplifier;
   private sequence = 0;
   private readonly runId: string;
+  private isSimulator = false;
   private readonly workingPoints: RunningGpsPoint[] = [];
   private readonly displayPoints: RunningPathPoint[] = [];
   private readonly filteredPoints: RunningPathPoint[] = [];
@@ -44,6 +45,7 @@ export class PathProcessor {
 
   public reset(): void {
     this.sequence = 0;
+    this.isSimulator = false;
     this.workingPoints.length = 0;
     this.displayPoints.length = 0;
     this.filteredPoints.length = 0;
@@ -56,6 +58,9 @@ export class PathProcessor {
    * deliberately deferred to filterRawPoints(), which runs only when saving.
    */
   public ingestRaw(raw: RawGpsPayload): RunningPathPoint | null {
+    if (Boolean(raw?.isSimulator)) {
+      this.isSimulator = true;
+    }
     if (
       raw === null ||
       typeof raw !== 'object' ||
@@ -116,12 +121,13 @@ export class PathProcessor {
     } else {
       const displayDistance = calculateDistanceMeters(lastDisplay, pathPoint);
       const displayElapsedSeconds = Math.max(0, (pathPoint.timestamp - lastDisplay.timestamp) / 1_000);
-      // Keep the live route visible while still avoiding a noisy every-second
-      // trace. A small real movement should remain visible, while tiny GPS wobble
-      // is filtered out before it reaches the SDK polyline.
       const displayThreshold = getGpsOptimizationConfig().liveDisplayThresholdMeters;
 
-      if (
+      if (this.isSimulator) {
+        if (displayDistance >= 0.5) {
+          this.displayPoints.push(pathPoint);
+        }
+      } else if (
         !(displayDistance > 500 && displayElapsedSeconds < 10)
         &&
         displayElapsedSeconds >= 1 &&
@@ -154,7 +160,7 @@ export class PathProcessor {
       }
 
       const ageSeconds = Math.max(0, (Date.now() - rawPoint.timestamp) / 1000);
-      if (ageSeconds > 60 * 60 * 24) {
+      if (!this.isSimulator && ageSeconds > 60 * 60 * 24) {
         continue;
       }
 
@@ -266,6 +272,7 @@ export class PathProcessor {
   }
 
   private collapseIndoorDrift(boundaryTimestamps: number[]): void {
+    if (this.isSimulator) return;
     const boundaries = [...new Set(boundaryTimestamps.filter(Number.isFinite))].sort((a, b) => a - b);
     const groupByBoundaries = <T extends { timestamp: number }>(points: T[]): T[][] => {
       const groups: T[][] = [];

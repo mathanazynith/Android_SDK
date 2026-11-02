@@ -99,12 +99,20 @@ const refreshAccessToken = async (): Promise<string | null> => {
       if (refreshError?.response?.status === 404) {
         continue;
       }
-      break;
+      const isAuthError =
+        refreshError?.response?.status === 401 ||
+        refreshError?.response?.status === 400 ||
+        refreshError?.response?.status === 403;
+
+      if (isAuthError) {
+        await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
+        await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
+        await storage.removeItem(storage.KEYS.USER);
+      }
+      return null;
     }
   }
 
-  await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
-  await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
   return null;
 };
 

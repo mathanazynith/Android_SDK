@@ -309,14 +309,40 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       try {
         const plan = await workoutPlanService.getCurrent();
         setWorkoutPlan(plan);
+        if (plan) {
+          await storage.setItem(storage.KEYS.TRAINING_PLAN, JSON.stringify(plan));
+        }
         return plan;
       } catch (err: any) {
         if (err?.response?.status === 404 || isNoTrainingPlanResponse(err?.response?.data)) {
           setWorkoutPlan(null);
           setWorkoutPlanError(null);
           PlanBenchmarkStore.clearAll().catch(() => {});
+          await storage.removeItem(storage.KEYS.TRAINING_PLAN);
           return null;
         }
+
+        const isNetwork =
+          !err?.response ||
+          err?.code === 'ECONNABORTED' ||
+          err?.message?.toLowerCase().includes('network') ||
+          err?.message?.toLowerCase().includes('timeout') ||
+          err?.message?.toLowerCase().includes('connection');
+
+        if (isNetwork) {
+          try {
+            const cachedPlanJson = await storage.getItem(storage.KEYS.TRAINING_PLAN);
+            if (cachedPlanJson) {
+              const cachedPlan = JSON.parse(cachedPlanJson);
+              setWorkoutPlan(cachedPlan);
+              setWorkoutPlanError(null);
+              return cachedPlan;
+            }
+          } catch (e) {
+            console.warn('[QuestionnaireContext] Failed to parse cached training plan', e);
+          }
+        }
+
         if (!workoutPlan) setWorkoutPlan(null);
         setWorkoutPlanError(getBackendErrorMessage(err, "Failed to load your training plan."));
         return null;
@@ -391,6 +417,26 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       );
     }
   }, [assessmentId, isComplete, fetchWorkoutPlan]);
+
+  // Load cached workout plan immediately on mount
+  useEffect(() => {
+    let isMounted = true;
+    void storage.getItem(storage.KEYS.TRAINING_PLAN).then((cached) => {
+      if (!isMounted || !cached) return;
+      try {
+        const plan = JSON.parse(cached);
+        if (plan) {
+          setWorkoutPlan((prev) => prev || plan);
+          setIsWorkoutPlanLoaded(true);
+        }
+      } catch (e) {
+        console.warn('[QuestionnaireContext] Failed to parse cached training plan', e);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Automatically fetch active workout plan on user login
   useEffect(() => {
