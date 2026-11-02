@@ -17,6 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const readline = require('readline');
+const { XMLParser, XMLValidator } = require('fast-xml-parser');
 
 // ==============================================================================
 // ⚙️ SIMULATION CONFIGURATION - EDIT DIRECTLY HERE IN THE CODE:
@@ -371,23 +372,138 @@ function exportGpxFile(points, routeTitle, filePath) {
   fs.writeFileSync(filePath, xml, 'utf8');
 }
 
+function toArray(value) {
+  if (value === undefined || value === null) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function readGpxRoute(filePath) {
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`GPX file not found: ${filePath}`);
+  }
+  const stats = fs.statSync(filePath);
+  if (stats.size <= 0 || stats.size > 10 * 1024 * 1024) {
+    throw new Error('GPX files must be between 1 byte and 10 MB.');
+  }
+
+  const xml = fs.readFileSync(filePath, 'utf8');
+  if (/<!DOCTYPE|<!ENTITY/i.test(xml)) {
+    throw new Error('GPX files containing document type declarations are not supported.');
+  }
+  const validation = XMLValidator.validate(xml);
+  if (validation !== true) {
+    throw new Error('The selected file is not valid XML.');
+  }
+
+  const parser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: '@_',
+    removeNSPrefix: true,
+    parseAttributeValue: false,
+    trimValues: true,
+    processEntities: false,
+  });
+  const document = parser.parse(xml);
+  const gpx = document && document.gpx;
+  if (!gpx || typeof gpx !== 'object') {
+    throw new Error('The selected XML file does not have a GPX root element.');
+  }
+
+  let sourcePoints = toArray(gpx.trk).flatMap((track) => (
+    toArray(track.trkseg).flatMap((segment) => toArray(segment.trkpt))
+  ));
+  if (sourcePoints.length === 0) {
+    sourcePoints = toArray(gpx.rte).flatMap((route) => toArray(route.rtept));
+  }
+  if (sourcePoints.length === 0) sourcePoints = toArray(gpx.wpt);
+  if (sourcePoints.length < 2) {
+    throw new Error('The GPX file must contain at least two track, route, or waypoint points.');
+  }
+  if (sourcePoints.length > 100_000) {
+    throw new Error('The GPX file exceeds the 100,000 point limit.');
+  }
+
+  const points = sourcePoints.map((sourcePoint, index) => {
+    const point = sourcePoint && typeof sourcePoint === 'object' ? sourcePoint : {};
+    const latitude = Number(point['@_lat']);
+    const longitude = Number(point['@_lon']);
+    const timestampText = typeof point.time === 'string' ? point.time.trim() : '';
+    const timestamp = Date.parse(timestampText);
+    if (
+      !Number.isFinite(latitude) || latitude < -90 || latitude > 90
+      || !Number.isFinite(longitude) || longitude < -180 || longitude > 180
+    ) {
+      throw new Error(`GPX point ${index + 1} has invalid latitude or longitude.`);
+    }
+    if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(timestampText) || !Number.isFinite(timestamp)) {
+      throw new Error(`GPX point ${index + 1} needs a valid timezone-qualified timestamp.`);
+    }
+    const elevation = Number(point.ele);
+    return {
+      lat: latitude,
+      lon: longitude,
+      elevation: Number.isFinite(elevation) ? elevation : 0,
+      timestamp,
+      speed: 0,
+      cumulativeDistanceMeters: 0,
+      heartRate: null,
+      sectionName: 'Imported GPX',
+    };
+  });
+
+  let distanceMeters = 0;
+  let longGapCount = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    const intervalSeconds = (current.timestamp - previous.timestamp) / 1000;
+    if (intervalSeconds < 0) {
+      throw new Error(`GPX point ${index + 1} has a timestamp earlier than the previous point.`);
+    }
+    if (intervalSeconds > 15 * 60) longGapCount += 1;
+    const distance = haversineDistanceMeters(previous, current);
+    distanceMeters += distance;
+    current.cumulativeDistanceMeters = distanceMeters;
+    current.speed = intervalSeconds > 0 ? distance / intervalSeconds : 0;
+  }
+
+  const elapsedSeconds = Math.round((points[points.length - 1].timestamp - points[0].timestamp) / 1000);
+  if (elapsedSeconds <= 0 || elapsedSeconds > 72 * 60 * 60 || distanceMeters <= 0) {
+    throw new Error('The GPX route must have a measurable distance and a duration between 1 second and 72 hours.');
+  }
+
+  const metadataName = gpx.metadata && gpx.metadata.name;
+  const trackName = toArray(gpx.trk)[0]?.name;
+  const routeName = toArray(gpx.rte)[0]?.name;
+  const name = [metadataName, trackName, routeName].find((value) => typeof value === 'string' && value.trim());
+  return {
+    points,
+    distanceMeters,
+    elapsedSeconds,
+    name: name ? name.trim() : path.basename(filePath, path.extname(filePath)),
+    longGapCount,
+  };
+}
+
 // ==========================================
 // ADB EMULATOR AUTO-DETECTION & STREAMING
 // ==========================================
 function getAdbConfig() {
-  const userProfile = process.env.USERPROFILE || 'C:\\Users\\mohammedsiddqe.ZYNITH-IT';
-  const candidates = [
-    path.join(userProfile, 'AppData', 'Local', 'Android', 'Sdk', 'platform-tools', 'adb.exe'),
-    path.join(process.env.LOCALAPPDATA || '', 'Android', 'Sdk', 'platform-tools', 'adb.exe'),
-    path.join(process.env.ANDROID_HOME || '', 'platform-tools', 'adb.exe'),
+  const sdkRoots = [
+    process.env.ANDROID_SDK_ROOT,
+    process.env.ANDROID_HOME,
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Android', 'Sdk') : null,
+  ].filter(Boolean);
+  const candidates = [...new Set([
+    ...sdkRoots.map((root) => path.join(root, 'platform-tools', process.platform === 'win32' ? 'adb.exe' : 'adb')),
     'adb',
-  ];
+  ])];
 
   let adbExecutable = null;
   for (const c of candidates) {
     if (!c) continue;
     try {
-      execSync(`"${c}" version`, { stdio: 'ignore' });
+      execSync(c === 'adb' ? 'adb version' : `"${c}" version`, { stdio: 'ignore' });
       adbExecutable = c;
       break;
     } catch {}
@@ -395,20 +511,15 @@ function getAdbConfig() {
 
   if (!adbExecutable) return null;
 
-  let deviceSerial = 'emulator-5554';
   try {
-    const output = execSync(`"${adbExecutable}" devices`, { encoding: 'utf8' });
-    const lines = output.split('\n').filter((l) => l.includes('\tdevice'));
-    const emu = lines.find((l) => l.includes('emulator'));
-    if (emu) {
-      deviceSerial = emu.split('\t')[0].trim();
-    }
+    const command = adbExecutable === 'adb' ? 'adb devices' : `"${adbExecutable}" devices`;
+    const output = execSync(command, { encoding: 'utf8' });
+    const emulator = output.split(/\r?\n/).find((line) => /^emulator-\d+\s+device$/.test(line.trim()));
+    if (!emulator) return null;
+    return { path: adbExecutable, serial: emulator.trim().split(/\s+/)[0] };
   } catch {}
 
-  return {
-    path: adbExecutable,
-    serial: deviceSerial,
-  };
+  return null;
 }
 
 function detectEmulatorLocation(adb) {
@@ -448,19 +559,30 @@ function streamPointToEmulator(adb, lat, lon, alt) {
 async function main() {
   const args = process.argv.slice(2);
   const parsedArgs = {};
-  args.forEach((a) => {
-    if (a.startsWith('--')) {
-      const [k, v] = a.slice(2).split('=');
-      parsedArgs[k] = v === undefined ? true : v;
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (!argument.startsWith('--')) continue;
+    const separator = argument.indexOf('=');
+    const key = separator >= 0 ? argument.slice(2, separator) : argument.slice(2);
+    const inlineValue = separator >= 0 ? argument.slice(separator + 1) : null;
+    const nextArgument = args[index + 1];
+    if (inlineValue !== null) {
+      parsedArgs[key] = inlineValue;
+    } else if (nextArgument && !nextArgument.startsWith('--')) {
+      parsedArgs[key] = nextArgument;
+      index += 1;
+    } else {
+      parsedArgs[key] = true;
     }
-  });
+  }
 
-  const distanceKm = parseFloat(parsedArgs.dist || parsedArgs.distance || CONFIG.distanceKm);
-  const targetDistanceMeters = distanceKm * 1000;
+  let distanceKm = parseFloat(parsedArgs.dist || parsedArgs.distance || CONFIG.distanceKm);
+  let targetDistanceMeters = distanceKm * 1000;
   const pace = parsedArgs.pace || CONFIG.pace;
   const routeType = (parsedArgs.type || parsedArgs.route || CONFIG.routeType).toLowerCase();
   const speedMultiplier = parseInt(String(parsedArgs.speed || CONFIG.speedMultiplier).replace('x', ''), 10) || 1;
   const speedMps = parsePaceToSpeed(pace);
+  const gpxInputPath = typeof parsedArgs.gpx === 'string' ? path.resolve(parsedArgs.gpx) : null;
 
   const adb = getAdbConfig();
 
@@ -498,47 +620,89 @@ async function main() {
     locationSource = 'Default Urban Starting Point';
   }
 
-  const startPoint = { lat: startLat, lon: startLon };
+  let points;
+  let totalMeters;
+  let routeName;
+  let estimatedDurationSec;
+  let sourcePointCount = 0;
 
-  let rawWaypoints = [];
-  let routeName = '';
-
-  if (routeType === 'out-and-back') {
-    rawWaypoints = generateOutAndBackWaypoints(startPoint, targetDistanceMeters);
-    routeName = `${distanceKm}km Out-and-Back Run`;
-  } else if (routeType === 'track') {
-    rawWaypoints = generateTrackWaypoints(startPoint, targetDistanceMeters);
-    routeName = `${distanceKm}km Track Run`;
+  if (gpxInputPath) {
+    const importedRoute = readGpxRoute(gpxInputPath);
+    points = importedRoute.points;
+    totalMeters = importedRoute.distanceMeters;
+    distanceKm = totalMeters / 1000;
+    targetDistanceMeters = totalMeters;
+    estimatedDurationSec = importedRoute.elapsedSeconds;
+    routeName = importedRoute.name;
+    sourcePointCount = points.length;
+    startLat = points[0].lat;
+    startLon = points[0].lon;
+    locationSource = `GPX file: ${path.basename(gpxInputPath)}`;
+    if (importedRoute.longGapCount > 0) {
+      console.warn(`Warning: ${importedRoute.longGapCount} GPX time gap(s) exceed 15 minutes; playback caps each gap at 60 seconds before applying the speed multiplier.`);
+    }
   } else {
-    rawWaypoints = generateNeighborhoodLoopWaypoints(startPoint, targetDistanceMeters);
-    routeName = `${distanceKm}km Neighborhood Road Loop`;
-  }
+    const startPoint = { lat: startLat, lon: startLon };
+    let rawWaypoints = [];
 
-  const points = interpolateBiomechanicalPoints(rawWaypoints, targetDistanceMeters, speedMps, Date.now());
-  const totalMeters = points.at(-1)?.cumulativeDistanceMeters || targetDistanceMeters;
-  const estimatedDurationSec = Math.round(targetDistanceMeters / speedMps);
+    if (routeType === 'out-and-back') {
+      rawWaypoints = generateOutAndBackWaypoints(startPoint, targetDistanceMeters);
+      routeName = `${distanceKm}km Out-and-Back Run`;
+    } else if (routeType === 'track') {
+      rawWaypoints = generateTrackWaypoints(startPoint, targetDistanceMeters);
+      routeName = `${distanceKm}km Track Run`;
+    } else {
+      rawWaypoints = generateNeighborhoodLoopWaypoints(startPoint, targetDistanceMeters);
+      routeName = `${distanceKm}km Neighborhood Road Loop`;
+    }
+
+    points = interpolateBiomechanicalPoints(rawWaypoints, targetDistanceMeters, speedMps, Date.now());
+    totalMeters = points.at(-1)?.cumulativeDistanceMeters || targetDistanceMeters;
+    estimatedDurationSec = Math.round(targetDistanceMeters / speedMps);
+  }
 
   console.log('\n============================================================');
   console.log('  🏃  ZY-RUN Custom Distance & Location GPS Simulator');
   console.log('============================================================');
   console.log(`📍 Starting Point: [${startLat.toFixed(6)}, ${startLon.toFixed(6)}]`);
   console.log(`   Source:         ${locationSource}`);
-  console.log(`📏 Target Distance:${distanceKm} km (${Math.round(totalMeters)} m)`);
-  console.log(`🗺️  Route Type:     ${routeType.toUpperCase()} (${routeName})`);
-  console.log(`⚡ Target Pace:    ${pace} /km (~${(speedMps * 3.6).toFixed(1)} km/h)`);
-  console.log(`⏱️  Estimated Time: ${formatDuration(estimatedDurationSec)}`);
+  console.log(`📏 ${gpxInputPath ? 'GPX Distance' : 'Target Distance'}: ${distanceKm.toFixed(2)} km (${Math.round(totalMeters)} m)`);
+  console.log(`🗺️  Route:          ${routeName}`);
+  if (gpxInputPath) {
+    console.log(`📍 GPX Points:     ${sourcePointCount}`);
+    console.log(`⏱️  GPX Duration:   ${formatDuration(estimatedDurationSec)}`);
+  } else {
+    console.log(`🗺️  Route Type:     ${routeType.toUpperCase()}`);
+    console.log(`⚡ Target Pace:    ${pace} /km (~${(speedMps * 3.6).toFixed(1)} km/h)`);
+    console.log(`⏱️  Estimated Time: ${formatDuration(estimatedDurationSec)}`);
+  }
   console.log(`⏩ Playback Speed: ${speedMultiplier}x fast-forward`);
 
-  const routeFileName = `custom-run-${distanceKm}km.gpx`;
-  const gpxFilePath = path.resolve(routeFileName);
-  const testRoutePath = path.resolve('test-route.gpx');
+  if (gpxInputPath) {
+    console.log(`\n📁 Replaying GPX route: ${gpxInputPath}`);
+  } else {
+    const routeFileName = `custom-run-${distanceKm}km.gpx`;
+    const gpxFilePath = path.resolve(routeFileName);
+    const testRoutePath = path.resolve('test-route.gpx');
 
-  exportGpxFile(points, routeName, gpxFilePath);
-  exportGpxFile(points, routeName, testRoutePath);
+    exportGpxFile(points, routeName, gpxFilePath);
+    exportGpxFile(points, routeName, testRoutePath);
 
-  console.log(`\n📁 Generated Android Studio GPX Route Files:`);
-  console.log(`   - ${routeFileName}   (${distanceKm} km, ${points.length} GPS points)`);
-  console.log(`   - test-route.gpx           (Active simulation route)`);
+    console.log(`\n📁 Generated Android Studio GPX Route Files:`);
+    console.log(`   - ${routeFileName}   (${distanceKm} km, ${points.length} GPS points)`);
+    console.log(`   - test-route.gpx           (Active simulation route)`);
+  }
+
+  if (parsedArgs['gpx-only']) {
+    console.log(gpxInputPath
+      ? '\n✅ GPX file validated. Exiting (--gpx-only flag).'
+      : '\n✅ GPX file generated. Exiting (--gpx-only flag).');
+    process.exit(0);
+  }
+
+  if (gpxInputPath && !adb) {
+    throw new Error('GPX replay needs a running Android emulator and an accessible Android SDK platform-tools\\adb executable.');
+  }
 
   if (adb) {
     console.log(`\n🔌 Connected to Android Studio Emulator: ${adb.serial}`);
@@ -549,20 +713,14 @@ async function main() {
     console.log(`\n⚠️  No running emulator detected via ADB.`);
   }
 
-  if (parsedArgs['gpx-only']) {
-    console.log('\n✅ GPX file generated. Exiting (--gpx-only flag).');
-    process.exit(0);
-  }
-
   console.log('\n------------------------------------------------------------');
   console.log('Controls: Press [SPACE] to Pause / Resume, [Q] to Stop');
-  console.log(`Starting run simulation on ${adb ? adb.serial : 'emulator'} in 3 seconds...\n`);
+  console.log(`Starting ${gpxInputPath ? 'GPX replay' : 'run simulation'} on ${adb ? adb.serial : 'emulator'} in 3 seconds...\n`);
 
   await new Promise((r) => setTimeout(r, 3000));
 
   let currentIndex = 0;
   let isPaused = false;
-  const timerIntervalMs = Math.round(1000 / speedMultiplier);
 
   readline.emitKeypressEvents(process.stdin);
   if (process.stdin.isTTY) {
@@ -583,16 +741,17 @@ async function main() {
     }
   });
 
-  const interval = setInterval(() => {
-    if (isPaused) return;
-
+  const playNextPoint = () => {
+    if (isPaused) {
+      setTimeout(playNextPoint, 100);
+      return;
+    }
     if (currentIndex >= points.length) {
-      clearInterval(interval);
       console.log('\n\n============================================================');
       console.log(`🏁 WORKOUT FINISHED!`);
       console.log(`   Total Distance:   ${(totalMeters / 1000).toFixed(2)} km`);
-      console.log(`   Time Taken:       ${formatDuration(points.length)}`);
-      console.log(`   Average Pace:     ${formatPace(totalMeters / points.length)}`);
+      console.log(`   Time Taken:       ${formatDuration(estimatedDurationSec)}`);
+      console.log(`   Average Pace:     ${formatPace(totalMeters / Math.max(1, estimatedDurationSec))}`);
       console.log(`   Calories (est):   ~${Math.round(totalMeters * 0.065)} kcal`);
       console.log('============================================================\n');
       process.exit(0);
@@ -617,13 +776,26 @@ async function main() {
     const bar = '[' + '='.repeat(filled) + ' '.repeat(barWidth - filled) + ']';
 
     process.stdout.write(
-      `\r🏃 ${bar} ${progressPct}% | ${distKm}/${distanceKm} km | Pace: ${formatPace(current.speed)} | HR: ${current.heartRate} bpm | ${current.sectionName} `
+      `\r🏃 ${bar} ${progressPct}% | ${distKm}/${distanceKm.toFixed(2)} km | Pace: ${formatPace(current.speed)} | ${current.heartRate === null ? '' : `HR: ${current.heartRate} bpm | `}${current.sectionName} `
     );
 
     currentIndex += 1;
-  }, timerIntervalMs);
+    if (currentIndex < points.length) {
+      const previousTimestamp = points[currentIndex - 1].timestamp;
+      const nextTimestamp = points[currentIndex].timestamp;
+      const sourceInterval = Number.isFinite(previousTimestamp) && Number.isFinite(nextTimestamp)
+        ? nextTimestamp - previousTimestamp
+        : 1000;
+      const playbackDelay = Math.max(100, Math.min(60_000, sourceInterval) / speedMultiplier);
+      setTimeout(playNextPoint, playbackDelay);
+    } else {
+      setTimeout(playNextPoint, 0);
+    }
+  };
+  playNextPoint();
 }
 
 main().catch((err) => {
   console.error('Error:', err);
+  process.exitCode = 1;
 });

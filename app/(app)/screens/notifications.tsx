@@ -2,6 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Image,
   LayoutAnimation,
   Pressable,
   RefreshControl,
@@ -25,32 +26,7 @@ import {
 } from '../../../service/notificationService';
 
 const EMPTY_IDS = new Set<string>();
-  
-  type IconName = keyof typeof Feather.glyphMap;
-  
-  const eventPresentation = (type: string): { icon: IconName; color: string } => {
-    switch (type) {
-      case 'PLAN_ENDING':
-        return { icon: 'clock', color: '#E6B75A' };
-      case 'WORKOUT_TODAY':
-      case 'WORKOUT_TOMORROW':
-        return { icon: 'calendar', color: BRAND_GREEN };
-      case 'BENCHMARK_WORKOUT_TODAY':
-      case 'BENCHMARK_WORKOUT_TOMORROW':
-        return { icon: 'activity', color: '#E6B75A' };
-      case 'NEW_DEVICE_LOGIN':
-        return { icon: 'smartphone', color: '#8FA6B5' };
-      case 'RUN_SAVED_OTHER_DEVICE':
-        return { icon: 'activity', color: BRAND_GREEN };
-      case 'PASSWORD_CHANGED':
-        return { icon: 'lock', color: '#8FA6B5' };
-      case 'PLAN_UPDATED_BY_ADMIN':
-        return { icon: 'refresh-cw', color: BRAND_GREEN };
-      default:
-        return { icon: 'bell', color: '#A7ADB0' };
-    }
-  };
-  
+
   const dateGroupFor = (value: string, now: Date): string => {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return 'Date unavailable';
@@ -306,7 +282,6 @@ export default function NotificationsScreen() {
               <View key={section.title}>
                 <Text style={[styles.sectionHeading, { color: colors.textSecondary }]}>{section.title}</Text>
                 {section.items.map((notification) => {
-                  const presentation = eventPresentation(notification.type);
                   return (
                     <ReanimatedSwipeable
                       key={String(notification.id)}
@@ -345,9 +320,12 @@ export default function NotificationsScreen() {
                           },
                         ]}
                       >
-                        <View style={[styles.eventIcon, { backgroundColor: `${presentation.color}18` }]}>
-                          <Feather name={presentation.icon} size={18} color={presentation.color} />
-                        </View>
+                        <Image
+                          accessible={false}
+                          source={require('../../../assets/Zy-Run_Official.png')}
+                          resizeMode="cover"
+                          style={styles.eventIconImage}
+                        />
                         <View style={styles.notificationContent}>
                           <View style={styles.titleLine}>
                             {!notification.is_read ? <View style={styles.unreadDot} /> : null}
@@ -412,7 +390,7 @@ const styles = StyleSheet.create({
     notificationRow: { minHeight: 82, flexDirection: 'row', alignItems: 'flex-start', padding: 14, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, marginBottom: 10, gap: 12 },
     dismissAction: { width: 88, minHeight: 82, alignItems: 'center', justifyContent: 'center', backgroundColor: '#D9534F', gap: 4 },
     dismissActionText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
-    eventIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+    eventIconImage: { width: 40, height: 40, borderRadius: 10, marginTop: 1, backgroundColor: '#090B0A' },
     notificationContent: { flex: 1, minWidth: 0 },
     titleLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 7 },
     unreadDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: BRAND_GREEN, marginTop: 6 },

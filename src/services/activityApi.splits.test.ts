@@ -1,9 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { normalizeActivitySplits } from './activityApi';
 
+vi.mock('../../service/storage', () => ({
+  storage: {
+    KEYS: { ACCESS_TOKEN: 'access', REFRESH_TOKEN: 'refresh' },
+    getItem: vi.fn(async () => null),
+    setItem: vi.fn(async () => undefined),
+    removeItem: vi.fn(async () => undefined),
+  },
+}));
+
 describe('normalizeActivitySplits', () => {
-  it('creates independent dynamic splits from each segment GPS sequence', () => {
-    const metresToLongitude = (metres: number) => metres / 111_320;
+  it('creates independent 500 metre splits from each segment GPS sequence', () => {
+    const metresToLongitude = (metres: number) => metres / (6_371_000 * Math.PI / 180);
     const point = (metres: number, seconds: number) => ({
       latitude: 0,
       longitude: metresToLongitude(metres),
@@ -12,18 +21,47 @@ describe('normalizeActivitySplits', () => {
     const result = normalizeActivitySplits({
       split_distance_m: 5,
       segments: [
-        { id: 'warmup-1', type: 'WARM_UP', gps_points: [point(0, 0), point(7, 7)] },
-        { id: 'run-1', type: 'RUN', gps_points: [point(0, 10), point(7, 17)] },
+        { id: 'warmup-1', type: 'WARM_UP', gps_points: [point(0, 0), point(700, 700)] },
+        { id: 'run-1', type: 'RUN', gps_points: [point(0, 10), point(700, 710)] },
         { id: 'recovery-1', type: 'RECOVERY', gps_points: [point(0, 20), point(7, 50)] },
       ],
     });
 
-    expect(result.segments[0]?.splits.map((split) => split.distance_m)).toEqual([5, 2]);
+    expect(result.segments[0]?.splits[0]?.distance_m).toBe(500);
+    expect(result.segments[0]?.splits[1]?.distance_m).toBeCloseTo(200, 5);
     expect(result.segments[0]?.splits.map((split) => split.split_number)).toEqual([1, 2]);
     expect(result.segments[1]?.splits.map((split) => split.split_number)).toEqual([1, 2]);
-    expect(result.segments[1]?.splits[0]?.time_s).toBeCloseTo(5, 0);
+    expect(result.segments[1]?.splits[0]?.distance_m).toBe(500);
+    expect(result.segments[1]?.splits[1]?.distance_m).toBeCloseTo(200, 5);
+    expect(result.segments[1]?.splits[0]?.time_s).toBeCloseTo(500, 0);
     expect(result.segments[2]?.splits).toEqual([]);
     expect(result.segments[2]?.id).toBe('recovery-1');
+  });
+
+  it('preserves backend split values instead of replacing them with GPS estimates', () => {
+    const result = normalizeActivitySplits({
+      segments: [{
+        sequence: 1,
+        type: 'RUN',
+        gps_points: [
+          { latitude: 0, longitude: 0, timestamp: '2026-01-01T00:00:00Z' },
+          { latitude: 0, longitude: 0.01, timestamp: '2026-01-01T00:01:00Z' },
+        ],
+        splits: [{
+          split_number: 7,
+          distance_m: 499.876,
+          time_s: 61.25,
+          pace_s_per_km: 122.62,
+        }],
+      }],
+    });
+
+    expect(result.segments[0]?.splits).toEqual([{
+      split_number: 7,
+      distance_m: 499.876,
+      time_s: 61.25,
+      pace_s_per_km: 122.62,
+    }]);
   });
 
   it('maps EXTRA segments into the separate extra split section', () => {
@@ -58,9 +96,9 @@ describe('normalizeActivitySplits', () => {
 
     expect(result.segments).toHaveLength(2);
     expect(result.segments[0]?.type).toBe('RUN');
-    expect(result.segments[0]?.splits.map((split) => split.split_number)).toEqual([1, 2]);
+    expect(result.segments[0]?.splits.map((split) => split.split_number)).toEqual([4, 5]);
     expect(result.segments[1]?.type).toBe('RECOVERY');
-    expect(result.segments[1]?.splits.map((split) => split.split_number)).toEqual([1]);
+    expect(result.segments[1]?.splits).toEqual([]);
     expect(result.extra?.splits.map((split) => split.distance_m)).toEqual([24, 6]);
   });
 });

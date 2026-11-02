@@ -5,11 +5,15 @@ import { ActivityExtraSplits, ActivitySegmentSplits, ActivitySplit, SPLIT_DISTAN
 import { calculateDistanceMeters } from '../utils/distance';
 import { activityDistanceOverrides } from './activityDistanceOverrides';
 import { activityTimingOverrides } from './activityTimingOverrides';
+import { toGpxActivityImportRequest, type GpxWorkoutPreview } from './gpxService';
 
 export interface BackendGpsPoint {
   latitude: number;
   longitude: number;
+  altitude?: number | null;
   accuracy?: number | null;
+  speed?: number | null;
+  heading?: number | null;
   timestamp?: string;
   is_extra_distance?: boolean;
   is_paused?: boolean;
@@ -123,7 +127,7 @@ const normalizeSplit = (value: unknown, index: number): ActivitySplit | null => 
     split_number: Math.max(1, Math.floor(toNumber(split.split_number, index + 1))),
     distance_m: distance,
     time_s: time,
-    pace_s_per_km: toNumber(split.pace_s_per_km ?? split.pace_s_per_km, time / (distance / 1000)),
+    pace_s_per_km: toNumber(split.pace_s_per_km ?? split.pace, time / (distance / 1000)),
   };
 };
 
@@ -152,10 +156,7 @@ const normalizeSegment = (value: unknown, index: number): ActivitySegmentSplits 
     completed_distance_m: toNumber(segment.completed_distance_m ?? segment.completed_distance ?? segment.distance_m, 0) || undefined,
     actual_time_s: toNumber(segment.actual_time_s ?? segment.time_s ?? segment.duration_s ?? segment.actual_time, 0) || undefined,
     actual_pace_s_per_km: toNumber(segment.actual_pace_s_per_km ?? segment.pace_s_per_km ?? segment.pace, 0) || undefined,
-    splits: isRecovery(type) ? [] : normalizeSplits(segment.splits).map((split, splitIndex) => ({
-      ...split,
-      split_number: splitIndex + 1,
-    })),
+    splits: isRecovery(type) ? [] : normalizeSplits(segment.splits),
     gps_points: gpsPoints,
     recovery: nestedRecovery ? { ...nestedRecovery, splits: [] } : undefined,
   };
@@ -184,7 +185,7 @@ export const normalizeActivitySplits = (activity: unknown): {
       ...segment,
       splits: isRecovery(segment.type)
         ? []
-        : generatedSplits.length > 0 ? generatedSplits : segment.splits,
+        : segment.splits.length > 0 ? segment.splits : generatedSplits,
     };
   });
   const extraSegment = segmentsWithGeneratedSplits.find((segment) => segment.type === 'EXTRA')
@@ -302,6 +303,9 @@ const ACTIVITY_HISTORY_PATH = (
 const RUN_ROUTES_PATH = (
   process.env.EXPO_PUBLIC_RUN_ROUTES_PATH || '/rundata/run-routes/'
 ).replace(/\/+$/, '');
+const GPX_ACTIVITY_IMPORT_PATH = (
+  process.env.EXPO_PUBLIC_GPX_ACTIVITY_IMPORT_PATH || '/rundata/activities/import-gpx/'
+).trim();
 const ACTIVITY_HISTORY_CACHE_KEY = 'activity_history_first_page_v3';
 
 export interface ActivityHistoryPage {
@@ -587,6 +591,23 @@ export const activityAPI = {
     const response = await api.get(getActivityDetailPath(activityId));
     const payload = response.data?.data ?? response.data;
     return applySdkDistance(normalizeActivity(payload as BackendActivity));
+  },
+
+  async importGpxWorkout(preview: GpxWorkoutPreview): Promise<BackendActivity> {
+    const response = await api.post(
+      GPX_ACTIVITY_IMPORT_PATH,
+      toGpxActivityImportRequest(preview),
+    );
+    const payload = response.data?.data ?? response.data;
+    const activityPayload = payload?.activity ?? payload;
+    const activityId = activityPayload?.activity_id ?? activityPayload?.id;
+    if (
+      (typeof activityId !== 'string' && typeof activityId !== 'number')
+      || String(activityId).trim() === ''
+    ) {
+      throw new Error('The GPX import endpoint did not return the created workout ID.');
+    }
+    return this.get(activityId);
   },
 
   async saveRoute(activityId: BackendActivity['id']): Promise<{ routeId: number | null }> {

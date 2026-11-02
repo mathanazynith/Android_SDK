@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AuthDismissHandle from '../../components/auth/AuthDismissHandle';
 import AuthModeTabs from '../../components/auth/AuthModeTabs';
 import { AppInput } from '../../components/common/AppInput';
 import { PrimaryButton } from '../../components/common/PrimaryButton';
@@ -175,15 +176,16 @@ export default function LoginScreen() {
       style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
+      <AuthDismissHandle top={insets.top} disabled={loading || googleLoading} />
       <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} backgroundColor={colors.background} />
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 18 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 54 }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.authCard}>
           <AuthModeTabs
             mode="login"
-            onChange={() => router.push({ pathname: '/(auth)/signup', params: { fromAuthTab: '1' } })}
+            onChange={() => router.replace('/(auth)/signup')}
           />
 
           <View style={styles.runnerBadge}>

@@ -1,9 +1,10 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from "expo-router";
+import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AuthDismissHandle from "../../components/auth/AuthDismissHandle";
 import AuthModeTabs from "../../components/auth/AuthModeTabs";
 import { AppInput } from "../../components/common/AppInput";
 import { PrimaryButton } from "../../components/common/PrimaryButton";
@@ -18,8 +19,6 @@ export default function SignupScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { googleLogin, googleSignupData, setGoogleSignupData } = useAuth();
-  const { fromAuthTab } = useLocalSearchParams<{ fromAuthTab?: string }>();
-
   const hasGoogleData = googleSignupData !== null;
 
   const [firstName, setFirstName] = useState(
@@ -337,23 +336,18 @@ export default function SignupScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
     >
+      <AuthDismissHandle top={insets.top} disabled={loading || googleLoading} />
       <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} backgroundColor={colors.background} />
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 6 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 48 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.authCard}>
           <AuthModeTabs
             mode="signup"
-            onChange={() => {
-              if (fromAuthTab === '1') {
-                router.back();
-              } else {
-                router.push("/(auth)/login");
-              }
-            }}
+            onChange={() => router.replace("/(auth)/login")}
           />
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()} disabled={loading} accessibilityLabel="Go back">
             <Ionicons name="chevron-back" size={20} color="#FFFFFF" />

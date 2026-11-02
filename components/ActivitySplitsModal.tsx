@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RunningLoader } from './common/RunningLoader';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, type ThemeColors } from '../contexts/ThemeContext';
 import { ActivitySegmentSplits, ActivitySplit } from '../src/types/activity';
 import { formatPace, formatSplitDistance, formatSplitTime } from '../src/utils/splitFormatters';
 
@@ -25,10 +25,10 @@ interface ActivitySplitsModalProps {
   onRetry: () => void;
 }
 
-const typeColor = (type: string, isDark: boolean) =>
+const typeColor = (type: string, isDark: boolean, colors: ThemeColors) =>
   type === 'EXTRA'
     ? (isDark ? '#FF6B6B' : '#DC2626')
-    : (isDark ? '#35D05B' : '#16A34A');
+    : colors.primary;
 
 const displayType = (type: string) => type.replace(/[-_]/g, ' ').toUpperCase();
 
@@ -105,7 +105,7 @@ export default function ActivitySplitsModal({
 
         {loading ? (
           <View style={styles.state}>
-            <RunningLoader size={60} label="Loading splits..." />
+            <RunningLoader size={60} fillColor={colors.primary} label="Loading splits..." />
           </View>
         ) : error ? (
           <View style={styles.state}>
@@ -138,7 +138,7 @@ export default function ActivitySplitsModal({
                 <View key={`segment-${segment.sequence}-${segment.type}`} style={[styles.segmentCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                   <View style={styles.segmentHeader}>
                     <Text style={[styles.segmentTitle, { color: colors.text }]}>{segment.sequence}. {titleCase(segment.type)}</Text>
-                    <Text style={[styles.segmentType, { color: typeColor(segment.type, isDark) }]}>{displayType(segment.type)}</Text>
+                    <Text style={[styles.segmentType, { color: typeColor(segment.type, isDark, colors) }]}>{displayType(segment.type)}</Text>
                   </View>
                   <View style={styles.segmentMetrics}>
                     <SegmentMetric label="Distance" value={formatDistance(distance)} />

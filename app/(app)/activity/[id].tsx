@@ -13,6 +13,7 @@ import MotionEntrance from '../../../components/MotionEntrance';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage } from '../../../service/api';
 import { activityAPI, BackendActivity, normalizeActivitySplits, runRouteAPI } from '../../../src/services/activityApi';
+import { shareActivityAsGpx } from '../../../src/services/gpxFileExport';
 import { ActivityExtraSplits, ActivitySegmentSplits } from '../../../src/types/activity';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
@@ -92,6 +93,7 @@ export default function ActivityDetailScreen() {
   const [isUpdatingRouteVisibility, setIsUpdatingRouteVisibility] = useState(false);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [exportingGpx, setExportingGpx] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [splitsVisible, setSplitsVisible] = useState(false);
   const [splitsLoading, setSplitsLoading] = useState(false);
@@ -138,6 +140,21 @@ export default function ActivityDetailScreen() {
       setLoading(false);
     }
   }, [id, savedRouteIdParam]);
+
+  const exportActivityGpx = useCallback(async () => {
+    if (!activity) return;
+    setExportingGpx(true);
+    try {
+      await shareActivityAsGpx(activity);
+    } catch (exportError) {
+      const message = exportError instanceof Error
+        ? exportError.message
+        : 'Could not export this workout as GPX.';
+      Alert.alert('Could not export GPX', message);
+    } finally {
+      setExportingGpx(false);
+    }
+  }, [activity]);
 
   useEffect(() => {
     // The request applies its state updates asynchronously after the screen mounts.
@@ -268,6 +285,17 @@ export default function ActivityDetailScreen() {
               style={styles.splitButton}
             >
               <Feather name="list" size={20} color={colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Export workout as GPX"
+              disabled={exportingGpx}
+              onPress={() => void exportActivityGpx()}
+              style={styles.exportButton}
+            >
+              {exportingGpx
+                ? <RunningLoader size={18} fillColor={colors.primary} />
+                : <Feather name="share" size={20} color={colors.primary} />}
             </TouchableOpacity>
             <TouchableOpacity
               accessibilityLabel="Delete workout"
@@ -410,12 +438,13 @@ const styles = StyleSheet.create({
   },
   header: { height: 68, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   backButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
-  headerButtonsContainer: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  cropButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
-  splitButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
-  deleteButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
-  headerTitle: { fontSize: 19, fontWeight: '700' },
-  headerSpacer: { width: 42 },
+  headerButtonsContainer: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  cropButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
+  splitButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
+  exportButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
+  deleteButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
+  headerTitle: { fontSize: 18, fontWeight: '700' },
+  headerSpacer: { width: 36 },
   activityBody: { flex: 1, minHeight: 0 },
   routePanel: { flexShrink: 0, paddingTop: 12 },
   routeTitle: { marginTop: 0 },

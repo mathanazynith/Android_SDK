@@ -41,6 +41,8 @@ import MotionEntrance from '../../../components/MotionEntrance';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage, resolveApiUrl } from '../../../service/api';
 import { activityAPI, BackendActivity, runRouteAPI } from '../../../src/services/activityApi';
+import { shareActivityAsGpx } from '../../../src/services/gpxFileExport';
+import { parseGpxWorkout, type GpxWorkoutPreview } from '../../../src/services/gpxService';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
 
@@ -348,6 +350,7 @@ const ActivityCard = memo(function ActivityCard({
   const { colors, isDark } = useTheme();
   const activityName = formatActivityType(activity.activity_type);
   const activityId = activity.id;
+  const isRouteSaved = Boolean(activity.is_saved_to_my_routes || activity.saved_route_id);
   const duration = activity.moving_time || activity.elapsed_time;
   const thumbnailUri = resolveApiUrl(activity.thumbnail_url);
   const [savedThumbnailUri, setSavedThumbnailUri] = useState<string | null>(null);
@@ -464,6 +467,7 @@ const ActivityCard = memo(function ActivityCard({
       <Animated.View
         style={[
           styles.card,
+          isRouteSaved && styles.cardExpanded,
           {
             backgroundColor: selected ? (isDark ? '#351F20' : '#FEF2F2') : colors.surface,
             borderColor: selected ? '#DC2626' : colors.border,
@@ -477,7 +481,7 @@ const ActivityCard = memo(function ActivityCard({
       <TouchableOpacity
         style={[styles.cardContent, !selectionMode && styles.cardContentWithMenu]}
         accessibilityRole="button"
-        accessibilityLabel={`${activityName} activity, ${formatDistance(activity.distance)}, ${formatDuration(duration)}`}
+        accessibilityLabel={`${activityName} activity, ${formatDistance(activity.distance)}, ${formatDuration(duration)}, ${formatPace(activity.avg_pace)}`}
         accessibilityHint={selectionMode ? 'Tap to select or deselect this activity for deletion.' : 'Open activity details, or long press to select this activity for deletion.'}
         onPress={handleCardPress}
         onPressIn={() => { longPressHandledRef.current = false; }}
@@ -486,11 +490,6 @@ const ActivityCard = memo(function ActivityCard({
       >
         <View style={styles.cardDetails}>
           <Text style={[styles.activityType, { color: colors.text }]}>{activityName}</Text>
-          <Text style={[styles.activityDate, { color: colors.textSecondary }]}>
-            {new Date(activity.start_time).toLocaleDateString(undefined, {
-              weekday: 'short', month: 'short', day: 'numeric',
-            })}
-          </Text>
           <Text
             style={[styles.distance, { color: colors.primary }]}
             numberOfLines={1}
@@ -499,25 +498,18 @@ const ActivityCard = memo(function ActivityCard({
           >
             {formatDistance(activity.distance)}
           </Text>
-        </View>
-
-        <View style={styles.centerMetricsContainer}>
-          <View style={styles.metricRow}>
-            <View style={styles.metricIcon}>
-              <Feather name="clock" size={17} color={colors.primary} />
+          <View style={styles.metricSummaryRow}>
+            <View style={styles.metricSummaryItem}>
+              <Feather name="clock" size={13} color={colors.primary} />
+              <Text style={[styles.metricSummaryText, { color: colors.text }]} numberOfLines={1}>
+                {formatDuration(duration)}
+              </Text>
             </View>
-            <View style={styles.metricText}>
-              <Text style={[styles.metricValue, { color: colors.text }]}>{formatDuration(duration)}</Text>
-              <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>Time</Text>
-            </View>
-          </View>
-          <View style={styles.metricRow}>
-            <View style={styles.metricIcon}>
-              <Feather name="compass" size={17} color={colors.primary} />
-            </View>
-            <View style={styles.metricText}>
-              <Text style={[styles.metricValue, { color: colors.text }]}>{formatPace(activity.avg_pace)}</Text>
-              <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>Pace</Text>
+            <View style={styles.metricSummaryItem}>
+              <Feather name="compass" size={13} color={colors.primary} />
+              <Text style={[styles.metricSummaryText, { color: colors.text }]} numberOfLines={1}>
+                {formatPace(activity.avg_pace)}
+              </Text>
             </View>
           </View>
         </View>
@@ -576,7 +568,7 @@ const ActivityCard = memo(function ActivityCard({
         <TouchableOpacity
           accessibilityRole="button"
           accessibilityLabel={`More actions for ${activityName.toLowerCase()} activity`}
-          accessibilityHint="Save this activity route to My Routes."
+          accessibilityHint="Export this activity as GPX or manage its saved route."
           disabled={busy}
           onPress={(event) => {
             event.stopPropagation();
@@ -587,7 +579,7 @@ const ActivityCard = memo(function ActivityCard({
           <Feather name="more-vertical" size={19} color={colors.textSecondary} />
         </TouchableOpacity>
       ) : null}
-      {!selectionMode && activity.is_saved_to_my_routes ? (
+      {!selectionMode && isRouteSaved ? (
         <View style={[styles.routeSavedStatus, { borderTopColor: colors.border }]}>
           <Feather name="check-circle" size={15} color={colors.primary} />
           <Text style={[styles.routeSavedText, { color: colors.textSecondary }]}>Saved to My Routes</Text>
@@ -677,6 +669,7 @@ export default function ActivityScreen() {
   const reduceMotion = useReducedMotion();
   const [activities, setActivities] = useState<BackendActivity[]>([]);
   const [savingActivityIds, setSavingActivityIds] = useState<Set<string>>(() => new Set());
+  const [exportingActivityIds, setExportingActivityIds] = useState<Set<string>>(() => new Set());
   const [pendingSaveActivity, setPendingSaveActivity] = useState<BackendActivity | null>(null);
   const [visibleActivityIds, setVisibleActivityIds] = useState<Set<string>>(() => new Set());
   const [selectionMode, setSelectionMode] = useState(false);
@@ -699,6 +692,7 @@ export default function ActivityScreen() {
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [isImportingGpx, setIsImportingGpx] = useState(false);
   const [totalHistoryCount, setTotalHistoryCount] = useState<number | null>(null);
   const cursorRef = useRef<string | null>(null);
   const monthAutoLoadKeyRef = useRef<string | null>(null);
@@ -765,6 +759,78 @@ export default function ActivityScreen() {
       selectionToastTimerRef.current = null;
     }, 2400);
   }, []);
+
+  const submitGpxWorkout = useCallback(async (preview: GpxWorkoutPreview) => {
+    setIsImportingGpx(true);
+    try {
+      const importedActivity = await activityAPI.importGpxWorkout(preview);
+      Alert.alert(
+        'GPX workout imported',
+        'The workout was added to your history.',
+        [{
+          text: 'View workout',
+          onPress: () => router.push({
+            pathname: '/(app)/activity/[id]',
+            params: { id: String(importedActivity.id) },
+          }),
+        }],
+      );
+    } catch (requestError) {
+      const status = (requestError as { response?: { status?: number } })?.response?.status;
+      const message = status === 404
+        ? 'The GPX workout import endpoint is not available on the server yet. Ask your backend team to implement POST /rundata/activities/import-gpx/.'
+        : getBackendErrorMessage(requestError, 'Could not import this GPX workout. Please try again.');
+      Alert.alert('Could not import GPX workout', message);
+    } finally {
+      setIsImportingGpx(false);
+    }
+  }, []);
+
+  const pickGpxWorkout = useCallback(async () => {
+    if (Platform.OS !== 'android') {
+      Alert.alert('GPX import unavailable', 'GPX import is currently supported on Android only.');
+      return;
+    }
+
+    setIsImportingGpx(true);
+    try {
+      const result = await File.pickFileAsync({
+        mimeTypes: ['application/gpx+xml', 'application/gpx', 'application/xml', 'text/xml'],
+      });
+      if (result.canceled) return;
+
+      const file = result.result;
+      if (!file.name.toLowerCase().endsWith('.gpx')) {
+        Alert.alert('Choose a GPX file', 'Select a file with the .gpx extension.');
+        return;
+      }
+      if (file.size !== null && file.size > 10 * 1024 * 1024) {
+        Alert.alert('GPX file is too large', 'Choose a GPX file no larger than 10 MB.');
+        return;
+      }
+
+      const xml = await file.text();
+      const preview = parseGpxWorkout(xml, file.name);
+      const gapNotice = preview.longGapCount > 0
+        ? `\n\nWarning: ${preview.longGapCount} time gap${preview.longGapCount === 1 ? '' : 's'} exceed 15 minutes. Elapsed time will include these gaps.`
+        : '';
+      Alert.alert(
+        'Import this GPX workout?',
+        `${preview.activityType === 'WALK' ? 'Walk' : 'Run'} · ${(preview.distanceMeters / 1000).toFixed(2)} km · ${formatDuration(preview.elapsedSeconds)} · ${preview.points.length.toLocaleString()} GPS points${gapNotice}`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Import', onPress: () => void submitGpxWorkout(preview) },
+        ],
+      );
+    } catch (pickerError) {
+      const message = pickerError instanceof Error
+        ? pickerError.message
+        : 'Could not read the selected GPX file.';
+      Alert.alert('Could not read GPX file', message);
+    } finally {
+      setIsImportingGpx(false);
+    }
+  }, [submitGpxWorkout]);
 
   useEffect(() => () => {
     if (selectionToastTimerRef.current) clearTimeout(selectionToastTimerRef.current);
@@ -1173,37 +1239,76 @@ export default function ActivityScreen() {
     }
   }, [savingActivityIds, showSelectionToast]);
 
+  const exportActivityGpx = useCallback(async (activity: BackendActivity) => {
+    const activityKey = String(activity.id);
+    if (exportingActivityIds.has(activityKey)) return;
+    setExportingActivityIds((current) => new Set(current).add(activityKey));
+    try {
+      const detail = await activityAPI.get(activity.id);
+      await shareActivityAsGpx(detail);
+    } catch (exportError) {
+      const message = exportError instanceof Error
+        ? exportError.message
+        : 'Could not export this activity as GPX.';
+      Alert.alert('Could not export GPX', message);
+    } finally {
+      setExportingActivityIds((current) => {
+        const next = new Set(current);
+        next.delete(activityKey);
+        return next;
+      });
+    }
+  }, [exportingActivityIds]);
+
   const openActivityRouteMenu = useCallback((activity: BackendActivity) => {
+    const exportOption = {
+      text: 'Export GPX',
+      onPress: () => { void exportActivityGpx(activity); },
+    };
+
     if (activity.is_saved_to_my_routes) {
       const routeId = Number(activity.saved_route_id);
       if (!Number.isInteger(routeId) || routeId <= 0) {
-        Alert.alert('Route already saved', 'This route is saved, but its route ID is missing from the History response.');
+        Alert.alert('Activity options', 'This route is saved, but its route ID is missing from the History response.', [
+          exportOption,
+          { text: 'Cancel', style: 'cancel' },
+        ]);
         return;
       }
 
-      void runRouteAPI.get(routeId).then((route) => {
-        const nextIsPublic = !route.is_public;
-        Alert.alert(
-          nextIsPublic ? 'Make route public?' : 'Make route private?',
-          nextIsPublic
-            ? 'Other signed-in Zy-Run users will be able to view this route.'
-            : 'Other users will no longer be able to view this route.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: nextIsPublic ? 'Make Public' : 'Make Private',
-              onPress: () => { void updateActivityRouteVisibility(activity, routeId, nextIsPublic); },
-            },
-          ],
-          { cancelable: true },
-        );
-      }).catch((requestError) => {
-        Alert.alert('Could not load route visibility', getBackendErrorMessage(requestError, 'Please try again.'));
-      });
+      Alert.alert('Activity options', undefined, [
+        exportOption,
+        {
+          text: 'Change route visibility',
+          onPress: () => {
+            void runRouteAPI.get(routeId).then((route) => {
+              const nextIsPublic = !route.is_public;
+              Alert.alert(
+                nextIsPublic ? 'Make route public?' : 'Make route private?',
+                nextIsPublic
+                  ? 'Other signed-in Zy-Run users will be able to view this route.'
+                  : 'Other users will no longer be able to view this route.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: nextIsPublic ? 'Make Public' : 'Make Private',
+                    onPress: () => { void updateActivityRouteVisibility(activity, routeId, nextIsPublic); },
+                  },
+                ],
+                { cancelable: true },
+              );
+            }).catch((requestError) => {
+              Alert.alert('Could not load route visibility', getBackendErrorMessage(requestError, 'Please try again.'));
+            });
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
       return;
     }
 
     Alert.alert('Activity options', undefined, [
+      exportOption,
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Save to My Routes',
@@ -1218,7 +1323,7 @@ export default function ActivityScreen() {
         },
       },
     ]);
-  }, [updateActivityRouteVisibility]);
+  }, [exportActivityGpx, updateActivityRouteVisibility]);
 
   const deleteActivities = useCallback(async (targets: BackendActivity[]) => {
     if (targets.length === 0 || isDeletingActivities) return;
@@ -1405,7 +1510,7 @@ export default function ActivityScreen() {
         selectionMode={selectionMode}
         selected={selectedActivityIds.has(String(activity.id))}
         deleting={deletingActivityIds.has(String(activity.id))}
-        busy={isDeletingActivities || savingActivityIds.has(String(activity.id))}
+        busy={isDeletingActivities || savingActivityIds.has(String(activity.id)) || exportingActivityIds.has(String(activity.id))}
       />
     );
   }, [
@@ -1413,10 +1518,12 @@ export default function ActivityScreen() {
     colors.textSecondary,
     colors.textTertiary,
     deletingActivityIds,
+    exportingActivityIds,
     isDeletingActivities,
     handleActivityPress,
     openActivityRouteMenu,
     reduceMotion,
+    savingActivityIds,
     visibleActivityIds,
     selectedActivityIds,
     selectionMode,
@@ -1433,8 +1540,8 @@ export default function ActivityScreen() {
   }, [activities.length, totalHistoryCount]);
 
   const listExtraData = useMemo(
-    () => ({ selectionMode, selectedActivityIds, deletingActivityIds, isDeletingActivities }),
-    [deletingActivityIds, isDeletingActivities, selectedActivityIds, selectionMode],
+    () => ({ selectionMode, selectedActivityIds, deletingActivityIds, exportingActivityIds, isDeletingActivities }),
+    [deletingActivityIds, exportingActivityIds, isDeletingActivities, selectedActivityIds, selectionMode],
   );
 
   return (
@@ -1502,8 +1609,24 @@ export default function ActivityScreen() {
         </Animated.View>
       ) : (
         <View style={styles.heading}>
-          <Text style={[styles.title, { color: colors.text }]}>Workout History</Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Your completed runs and walks</Text>
+          <View style={styles.headingRow}>
+            <View style={styles.headingCopy}>
+              <Text style={[styles.title, { color: colors.text }]}>Workout History</Text>
+              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Your completed runs and walks</Text>
+            </View>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Import GPX workout"
+              disabled={isImportingGpx}
+              onPress={() => void pickGpxWorkout()}
+              style={[styles.gpxImportButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            >
+              {isImportingGpx
+                ? <RunningLoader size={17} fillColor={colors.primary} />
+                : <Feather name="upload" size={16} color={colors.primary} />}
+              <Text style={[styles.gpxImportText, { color: colors.text }]}>GPX</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -2095,8 +2218,12 @@ const styles = StyleSheet.create({
   screenContent: { flex: 1 },
   container: { flex: 1, backgroundColor: '#0B0E0F', paddingHorizontal: 22 },
   heading: { paddingTop: 20, paddingBottom: 18 },
+  headingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  headingCopy: { flex: 1, minWidth: 0 },
   title: { color: '#F7F7F7', fontSize: 31, fontWeight: '700' },
   subtitle: { color: '#A9ADAF', fontSize: 15, marginTop: 4 },
+  gpxImportButton: { minWidth: 66, minHeight: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 10, borderWidth: 1, borderRadius: 12 },
+  gpxImportText: { fontSize: 12, fontWeight: '700' },
   selectionToolbar: { paddingTop: 12, paddingBottom: 12, gap: 9 },
   selectionToolbarHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   selectionTitleGroup: { flex: 1, minWidth: 0 },
@@ -2173,7 +2300,8 @@ const styles = StyleSheet.create({
   dayCount: { fontSize: 11, fontWeight: '600' },
   toast: { position: 'absolute', alignSelf: 'center', bottom: 178, maxWidth: '90%', paddingHorizontal: 16, paddingVertical: 11, borderRadius: 22, backgroundColor: '#252A27', borderWidth: 1, borderColor: '#3C4B3F' },
   toastText: { color: '#F7F7F7', fontSize: 13, fontWeight: '600', textAlign: 'center' },
-  card: { minHeight: 150, backgroundColor: '#242627', borderRadius: 25, paddingVertical: 14, paddingHorizontal: 15, marginBottom: 5, borderWidth: 1, borderColor: '#393C3E' },
+  card: { minHeight: 0, backgroundColor: '#242627', borderRadius: 25, paddingVertical: 10, paddingHorizontal: 15, marginBottom: 5, borderWidth: 1, borderColor: '#393C3E' },
+  cardExpanded: { minHeight: 136 },
   longPressProgressTrack: { position: 'absolute', top: 0, left: 0, height: 3, backgroundColor: '#35C72B', borderTopLeftRadius: 25, borderTopRightRadius: 3 },
   deleteTray: { position: 'absolute', left: 22, right: 22, bottom: 96, zIndex: 20, alignItems: 'center' },
   deleteButton: { minWidth: 190, minHeight: 58, borderRadius: 29, backgroundColor: '#E53935', borderWidth: 2, borderColor: '#E53935', elevation: 10, shadowColor: '#E53935', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.25, shadowRadius: 10 },
@@ -2196,17 +2324,13 @@ const styles = StyleSheet.create({
   saveRouteCancel: { minHeight: 38, alignItems: 'center', justifyContent: 'center', marginTop: 5 },
   saveRouteCancelText: { fontSize: 13, fontWeight: '600' },
   cardCheckbox: { position: 'absolute', top: 7, right: 7, width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 2, zIndex: 2 },
-  cardDetails: { flex: 1.05, minWidth: 0, paddingRight: 8 },
-  activityType: { color: '#F7F7F7', fontSize: 18, lineHeight: 22, fontWeight: '800' },
-  activityDate: { color: '#A9ADAF', fontSize: 12, lineHeight: 15, marginTop: 2 },
-  distance: { color: '#35C72B', fontSize: 24, lineHeight: 28, fontWeight: '900', marginTop: 4 },
-  centerMetricsContainer: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
-  metricRow: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', marginVertical: 3 },
-  metricIcon: { width: 20, alignItems: 'center' },
-  metricText: { flex: 1, alignItems: 'flex-start', marginLeft: 4, minWidth: 0 },
-  metricValue: { color: '#F7F7F7', fontSize: 12, lineHeight: 15, fontWeight: '900' },
-  metricLabel: { color: '#A9ADAF', fontSize: 10, lineHeight: 12, marginTop: 1,width: '100%' },
-  mapThumbnailContainer: { position: 'relative', width: '34%', aspectRatio: 1, minWidth: 0, marginLeft: 8, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E5E7EB' },
+  cardDetails: { flex: 1, minWidth: 0, paddingRight: 8 },
+  activityType: { color: '#F7F7F7', fontSize: 14, lineHeight: 17, fontWeight: '800' },
+  distance: { color: '#35C72B', fontSize: 20, lineHeight: 24, fontWeight: '900', marginTop: 1 },
+  metricSummaryRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 },
+  metricSummaryItem: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 },
+  metricSummaryText: { fontSize: 12, lineHeight: 15, fontWeight: '700', flexShrink: 1 },
+  mapThumbnailContainer: { position: 'relative', width: '34%', aspectRatio: 1, flexShrink: 0, minWidth: 0, marginLeft: 8, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E5E7EB' },
   mapThumbnailImage: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
   mapPreviewPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E5E7EB' },
   mapOverlayTop: { position: 'absolute', top: 8, left: 8, right: 8, flexDirection: 'row', justifyContent: 'flex-start' },
@@ -2220,12 +2344,12 @@ const styles = StyleSheet.create({
   footerCountText: { color: '#D9F9DB', fontSize: 12, fontWeight: '700', letterSpacing: 0.2 },
   endMessage: { color: '#A9ADAF', textAlign: 'center', fontSize: 13, paddingVertical: 18 },
   skeletonList: { paddingTop: 4 },
-  skeletonCard: { minHeight: 150, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#171A1A', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 12, borderWidth: 1, borderColor: '#243C2B' },
+  skeletonCard: { minHeight: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#171A1A', borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14, marginBottom: 12, borderWidth: 1, borderColor: '#243C2B' },
   skeletonMain: { flex: 1, minWidth: 0, paddingRight: 6 },
   skeletonShort: { width: '55%', height: 12, borderRadius: 5, backgroundColor: '#294A32' },
   skeletonTiny: { width: '35%', height: 8, borderRadius: 4, backgroundColor: '#26352A', marginTop: 4 },
   skeletonDistance: { width: '48%', height: 18, borderRadius: 6, backgroundColor: '#245C32', marginTop: 7 },
-  skeletonMetrics: { width: '78%', height: 24, borderRadius: 7, backgroundColor: '#202A22', marginTop: 7 },
+  skeletonMetrics: { width: '78%', height: 14, borderRadius: 7, backgroundColor: '#202A22', marginTop: 5 },
   skeletonMap: { width: '34%', aspectRatio: 1, minWidth: 0, borderRadius: 18, overflow: 'hidden', backgroundColor: '#202A22' },
   empty: { color: '#A9ADAF', textAlign: 'center', fontSize: 16, marginTop: 40 },
 });

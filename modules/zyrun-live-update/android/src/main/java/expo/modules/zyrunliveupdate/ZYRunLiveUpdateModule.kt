@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import android.service.notification.StatusBarNotification
+import android.util.Log
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.util.Locale
@@ -31,6 +32,11 @@ class ZYRunLiveUpdateModule : Module() {
     val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
       ?: return false
     val activeNotification = findLocationForegroundNotification(context, notificationManager) ?: return false
+    val notificationIcon = context.resources.getIdentifier("notification_icon", "drawable", context.packageName)
+    if (notificationIcon == 0) {
+      Log.e(TAG, "The configured Android notification icon resource was not found.")
+      return false
+    }
     val runId = data["runId"] as? String
     val status = if (data["status"] == "paused") "paused" else "running"
     val distanceKm = (data["distanceKm"] as? Number)?.toDouble()?.coerceAtLeast(0.0) ?: 0.0
@@ -42,6 +48,7 @@ class ZYRunLiveUpdateModule : Module() {
     val text = "${formatDuration(elapsedSeconds)} · ${String.format(Locale.US, "%.2f", distanceKm)} km · ${formatPace(paceMinutesPerKm)}/km"
     val launchIntent = createRunIntent(context, runId, null) ?: return false
     val builder = Notification.Builder.recoverBuilder(context, activeNotification.notification)
+      .setSmallIcon(notificationIcon)
       .setContentTitle(title)
       .setContentText(text)
       .setContentIntent(pendingActivity(context, launchIntent, 1001))
@@ -116,15 +123,17 @@ class ZYRunLiveUpdateModule : Module() {
   private fun buildActions(context: Context, runId: String?, status: String): Array<Notification.Action> {
     val action = if (status == "paused") "zyrun-resume" else "zyrun-pause"
     val label = if (status == "paused") "Resume" else "Pause"
-    val icon = Icon.createWithResource(context, context.applicationInfo.icon)
+    val toggleIconResource = if (status == "paused") android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause
+    val toggleIcon = Icon.createWithResource(context, toggleIconResource)
+    val finishIcon = Icon.createWithResource(context, android.R.drawable.ic_menu_close_clear_cancel)
     val toggleIntent = createRunIntent(context, runId, action)
       ?.let { pendingActivity(context, it, 1002) }
     val finishIntent = createRunIntent(context, runId, "zyrun-stop")
       ?.let { pendingActivity(context, it, 1003) }
 
     return listOfNotNull(
-      toggleIntent?.let { Notification.Action.Builder(icon, label, it).build() },
-      finishIntent?.let { Notification.Action.Builder(icon, "Finish", it).build() },
+      toggleIntent?.let { Notification.Action.Builder(toggleIcon, label, it).build() },
+      finishIntent?.let { Notification.Action.Builder(finishIcon, "Finish", it).build() },
     ).toTypedArray()
   }
 
@@ -176,6 +185,7 @@ class ZYRunLiveUpdateModule : Module() {
     if (distanceKm < 10) String.format(Locale.US, "%.1fk", distanceKm) else "${distanceKm.toInt()}k"
 
   private companion object {
+    const val TAG = "ZYRunLiveUpdate"
     const val PREFERENCES_NAME = "zyrun_live_update"
     const val KEY_NOTIFICATION_ID = "expo_location_notification_id"
     const val KEY_NOTIFICATION_TAG = "expo_location_notification_tag"
