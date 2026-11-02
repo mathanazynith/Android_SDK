@@ -351,8 +351,13 @@ const ActivityCard = memo(function ActivityCard({
   const duration = activity.moving_time || activity.elapsed_time;
   const thumbnailUri = resolveApiUrl(activity.thumbnail_url);
   const [savedThumbnailUri, setSavedThumbnailUri] = useState<string | null>(null);
-  const [routeActivity, setRouteActivity] = useState<BackendActivity | null>(null);
+  const [routeActivity, setRouteActivity] = useState<BackendActivity | null>(() => activityDetails.get(String(activity.id)) ?? null);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const [prevThumbnailUri, setPrevThumbnailUri] = useState(thumbnailUri);
+  if (prevThumbnailUri !== thumbnailUri) {
+    setPrevThumbnailUri(thumbnailUri);
+    setThumbnailFailed(false);
+  }
   const longPressHandledRef = useRef(false);
   const [selectionScale] = useState(() => new Animated.Value(1));
   const holdProgress = useSharedValue(0);
@@ -369,10 +374,6 @@ const ActivityCard = memo(function ActivityCard({
       useNativeDriver: true,
     }).start();
   }, [selected, selectionScale]);
-
-  useEffect(() => {
-    setThumbnailFailed(false);
-  }, [thumbnailUri]);
 
   useEffect(() => {
     if (!isVisible || (thumbnailUri && !thumbnailFailed)) return;
@@ -405,8 +406,6 @@ const ActivityCard = memo(function ActivityCard({
         activityDetailRequests.delete(String(activityId));
       }
     };
-    const cachedDetail = activityDetails.get(String(activityId));
-    if (cachedDetail) setRouteActivity(cachedDetail);
     void loadRoute();
     return () => { cancelled = true; };
   }, [activityId, isVisible, thumbnailFailed, thumbnailUri]);

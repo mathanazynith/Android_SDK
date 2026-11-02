@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import React, { useMemo } from "react";
+import { View, Text, StyleSheet } from "react-native";
 import { Question, SubQuestion } from "../../../../service/questionnaire/questionnaireService";
 import SingleChoice from "../QuestionTypes/SingleChoice";
 import TextInput from "../QuestionTypes/TextInput";
@@ -21,10 +21,6 @@ const QuestionGroup: React.FC<QuestionGroupProps> = ({
   totalQuestions,
   allAnswers = [],
 }) => {
-  const [distance, setDistance] = useState("");
-  const [time, setTime] = useState("");
-  const [calculatedPace, setCalculatedPace] = useState("");
- 
   // Get current answers for sub-questions
   const getSubQuestionAnswer = (subId: string) => {
     const answer = allAnswers.find((a: any) => a.questionId === subId);
@@ -43,7 +39,7 @@ const QuestionGroup: React.FC<QuestionGroupProps> = ({
   };
  
   // Calculate pace when distance and time are answered
-  useEffect(() => {
+  const calculatedPace = useMemo(() => {
     const distanceAnswer = allAnswers.find((a: any) => a.questionId === "q2");
     const timeAnswer = allAnswers.find((a: any) => a.questionId === "q3");
    
@@ -55,13 +51,10 @@ const QuestionGroup: React.FC<QuestionGroupProps> = ({
         const pace = timeInMinutes / dist;
         const minutes = Math.floor(pace);
         const seconds = Math.round((pace - minutes) * 60);
-        setCalculatedPace(`${minutes}:${seconds.toString().padStart(2, '0')} min/km`);
-      } else {
-        setCalculatedPace("");
+        return `${minutes}:${seconds.toString().padStart(2, '0')} min/km`;
       }
-    } else {
-      setCalculatedPace("");
     }
+    return "";
   }, [allAnswers]);
  
   const renderSubQuestion = (subQuestion: SubQuestion) => {

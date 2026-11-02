@@ -85,6 +85,7 @@ const TabButton = memo(function TabButton({
       return;
     }
 
+    /* eslint-disable react-hooks/immutability */
     cancelAnimation(iconScale);
     if (reduceMotion) {
       iconScale.value = 1;
@@ -105,6 +106,7 @@ const TabButton = memo(function TabButton({
         easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
       });
     }
+    /* eslint-enable react-hooks/immutability */
   }, [active, iconScale, reduceMotion]);
 
   return (
@@ -229,9 +231,13 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
     router.push('/(app)/profile/edit');
   }, []);
 
-  useEffect(() => {
-    setPlanPrompt(null);
-  }, [pathname]);
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (prevPathname !== pathname) {
+    setPrevPathname(pathname);
+    if (planPrompt !== null) {
+      setPlanPrompt(null);
+    }
+  }
 
   if (!isPrimaryTabPath(pathname)) return null;
 

@@ -1,22 +1,23 @@
 import {
-    createContext,
-    ReactNode,
-    useCallback,
-    useContext,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
+  createContext,
+  ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
 } from "react";
 import { getBackendErrorMessage } from "../service/api";
 import { useAuth } from "../service/auth";
 import type {
-    AnswerPayload,
-    Navigation,
-    Question,
+  AnswerPayload,
+  Navigation,
+  Question,
 } from "../service/questionnaire/questionnaireService";
 import { assessmentService } from "../service/questionnaire/questionnaireService";
 import { storage } from "../service/storage";
+import { validateAnswer } from "../service/validation/AssessmentValidator";
 import { CurrentWorkoutPlan, isNoTrainingPlanResponse, workoutPlanService } from "../service/workoutPlan";
 import { PlanBenchmarkStore } from "../src/services/planBenchmarkStore";
 
@@ -276,42 +277,8 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     }));
   }, [allAnswers]);
 
-  const canGoBack = navigationHistory.current.length > 0;
+  const [canGoBack, setCanGoBack] = useState(false);
   const currentQuestionIndex = 0; // For backward compatibility
-
-  // Load questions on user login
-  useEffect(() => {
-    if (authLoading) return;
-    if (!user) {
-      resetState();
-      return;
-    }
-    if (
-      assessmentId
-      || currentNavigation
-      || isStartingAssessment.current
-      || isResettingAssessment.current
-    ) {
-      return;
-    }
-
-    const initializeAssessment = async () => {
-      if (isStartingAssessment.current) return;
-      try {
-        if (!questions.length) {
-          await loadQuestions();
-        }
-        if (isResettingAssessment.current) return;
-        if (!assessmentId && !currentNavigation) {
-          await startAssessment();
-        }
-      } catch {
-        // startAssessment already sets error state
-      }
-    };
-
-    initializeAssessment();
-  }, [authLoading, user, assessmentId, currentNavigation, questions.length]);
 
   const resetState = () => {
     setQuestions([]);
@@ -330,6 +297,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     setIsWorkoutPlanLoading(false);
     navigationHistory.current = [];
     forwardNavigationHistory.current = [];
+    setCanGoBack(false);
     assessmentService.clearCache();
     PlanBenchmarkStore.clearAll().catch(() => {});
   };
@@ -417,6 +385,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setWorkoutPlanError(null);
       navigationHistory.current = [];
       forwardNavigationHistory.current = [];
+      setCanGoBack(false);
       await storage.removeItem(storage.KEYS.TRAINING_PLAN);
       await PlanBenchmarkStore.clearAll().catch(() => {});
     };
@@ -506,10 +475,28 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
   }, [workoutPlan]);
 
   useEffect(() => {
+    let active = true;
     if (assessmentId && isComplete && !assessmentResultLoaded && !isAssessmentResultLoading) {
-      fetchAssessmentResult().catch(() => {});
+      const runFetch = async () => {
+        setIsAssessmentResultLoading(true);
+        try {
+          const result = await assessmentService.getResults(assessmentId);
+          if (active) setAssessmentResult(result);
+        } catch (err: any) {
+          console.error("[Questionnaire] fetchAssessmentResult failed:", err);
+        } finally {
+          if (active) {
+            setIsAssessmentResultLoading(false);
+            setAssessmentResultLoaded(true);
+          }
+        }
+      };
+      void runFetch();
     }
-  }, [assessmentId, isComplete, assessmentResultLoaded, isAssessmentResultLoading, fetchAssessmentResult]);
+    return () => {
+      active = false;
+    };
+  }, [assessmentId, isComplete, assessmentResultLoaded, isAssessmentResultLoading]);
 
   useEffect(() => {
     if (assessmentId && isComplete) {
@@ -520,7 +507,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
         () => setCompletedPlanCheckAssessmentId(assessmentId),
       );
     }
-  }, [assessmentId, isComplete]);
+  }, [assessmentId, isComplete, fetchWorkoutPlan]);
 
   // Automatically fetch active workout plan on user login
   useEffect(() => {
@@ -553,6 +540,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setAllAnswers({});
       navigationHistory.current = [];
       forwardNavigationHistory.current = [];
+      setCanGoBack(false);
     } catch (err: any) {
       setError(getBackendErrorMessage(err, "Failed to start assessment"));
     } finally {
@@ -560,6 +548,45 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       isStartingAssessment.current = false;
     }
   };
+
+  // Load questions and start an assessment once the user session is available.
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) return;
+    if (
+      assessmentId
+      || currentNavigation
+      || isStartingAssessment.current
+      || isResettingAssessment.current
+    ) {
+      return;
+    }
+
+    const initializeAssessment = async () => {
+      if (isStartingAssessment.current) return;
+      try {
+        if (!questions.length) {
+          await loadQuestions();
+        }
+        if (isResettingAssessment.current) return;
+        if (!assessmentId && !currentNavigation) {
+          await startAssessment();
+        }
+      } catch {
+        // startAssessment already sets error state
+      }
+    };
+
+    void initializeAssessment();
+  }, [authLoading, user, assessmentId, currentNavigation, questions.length]);
+
+  const userLogoutRef = useRef(user);
+  useEffect(() => {
+    if (userLogoutRef.current && !user) {
+      resetState();
+    }
+    userLogoutRef.current = user;
+  }, [user]);
 
   const normalizeCustomValues = (customValues?: Record<string, any> | null) => {
     if (customValues === null) return {};
@@ -591,6 +618,36 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const validateCurrentAnswer = useCallback(
+    (questionId: string, value: any, allowIncompleteSelectionCount = false) => {
+      const question = questions.find((item) => String(item.backendId ?? getNumericId(item.id)) === String(getNumericId(questionId)));
+      if (!question) return { valid: true };
+
+      const key = String(getNumericId(questionId));
+      const existingAnswer = allAnswers[key];
+
+      const validationResult = validateAnswer({
+        question,
+        answer: value,
+        allAnswers,
+        questions,
+        allowIncompleteSelectionCount,
+      });
+
+      if (!validationResult.valid) {
+        setError(validationResult.message || "Invalid answer");
+        return validationResult;
+      }
+
+      if (existingAnswer?.value !== value) {
+        setError(null);
+      }
+
+      return validationResult;
+    },
+    [allAnswers, questions]
+  );
+
   // Set answer - MERGES customValues, never overwrites
   const setAnswer = useCallback(
     (
@@ -601,6 +658,11 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     ) => {
       const numericId = getNumericId(questionId);
       const key = String(numericId);
+
+      const validationResult = validateCurrentAnswer(key, value, true);
+      if (!validationResult.valid) {
+        return;
+      }
 
       clearValidationErrors(questionId);
 
@@ -643,7 +705,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
         };
       });
     },
-    [clearValidationErrors]
+    [clearValidationErrors, mergeCustomValues, validateCurrentAnswer]
   );
 
   // ------------------------------------------------------------------
@@ -746,6 +808,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
           computedResponses,
           complete: isComplete,
         });
+        setCanGoBack(true);
       }
       const cachedForwardPage = forwardNavigationHistory.current.at(-1);
       let nextNavigation = result.navigation;
@@ -801,6 +864,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
         complete: isComplete,
       });
       navigationHistory.current.pop();
+      setCanGoBack(navigationHistory.current.length > 0);
       setCurrentNavigation(nextNavigation);
       setComputedResponses(result.navigation ? result.computedResponses : previousPage?.computedResponses ?? result.computedResponses);
       setIsComplete(nextNavigation ? false : result.complete);

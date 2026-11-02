@@ -16,10 +16,11 @@ interface DistanceInputProps {
 export const DistanceInput: React.FC<DistanceInputProps> = ({ label, value, unitLabel, hint, error, maxValue, onChange }) => {
   const { colors } = useTheme();
   const [localValue, setLocalValue] = useState(value || '');
-
-  React.useEffect(() => {
+  const [prevValue, setPrevValue] = useState(value || '');
+  if (prevValue !== (value || '')) {
+    setPrevValue(value || '');
     setLocalValue(value || '');
-  }, [value]);
+  }
 
   const validation = useMemo(() => validateDistance(localValue || ''), [localValue]);
   const exceedsMaximum = Number.isFinite(maxValue) && Number(localValue) > Number(maxValue);

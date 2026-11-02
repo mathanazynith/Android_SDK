@@ -22,11 +22,6 @@ export default function VerifyOTPScreen() {
 
   // Countdown timer effect
   useEffect(() => {
-    // Reset timer when component mounts (when OTP is sent)
-    setTimeRemaining(OTP_EXPIRY_SECONDS);
-    setIsOtpExpired(false);
-    setAttempts(0);
-
     const timer = setInterval(() => {
       setTimeRemaining((prevTime) => {
         if (prevTime <= 1) {
@@ -279,7 +274,7 @@ export default function VerifyOTPScreen() {
         {isOtpExpired && (
           <View style={styles.expiredContainer}>
             <Text style={styles.expiredText}>
-              Your OTP has expired. Please click "Resend OTP" to get a new code.
+              Your OTP has expired. Please click &quot;Resend OTP&quot; to get a new code.
             </Text>
           </View>
         )}
@@ -288,7 +283,7 @@ export default function VerifyOTPScreen() {
         {attempts >= 5 && !isOtpExpired && (
           <View style={styles.expiredContainer}>
             <Text style={styles.expiredText}>
-              Maximum attempts exceeded. Please click "Resend OTP" to get a new code.
+              Maximum attempts exceeded. Please click &quot;Resend OTP&quot; to get a new code.
             </Text>
           </View>
         )}

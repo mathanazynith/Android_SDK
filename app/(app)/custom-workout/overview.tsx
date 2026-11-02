@@ -1,8 +1,9 @@
 import { Alert } from '@/components/ThemedAlert';
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { BackHandler, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
 import ThemedCalendarPicker from "../../../components/common/ThemedCalendarPicker";
@@ -29,26 +30,41 @@ const seconds = (value: string) => {
 };
 
 const distanceInKm = (step: WorkoutStep) => {
-  if (!step.distance || step.distance === "0" || step.distance.trim() === "") return 0;
-  const value = Number.parseFloat(step.distance) || 0;
-  if (value <= 0) return 0;
-  const unit = normalizeUnit(step.unit);
-  if (unit === "m") return value / 1000;
-  if (unit === "mi") return value * 1.609344;
-  return value;
+  if (step.distance && step.distance.trim() !== "") {
+    const raw = step.distance.replace(",", ".");
+    const value = Number.parseFloat(raw) || 0;
+    if (value > 0) {
+      const unit = normalizeUnit(step.unit);
+      if (unit === "m") return value / 1000;
+      if (unit === "mi") return value * 1.609344;
+      return value;
+    }
+  }
+  const stepSec = seconds(step.duration || "00:00:00");
+  if (stepSec > 0) {
+    const defaultPace = step.stepType === "Warmup" ? 400 : step.stepType === "Cooldown" ? 500 : 300;
+    const paceSec = parsePaceToSeconds(step.pace) || defaultPace;
+    return stepSec / paceSec;
+  }
+  return 0;
 };
 
 const estimatedStepSeconds = (step: WorkoutStep) => {
   const declaredTime = seconds(step.duration || "00:00:00");
   if (declaredTime > 0) return declaredTime;
-  const paceSec = parsePaceToSeconds(step.pace);
-  const distNum = Number.parseFloat(step.distance) || 0;
+  const defaultPace = step.stepType === "Warmup" ? 400 : step.stepType === "Cooldown" ? 500 : 300;
+  const paceSec = parsePaceToSeconds(step.pace) || defaultPace;
+  const raw = step.distance ? step.distance.replace(",", ".") : "";
+  const distNum = Number.parseFloat(raw) || 0;
   if (!paceSec || distNum <= 0) return 0;
   const unit = normalizeUnit(step.unit);
+  let distInKm = distNum;
   if (unit === "m") {
-    return (distNum / 1000) * paceSec;
+    distInKm = distNum / 1000;
+  } else if (unit === "mi") {
+    distInKm = distNum * 1.609344;
   }
-  return distNum * paceSec;
+  return Math.round(distInKm * paceSec);
 };
 
 const estimatedRestSeconds = (step: WorkoutStep) => {
@@ -79,11 +95,14 @@ const displayTime = (value: number) => {
   return `${s}s`;
 };
 
-const hasDistance = (step: WorkoutStep) =>
-  Boolean(step.distance && step.distance.trim() !== "" && step.distance !== "0" && step.distance !== "0.00");
+const hasDistance = (step: WorkoutStep) => {
+  if (!step.distance) return false;
+  const raw = step.distance.replace(",", ".");
+  return (Number.parseFloat(raw) || 0) > 0;
+};
 
 const hasDuration = (step: WorkoutStep) =>
-  Boolean(step.duration && step.duration.trim() !== "" && step.duration !== "00:00:00" && seconds(step.duration) > 0);
+  seconds(step.duration || "00:00:00") > 0;
 
 const hasPace = (step: WorkoutStep) =>
   Boolean(step.pace && step.pace.trim() !== "");
@@ -100,14 +119,108 @@ const stepTimeText = (step: WorkoutStep) => {
   return est > 0 ? displayTime(est) : "";
 };
 
-const hasText = (value?: string) => Boolean(value?.trim());
 const isEmptyStep = (step: WorkoutStep) =>
-  !hasText(step.distance) &&
-  !hasText(step.pace) &&
-  (!hasText(step.duration) || seconds(step.duration) === 0);
+  !hasDistance(step) && !hasDuration(step) && !hasPace(step);
 
 const routeDistanceText = (route: SuggestedRoute) =>
   `${(Number(route.distance || 0) / 1000).toFixed(2)} km`;
+
+function getStepCategory(step: WorkoutStep): "warmup" | "run" | "cooldown" {
+  const typeLower = String(step.stepType || "").toLowerCase();
+  const titleLower = String(step.title || "").toLowerCase();
+  if (typeLower === "warmup" || titleLower.includes("warm")) {
+    return "warmup";
+  }
+  if (typeLower === "cooldown" || titleLower.includes("cool")) {
+    return "cooldown";
+  }
+  return "run";
+}
+
+function getStepColor(step: WorkoutStep, defaultColor = "#30D158"): string {
+  const cat = getStepCategory(step);
+  if (cat === "warmup") return "#FF5722";
+  if (cat === "cooldown") return "#0A84FF";
+  return defaultColor;
+}
+
+function StepSilhouette({
+  type,
+  size = 22,
+  color,
+}: {
+  type: "warmup" | "run" | "cooldown";
+  size?: number;
+  color: string;
+}) {
+  if (type === "warmup") {
+    return (
+      <MaterialCommunityIcons
+        name="human-handsup"
+        size={size}
+        color={color}
+      />
+    );
+  }
+  if (type === "run") {
+    return (
+      <MaterialCommunityIcons
+        name="run-fast"
+        size={size}
+        color={color}
+      />
+    );
+  }
+  return (
+    <MaterialCommunityIcons
+      name="walk"
+      size={size}
+      color={color}
+    />
+  );
+}
+
+function StepSuggestionBox({
+  title,
+  color,
+  onPress,
+}: {
+  title: string;
+  color: string;
+  onPress: () => void;
+  type?: "warmup" | "run" | "cooldown";
+  subtitle?: string;
+}) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.76}
+      onPress={onPress}
+      style={[
+        styles.suggestionBox,
+        {
+          borderColor: `${color}45`,
+          backgroundColor: `${color}0E`,
+        },
+      ]}
+    >
+      <Text style={[styles.suggestionTitle, { color }]} numberOfLines={1}>
+        {title}
+      </Text>
+      {/* <View
+        style={[
+          styles.suggestionActionBadge,
+          { backgroundColor: `${color}22` },
+        ]}
+      >
+        <Feather name="plus" size={11} color={color} style={{ marginRight: 3 }} />
+        <Text style={[styles.suggestionActionText, { color }]}>Add</Text>
+      </View> */}
+    </TouchableOpacity>
+  );
+}
 
 function StepCard({
   step,
@@ -118,6 +231,7 @@ function StepCard({
   onSelect,
   onRepeat,
   onMoreOptions,
+  onDelete,
 }: {
   step: WorkoutStep;
   color: string;
@@ -127,16 +241,14 @@ function StepCard({
   onSelect?: () => void;
   onRepeat?: () => void;
   onMoreOptions?: () => void;
-  // Keep optional props for compatibility
+  onDelete?: () => void;
   repeat?: boolean;
   number?: number;
   setLabel?: string;
-  onDelete?: () => void;
   onSkipLastRest?: (skipLast: boolean) => void;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const isRepeated = (step.repeat || 1) > 1 || Boolean(step.groupId);
 
   const openStep = () => {
     if (!editable) return;
@@ -157,16 +269,53 @@ function StepCard({
     if (!editable) return null;
     return (
       <EmptyStepCard
-        title={step.title || "Running"}
+        title={step.title || "Run"}
         color={color}
         onPress={openStep}
       />
     );
   }
 
-  const displayStepTime = stepTimeText(step);
-  const dist = hasDistance(step) ? distanceText(step) : null;
-  const paceStr = hasPace(step) ? `Pace · ${step.pace} min/km` : null;
+  // Step Distance, Pace, and Duration display (consistent across Warmup, Run, Cooldown)
+  let dist = hasDistance(step) ? distanceText(step) : null;
+  let paceStr = hasPace(step) ? `Pace · ${step.pace} min/km` : null;
+  let displayStepTime = stepTimeText(step);
+
+  const stepSec = estimatedStepSeconds(step);
+  const stepDistKm = distanceInKm(step);
+
+  // If pace is missing, but duration & distance exist:
+  if (!paceStr && stepSec > 0 && stepDistKm > 0) {
+    const paceSec = Math.round(stepSec / stepDistKm);
+    const m = Math.floor(paceSec / 60);
+    const s = paceSec % 60;
+    paceStr = `Pace · ${m}:${String(s).padStart(2, "0")} min/km`;
+  }
+
+  // If distance is missing, but duration exists:
+  if (!dist && stepSec > 0) {
+    const paceSec = (hasPace(step) ? parsePaceToSeconds(step.pace) : null) || (step.stepType === "Warmup" ? 400 : step.stepType === "Cooldown" ? 500 : 300);
+    const km = stepSec / (paceSec || 300);
+    dist = `${km.toFixed(2)} km`;
+    if (!paceStr) {
+      const m = Math.floor(paceSec / 60);
+      const s = paceSec % 60;
+      paceStr = `Pace · ${m}:${String(s).padStart(2, "0")} min/km`;
+    }
+  }
+
+  // If duration is missing, but distance exists:
+  if ((!displayStepTime || displayStepTime === "--:--") && stepDistKm > 0) {
+    const paceSec = (hasPace(step) ? parsePaceToSeconds(step.pace) : null) || (step.stepType === "Warmup" ? 400 : step.stepType === "Cooldown" ? 500 : 300);
+    displayStepTime = displayTime(Math.round(stepDistKm * (paceSec || 300)));
+    if (!paceStr) {
+      const m = Math.floor(paceSec / 60);
+      const s = paceSec % 60;
+      paceStr = `Pace · ${m}:${String(s).padStart(2, "0")} min/km`;
+    }
+  }
+
+  const category = getStepCategory(step);
 
   return (
     <TouchableOpacity
@@ -181,52 +330,43 @@ function StepCard({
       <View style={[styles.colorBar, { backgroundColor: color }]} />
 
       <View style={styles.stepContent}>
-        {/* Left Side: 2 Data Items (Title & Distance + Pace) */}
-        <View style={styles.stepLeftColumn}>
-          <Text style={styles.stepTitle} numberOfLines={1}>
-            {step.title}
-          </Text>
-
-          {dist ? (
-            <Text style={styles.stepDistance}>{dist}</Text>
-          ) : (
-            <Text style={styles.stepDistanceMuted}>-- km</Text>
-          )}
-
-          {paceStr ? (
-            <Text style={styles.stepPace} numberOfLines={1}>
-              {paceStr}
+        {/* Left Side: Silhouette Badge + Title & Distance + Pace */}
+        <View style={styles.stepHeaderRow}>
+          <View
+            style={[
+              styles.cardSilhouetteBadge,
+              { backgroundColor: `${color}18` },
+            ]}
+          >
+            <StepSilhouette type={category} size={18} color={color} />
+          </View>
+          <View style={styles.stepLeftColumn}>
+            <Text style={styles.stepTitle} numberOfLines={1}>
+              {step.title}
             </Text>
-          ) : null}
 
-          {step.notes ? (
-            <Text style={styles.stepNotes} numberOfLines={1}>
-              📝 {step.notes}
-            </Text>
-          ) : null}
+            {dist ? (
+              <Text style={styles.stepDistance}>{dist}</Text>
+            ) : (
+              <Text style={styles.stepDistanceMuted}>-- km</Text>
+            )}
+
+            {paceStr ? (
+              <Text style={styles.stepPace} numberOfLines={1}>
+                {paceStr}
+              </Text>
+            ) : null}
+
+            {step.notes ? (
+              <Text style={styles.stepNotes} numberOfLines={1}>
+                📝 {step.notes}
+              </Text>
+            ) : null}
+          </View>
         </View>
 
-        {/* Right Side: Corner Set (if repeated), Est Time, Time Value + Three Dots */}
+        {/* Right Side: Est Time + Direct Delete / Three Dots */}
         <View style={styles.stepRightColumn}>
-          {isRepeated ? (
-            <TouchableOpacity
-              disabled={!editable}
-              onPress={(e) => {
-                e.stopPropagation();
-                onRepeat?.();
-              }}
-              style={styles.cornerSetBadge}
-              activeOpacity={editable ? 0.7 : 1}
-            >
-              <Text style={styles.cornerSetText}>
-                {step.repeat || 1} {step.repeat === 1 ? "Set" : "Sets"}
-              </Text>
-              {editable ? (
-                <Feather name="chevron-down" size={12} color="#30D158" style={{ marginLeft: 3 }} />
-              ) : null}
-            </TouchableOpacity>
-          ) : null}
-
           <View style={styles.timeWithDotsRow}>
             <View style={styles.estTimeBox}>
               <Text style={styles.estTimeLabel}>Est Time</Text>
@@ -235,7 +375,19 @@ function StepCard({
               </Text>
             </View>
 
-            {editable && onMoreOptions ? (
+            {editable && onDelete ? (
+              <TouchableOpacity
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+                style={styles.cardDeleteBtn}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityLabel="Delete step"
+              >
+                <Feather name="trash-2" size={17} color="#FF453A" />
+              </TouchableOpacity>
+            ) : editable && onMoreOptions ? (
               <TouchableOpacity
                 onPress={(e) => {
                   e.stopPropagation();
@@ -243,6 +395,7 @@ function StepCard({
                 }}
                 style={styles.cardThreeDotsBtn}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityLabel="More options"
               >
                 <Feather name="more-horizontal" size={20} color={colors.iconSecondary} />
               </TouchableOpacity>
@@ -265,6 +418,13 @@ function EmptyStepCard({
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const category: "warmup" | "run" | "cooldown" =
+    title.toLowerCase().includes("warm")
+      ? "warmup"
+      : title.toLowerCase().includes("cool")
+        ? "cooldown"
+        : "run";
+
   return (
     <TouchableOpacity
       activeOpacity={0.88}
@@ -273,9 +433,14 @@ function EmptyStepCard({
     >
       <View style={[styles.colorBar, { backgroundColor: color }]} />
       <View style={styles.stepContent}>
-        <View style={styles.stepLeftColumn}>
-          <Text style={styles.stepTitle}>{title}</Text>
-          <Text style={styles.emptySubtext}>Tap to configure {title.toLowerCase()}</Text>
+        <View style={styles.stepHeaderRow}>
+          <View style={[styles.cardSilhouetteBadge, { backgroundColor: `${color}18` }]}>
+            <StepSilhouette type={category} size={18} color={color} />
+          </View>
+          <View style={styles.stepLeftColumn}>
+            <Text style={styles.stepTitle}>{title}</Text>
+            <Text style={styles.emptySubtext}>Tap to configure {title.toLowerCase()}</Text>
+          </View>
         </View>
         <View style={styles.stepRightColumn}>
           <Feather
@@ -284,6 +449,38 @@ function EmptyStepCard({
             color={colors.primary}
           />
         </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function AddRecoveryCard({
+  onPress,
+}: {
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
+  return (
+    <TouchableOpacity
+      style={styles.addRecoveryCard}
+      onPress={onPress}
+      activeOpacity={0.75}
+      accessibilityLabel="Add recovery rest"
+    >
+      <View style={styles.addRecoveryLeft}>
+        <View style={styles.addRecoveryIconCircle}>
+          <Feather name="coffee" size={15} color="#8E8E93" />
+        </View>
+        <View>
+          <Text style={styles.addRecoveryTitle}>Recovery</Text>
+          <Text style={styles.addRecoverySubtitle}>Tap to add recovery rest</Text>
+        </View>
+      </View>
+      <View style={styles.addRecoveryActionBadge}>
+        <Feather name="plus" size={12} color="#8E8E93" style={{ marginRight: 4 }} />
+        <Text style={styles.addRecoveryActionText}>Add</Text>
       </View>
     </TouchableOpacity>
   );
@@ -336,7 +533,7 @@ function RestCard({
             <Feather
               name="coffee"
               size={15}
-              color={skipLastRest && repeatCount === 1 ? colors.iconSecondary : "#30D158"}
+              color={skipLastRest && repeatCount === 1 ? colors.iconSecondary : "#8E8E93"}
             />
             <Text
               style={[
@@ -344,7 +541,7 @@ function RestCard({
                 skipLastRest && repeatCount === 1 && { color: colors.textTertiary },
               ]}
             >
-              Recovery Rest
+              Recovery
             </Text>
           </View>
 
@@ -409,8 +606,8 @@ function RestCard({
               value={skipLastRest}
               onValueChange={(val: boolean) => onToggleSkipLastRest?.(val)}
               disabled={!editable}
-              trackColor={{ false: colors.border, true: "rgba(48, 209, 88, 0.4)" }}
-              thumbColor={skipLastRest ? "#30D158" : colors.iconSecondary}
+              trackColor={{ false: colors.border, true: "rgba(142, 142, 147, 0.4)" }}
+              thumbColor={skipLastRest ? "#8E8E93" : colors.iconSecondary}
               style={{ transform: [{ scaleX: 0.7 }, { scaleY: 0.7 }], marginHorizontal: -4 }}
             />
           </TouchableOpacity>
@@ -434,22 +631,21 @@ export default function CustomWorkoutOverview() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const {
     workout,
+    setWarmUp,
+    addRun,
+    setCooldown,
     isSaving,
     setTitle,
     setWorkoutDate,
     setNotes,
     reset,
-    addEmptyRun,
     addRepeatRun,
-    addRunAfter,
     removeWarmUp,
     removeRun,
     removeCooldown,
-    duplicateRunGroup,
     updateRun,
     updateRunRepeat,
     updateRunRest,
-    updateRunSkipRest,
     updateRunSkipLastRest,
     updateGroupRepeat,
     saveWorkout,
@@ -457,14 +653,12 @@ export default function CustomWorkoutOverview() {
 
   const { mode } = useLocalSearchParams<{ mode?: string }>();
   const [isEditing, setIsEditing] = useState<boolean>(!workout.id || mode === "edit");
-
-  useEffect(() => {
-    if (mode === "edit" || !workout.id) {
-      setIsEditing(true);
-    } else {
-      setIsEditing(false);
-    }
-  }, [mode, workout.id]);
+  const [prevEditKey, setPrevEditKey] = useState(`${workout.id}-${mode}`);
+  const currentEditKey = `${workout.id}-${mode}`;
+  if (prevEditKey !== currentEditKey) {
+    setPrevEditKey(currentEditKey);
+    setIsEditing(!workout.id || mode === "edit");
+  }
 
   const [selectedRun, setSelectedRun] = useState<number | null>(
     workout.runs.length ? 0 : null,
@@ -477,7 +671,12 @@ export default function CustomWorkoutOverview() {
   // 3-dot Action Menu and DatePicker states
   const [showActionMenu, setShowActionMenu] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [isBenchmark, setIsBenchmark] = useState(false);
+  const [isBenchmark, setIsBenchmark] = useState(() => workout.isBenchmark ?? false);
+  const [prevBenchmarkId, setPrevBenchmarkId] = useState(workout.id);
+  if (prevBenchmarkId !== workout.id) {
+    setPrevBenchmarkId(workout.id);
+    setIsBenchmark(workout.isBenchmark ?? false);
+  }
   const [assignedRoute, setAssignedRoute] = useState<SuggestedRoute | null>(null);
   const [isRemovingRoute, setIsRemovingRoute] = useState(false);
 
@@ -530,16 +729,17 @@ export default function CustomWorkoutOverview() {
   };
 
   useEffect(() => {
-    if (workout.id) {
-      setIsBenchmark(workout.isBenchmark ?? false);
+    let active = true;
+    if (workout.id && workout.isBenchmark === undefined) {
       BenchmarkStore.isBenchmark(workout.id).then((local) => {
-        if (workout.isBenchmark === undefined) {
+        if (active) {
           setIsBenchmark(local);
         }
       });
-    } else {
-      setIsBenchmark(workout.isBenchmark ?? false);
     }
+    return () => {
+      active = false;
+    };
   }, [workout.id, workout.isBenchmark]);
 
   const handleToggleBenchmark = async () => {
@@ -582,13 +782,13 @@ export default function CustomWorkoutOverview() {
     const existingGroupId = currentStep.groupId || `run-group-${Date.now()}`;
     updateRun(index, {
       ...currentStep,
-      title: currentStep.title || "Running",
+      title: currentStep.title || "Run",
       stepType: "Run",
       inputType: "DURATION",
-      duration: "00:05:00",
-      distance: "1.00",
+      duration: "00:00:00",
+      distance: "0.00",
       unit: "Kilometers (km)",
-      pace: "05:00 /km",
+      pace: "",
       repeat: 1,
       rest: "00:01:00",
       skipLastRest: true,
@@ -598,6 +798,63 @@ export default function CustomWorkoutOverview() {
       notes: "",
     });
   };
+
+  const handleAddWarmup = useCallback(() => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    setWarmUp({
+      title: "Warm Up",
+      stepType: "Warmup",
+      inputType: "DURATION",
+      duration: "00:00:00",
+      distance: "0.00",
+      unit: "Kilometers (km)",
+      pace: "",
+      repeat: 1,
+      rest: "",
+      skipLastRest: true,
+      notes: "",
+    });
+  }, [setWarmUp]);
+
+  const handleAddRun = useCallback(() => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    addRun({
+      title: "Run",
+      stepType: "Run",
+      inputType: "DISTANCE",
+      duration: "00:00:00",
+      distance: "0.00",
+      unit: "Kilometers (km)",
+      pace: "",
+      repeat: 1,
+      rest: "",
+      skipLastRest: true,
+      notes: "",
+    });
+  }, [addRun]);
+
+  const handleAddCooldown = useCallback(() => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    setCooldown({
+      title: "Cool Down",
+      stepType: "Cooldown",
+      inputType: "DURATION",
+      duration: "00:00:00",
+      distance: "0.00",
+      unit: "Kilometers (km)",
+      pace: "",
+      repeat: 1,
+      rest: "",
+      skipLastRest: true,
+      notes: "",
+    });
+  }, [setCooldown]);
 
   const confirmDelete = (label: string, onDelete: () => void) =>
     Alert.alert(
@@ -703,52 +960,42 @@ export default function CustomWorkoutOverview() {
 
   const runGroups = useMemo(() => {
     return workout.runs.reduce<
-      { groupId?: string; items: { step: WorkoutStep; index: number }[] }[]
+      {
+        isGroup: boolean;
+        groupId?: string;
+        groupRepeat?: number;
+        items: { step: WorkoutStep; index: number }[];
+      }[]
     >((groups, step, index) => {
-      const isRepeat =
-        Boolean(step.groupId) ||
-        (step.repeat != null && step.repeat > 1) ||
-        Boolean(step.rest && step.rest !== "00:00:00");
+      // Step is part of repeat group ONLY if it has an explicit groupId or repeat > 1
+      const isRepeatGroup =
+        Boolean(step.groupId) || (step.repeat != null && step.repeat > 1);
 
-      const resolvedGroupId =
-        step.groupId || (isRepeat ? `run-group-${step.id || index}` : undefined);
+      if (isRepeatGroup) {
+        const resolvedGroupId = step.groupId || `run-group-${step.id ?? index}`;
+        const stepWithGroup = { ...step, groupId: resolvedGroupId };
 
-      const stepWithGroup = resolvedGroupId ? { ...step, groupId: resolvedGroupId } : step;
-
-      const previous = groups[groups.length - 1];
-      if (resolvedGroupId && previous?.groupId === resolvedGroupId) {
-        previous.items.push({ step: stepWithGroup, index });
+        const previous = groups[groups.length - 1];
+        if (previous && previous.isGroup && previous.groupId === resolvedGroupId) {
+          previous.items.push({ step: stepWithGroup, index });
+        } else {
+          groups.push({
+            isGroup: true,
+            groupId: resolvedGroupId,
+            groupRepeat: step.groupRepeat || step.repeat || 2,
+            items: [{ step: stepWithGroup, index }],
+          });
+        }
       } else {
+        // Single card (NOT in a repeat group)
         groups.push({
-          groupId: resolvedGroupId,
-          items: [{ step: stepWithGroup, index }],
+          isGroup: false,
+          items: [{ step, index }],
         });
       }
       return groups;
     }, []);
   }, [workout.runs]);
-
-  const getGroupStats = (items: { step: WorkoutStep; index: number }[]) => {
-    const totalGroupRunSeconds = items.reduce(
-      (sum, { step }) => sum + estimatedStepSeconds(step) * (step.repeat || 1),
-      0
-    );
-    const totalGroupRestSeconds = items.reduce(
-      (sum, { step }) => sum + estimatedRestSeconds(step),
-      0
-    );
-    const totalGroupSeconds = totalGroupRunSeconds + totalGroupRestSeconds;
-    const totalGroupDistance = items.reduce(
-      (sum, { step }) => sum + distanceInKm(step) * (step.repeat || 1),
-      0
-    );
-
-    return {
-      totalGroupRunSeconds,
-      totalGroupSeconds,
-      totalGroupDistance,
-    };
-  };
 
   const handleSave = async () => {
     if (!workout.runs.length) {
@@ -801,11 +1048,28 @@ export default function CustomWorkoutOverview() {
     if (restModalIndex === runIdx) setRestModalIndex(null);
   };
 
+  const handleHeaderBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(app)/custom-workout/cards");
+    }
+  }, []);
+
+  useEffect(() => {
+    const onBackPress = () => {
+      handleHeaderBack();
+      return true;
+    };
+    const backHandler = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+    return () => backHandler.remove();
+  }, [handleHeaderBack]);
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={handleHeaderBack}
           style={styles.headerCircleBtn}
           accessibilityLabel="Go back"
         >
@@ -823,7 +1087,7 @@ export default function CustomWorkoutOverview() {
           }}
           activeOpacity={isEditing ? 0.7 : 1}
         >
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", flexShrink: 1, flexWrap: "wrap", justifyContent: "center" }}>
             <Text style={styles.headerTitle} numberOfLines={1}>
               {workout.title || "Custom Workout"}
             </Text>
@@ -931,141 +1195,142 @@ export default function CustomWorkoutOverview() {
           </TouchableOpacity>
         </View>
 
-        {/* 1. Warm Up */}
+        {/* UPPER SUGGESTIONS ROW: All unadded step boxes ALWAYS remain in the upper section! */}
+        {isEditing && (!workout.warmUp || workout.runs.length === 0 || !workout.cooldown) && (
+          <View style={styles.suggestionsRow}>
+            {!workout.warmUp && (
+              <StepSuggestionBox
+                title="Warm Up"
+                color="#FF5722"
+                onPress={handleAddWarmup}
+              />
+            )}
+            {workout.runs.length === 0 && (
+              <StepSuggestionBox
+                title="Run"
+                color="#30D158"
+                onPress={handleAddRun}
+              />
+            )}
+            {!workout.cooldown && (
+              <StepSuggestionBox
+                title="Cool Down"
+                color="#0A84FF"
+                onPress={handleAddCooldown}
+              />
+            )}
+          </View>
+        )}
+
+        {/* 1. Warm Up: Full StepCard if added */}
         {workout.warmUp ? (
           <StepCard
             step={workout.warmUp}
-            color="#FF375F"
+            color="#FF5722"
             editable={isEditing}
             onSelect={() => router.push("/custom-workout?step=warmup")}
-            onMoreOptions={() =>
-              setCardMenu({
-                type: "warmup",
-                title: workout.warmUp?.title || "Warm Up",
-              })
-            }
-          />
-        ) : isEditing ? (
-          <EmptyStepCard
-            title="Warm Up"
-            color="#FF375F"
-            onPress={() => router.push("/custom-workout?step=warmup")}
+            onDelete={() => confirmDelete("Warm Up", removeWarmUp)}
           />
         ) : null}
 
         {/* 2. Run Steps & Repeat Groups */}
-        {runGroups.length ? (
-          runGroups.map((group) => {
-            if (group.groupId) {
+        {workout.runs.length > 0
+          ? runGroups.map((group, groupIdx) => {
+              if (group.isGroup && group.groupId) {
+                const groupRepeat =
+                  group.items[0]?.step?.groupRepeat ||
+                  group.items[0]?.step?.repeat ||
+                  2;
+                const firstIndex = group.items[0]?.index ?? 0;
+
+                return (
+                  <View key={group.groupId || `group-${groupIdx}`} style={styles.groupBox}>
+                    {/* Small set dropdown on the left */}
+                    <TouchableOpacity
+                      disabled={!isEditing}
+                      onPress={() => setRepeatRun(firstIndex)}
+                      style={styles.cornerSetBadge}
+                      activeOpacity={isEditing ? 0.7 : 1}
+                    >
+                      <Text style={styles.cornerSetText}>
+                        {groupRepeat} {groupRepeat === 1 ? "Set" : "Sets"}
+                      </Text>
+                      {isEditing ? (
+                        <Feather name="chevron-down" size={12} color="#30D158" style={{ marginLeft: 3 }} />
+                      ) : null}
+                    </TouchableOpacity>
+
+                    {group.items.map(({ step, index }) => (
+                      <View key={`${step.title}-${index}`}>
+                        <StepCard
+                          step={step}
+                          color={getStepColor(step)}
+                          index={index}
+                          editable={isEditing}
+                          selected={selectedRun === index}
+                          onSelect={() => {
+                            setSelectedRun(index);
+                            router.push(
+                              `/custom-workout/running-declaration?index=${index}`
+                            );
+                          }}
+                          onDelete={() =>
+                            confirmDelete(step.title || "Run Step", () => removeRun(index))
+                          }
+                        />
+                        {step.rest && step.rest !== "00:00:00" ? (
+                          <RestCard
+                            duration={step.rest}
+                            skipLastRest={step.skipLastRest ?? true}
+                            repeatCount={step.repeat || 1}
+                            editable={isEditing}
+                            onPress={() => openRestModal(index)}
+                            onDelete={() => deleteRestConfig(index)}
+                            onToggleSkipLastRest={(val) => updateRunSkipLastRest(index, val)}
+                          />
+                        ) : isEditing ? (
+                          <AddRecoveryCard onPress={() => openRestModal(index)} />
+                        ) : null}
+                      </View>
+                    ))}
+                  </View>
+                );
+              }
+
+              const singleStep = group.items[0].step;
+              const singleIndex = group.items[0].index;
+
               return (
-                <View key={group.groupId} style={styles.groupBox}>
-                  {group.items.map(({ step, index }) => (
-                    <View key={`${step.title}-${index}`}>
-                      <StepCard
-                        step={step}
-                        color="#0A84FF"
-                        index={index}
-                        editable={isEditing}
-                        selected={selectedRun === index}
-                        onSelect={() => {
-                          setSelectedRun(index);
-                          router.push(
-                            `/custom-workout/running-declaration?index=${index}`
-                          );
-                        }}
-                        onRepeat={() => setRepeatRun(index)}
-                        onMoreOptions={() =>
-                          setCardMenu({
-                            type: "run",
-                            index,
-                            title: step.title || `Run ${index + 1}`,
-                          })
-                        }
-                      />
-                      <RestCard
-                        duration={step.rest && step.rest !== "00:00:00" ? step.rest : "00:01:00"}
-                        skipLastRest={step.skipLastRest ?? true}
-                        repeatCount={step.repeat || 1}
-                        editable={isEditing}
-                        onPress={() => openRestModal(index)}
-                        onDelete={() => deleteRestConfig(index)}
-                        onToggleSkipLastRest={(val) => updateRunSkipLastRest(index, val)}
-                      />
-                    </View>
-                  ))}
+                <View key={`single-run-${singleIndex}`}>
+                  <StepCard
+                    step={singleStep}
+                    color={getStepColor(singleStep)}
+                    index={singleIndex}
+                    editable={isEditing}
+                    selected={selectedRun === singleIndex}
+                    onSelect={() => {
+                      setSelectedRun(singleIndex);
+                      router.push(
+                        `/custom-workout/running-declaration?index=${singleIndex}`
+                      );
+                    }}
+                    onDelete={() =>
+                      confirmDelete(singleStep.title || "Run Step", () => removeRun(singleIndex))
+                    }
+                  />
                 </View>
               );
-            }
+            })
+          : null}
 
-            const singleStep = group.items[0].step;
-            const singleIndex = group.items[0].index;
-
-            return (
-              <View key={`run-${singleIndex}`}>
-                <StepCard
-                  step={singleStep}
-                  color="#0A84FF"
-                  index={singleIndex}
-                  editable={isEditing}
-                  selected={selectedRun === singleIndex}
-                  onSelect={() => {
-                    setSelectedRun(singleIndex);
-                    router.push(
-                      `/custom-workout/running-declaration?index=${singleIndex}`
-                    );
-                  }}
-                  onRepeat={() => setRepeatRun(singleIndex)}
-                  onMoreOptions={() =>
-                    setCardMenu({
-                      type: "run",
-                      index: singleIndex,
-                      title: singleStep.title || "Running",
-                    })
-                  }
-                />
-                {singleStep.rest && singleStep.rest !== "00:00:00" ? (
-                  <RestCard
-                    duration={singleStep.rest}
-                    skipLastRest={singleStep.skipLastRest ?? true}
-                    repeatCount={singleStep.repeat || 1}
-                    editable={isEditing}
-                    onPress={() => openRestModal(singleIndex)}
-                    onDelete={() => deleteRestConfig(singleIndex)}
-                    onToggleSkipLastRest={(val) => updateRunSkipLastRest(singleIndex, val)}
-                  />
-                ) : null}
-              </View>
-            );
-          })
-        ) : isEditing ? (
-          <EmptyStepCard
-            title="Running"
-            color="#0A84FF"
-            onPress={() => {
-              router.push("/custom-workout/running-declaration");
-            }}
-          />
-        ) : null}
-
-        {/* 3. Cool Down */}
+        {/* 3. Cool Down: Full StepCard if added */}
         {workout.cooldown ? (
           <StepCard
             step={workout.cooldown}
-            color="#30D158"
+            color="#0A84FF"
             editable={isEditing}
             onSelect={() => router.push("/custom-workout/cooldown")}
-            onMoreOptions={() =>
-              setCardMenu({
-                type: "cooldown",
-                title: workout.cooldown?.title || "Cool Down",
-              })
-            }
-          />
-        ) : isEditing ? (
-          <EmptyStepCard
-            title="Cool Down"
-            color="#30D158"
-            onPress={() => router.push("/custom-workout/cooldown")}
+            onDelete={() => confirmDelete("Cool Down", removeCooldown)}
           />
         ) : null}
 
@@ -1092,7 +1357,7 @@ export default function CustomWorkoutOverview() {
               activeOpacity={0.85}
             >
               <Feather name="repeat" size={16} color={colors.icon} />
-              <Text style={styles.actionRepeatText}>REPEAT RUN</Text>
+              <Text style={styles.actionRepeatText}>ADD REPEAT</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -1211,7 +1476,19 @@ export default function CustomWorkoutOverview() {
                     key={value}
                     style={styles.option}
                     onPress={() => {
-                      if (repeatRun !== null) updateRunRepeat(repeatRun, value);
+                      if (repeatRun !== null) {
+                        const targetStep = workout.runs[repeatRun];
+                        if (targetStep?.groupId) {
+                          workout.runs.forEach((s, idx) => {
+                            if (s.groupId === targetStep.groupId) {
+                              updateRunRepeat(idx, value);
+                            }
+                          });
+                          updateGroupRepeat(targetStep.groupId, value);
+                        } else {
+                          updateRunRepeat(repeatRun, value);
+                        }
+                      }
                       setRepeatRun(null);
                     }}
                   >
@@ -1246,7 +1523,7 @@ export default function CustomWorkoutOverview() {
             style={[styles.modal, { maxHeight: "85%" }]}
             onPress={(event) => event.stopPropagation()}
           >
-            <Text style={styles.modalTitle}>RECOVERY REST</Text>
+            <Text style={styles.modalTitle}>RECOVERY</Text>
             <ScrollView style={{ padding: 20 }}>
               <Text style={styles.inputLabel}>Quick Presets</Text>
               <View style={styles.presetRow}>
@@ -1278,6 +1555,7 @@ export default function CustomWorkoutOverview() {
               <ScrollTimePicker
                 value={tempRestDuration}
                 onChange={setTempRestDuration}
+                accentColor="#8E8E93"
               />
 
               <View style={styles.skipRestRow}>
@@ -1290,13 +1568,13 @@ export default function CustomWorkoutOverview() {
                 <Switch
                   value={tempSkipLastRest}
                   onValueChange={setTempSkipLastRest}
-                  trackColor={{ false: colors.border, true: colors.primary }}
-                  thumbColor={tempSkipLastRest ? colors.primary : colors.iconSecondary}
+                  trackColor={{ false: colors.border, true: "rgba(142, 142, 147, 0.4)" }}
+                  thumbColor={tempSkipLastRest ? "#8E8E93" : colors.iconSecondary}
                 />
               </View>
 
               <TouchableOpacity
-                style={styles.modalSaveButton}
+                style={[styles.modalSaveButton, { backgroundColor: "#8E8E93" }]}
                 onPress={saveRestConfig}
               >
                 <Text style={styles.modalSaveText}>APPLY REST</Text>
@@ -1750,6 +2028,71 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
   },
+  // Step Suggestion Row & Rectangles
+  suggestionsRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 8,
+    marginBottom: 14,
+    width: "100%",
+  },
+  suggestionBox: {
+    flex: 1,
+    minHeight: 56,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    paddingVertical: 9,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  suggestionIconWrapper: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  suggestionTitle: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: "700",
+    textAlign: "center",
+    letterSpacing: 0.2,
+    marginBottom: 4,
+  },
+  suggestionActionBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 8,
+    marginTop: 2,
+  },
+  suggestionActionText: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+
+  // Silhouette badge on StepCard
+  cardSilhouetteBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+    marginTop: 2,
+  },
+  stepHeaderRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
   stepCard: {
     flexDirection: "row",
     backgroundColor: colors.card,
@@ -1816,14 +2159,14 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   cornerSetBadge: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-end",
+    alignSelf: "flex-start",
     paddingHorizontal: 8,
     paddingVertical: 3,
     backgroundColor: colors.selected,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.primary,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   cornerSetText: {
     color: colors.primary,
@@ -1856,6 +2199,68 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontWeight: "700",
     fontVariant: ["tabular-nums"],
   },
+  cardDeleteBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255, 69, 58, 0.12)",
+    marginLeft: 6,
+  },
+  groupSetCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(48, 209, 88, 0.08)",
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "rgba(48, 209, 88, 0.22)",
+  },
+  groupSetCardLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  groupSetIconWrapper: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "rgba(48, 209, 88, 0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+  groupSetTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#30D158",
+    letterSpacing: 0.5,
+  },
+  groupSetSubtitle: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginTop: 1,
+    fontWeight: "500",
+  },
+  groupSetDropdownBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(48, 209, 88, 0.18)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#30D158",
+  },
+  groupSetDropdownText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#30D158",
+  },
   cardThreeDotsBtn: {
     width: 32,
     height: 32,
@@ -1875,6 +2280,56 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderStyle: "dashed",
   },
   emptySubtext: { color: colors.textSecondary, fontSize: 13, marginTop: 4 },
+  addRecoveryCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(142, 142, 147, 0.08)",
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: "rgba(142, 142, 147, 0.35)",
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+  },
+  addRecoveryLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  addRecoveryIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(142, 142, 147, 0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addRecoveryTitle: {
+    color: colors.textPrimary,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  addRecoverySubtitle: {
+    color: colors.textTertiary,
+    fontSize: 11,
+    marginTop: 1,
+    fontWeight: "500",
+  },
+  addRecoveryActionBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(142, 142, 147, 0.2)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  addRecoveryActionText: {
+    color: "#8E8E93",
+    fontSize: 12,
+    fontWeight: "700",
+  },
   restCard: {
     flexDirection: "row",
     backgroundColor: colors.surfaceRaised,
@@ -1893,7 +2348,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     marginVertical: 8,
     marginLeft: 6,
     borderRadius: 3,
-    backgroundColor: "#30D158",
+    backgroundColor: "#8E8E93",
   },
   restBarSkipped: { backgroundColor: colors.border },
   restCardBody: {
@@ -1927,7 +2382,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     flex: 1,
   },
   restValue: {
-    color: colors.primary,
+    color: "#8E8E93",
     fontSize: 15,
     fontWeight: "800",
     fontVariant: ["tabular-nums"],
@@ -1946,8 +2401,8 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     gap: 2,
   },
   skipRestBadgeActive: {
-    backgroundColor: colors.selected,
-    borderColor: colors.primary,
+    backgroundColor: "rgba(142, 142, 147, 0.15)",
+    borderColor: "rgba(142, 142, 147, 0.4)",
   },
   skipRestBadgeInactive: {
     backgroundColor: colors.surface,
@@ -1959,7 +2414,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontWeight: "600",
   },
   skipRestLabelActive: {
-    color: colors.primary,
+    color: "#8E8E93",
   },
   groupBox: {
     padding: 12,
@@ -2227,11 +2682,11 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderColor: colors.border,
   },
   presetChipActive: {
-    backgroundColor: colors.selected,
-    borderColor: colors.primary,
+    backgroundColor: "rgba(142, 142, 147, 0.2)",
+    borderColor: "#8E8E93",
   },
   presetChipText: { color: colors.textPrimary, fontSize: 13, fontWeight: "600" },
-  presetChipTextActive: { color: colors.primary, fontWeight: "800" },
+  presetChipTextActive: { color: "#8E8E93", fontWeight: "800" },
   skipRestRow: {
     flexDirection: "row",
     alignItems: "center",

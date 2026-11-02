@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { NativeSyntheticEvent, StyleSheet, Text, TextInput, TextInputKeyPressEventData, View } from 'react-native';
 import { formatTimeFromComponents, normalizeTimePartValue, validateTimeFormat } from '../../../../utils/validators';
 
@@ -22,53 +22,27 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
   const minutesRef = useRef<TextInputRef>(null);
   const secondsRef = useRef<TextInputRef>(null);
 
-  // Refs to avoid feedback loop when parent echoes back the formatted value
-  const lastEmittedValue = useRef<string | null>(null);
-  const lastPropValue = useRef<string | null>(null);
+  const [lastEmittedValue, setLastEmittedValue] = useState<string | null>(null);
+  const [prevValue, setPrevValue] = useState(value);
 
-  // Sync from parent only when parent value is different from last emitted
-  useEffect(() => {
+  if (prevValue !== value) {
+    setPrevValue(value);
     const incoming = value || '';
     if (!incoming) {
-      if (hours || minutes || seconds) {
-        setHours('');
-        setMinutes('');
-        setSeconds('');
-      }
-      lastPropValue.current = incoming;
-      return;
+      setHours('');
+      setMinutes('');
+      setSeconds('');
+    } else if (lastEmittedValue !== incoming) {
+      const [nextHours = '', nextMinutes = '', nextSeconds = ''] = incoming.split(':');
+      if (nextHours !== hours) setHours(nextHours);
+      if (nextMinutes !== minutes) setMinutes(nextMinutes);
+      if (nextSeconds !== seconds) setSeconds(nextSeconds);
     }
-
-    // If parent is echoing a value we just emitted, ignore to avoid cursor jumps
-    if (lastEmittedValue.current && lastEmittedValue.current === incoming) {
-      lastPropValue.current = incoming;
-      return;
-    }
-
-    // If incoming differs from current formatted value, parse and update
-    const [nextHours = '', nextMinutes = '', nextSeconds = ''] = String(incoming).split(':');
-    // only update if different to avoid re-renders
-    if (nextHours !== hours) setHours(nextHours.replace(/^0(?=\d)/, (m) => m));
-    if (nextMinutes !== minutes) setMinutes(nextMinutes.replace(/^0(?=\d)/, (m) => m));
-    if (nextSeconds !== seconds) setSeconds(nextSeconds.replace(/^0(?=\d)/, (m) => m));
-
-    lastPropValue.current = incoming;
-  }, [value]);
+  }
 
   const currentValue = useMemo(() => formatTimeFromComponents(hours, minutes, seconds), [hours, minutes, seconds]);
   const validation = useMemo(() => validateTimeFormat(currentValue), [currentValue]);
   const resolvedError = error || (!validation.valid && currentValue && currentValue !== '00:00:00' ? validation.error : undefined);
-
-  const focusField = (field: 'hours' | 'minutes' | 'seconds') => {
-    setFocusedField(field);
-    if (field === 'hours') {
-      hoursRef.current?.focus();
-    } else if (field === 'minutes') {
-      minutesRef.current?.focus();
-    } else {
-      secondsRef.current?.focus();
-    }
-  };
 
   const updateTime = (nextHours: string, nextMinutes: string, nextSeconds: string, emit = true) => {
     setHours(nextHours);
@@ -76,18 +50,19 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
     setSeconds(nextSeconds);
     const formatted = formatTimeFromComponents(nextHours, nextMinutes, nextSeconds);
     if (emit) {
-      lastEmittedValue.current = formatted;
+      setLastEmittedValue(formatted);
       onChange(formatted);
     }
     return formatted;
   };
 
-  const formatComponent = (val: string) => {
+  const clampComponent = (val: string, type: 'hours' | 'minutes' | 'seconds') => {
     const trimmed = String(val ?? '').trim();
     if (!trimmed) return '';
     const num = parseInt(trimmed, 10);
     if (isNaN(num)) return '';
-    return String(num).padStart(2, '0');
+    const maximum = type === 'hours' ? 99 : 59;
+    return String(Math.min(Math.max(num, 0), maximum)).padStart(2, '0');
   };
 
   const handlePartChange = (part: 'hours' | 'minutes' | 'seconds', raw: string, nextRef?: React.RefObject<TextInputRef | null>) => {
@@ -119,7 +94,7 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
   };
 
   // Handle backspace navigation
-  const handleKeyPress = (part: 'hours' | 'minutes' | 'seconds') => (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+  const handleKeyPress = (part: 'hours' | 'minutes' | 'seconds', e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
     try {
       if (e.nativeEvent.key === 'Backspace') {
         if (part === 'seconds') {
@@ -132,7 +107,7 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
           }
         }
       }
-    } catch (err) {
+    } catch {
       // ignore
     }
   };
@@ -141,23 +116,23 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
     setFocusedField(part);
   };
 
-  // On blur, pad components without changing out-of-range values so they can be corrected.
+  // On blur, clamp values to a valid time-component range.
   const handleBlur = (part: 'hours' | 'minutes' | 'seconds') => () => {
     if (part === 'hours') {
-      const formatted = formatComponent(hours);
-      setHours(formatted);
-      updateTime(formatted, minutes, seconds);
+      const clamped = clampComponent(hours, 'hours');
+      setHours(clamped);
+      updateTime(clamped, minutes, seconds);
       return;
     }
     if (part === 'minutes') {
-      const formatted = formatComponent(minutes);
-      setMinutes(formatted);
-      updateTime(hours, formatted, seconds);
+      const clamped = clampComponent(minutes, 'minutes');
+      setMinutes(clamped);
+      updateTime(hours, clamped, seconds);
       return;
     }
-    const formatted = formatComponent(seconds);
-    setSeconds(formatted);
-    updateTime(hours, minutes, formatted);
+    const clamped = clampComponent(seconds, 'seconds');
+    setSeconds(clamped);
+    updateTime(hours, minutes, clamped);
   };
 
   return (
@@ -174,7 +149,7 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
             ]}
             value={hours}
             onChangeText={(text) => handlePartChange('hours', text, minutesRef)}
-            onKeyPress={handleKeyPress('hours')}
+            onKeyPress={(e) => handleKeyPress('hours', e)}
             onFocus={() => handleFocus('hours')}
             onBlur={() => {
               handleBlur('hours')();
@@ -199,7 +174,7 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
             ]}
             value={minutes}
             onChangeText={(text) => handlePartChange('minutes', text, secondsRef)}
-            onKeyPress={handleKeyPress('minutes')}
+            onKeyPress={(e) => handleKeyPress('minutes', e)}
             onFocus={() => handleFocus('minutes')}
             onBlur={() => {
               handleBlur('minutes')();
@@ -224,7 +199,7 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
             ]}
             value={seconds}
             onChangeText={(text) => handlePartChange('seconds', text)}
-            onKeyPress={handleKeyPress('seconds')}
+            onKeyPress={(e) => handleKeyPress('seconds', e)}
             onFocus={() => handleFocus('seconds')}
             onBlur={() => {
               handleBlur('seconds')();

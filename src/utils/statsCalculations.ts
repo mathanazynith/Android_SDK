@@ -1,3 +1,5 @@
+import { UserWorkoutResponse } from '../../service/customWorkout';
+import { CurrentWorkout } from '../../service/workoutPlan';
 import { BackendActivity } from '../services/activityApi';
 import { ActivityRecord } from '../services/activityStore';
 
@@ -51,12 +53,16 @@ export interface UnifiedActivity {
   calories: number;
   elevationGain: number;
   activityType: 'RUN' | 'WALK';
+  source?: 'activity' | 'custom_workout' | 'plan_workout' | 'local_activity';
+  title?: string;
 }
 
-/** Convert either BackendActivity or ActivityRecord into a clean UnifiedActivity */
+/** Convert activities and workouts from all sides (backend activities, local activities, custom workouts, plan workouts) into UnifiedActivity list */
 export function normalizeActivities(
   backendActivities: BackendActivity[] = [],
-  localActivities: ActivityRecord[] = []
+  localActivities: ActivityRecord[] = [],
+  customWorkouts: UserWorkoutResponse[] = [],
+  planWorkouts: CurrentWorkout[] = []
 ): UnifiedActivity[] {
   const map = new Map<string, UnifiedActivity>();
 
@@ -67,7 +73,7 @@ export function normalizeActivities(
     const duration = Math.max(0, Number(act.moving_time || act.elapsed_time || 0));
     const pace = Number(act.avg_pace || 0);
 
-    const key = String(act.id);
+    const key = `act-${act.id}`;
     map.set(key, {
       id: act.id,
       date,
@@ -77,18 +83,20 @@ export function normalizeActivities(
       calories: Number(act.calories || 0),
       elevationGain: Number(act.elevation_gain || 0),
       activityType: String(act.activity_type).toUpperCase() === 'WALK' ? 'WALK' : 'RUN',
+      source: 'activity',
+      title: (act as any).title || (String(act.activity_type).toUpperCase() === 'WALK' ? 'Walk Activity' : 'Run Activity'),
     });
   });
 
   localActivities.forEach((act) => {
-    if (map.has(act.id)) return;
+    if (map.has(`act-${act.id}`) || map.has(act.id)) return;
     const date = new Date(act.date);
     if (isNaN(date.getTime())) return;
     const distanceKm = Math.max(0, Number(act.distanceMeters || 0)) / 1000;
     const duration = Math.max(0, Number(act.durationSeconds || 0));
     const pace = Number(act.paceSecondsPerKm || 0);
 
-    map.set(act.id, {
+    map.set(`local-${act.id}`, {
       id: act.id,
       date,
       distanceKm,
@@ -97,7 +105,102 @@ export function normalizeActivities(
       calories: Number(act.calories || 0),
       elevationGain: 0,
       activityType: 'RUN',
+      source: 'local_activity',
+      title: act.workoutName || 'Local Activity',
     });
+  });
+
+  customWorkouts.forEach((w) => {
+    const typeStr = `${w.workout_type || ''} ${w.title || ''}`.toLowerCase();
+    if (typeStr.includes('rest')) return;
+
+    const dateStr = w.workout_date || (w as any).created_at || (w as any).updated_at;
+    const date = dateStr ? new Date(dateStr.length === 10 ? `${dateStr}T00:00:00` : dateStr) : new Date();
+    if (isNaN(date.getTime())) return;
+
+    const distanceMeters = Number(w.distance || (w.display_distance ? w.display_distance * 1000 : 0));
+    const distanceKm = Math.max(0, distanceMeters) / 1000;
+    const duration = Math.max(0, Number(w.duration || 0));
+
+    let paceSeconds = 0;
+    if (w.target_pace || w.pace) {
+      const paceParts = (w.target_pace || w.pace || '').split(':').map((p) => parseInt(p, 10));
+      if (paceParts.length === 2 && !isNaN(paceParts[0]) && !isNaN(paceParts[1])) {
+        paceSeconds = paceParts[0] * 60 + paceParts[1];
+      }
+    }
+    if (paceSeconds === 0 && duration > 0 && distanceKm > 0) {
+      paceSeconds = duration / distanceKm;
+    }
+
+    const isAlreadyRecorded = Array.from(map.values()).some((existing) => {
+      if (existing.source !== 'activity') return false;
+      const sameDate = existing.date.toDateString() === date.toDateString();
+      const closeDistance = distanceKm > 0 && Math.abs(existing.distanceKm - distanceKm) < 0.2;
+      const closeDuration = duration > 0 && Math.abs(existing.durationSeconds - duration) < 120;
+      return sameDate && (closeDistance || closeDuration);
+    });
+
+    if (!isAlreadyRecorded) {
+      map.set(`custom-${w.id}`, {
+        id: `custom-${w.id}`,
+        date,
+        distanceKm,
+        durationSeconds: duration,
+        paceSecondsPerKm: paceSeconds,
+        calories: Math.round(distanceKm * 65),
+        elevationGain: 0,
+        activityType: typeStr.includes('walk') ? 'WALK' : 'RUN',
+        source: 'custom_workout',
+        title: w.title || 'Custom Workout',
+      });
+    }
+  });
+
+  planWorkouts.forEach((pw) => {
+    const typeStr = `${pw.workout_type || ''} ${pw.title || ''}`.toLowerCase();
+    if (typeStr.includes('rest') || typeStr.includes('recovery')) return;
+
+    const dateStr = pw.workout_date;
+    if (!dateStr) return;
+    const date = new Date(dateStr.length === 10 ? `${dateStr}T00:00:00` : dateStr);
+    if (isNaN(date.getTime())) return;
+
+    const distanceMeters = Number(pw.distance || 0);
+    const distanceKm = Math.max(0, distanceMeters) / 1000;
+    const duration = Math.max(0, Number(pw.duration || 0));
+
+    let paceSeconds = 0;
+    if (pw.target_pace) {
+      const paceParts = pw.target_pace.split(':').map((p) => parseInt(p, 10));
+      if (paceParts.length === 2 && !isNaN(paceParts[0]) && !isNaN(paceParts[1])) {
+        paceSeconds = paceParts[0] * 60 + paceParts[1];
+      }
+    }
+    if (paceSeconds === 0 && duration > 0 && distanceKm > 0) {
+      paceSeconds = duration / distanceKm;
+    }
+
+    const isAlreadyAccounted = Array.from(map.values()).some((existing) => {
+      const sameDate = existing.date.toDateString() === date.toDateString();
+      return sameDate && (existing.source === 'activity' || existing.source === 'custom_workout');
+    });
+
+    if (!isAlreadyAccounted) {
+      const keyId = `plan-${pw.id || `${pw.week_number}-${pw.display_order}-${dateStr}`}`;
+      map.set(keyId, {
+        id: keyId,
+        date,
+        distanceKm,
+        durationSeconds: duration,
+        paceSecondsPerKm: paceSeconds,
+        calories: Math.round(distanceKm * 65),
+        elevationGain: 0,
+        activityType: typeStr.includes('walk') ? 'WALK' : 'RUN',
+        source: 'plan_workout',
+        title: pw.title || 'Plan Workout',
+      });
+    }
   });
 
   return Array.from(map.values()).sort((a, b) => b.date.getTime() - a.date.getTime());
@@ -450,7 +553,7 @@ export function calculateYearStats(
 ): YearSummaryStats {
   const filtered = activities.filter((a) => a.date.getFullYear() === year);
   const runActivities = filtered.filter((a) => a.activityType === 'RUN');
-  const runs = runActivities.length > 0 ? runActivities.length : filtered.length;
+  const runs = runActivities.length;
   const distanceKm = filtered.reduce((acc, a) => acc + a.distanceKm, 0);
   const calories = filtered.reduce((acc, a) => acc + a.calories, 0);
   const totalDurationSeconds = filtered.reduce((acc, a) => acc + a.durationSeconds, 0);

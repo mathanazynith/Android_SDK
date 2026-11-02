@@ -21,7 +21,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
 import { RunningLoader } from "../../../components/common/RunningLoader";
-import { Colors } from "../../../constants/theme";
+import { useTheme, type ThemeColors } from "../../../contexts/ThemeContext";
 import { getBackendErrorMessage } from "../../../service/api";
 import {
     customWorkoutAPI,
@@ -81,6 +81,8 @@ const getTargetPace = (item: UserWorkoutResponse) => {
 
 export default function CustomWorkoutCards() {
   const { loadWorkout, reset } = useCustomWorkout();
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const [rawWorkouts, setRawWorkouts] = useState<UserWorkoutResponse[]>([]);
   const [activeTab, setActiveTab] = useState<'all' | 'custom' | 'plan' | 'popular'>('all');
 
@@ -618,7 +620,7 @@ export default function CustomWorkoutCards() {
               ) : null}
               {item.workout_date ? (
                 <View style={styles.dateBadge}>
-                  <Feather name="calendar" size={11} color={Colors.primaryLight} />
+                  <Feather name="calendar" size={11} color={colors.primary} />
                   <Text style={styles.dateBadgeText}>{item.workout_date}</Text>
                 </View>
               ) : null}
@@ -645,7 +647,7 @@ export default function CustomWorkoutCards() {
                 <Feather
                   name={isSelected ? "check-square" : "square"}
                   size={20}
-                  color={isSelected ? "#30D158" : "#FFFFFF"}
+                  color={isSelected ? "#30D158" : colors.textPrimary}
                 />
               )}
             </TouchableOpacity>
@@ -669,9 +671,9 @@ export default function CustomWorkoutCards() {
               )}
 
               {isEditing ? (
-                <RunningLoader size={18} fillColor={Colors.primaryLight} />
+                <RunningLoader size={18} fillColor={colors.primary} />
               ) : (
-                <Feather name="chevron-right" size={20} color={Colors.textSecondary} />
+                <Feather name="chevron-right" size={20} color={colors.iconSecondary} />
               )}
             </View>
           )}
@@ -710,7 +712,7 @@ export default function CustomWorkoutCards() {
             <Feather
               name={selectionMode ? "check-circle" : "edit-3"}
               size={13}
-              color={selectionMode ? "#30D158" : Colors.textMuted}
+              color={selectionMode ? "#30D158" : colors.textTertiary}
             />
             <Text style={[styles.editHintText, selectionMode && { color: "#30D158" }]}>
               {selectionMode
@@ -734,10 +736,10 @@ export default function CustomWorkoutCards() {
               activeOpacity={0.85}
             >
               {isStarting ? (
-                <RunningLoader size={18} fillColor="#000000" />
+                <RunningLoader size={18} fillColor={colors.primaryText} />
               ) : (
                 <>
-                  <Feather name="play" size={18} color="#000000" />
+                  <Feather name="play" size={18} color={colors.primaryText} />
                   <Text style={styles.startButtonText}>START WORKOUT</Text>
                 </>
               )}
@@ -750,7 +752,10 @@ export default function CustomWorkoutCards() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor={colors.background}
+      />
 
       {/* Top App Header or Selection Toolbar */}
       {selectionMode ? (
@@ -789,7 +794,7 @@ export default function CustomWorkoutCards() {
             style={styles.homeButton}
             accessibilityLabel="Return to Home"
           >
-            <Feather name="home" size={24} color={Colors.text} />
+            <Feather name="home" size={24} color={colors.icon} />
           </TouchableOpacity>
 
           <Text style={styles.headerTitle}>My Workouts</Text>
@@ -804,7 +809,7 @@ export default function CustomWorkoutCards() {
                 style={styles.selectModeButton}
                 accessibilityLabel="Select workouts"
               >
-                <Feather name="check-square" size={18} color={Colors.text} />
+                <Feather name="check-square" size={18} color={colors.icon} />
               </TouchableOpacity>
             )}
 
@@ -813,7 +818,7 @@ export default function CustomWorkoutCards() {
               style={styles.newButton}
               activeOpacity={0.8}
             >
-              <Feather name="plus" size={18} color="#000000" />
+              <Feather name="plus" size={18} color={colors.primaryText} />
               <Text style={styles.newButtonText}>NEW</Text>
             </TouchableOpacity>
           </View>
@@ -857,7 +862,7 @@ export default function CustomWorkoutCards() {
       ) : workouts.length === 0 ? (
         <View style={styles.emptyContainer}>
           <View style={styles.emptyIconCircle}>
-            <Feather name="activity" size={40} color={Colors.primary} />
+            <Feather name="activity" size={40} color={colors.primary} />
           </View>
           <Text style={styles.emptyTitle}>No Custom Workouts Yet</Text>
           <Text style={styles.emptySubtitle}>
@@ -868,7 +873,7 @@ export default function CustomWorkoutCards() {
             onPress={handleCreateNew}
             activeOpacity={0.85}
           >
-            <Feather name="plus-circle" size={20} color="#000000" />
+            <Feather name="plus-circle" size={20} color={colors.primaryText} />
             <Text style={styles.createFirstButtonText}>CREATE FIRST WORKOUT</Text>
           </TouchableOpacity>
         </View>
@@ -891,8 +896,8 @@ export default function CustomWorkoutCards() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={() => fetchWorkouts(true)}
-              tintColor={Colors.primary}
-              colors={[Colors.primary]}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
             />
           }
         />
@@ -977,396 +982,409 @@ export default function CustomWorkoutCards() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: Colors.background },
-  header: {
-    minHeight: 70,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 18,
-    backgroundColor: "#000000",
-    borderBottomWidth: 1,
-    borderBottomColor: "#222222",
-  },
-  selectionToolbar: {
-    minHeight: 70,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 18,
-    backgroundColor: "#000000",
-    borderBottomWidth: 1,
-    borderBottomColor: "#222222",
-  },
-  cancelSelectionButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(229, 57, 53, 0.12)",
-    borderWidth: 1,
-    borderColor: "rgba(229, 57, 53, 0.35)",
-  },
-  selectionCount: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "700",
-  },
-  selectAllButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 18,
-    backgroundColor: "#1C1C1E",
-    borderWidth: 1,
-    borderColor: "#333336",
-  },
-  selectAllButtonText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  homeButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#1C1C1E",
-  },
-  headerTitle: {
-    color: Colors.text,
-    fontSize: 20,
-    fontWeight: "700",
-  },
-  headerRightButtons: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  selectModeButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#1C1C1E",
-    borderWidth: 1,
-    borderColor: "#2C2C2E",
-  },
-  newButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 18,
-  },
-  newButtonText: {
-    color: "#000000",
-    fontSize: 13,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-  centerContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-  },
-  loadingText: { color: Colors.textSecondary, fontSize: 15 },
-  emptyContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 36,
-  },
-  emptyIconCircle: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    backgroundColor: "#1C1C1E",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: "#2C2C2E",
-  },
-  emptyTitle: {
-    color: Colors.text,
-    fontSize: 22,
-    fontWeight: "700",
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  emptySubtitle: {
-    color: Colors.textSecondary,
-    fontSize: 15,
-    textAlign: "center",
-    lineHeight: 22,
-    marginBottom: 28,
-  },
-  createFirstButton: {
-    minHeight: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 24,
-    borderRadius: 14,
-  },
-  createFirstButtonText: {
-    color: "#000000",
-    fontSize: 14,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-  listContent: {
-    padding: 16,
-    paddingBottom: 40,
-    gap: 16,
-  },
-  listContentWithDeleteTray: {
-    paddingBottom: 110,
-  },
-  card: {
-    backgroundColor: "#1C1C1E",
-    borderRadius: 18,
-    padding: 18,
-    borderWidth: 1.5,
-    borderColor: "#2C2C2E",
-  },
-  cardSelected: {
-    backgroundColor: "#142519",
-    borderColor: "#30D158",
-  },
-  cardHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    marginBottom: 14,
-  },
-  cardTitleBox: { flex: 1, marginRight: 10 },
-  badgeRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
-  customBadge: {
-    backgroundColor: "rgba(74, 222, 128, 0.15)",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "rgba(74, 222, 128, 0.3)",
-  },
-  customBadgeText: {
-    color: Colors.primaryLight,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-  benchmarkBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(48, 209, 88, 0.15)",
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "rgba(48, 209, 88, 0.35)",
-  },
-  benchmarkBadgeText: {
-    color: "#30D158",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-  dateBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#2A2A2D",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  dateBadgeText: { color: Colors.primaryLight, fontSize: 11, fontWeight: "600" },
-  cardTitle: { color: Colors.text, fontSize: 19, fontWeight: "700" },
-  cardHeaderRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingLeft: 8,
-  },
-  cardBenchmarkBtn: {
-    padding: 6,
-    marginRight: 6,
-    borderRadius: 8,
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-  },
-  cardCheckbox: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.2)",
-  },
-  cardCheckboxSelected: {
-    backgroundColor: "#132E1D",
-    borderColor: "#30D158",
-  },
-  metricsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
-    backgroundColor: "#252528",
-    paddingVertical: 12,
-    borderRadius: 12,
-    marginBottom: 14,
-  },
-  metricItem: { alignItems: "center", flex: 1 },
-  metricDivider: { width: 1, height: 24, backgroundColor: "#3A3A3D" },
-  metricLabel: {
-    color: Colors.textSecondary,
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.5,
-    marginBottom: 3,
-  },
-  metricValue: { color: Colors.text, fontSize: 15, fontWeight: "800" },
-  cardNotes: {
-    color: Colors.textMuted,
-    fontSize: 13,
-    fontStyle: "italic",
-    marginBottom: 14,
-    paddingHorizontal: 2,
-  },
-  cardFooter: {
-    gap: 10,
-  },
-  editHintRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 2,
-  },
-  editHintText: {
-    color: Colors.textMuted,
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  startButton: {
-    minHeight: 50,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: Colors.primary,
-    borderRadius: 12,
-  },
-  startButtonText: {
-    color: "#000000",
-    fontSize: 14,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-  deleteTray: {
-    position: "absolute",
-    left: 20,
-    right: 20,
-    bottom: 24,
-    zIndex: 30,
-    alignItems: "center",
-  },
-  deleteButton: {
-    minWidth: 200,
-    minHeight: 56,
-    borderRadius: 28,
-    backgroundColor: "#E53935",
-    borderWidth: 2,
-    borderColor: "#E53935",
-    elevation: 10,
-    shadowColor: "#E53935",
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-  },
-  deleteButtonAction: {
-    minHeight: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    paddingHorizontal: 24,
-    borderRadius: 26,
-  },
-  deleteButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "800",
-    letterSpacing: 0.3,
-  },
-  toast: {
-    position: "absolute",
-    alignSelf: "center",
-    bottom: 96,
-    maxWidth: "90%",
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 22,
-    backgroundColor: "#252A27",
-    borderWidth: 1,
-    borderColor: "#3C4B3F",
-    zIndex: 40,
-  },
-  categoryTabs: {
-    flexDirection: "row",
-    paddingHorizontal: 20,
-    marginBottom: 14,
-    gap: 8,
-  },
-  categoryTabPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 18,
-    backgroundColor: "#1A1D20",
-    borderWidth: 1,
-    borderColor: "#2E3338",
-  },
-  categoryTabPillActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  categoryTabText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#AEB0B2",
-  },
-  categoryTabTextActive: {
-    color: "#081009",
-  },
-  planBadge: {
-    backgroundColor: "rgba(34, 197, 94, 0.15)",
-    borderColor: "rgba(34, 197, 94, 0.4)",
-  },
-  planBadgeText: {
-    color: "#22C55E",
-  },
-  popularBadge: {
-    backgroundColor: "rgba(10, 132, 255, 0.15)",
-    borderColor: "rgba(10, 132, 255, 0.4)",
-  },
-  popularBadgeText: {
-    color: "#0A84FF",
-  },
-  toastText: {
-    color: "#F7F7F7",
-    fontSize: 13,
-    fontWeight: "600",
-    textAlign: "center",
-  },
-});
+const createStyles = (colors: ThemeColors, isDark: boolean) =>
+  StyleSheet.create({
+    safeArea: { flex: 1, backgroundColor: colors.background },
+    header: {
+      minHeight: 70,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 18,
+      backgroundColor: colors.background,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    selectionToolbar: {
+      minHeight: 70,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 18,
+      backgroundColor: colors.background,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    cancelSelectionButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(229, 57, 53, 0.12)",
+      borderWidth: 1,
+      borderColor: "rgba(229, 57, 53, 0.35)",
+    },
+    selectionCount: {
+      color: colors.textPrimary,
+      fontSize: 17,
+      fontWeight: "700",
+    },
+    selectAllButton: {
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: 18,
+      backgroundColor: colors.surfaceRaised,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    selectAllButtonText: {
+      color: colors.textPrimary,
+      fontSize: 13,
+      fontWeight: "700",
+    },
+    homeButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceRaised,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    headerTitle: {
+      color: colors.textPrimary,
+      fontSize: 20,
+      fontWeight: "700",
+    },
+    headerRightButtons: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    selectModeButton: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceRaised,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    newButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: colors.primary,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: 18,
+    },
+    newButtonText: {
+      color: colors.primaryText,
+      fontSize: 13,
+      fontWeight: "800",
+      letterSpacing: 0.5,
+    },
+    centerContainer: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 12,
+    },
+    loadingText: { color: colors.textSecondary, fontSize: 15 },
+    emptyContainer: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 36,
+    },
+    emptyIconCircle: {
+      width: 84,
+      height: 84,
+      borderRadius: 42,
+      backgroundColor: colors.surfaceRaised,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    emptyTitle: {
+      color: colors.textPrimary,
+      fontSize: 22,
+      fontWeight: "700",
+      marginBottom: 8,
+      textAlign: "center",
+    },
+    emptySubtitle: {
+      color: colors.textSecondary,
+      fontSize: 15,
+      textAlign: "center",
+      lineHeight: 22,
+      marginBottom: 28,
+    },
+    createFirstButton: {
+      minHeight: 52,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      backgroundColor: colors.primary,
+      paddingHorizontal: 24,
+      borderRadius: 14,
+    },
+    createFirstButtonText: {
+      color: colors.primaryText,
+      fontSize: 14,
+      fontWeight: "800",
+      letterSpacing: 0.5,
+    },
+    listContent: {
+      padding: 16,
+      paddingBottom: 40,
+      gap: 16,
+    },
+    listContentWithDeleteTray: {
+      paddingBottom: 110,
+    },
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: 18,
+      padding: 18,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+    },
+    cardSelected: {
+      backgroundColor: isDark ? "#142519" : "#E8F5E9",
+      borderColor: "#30D158",
+    },
+    cardHeader: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      marginBottom: 14,
+    },
+    cardTitleBox: { flex: 1, marginRight: 8 },
+    badgeRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      flexWrap: "wrap",
+      gap: 6,
+      marginBottom: 6,
+    },
+    customBadge: {
+      backgroundColor: isDark ? "rgba(74, 222, 128, 0.15)" : "rgba(34, 197, 94, 0.12)",
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(74, 222, 128, 0.3)" : "rgba(34, 197, 94, 0.35)",
+    },
+    customBadgeText: {
+      color: isDark ? "#4ADE80" : "#16A34A",
+      fontSize: 10,
+      fontWeight: "800",
+      letterSpacing: 0.5,
+    },
+    benchmarkBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: isDark ? "rgba(48, 209, 88, 0.15)" : "rgba(34, 197, 94, 0.12)",
+      paddingHorizontal: 7,
+      paddingVertical: 2,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(48, 209, 88, 0.35)" : "rgba(34, 197, 94, 0.35)",
+    },
+    benchmarkBadgeText: {
+      color: isDark ? "#30D158" : "#16A34A",
+      fontSize: 10,
+      fontWeight: "800",
+      letterSpacing: 0.5,
+    },
+    dateBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: colors.surfaceRaised,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    dateBadgeText: { color: colors.textSecondary, fontSize: 11, fontWeight: "600" },
+    cardTitle: { color: colors.textPrimary, fontSize: 19, fontWeight: "700" },
+    cardHeaderRight: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingLeft: 8,
+    },
+    cardBenchmarkBtn: {
+      padding: 6,
+      marginRight: 6,
+      borderRadius: 8,
+      backgroundColor: isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.05)",
+    },
+    cardCheckbox: {
+      width: 38,
+      height: 38,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceRaised,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    cardCheckboxSelected: {
+      backgroundColor: isDark ? "#132E1D" : "#DCFCE7",
+      borderColor: "#30D158",
+    },
+    metricsRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-around",
+      backgroundColor: colors.surfaceRaised,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingVertical: 12,
+      borderRadius: 12,
+      marginBottom: 14,
+    },
+    metricItem: { alignItems: "center", flex: 1 },
+    metricDivider: { width: 1, height: 24, backgroundColor: colors.divider },
+    metricLabel: {
+      color: colors.textTertiary,
+      fontSize: 10,
+      fontWeight: "700",
+      letterSpacing: 0.5,
+      marginBottom: 3,
+    },
+    metricValue: { color: colors.textPrimary, fontSize: 15, fontWeight: "800" },
+    cardNotes: {
+      color: colors.textTertiary,
+      fontSize: 13,
+      fontStyle: "italic",
+      marginBottom: 14,
+      paddingHorizontal: 2,
+    },
+    cardFooter: {
+      gap: 10,
+    },
+    editHintRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      paddingVertical: 2,
+    },
+    editHintText: {
+      color: colors.textTertiary,
+      fontSize: 12,
+      fontWeight: "500",
+    },
+    startButton: {
+      minHeight: 50,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      backgroundColor: colors.primary,
+      borderRadius: 12,
+    },
+    startButtonText: {
+      color: colors.primaryText,
+      fontSize: 14,
+      fontWeight: "800",
+      letterSpacing: 0.5,
+    },
+    deleteTray: {
+      position: "absolute",
+      left: 20,
+      right: 20,
+      bottom: 24,
+      zIndex: 30,
+      alignItems: "center",
+    },
+    deleteButton: {
+      minWidth: 200,
+      minHeight: 56,
+      borderRadius: 28,
+      backgroundColor: "#E53935",
+      borderWidth: 2,
+      borderColor: "#E53935",
+      elevation: 10,
+      shadowColor: "#E53935",
+      shadowOffset: { width: 0, height: 5 },
+      shadowOpacity: 0.3,
+      shadowRadius: 10,
+    },
+    deleteButtonAction: {
+      minHeight: 52,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 10,
+      paddingHorizontal: 24,
+      borderRadius: 26,
+    },
+    deleteButtonText: {
+      color: "#FFFFFF",
+      fontSize: 14,
+      fontWeight: "800",
+      letterSpacing: 0.3,
+    },
+    toast: {
+      position: "absolute",
+      alignSelf: "center",
+      bottom: 96,
+      maxWidth: "90%",
+      paddingHorizontal: 18,
+      paddingVertical: 12,
+      borderRadius: 22,
+      backgroundColor: colors.surfaceRaised,
+      borderWidth: 1,
+      borderColor: colors.border,
+      zIndex: 40,
+    },
+    categoryTabs: {
+      flexDirection: "row",
+      paddingHorizontal: 20,
+      marginBottom: 14,
+      gap: 8,
+    },
+    categoryTabPill: {
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 18,
+      backgroundColor: colors.surfaceRaised,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    categoryTabPillActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    categoryTabText: {
+      fontSize: 12,
+      fontWeight: "700",
+      color: colors.textSecondary,
+    },
+    categoryTabTextActive: {
+      color: colors.primaryText,
+    },
+    planBadge: {
+      backgroundColor: isDark ? "rgba(34, 197, 94, 0.15)" : "rgba(34, 197, 94, 0.12)",
+      borderColor: isDark ? "rgba(34, 197, 94, 0.4)" : "rgba(34, 197, 94, 0.35)",
+    },
+    planBadgeText: {
+      color: isDark ? "#22C55E" : "#16A34A",
+    },
+    popularBadge: {
+      backgroundColor: isDark ? "rgba(10, 132, 255, 0.15)" : "rgba(10, 132, 255, 0.12)",
+      borderColor: isDark ? "rgba(10, 132, 255, 0.4)" : "rgba(10, 132, 255, 0.35)",
+    },
+    popularBadgeText: {
+      color: isDark ? "#0A84FF" : "#0284C7",
+    },
+    toastText: {
+      color: colors.textPrimary,
+      fontSize: 13,
+      fontWeight: "600",
+      textAlign: "center",
+    },
+  });

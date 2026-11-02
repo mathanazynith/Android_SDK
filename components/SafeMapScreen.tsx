@@ -18,63 +18,77 @@ export default function SafeMapScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [locationStatus, setLocationStatus] = useState<string>('Checking...');
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
-    initializeMap();
-  }, []);
+    let cancelled = false;
 
-  const initializeMap = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      
-      // Step 1: Check API Key
-      const apiKey = ENV.GOOGLE_MAPS_API_KEY;
-      
-      if (!apiKey || apiKey.length < 20) {
-        setError('Google Maps API Key is invalid or missing.');
-        setLoading(false);
-        return;
-      }
-
-      // Step 2: Check Location Permissions
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      
-      if (status !== 'granted') {
-        setError('Location permission is required for the map to work.');
-        setLocationStatus('Permission denied');
-        setLoading(false);
-        return;
-      }
-
-      setLocationStatus('Permission granted');
-
-      // Step 3: Try to get current location
+    const runInit = async () => {
       try {
-        await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Highest,
-        });
-        setLocationStatus('Location obtained ✓');
-      } catch (locError) {
-        console.warn('⚠️ Could not get initial location:', locError);
-        setLocationStatus('Location pending...');
-        // Still proceed - map will show user location eventually
+        // Step 1: Check API Key
+        const apiKey = ENV.GOOGLE_MAPS_API_KEY;
+        
+        if (!apiKey || apiKey.length < 20) {
+          if (!cancelled) {
+            setError('Google Maps API Key is invalid or missing.');
+            setLoading(false);
+          }
+          return;
+        }
+
+        // Step 2: Check Location Permissions
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        
+        if (status !== 'granted') {
+          if (!cancelled) {
+            setError('Location permission is required for the map to work.');
+            setLocationStatus('Permission denied');
+            setLoading(false);
+          }
+          return;
+        }
+
+        if (!cancelled) setLocationStatus('Permission granted');
+
+        // Step 3: Try to get current location
+        try {
+          await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Highest,
+          });
+          if (!cancelled) setLocationStatus('Location obtained ✓');
+        } catch (locError) {
+          console.warn('⚠️ Could not get initial location:', locError);
+          if (!cancelled) setLocationStatus('Location pending...');
+          // Still proceed - map will show user location eventually
+        }
+
+        // Step 4: Everything is ready
+        if (!cancelled) {
+          setIsReady(true);
+          setLoading(false);
+        }
+
+      } catch (err: any) {
+        console.error('❌ Map initialization error:', err);
+        if (!cancelled) {
+          setError(err?.message || 'Failed to initialize map');
+          setLoading(false);
+        }
       }
+    };
 
-      // Step 4: Everything is ready
-      setIsReady(true);
-      setLoading(false);
+    void runInit();
 
-    } catch (error: any) {
-      console.error('❌ Map initialization error:', error);
-      setError(error.message || 'Failed to initialize map');
-      setLoading(false);
-    }
-  };
+    return () => {
+      cancelled = true;
+    };
+  }, [retryCount]);
 
   const handleRetry = () => {
-    initializeMap();
+    setLoading(true);
+    setError(null);
+    setLocationStatus('Checking...');
+    setRetryCount((prev) => prev + 1);
   };
 
   if (loading) {

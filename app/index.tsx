@@ -1,6 +1,10 @@
 import { Redirect, useRootNavigationState } from 'expo-router';
-import { Image, StyleSheet, View } from 'react-native';
+import { StatusBar, StyleSheet, View } from 'react-native';
+import { RunningLoader } from '../components/common/RunningLoader';
 import { useAuth } from '../service/auth';
+
+const runnerLoopGreen = require('../assets/animations/runner-loop-green.json');
+const runnerLoopMuted = require('../assets/animations/runner-loop-muted.json');
 
 export default function SplashScreen() {
   const { user, isLoading } = useAuth();
@@ -9,11 +13,14 @@ export default function SplashScreen() {
   if (isLoading || !rootNavigationState?.key) {
     return (
       <View style={styles.container}>
-        <Image
-          source={require('../assets/Loading_image_app.png')}
-          style={styles.loadingImage}
-          resizeMode="cover"
-          accessibilityLabel="Zy-Run loading"
+        <StatusBar barStyle="light-content" backgroundColor="#0A0A0A" />
+        <RunningLoader
+          size={120}
+          mode="lottie"
+          baseSource={runnerLoopMuted}
+          fillSource={runnerLoopGreen}
+          showSpeedLines={false}
+          showShadow={false}
         />
       </View>
     );
@@ -25,12 +32,8 @@ export default function SplashScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#0A0A0A',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  loadingImage: {
-    width: '100%',
-    height: '100%',
   },
 });

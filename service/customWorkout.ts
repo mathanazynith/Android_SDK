@@ -182,10 +182,9 @@ export const canonicalDistanceUnit = (
   if (lower === "mi" || lower.includes("mile") || lower.includes("(mi)")) {
     return "mi";
   }
-  // Check meters (only for Run segments)
+  // Check meters (backend forbids meters for Warmup and Cooldown)
   if (lower === "m" || lower === "meter" || lower === "meters" || lower.includes("(m)")) {
     return stepType === "Run" ? "m" : "km";
   }
   return "km";
 };
-
