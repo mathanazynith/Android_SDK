@@ -33,13 +33,11 @@ export const DistanceInput: React.FC<DistanceInputProps> = ({ label, value, unit
           style={[styles.input, { color: colors.inputText }, resolvedError ? styles.inputError : null]}
           value={localValue}
           onChangeText={(text) => {
-            const nextValue = text.replace(/[^0-9.]/g, '');
+            const nextValue = text.replace(/[^0-9.-]/g, '').replace(/(?!^)-/g, '');
             const decimalCount = (nextValue.match(/\./g) || []).length;
             const sanitizedValue = decimalCount > 1 ? nextValue.replace(/\.(?=.*\.)/g, '') : nextValue;
             setLocalValue(sanitizedValue);
-            if (!(Number.isFinite(maxValue) && Number(sanitizedValue) > Number(maxValue))) {
-              onChange(sanitizedValue);
-            }
+            onChange(sanitizedValue);
           }}
           placeholder=""
           placeholderTextColor={colors.placeholder}

@@ -29,7 +29,7 @@ export default function ThemedCalendarPicker({ value, title, onCancel, onConfirm
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [selectedDate, setSelectedDate] = useState(() => clampToBounds(value, minimumDate, maximumDate));
-  const [displayMonth, setDisplayMonth] = useState(() => startOfMonth(value));
+  const [displayMonth, setDisplayMonth] = useState(() => startOfMonth(clampToBounds(value, minimumDate, maximumDate)));
   const [showYears, setShowYears] = useState(false);
 
   const year = displayMonth.getFullYear();

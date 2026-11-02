@@ -334,6 +334,7 @@ export default function MapScreen() {
   const pauseEventsRef = useRef<PauseEvent[]>([]);
   const workoutCompletionPromptShownRef = useRef(false);
   const handledNativeRunActionRef = useRef<string | null>(null);
+  const saveConfirmationOpenRef = useRef(false);
 
 
   const logsRef = useRef<string[]>([]);
@@ -2143,7 +2144,7 @@ export default function MapScreen() {
         stationarySession ? 'No movement detected' : 'Run Completed!',
         stationarySession
           ? 'No route was drawn or uploaded because the device remained stationary.'
-          : 'Your route has been finalized and saved for upload.'
+          : 'Your record was saved'
       );
     } catch (error: any) {
       const backendData = error?.response?.data;
@@ -2188,6 +2189,54 @@ export default function MapScreen() {
         await stopLiveTrackingNotification();
       }
       isStoppingRef.current = false;
+    }
+  };
+
+  const requestSaveAndExit = () => {
+    if (!isRunningRef.current || isStoppingRef.current || saveConfirmationOpenRef.current) {
+      return;
+    }
+
+    saveConfirmationOpenRef.current = true;
+    const shouldResumeAfterCancel = !isPausedRef.current;
+    const wasCompletionPromptVisible = completionPromptVisible;
+    setCompletionPromptVisible(false);
+
+    const showConfirmation = () => {
+      Alert.alert(
+        'Save and Exit',
+        'Whether you want to save this record?',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => {
+              saveConfirmationOpenRef.current = false;
+              if (wasCompletionPromptVisible) {
+                continueAfterCompletion();
+              }
+              if (shouldResumeAfterCancel) {
+                void resumeRun();
+              }
+            },
+          },
+          {
+            text: 'Confirm',
+            style: 'destructive',
+            onPress: () => {
+              saveConfirmationOpenRef.current = false;
+              void stopRun();
+            },
+          },
+        ],
+        { cancelable: false },
+      );
+    };
+
+    if (shouldResumeAfterCancel) {
+      void pauseRun().then(showConfirmation);
+    } else {
+      showConfirmation();
     }
   };
 
@@ -2441,12 +2490,9 @@ export default function MapScreen() {
                 </Pressable>
                 <Pressable
                   style={styles.saveExitActionButton}
-                  onPress={() => {
-                    setCompletionPromptVisible(false);
-                    void stopRun();
-                  }}
+                  onPress={requestSaveAndExit}
                 >
-                  <Text style={styles.saveExitActionText}>STOP & SAVE</Text>
+                  <Text style={styles.saveExitActionText}>SAVE AND EXIT</Text>
                 </Pressable>
               </View>
             </View>
@@ -2727,10 +2773,10 @@ export default function MapScreen() {
             {isRunning && (
               <Pressable
                 style={styles.stopActionButton}
-                onPress={() => void stopRun()}
+                onPress={requestSaveAndExit}
               >
                 <Feather name="square" size={16} color="#FFFFFF" />
-                <Text style={styles.stopActionText}>STOP & SAVE</Text>
+                <Text style={styles.stopActionText}>SAVE AND EXIT</Text>
               </Pressable>
             )}
           </View>
@@ -2811,9 +2857,9 @@ export default function MapScreen() {
                     style={styles.stopButton}
                     hitSlop={16}
                     android_disableSound
-                    onPress={() => void stopRun()}
+                    onPress={requestSaveAndExit}
                   >
-                    <Text style={styles.stopButtonText}>STOP & SAVE</Text>
+                    <Text style={styles.stopButtonText}>SAVE AND EXIT</Text>
                   </Pressable>
                 </View>
               )}

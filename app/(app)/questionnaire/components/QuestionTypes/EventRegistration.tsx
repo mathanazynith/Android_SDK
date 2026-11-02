@@ -5,6 +5,7 @@ import DatePicker from "../../QuestionTypes/DatePicker";
 import DistanceTimePaceSelector from "../../QuestionTypes/DistanceTimePaceSelector";
 import { RunningLoader } from "../../../../../components/common/RunningLoader";
 import { useTheme } from "../../../../../contexts/ThemeContext";
+import { getMinimumEventDate } from "../../../../../utils/questionnaireValidation";
 
 interface EventRegistrationProps {
   value?: {
@@ -24,6 +25,7 @@ interface EventRegistrationProps {
   racePrediction?: RacePrediction | null;
   isRacePredictionLoading?: boolean;
   racePredictionError?: string | null;
+  minimumEventDate?: string | null;
   validationMessages?: {
     eventName?: string[];
     eventDate?: string[];
@@ -159,6 +161,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   racePrediction,
   isRacePredictionLoading = false,
   racePredictionError,
+  minimumEventDate,
   validationMessages,
   labels,
 }) => {
@@ -198,6 +201,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       unit: "km",
     };
   }, [customValues, distanceState, targetTime]);
+  const eventDateMinimum = getMinimumEventDate(minimumEventDate);
 
   interface EventRegistrationChange {
     eventName: string;
@@ -317,7 +321,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         <Text style={[styles.sectionLabel, { color: colors.textPrimary }]}>{labels?.eventDate || "When is your event?"}</Text>
         <DatePicker
           value={eventDate}
-          minimumDate={new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())}
+          minimumDate={eventDateMinimum}
           onChange={(date) => {
             setEventDate(date);
             emitChange({ eventDate: date });

@@ -1,6 +1,6 @@
 import { Alert } from '@/components/ThemedAlert';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PanResponder, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RunningLoader } from '../../../components/common/RunningLoader';
@@ -200,9 +200,11 @@ export default function TrainingPlanScreen() {
   const [benchmarkAssignments, setBenchmarkAssignments] = useState<Record<string, PlanBenchmarkAssignment>>({});
   const [dbPlanWorkouts, setDbPlanWorkouts] = useState<UserWorkoutResponse[]>([]);
 
-  useEffect(() => {
-    void fetchWorkoutPlan();
-  }, [fetchWorkoutPlan]);
+  useFocusEffect(
+    useCallback(() => {
+      void fetchWorkoutPlan(true);
+    }, [fetchWorkoutPlan]),
+  );
 
   useEffect(() => {
     PlanBenchmarkStore.getAssignments().then(setBenchmarkAssignments);

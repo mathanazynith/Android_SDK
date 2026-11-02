@@ -10,6 +10,10 @@ export default function TrainingPlanLayout() {
       )}
     >
       <Stack.Screen name="index" />
+      <Stack.Screen
+        name="workout-details"
+        options={{ headerShown: false, presentation: 'card', animation: 'simple_push' }}
+      />
     </Stack>
   );
 }

@@ -2,7 +2,7 @@ import { Alert } from '@/components/ThemedAlert';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Animated, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useReducedMotion } from 'react-native-reanimated';
 import BenchmarkBadgeIcon from '../../../../components/BenchmarkBadgeIcon';
@@ -46,6 +46,20 @@ const segmentTitle = (segment: WorkoutSegment) =>
 
 const segmentSubtitle = (segment: WorkoutSegment, fallback: string) =>
   [segment.rest ? `${segment.rest} rest` : '', segment.notes].filter(Boolean).join(' · ') || fallback;
+
+type SuggestedRouteAvailability = 'loading' | 'available' | 'empty' | 'error';
+
+const getSuggestedRoutes = (value: unknown): SuggestedRoute[] => {
+  if (Array.isArray(value)) return value as SuggestedRoute[];
+  if (!value || typeof value !== 'object') return [];
+  const response = value as Record<string, unknown>;
+  const routes = response.suggestions
+    ?? response.routes
+    ?? response.suggested_routes
+    ?? response.results
+    ?? response.data;
+  return Array.isArray(routes) ? routes as SuggestedRoute[] : [];
+};
 
 type PageSegmentRow = {
   key: string;
@@ -133,6 +147,10 @@ export default function WorkoutModal({
   const renderedRef = useRef(visible);
   const [activeWorkout, setActiveWorkout] = useState<WorkoutDetail | null>(workout);
   const [assignedRoute, setAssignedRoute] = useState<SuggestedRoute | null>(null);
+  const [routeAvailability, setRouteAvailability] = useState<{
+    workoutId: number | null;
+    status: SuggestedRouteAvailability;
+  }>({ workoutId: null, status: 'loading' });
   const [isSavingBenchmark, setIsSavingBenchmark] = useState(false);
   const [opacity] = useState(() => new Animated.Value(0));
   const [translateY] = useState(() => new Animated.Value(30));
@@ -187,6 +205,7 @@ export default function WorkoutModal({
       let cancelled = false;
       if (!visible || !workoutDbId) {
         setAssignedRoute(null);
+        setRouteAvailability({ workoutId: workoutDbId ?? null, status: 'error' });
         return undefined;
       }
 
@@ -199,6 +218,18 @@ export default function WorkoutModal({
         if (!cancelled) setAssignedRoute(getCachedAssignedRoute(workoutDbId));
       });
 
+      setRouteAvailability({ workoutId: workoutDbId, status: 'loading' });
+      void customWorkoutAPI.suggestedRoutes(workoutDbId).then(({ data }) => {
+        if (cancelled) return;
+        setRouteAvailability({
+          workoutId: workoutDbId,
+          status: getSuggestedRoutes(data).length > 0 ? 'available' : 'empty',
+        });
+      }).catch((error) => {
+        console.warn('[WorkoutModal] Unable to check suggested route availability:', error);
+        if (!cancelled) setRouteAvailability({ workoutId: workoutDbId, status: 'error' });
+      });
+
       return () => {
         cancelled = true;
       };
@@ -206,6 +237,17 @@ export default function WorkoutModal({
   );
 
   if ((!rendered && !visible) || !activeWorkout) return null;
+
+  const routeAvailabilityStatus = routeAvailability.workoutId === activeWorkout.workoutDbId
+    ? routeAvailability.status
+    : 'loading';
+  const suggestedRoutesDisabled = routeAvailabilityStatus === 'loading'
+    || routeAvailabilityStatus === 'empty';
+  const suggestedRoutesHint = routeAvailabilityStatus === 'empty'
+    ? 'No suggested routes for this workout.'
+    : routeAvailabilityStatus === 'error'
+      ? 'Could not check route availability. Tap to try again.'
+      : undefined;
 
   const saveBenchmark = async (nextState: boolean) => {
     if (!activeWorkout || activeWorkout.isRest || isSavingBenchmark) return;
@@ -480,26 +522,54 @@ export default function WorkoutModal({
               <Ionicons name="chevron-forward" size={20} color={colors.primary} />
             </TouchableOpacity>
           ) : null}
-          <TouchableOpacity
-            style={[styles.suggestedRoutesButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
-            onPress={() => {
-              const workoutId = activeWorkout.workoutDbId;
-              if (!workoutId) {
-                Alert.alert('Routes unavailable', 'This workout is not linked to a saved plan workout.');
-                return;
-              }
-              if (presentation === 'modal') onClose();
-              router.push({
-                pathname: '/(app)/custom-workout/suggested-routes',
-                params: { workoutId: String(workoutId) },
-              });
-            }}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="map-outline" size={19} color={colors.primary} />
-            <Text style={[styles.suggestedRoutesText, { color: colors.primary }]}>Suggested Routes</Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.primary} />
-          </TouchableOpacity>
+          <View>
+            <TouchableOpacity
+              style={[
+                styles.suggestedRoutesButton,
+                suggestedRoutesDisabled && styles.suggestedRoutesButtonDisabled,
+                { backgroundColor: colors.surfaceRaised, borderColor: colors.border },
+              ]}
+              onPress={() => {
+                const workoutId = activeWorkout.workoutDbId;
+                if (!workoutId) {
+                  Alert.alert('Routes unavailable', 'This workout is not linked to a saved plan workout.');
+                  return;
+                }
+                if (presentation === 'modal') onClose();
+                router.push({
+                  pathname: '/(app)/custom-workout/suggested-routes',
+                  params: { workoutId: String(workoutId) },
+                });
+              }}
+              disabled={suggestedRoutesDisabled}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: suggestedRoutesDisabled }}
+              accessibilityHint={suggestedRoutesHint}
+            >
+              {routeAvailabilityStatus === 'loading'
+                ? <ActivityIndicator size="small" color={colors.textSecondary} />
+                : <Ionicons name="map-outline" size={19} color={suggestedRoutesDisabled ? colors.textTertiary : colors.primary} />}
+              <Text style={[
+                styles.suggestedRoutesText,
+                { color: suggestedRoutesDisabled ? colors.textTertiary : colors.primary },
+              ]}>
+                {routeAvailabilityStatus === 'loading' ? 'Checking routes...' : 'Suggested Routes'}
+              </Text>
+              {routeAvailabilityStatus !== 'loading' && (
+                <Ionicons
+                  name="chevron-forward"
+                  size={20}
+                  color={suggestedRoutesDisabled ? colors.textTertiary : colors.primary}
+                />
+              )}
+            </TouchableOpacity>
+            {suggestedRoutesHint && (
+              <Text style={[styles.suggestedRoutesHint, { color: colors.textSecondary }]}>
+                {suggestedRoutesHint}
+              </Text>
+            )}
+          </View>
         </View>
       ) : null}
 
@@ -672,20 +742,49 @@ export default function WorkoutModal({
 
           <View style={styles.pageActions}>
             {!activeWorkout.isRest && activeWorkout.workoutDbId ? (
-              <TouchableOpacity
-                style={[styles.suggestedRoutesButton, styles.pageActionButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
-                onPress={() => {
-                  router.push({
-                    pathname: '/(app)/custom-workout/suggested-routes',
-                    params: { workoutId: String(activeWorkout.workoutDbId) },
-                  });
-                }}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="map-outline" size={19} color={colors.primary} />
-                <Text style={[styles.suggestedRoutesText, { color: colors.primary }]}>Suggested Routes</Text>
-                <Ionicons name="chevron-forward" size={20} color={colors.primary} />
-              </TouchableOpacity>
+              <View>
+                <TouchableOpacity
+                  style={[
+                    styles.suggestedRoutesButton,
+                    styles.pageActionButton,
+                    suggestedRoutesDisabled && styles.suggestedRoutesButtonDisabled,
+                    { backgroundColor: colors.surfaceRaised, borderColor: colors.border },
+                  ]}
+                  onPress={() => {
+                    router.push({
+                      pathname: '/(app)/custom-workout/suggested-routes',
+                      params: { workoutId: String(activeWorkout.workoutDbId) },
+                    });
+                  }}
+                  disabled={suggestedRoutesDisabled}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: suggestedRoutesDisabled }}
+                  accessibilityHint={suggestedRoutesHint}
+                >
+                  {routeAvailabilityStatus === 'loading'
+                    ? <ActivityIndicator size="small" color={colors.textSecondary} />
+                    : <Ionicons name="map-outline" size={19} color={suggestedRoutesDisabled ? colors.textTertiary : colors.primary} />}
+                  <Text style={[
+                    styles.suggestedRoutesText,
+                    { color: suggestedRoutesDisabled ? colors.textTertiary : colors.primary },
+                  ]}>
+                    {routeAvailabilityStatus === 'loading' ? 'Checking routes...' : 'Suggested Routes'}
+                  </Text>
+                  {routeAvailabilityStatus !== 'loading' && (
+                    <Ionicons
+                      name="chevron-forward"
+                      size={20}
+                      color={suggestedRoutesDisabled ? colors.textTertiary : colors.primary}
+                    />
+                  )}
+                </TouchableOpacity>
+                {suggestedRoutesHint && (
+                  <Text style={[styles.suggestedRoutesHint, { color: colors.textSecondary }]}>
+                    {suggestedRoutesHint}
+                  </Text>
+                )}
+              </View>
             ) : null}
             {!activeWorkout.isRest && (
               <TouchableOpacity
@@ -946,7 +1045,9 @@ const styles = StyleSheet.create({
   assignedRouteButton: { minHeight: 52, borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
   assignedRouteText: { flex: 1, fontSize: 14, fontWeight: '700' },
   suggestedRoutesButton: { minHeight: 52, borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  suggestedRoutesButtonDisabled: { opacity: 0.48 },
   suggestedRoutesText: { flex: 1, fontSize: 15, fontWeight: '800' },
+  suggestedRoutesHint: { fontSize: 11, lineHeight: 15, marginTop: 4, paddingHorizontal: 4 },
   stat: { flex: 1 },
   statLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
   statValue: { fontSize: 14, lineHeight: 19 },

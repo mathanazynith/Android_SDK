@@ -82,15 +82,12 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
     return formatted;
   };
 
-  const clampComponent = (val: string, type: 'hours' | 'minutes' | 'seconds') => {
+  const formatComponent = (val: string) => {
     const trimmed = String(val ?? '').trim();
     if (!trimmed) return '';
     const num = parseInt(trimmed, 10);
     if (isNaN(num)) return '';
-    if (type === 'hours') {
-      return String(Math.min(Math.max(num, 0), 99)).padStart(2, '0');
-    }
-    return String(Math.min(Math.max(num, 0), 59)).padStart(2, '0');
+    return String(num).padStart(2, '0');
   };
 
   const handlePartChange = (part: 'hours' | 'minutes' | 'seconds', raw: string, nextRef?: React.RefObject<TextInputRef | null>) => {
@@ -144,23 +141,23 @@ export const TimeInput: React.FC<TimeInputProps> = ({ label, value, hint, error,
     setFocusedField(part);
   };
 
-  // On blur, ensure components are within valid ranges and padded
+  // On blur, pad components without changing out-of-range values so they can be corrected.
   const handleBlur = (part: 'hours' | 'minutes' | 'seconds') => () => {
     if (part === 'hours') {
-      const clamped = clampComponent(hours, 'hours');
-      setHours(clamped);
-      updateTime(clamped, minutes, seconds);
+      const formatted = formatComponent(hours);
+      setHours(formatted);
+      updateTime(formatted, minutes, seconds);
       return;
     }
     if (part === 'minutes') {
-      const clamped = clampComponent(minutes, 'minutes');
-      setMinutes(clamped);
-      updateTime(hours, clamped, seconds);
+      const formatted = formatComponent(minutes);
+      setMinutes(formatted);
+      updateTime(hours, formatted, seconds);
       return;
     }
-    const clamped = clampComponent(seconds, 'seconds');
-    setSeconds(clamped);
-    updateTime(hours, minutes, clamped);
+    const formatted = formatComponent(seconds);
+    setSeconds(formatted);
+    updateTime(hours, minutes, formatted);
   };
 
   return (
