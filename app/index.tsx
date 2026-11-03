@@ -26,7 +26,7 @@ export default function SplashScreen() {
     );
   }
 
-  return <Redirect href={user ? '/(app)/dashboard' : '/(auth)/welcome'} />;
+  return <Redirect href={(user ? '/(app)/dashboard' : '/(auth)/welcome') as any} />;
 }
 
 const styles = StyleSheet.create({
