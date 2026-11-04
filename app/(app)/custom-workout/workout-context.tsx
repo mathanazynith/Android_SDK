@@ -1,4 +1,6 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { useAuth } from "../../../service/auth";
+import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import { getBackendErrorMessage } from "../../../service/api";
 import {
     canonicalDistanceUnit,
@@ -103,6 +105,8 @@ interface CustomWorkoutContextType {
 const WorkoutContext = createContext<CustomWorkoutContextType | null>(null);
 
 export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  const profileUnit = getDistanceUnitCode(user?.profile?.distance_unit) === "mile" ? "mi" : "km";
   const [workout, setWorkout] = useState<WorkoutState>(createDefaultWorkout);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -516,6 +520,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         workout_date: workout.workoutDate || null,
         notes: workout.notes || "",
         is_benchmark: workout.isBenchmark ?? false,
+        distance_unit: profileUnit,
         segments,
       };
 
@@ -568,12 +573,12 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           loadedDistance = String(seg.display_distance);
         } else if (seg.rep_distance != null && seg.rep_distance > 0) {
           if (unitType === "m") loadedDistance = String(seg.rep_distance);
-          else if (unitType === "mi") loadedDistance = (seg.rep_distance / 1609.344).toFixed(2);
-          else loadedDistance = (seg.rep_distance / 1000).toFixed(2);
+          else if (unitType === "mi") loadedDistance = seg.rep_distance > 100 ? (seg.rep_distance / 1609.344).toFixed(2) : String(seg.rep_distance);
+          else loadedDistance = seg.rep_distance > 100 ? (seg.rep_distance / 1000).toFixed(2) : String(seg.rep_distance);
         } else if (seg.distance != null && seg.distance > 0) {
           if (unitType === "m") loadedDistance = String(seg.distance);
-          else if (unitType === "mi") loadedDistance = (seg.distance / 1609.344).toFixed(2);
-          else loadedDistance = (seg.distance / 1000).toFixed(2);
+          else if (unitType === "mi") loadedDistance = seg.distance > 100 ? (seg.distance / 1609.344).toFixed(2) : String(seg.distance);
+          else loadedDistance = seg.distance > 100 ? (seg.distance / 1000).toFixed(2) : String(seg.distance);
         }
 
         let cleanNotes = seg.notes || "";

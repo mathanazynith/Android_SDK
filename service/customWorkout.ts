@@ -28,6 +28,7 @@ export interface CustomWorkoutWritePayload {
   workout_type?: string;
   distance?: number | null;
   duration?: number | null;
+  distance_unit?: string;
   segments: CustomWorkoutSegmentWritePayload[];
 }
 

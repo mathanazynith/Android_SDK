@@ -29,6 +29,16 @@ import {
 } from "../../../service/customWorkout";
 import { BenchmarkStore } from "../../../src/services/benchmarkStore";
 import { PRESET_WORKOUTS } from "../../../src/constants/presetWorkouts";
+import { useAuth } from "../../../service/auth";
+import { getDistanceUnitCode } from "../../../utils/distanceUnit";
+import {
+    convertDistance,
+    convertPace,
+    DistanceUnitType,
+    getPaceUnitLabel,
+    normalizeUnit,
+    parsePaceToSeconds,
+} from "../../../src/utils/workoutCalculations";
 import { buildWorkoutExecutionPlan } from "../../../src/utils/workoutPlanBuilder";
 import { useCustomWorkout } from "./workout-context";
 
@@ -44,26 +54,112 @@ const formatDuration = (seconds?: number | null) => {
   return `${s}s`;
 };
 
-const formatDistance = (
-  distInMeters?: number | null,
-  displayDist?: number | null,
-  unit = "km"
-) => {
-  if (displayDist != null && displayDist > 0) {
-    return `${displayDist.toFixed(2)} ${unit}`;
-  }
-  if (distInMeters != null && distInMeters > 0) {
-    if (distInMeters < 1000 && unit === "m") {
-      return `${distInMeters} m`;
+const formatWorkoutDistance = (item: UserWorkoutResponse, targetUnit: DistanceUnitType = "km"): string => {
+  if (item.segments && item.segments.length > 0) {
+    let totalInTargetUnit = 0;
+    for (const seg of item.segments) {
+      const segUnit = normalizeUnit(seg.distance_unit);
+      const reps = Math.max(1, seg.repeats || 1);
+      let distInKm = 0;
+
+      if (seg.display_distance != null && Number(seg.display_distance) > 0) {
+        const val = Number(seg.display_distance);
+        if (segUnit === "mi") distInKm = val * 1.609344;
+        else if (segUnit === "m") distInKm = val / 1000;
+        else distInKm = val;
+      } else if (seg.rep_distance != null && seg.rep_distance > 0) {
+        distInKm = seg.rep_distance / 1000;
+      } else if (seg.distance != null && seg.distance > 0) {
+        if (segUnit === "m") distInKm = seg.distance / 1000;
+        else if (segUnit === "mi") distInKm = seg.distance > 100 ? seg.distance / 1000 : seg.distance * 1.609344;
+        else distInKm = seg.distance > 100 ? seg.distance / 1000 : seg.distance;
+      } else if (seg.duration != null && seg.duration > 0) {
+        const paceSec = parsePaceToSeconds(seg.target_pace || seg.pace) || (seg.segment_type === "Warmup" ? 400 : seg.segment_type === "Cooldown" ? 500 : 300);
+        if (segUnit === "mi") {
+          distInKm = (seg.duration / paceSec) * 1.609344;
+        } else {
+          distInKm = seg.duration / paceSec;
+        }
+      }
+
+      if (targetUnit === "mi") {
+        totalInTargetUnit += (distInKm / 1.609344) * reps;
+      } else if (targetUnit === "m") {
+        totalInTargetUnit += (distInKm * 1000) * reps;
+      } else {
+        totalInTargetUnit += distInKm * reps;
+      }
     }
-    return `${(distInMeters / 1000).toFixed(2)} km`;
+
+    if (totalInTargetUnit > 0) {
+      if (targetUnit === "m") return `${Math.round(totalInTargetUnit)} m`;
+      return `${totalInTargetUnit.toFixed(2)} ${targetUnit}`;
+    }
   }
+
+  // Fallback if no segments: convert item.distance
+  if (item.distance != null && item.distance > 0) {
+    if (targetUnit === "mi") {
+      return `${(item.distance / 1609.344).toFixed(2)} mi`;
+    }
+    return `${(item.distance / 1000).toFixed(2)} km`;
+  }
+
+  if (item.display_distance != null && item.display_distance > 0) {
+    const rawUnit = normalizeUnit(item.distance_unit);
+    const converted = convertDistance(item.display_distance, rawUnit, targetUnit);
+    return `${converted.toFixed(2)} ${targetUnit}`;
+  }
+
   return "--";
 };
 
-const getTargetPace = (item: UserWorkoutResponse) => {
+const formatWorkoutDuration = (item: UserWorkoutResponse) => {
+  if (item.segments && item.segments.length > 0) {
+    let totalSec = 0;
+    for (const seg of item.segments) {
+      const reps = Math.max(1, seg.repeats || 1);
+      const restSec = seg.rest_duration || 0;
+      const skipLastRest = seg.skip_last_rest ?? true;
+      const restCount = skipLastRest ? Math.max(reps - 1, 0) : reps;
+
+      let segSec = 0;
+      const paceSec = parsePaceToSeconds(seg.target_pace || seg.pace) || (seg.segment_type === "Warmup" ? 400 : seg.segment_type === "Cooldown" ? 500 : 300);
+
+      if (seg.input_type === "DISTANCE" || (!seg.duration && (seg.display_distance || seg.distance || seg.rep_distance))) {
+        const segUnit = normalizeUnit(seg.distance_unit);
+        let dist = Number(seg.display_distance) || 0;
+        if (dist <= 0) {
+          if (seg.rep_distance) {
+            dist = segUnit === "mi" ? seg.rep_distance / 1609.344 : segUnit === "m" ? seg.rep_distance : seg.rep_distance / 1000;
+          } else if (seg.distance) {
+            dist = segUnit === "mi" ? (seg.distance > 100 ? seg.distance / 1609.344 : seg.distance) : segUnit === "m" ? seg.distance : (seg.distance > 100 ? seg.distance / 1000 : seg.distance);
+          }
+        }
+        if (dist > 0 && paceSec > 0) {
+          segSec = segUnit === "m" ? Math.round((dist / 1000) * paceSec) : Math.round(dist * paceSec);
+        }
+      } else if (seg.duration != null && seg.duration > 0) {
+        segSec = seg.duration;
+      }
+
+      totalSec += segSec * reps + restSec * restCount;
+    }
+
+    if (totalSec > 0) {
+      return formatDuration(totalSec);
+    }
+  }
+
+  return formatDuration(item.duration);
+};
+
+const getTargetPace = (item: UserWorkoutResponse, targetUnit: DistanceUnitType = "km") => {
   const directPace = item.target_pace || item.pace;
-  if (directPace && directPace !== "--:--") return directPace;
+  if (directPace && directPace !== "--:--") {
+    const rawUnit = normalizeUnit(item.distance_unit || "km");
+    return convertPace(directPace, rawUnit, targetUnit, true);
+  }
 
   // Search run segments
   const runSeg = item.segments?.find(
@@ -72,16 +168,28 @@ const getTargetPace = (item: UserWorkoutResponse) => {
   if (runSeg) {
     const p = runSeg.target_pace || runSeg.pace;
     if (p) {
-      const suffix = runSeg.distance_unit === "mi" ? " / mi" : " / km";
-      return p.includes("/") ? p : `${p}${suffix}`;
+      const segUnit = normalizeUnit(runSeg.distance_unit || item.distance_unit || "km");
+      return convertPace(p, segUnit, targetUnit, true);
     }
   }
+
+  const anySeg = item.segments?.find((s) => s.pace || s.target_pace);
+  if (anySeg) {
+    const p = anySeg.target_pace || anySeg.pace;
+    if (p) {
+      const segUnit = normalizeUnit(anySeg.distance_unit || item.distance_unit || "km");
+      return convertPace(p, segUnit, targetUnit, true);
+    }
+  }
+
   return "--:--";
 };
 
 export default function CustomWorkoutCards() {
   const { loadWorkout, reset } = useCustomWorkout();
   const { colors, isDark } = useTheme();
+  const { user } = useAuth();
+  const profileUnit: DistanceUnitType = getDistanceUnitCode(user?.profile?.distance_unit) === "mile" ? "mi" : "km";
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const [rawWorkouts, setRawWorkouts] = useState<UserWorkoutResponse[]>([]);
   const [activeTab, setActiveTab] = useState<'all' | 'custom' | 'plan' | 'popular'>('all');
@@ -683,19 +791,19 @@ export default function CustomWorkoutCards() {
         <View style={styles.metricsRow}>
           <View style={styles.metricItem}>
             <Text style={styles.metricLabel}>DURATION</Text>
-            <Text style={styles.metricValue}>{formatDuration(item.duration)}</Text>
+            <Text style={styles.metricValue}>{formatWorkoutDuration(item)}</Text>
           </View>
           <View style={styles.metricDivider} />
           <View style={styles.metricItem}>
             <Text style={styles.metricLabel}>DISTANCE</Text>
             <Text style={styles.metricValue}>
-              {formatDistance(item.distance, item.display_distance, item.distance_unit)}
+              {formatWorkoutDistance(item, profileUnit)}
             </Text>
           </View>
           <View style={styles.metricDivider} />
           <View style={styles.metricItem}>
             <Text style={styles.metricLabel}>TARGET PACE</Text>
-            <Text style={styles.metricValue}>{getTargetPace(item)}</Text>
+            <Text style={styles.metricValue}>{getTargetPace(item, profileUnit)}</Text>
           </View>
         </View>
 

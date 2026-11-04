@@ -237,7 +237,7 @@ export default function StatsScreen() {
   const styles = getThemeStyles(isDark);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [period, setPeriod] = useState<PeriodFilter>('all');
+  const [period, setPeriod] = useState<PeriodFilter>('month');
   const [activities, setActivities] = useState<UnifiedActivity[]>([]);
   const [selectedPointKey, setSelectedPointKey] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
