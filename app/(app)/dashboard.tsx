@@ -3,10 +3,9 @@ import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { offlineWorkoutQueue } from '../../src/services/offlineWorkoutQueue';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { RunningLoader } from '../../components/common/RunningLoader';
 import DashboardText from '../../components/common/DashboardText';
+import { RunningLoader } from '../../components/common/RunningLoader';
 import MotionEntrance from '../../components/MotionEntrance';
 import NotificationBell from '../../components/NotificationBell';
 import SettingsMenu from '../../components/SettingsMenu';
@@ -16,6 +15,7 @@ import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../service/auth';
 import { getFcmToken } from '../../service/fcmService';
 import { registerNotificationDevice } from '../../service/notificationService';
+import { offlineWorkoutQueue } from '../../src/services/offlineWorkoutQueue';
 import { isAssessmentProfileComplete } from '../../utils/profileEligibility';
 import { useResponsive } from '../../utils/responsive';
 import DashboardActivePlan from './DashboardActivePlan';
@@ -131,7 +131,6 @@ export default function DashboardScreen() {
   //   };
   // }, []);
 
-  const profile = user?.profile;
   const canStartAssessment = isAssessmentProfileComplete(user);
   const firstName = user?.first_name?.trim();
   const fallbackName = user?.username?.trim() || user?.email?.split('@')[0]?.trim() || 'Runner';
@@ -188,7 +187,28 @@ export default function DashboardScreen() {
   };
 
 
-
+  if (workoutPlanError && !workoutPlan) {
+    return (
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
+        <Feather name="alert-circle" size={32} color="#FFB020" />
+        <DashboardText style={[styles.centerText, { color: colors.text }]}>{workoutPlanError}</DashboardText>
+        <TouchableOpacity
+          style={[styles.retry, { backgroundColor: BRAND_GREEN }]}
+          onPress={() => void fetchWorkoutPlan(true)}
+        >
+          <DashboardText style={[styles.retryText, { color: colors.background }]}>Try again</DashboardText>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]}
+          onPress={() => router.push('/(app)/screens/map')}
+          activeOpacity={0.85}
+        >
+          <Feather name="play" size={24} color="#081009" />
+          <DashboardText style={styles.recordText}>Record Workout</DashboardText>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -267,7 +287,7 @@ export default function DashboardScreen() {
         )}
         <MotionEntrance delay={55}>
           {workoutPlan ? (
-            <DashboardActivePlan todayWorkout={todayWorkout} nextWorkout={nextWorkout} />
+            <DashboardActivePlan plan={workoutPlan} todayWorkout={todayWorkout} nextWorkout={nextWorkout} />
           ) : workoutPlanError ? (
             <View style={styles.offlineContainer}>
               <TouchableOpacity

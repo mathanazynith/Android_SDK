@@ -1,6 +1,7 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { File } from 'expo-file-system';
+import { Image as ExpoImage } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import { router, useFocusEffect } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -38,24 +39,26 @@ import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { getBackendErrorMessage, resolveApiUrl } from '../../../service/api';
 import { useAuth } from '../../../service/auth';
-import { getBackendErrorMessage } from '../../../service/api';
 import { activityAPI, BackendActivity, runRouteAPI } from '../../../src/services/activityApi';
+import { shareActivityAsGpx } from '../../../src/services/gpxFileExport';
+import { parseGpxWorkout, type GpxWorkoutPreview } from '../../../src/services/gpxService';
 import {
   formatDistanceFromMeters,
   formatElevationFromMeters,
   formatPaceFromSecondsPerKm,
 } from '../../../src/utils/activityUnitFormatters';
-import { getDistanceUnitDisplayLabel, getDistanceUnitCode } from '../../../utils/distanceUnit';
-import { shareActivityAsGpx } from '../../../src/services/gpxFileExport';
-import { parseGpxWorkout, type GpxWorkoutPreview } from '../../../src/services/gpxService';
 import { formatDurationMmSs as formatDuration } from '../../../src/utils/splitFormatters';
+import { getDistanceUnitCode, getDistanceUnitDisplayLabel } from '../../../utils/distanceUnit';
 
 const formatActivityType = (activityType: string) =>
   activityType.toLowerCase() === 'walk' ? 'Walk' : 'Run';
 
 const activityDetailRequests = new Map<string, Promise<BackendActivity>>();
 const activityDetails = new Map<string, BackendActivity>();
+const getActivityDetailCacheKey = (userId: string | null, activityId: BackendActivity['id']) =>
+  `${userId ?? 'anonymous'}:${String(activityId)}`;
 const cacheActivityDetail = (key: string, detail: BackendActivity) => {
   activityDetails.delete(key);
   activityDetails.set(key, detail);
@@ -316,6 +319,7 @@ const buildActivityRows = (
 
 interface ActivityCardProps {
   activity: BackendActivity;
+  accountId: string | null;
   distanceUnit?: string | null;
   onPress: (activity: BackendActivity) => void;
   onRouteMenu: (activity: BackendActivity) => void;
@@ -330,6 +334,7 @@ interface ActivityCardProps {
 
 const ActivityCard = memo(function ActivityCard({
   activity,
+  accountId,
   distanceUnit,
   onPress,
   onRouteMenu,
@@ -344,9 +349,13 @@ const ActivityCard = memo(function ActivityCard({
   const { colors, isDark } = useTheme();
   const activityName = formatActivityType(activity.activity_type);
   const activityId = activity.id;
+  const thumbnailUri = resolveApiUrl(activity.thumbnail_url);
   const isRouteSaved = Boolean(activity.is_saved_to_my_routes || activity.saved_route_id);
   const duration = activity.moving_time || activity.elapsed_time;
-  const [routeActivity, setRouteActivity] = useState<BackendActivity | null>(() => activityDetails.get(String(activity.id)) ?? null);
+  const activityCacheKey = getActivityDetailCacheKey(accountId, activityId);
+  const [routeActivity, setRouteActivity] = useState<BackendActivity | null>(() => activityDetails.get(activityCacheKey) ?? null);
+  const [failedThumbnailUri, setFailedThumbnailUri] = useState<string | null>(null);
+  const thumbnailFailed = thumbnailUri !== null && failedThumbnailUri === thumbnailUri;
   const longPressHandledRef = useRef(false);
   const [selectionScale] = useState(() => new Animated.Value(1));
   const holdProgress = useSharedValue(0);
@@ -365,11 +374,12 @@ const ActivityCard = memo(function ActivityCard({
   }, [selected, selectionScale]);
 
   useEffect(() => {
-    if (!isVisible || routeActivity) return;
+    if (!isVisible || routeActivity || (thumbnailUri && !thumbnailFailed)) return;
     let cancelled = false;
+    let activeRequest: Promise<BackendActivity> | null = null;
     const loadRoute = async () => {
       try {
-        const key = String(activityId);
+        const key = activityCacheKey;
         const cachedDetail = activityDetails.get(key);
         if (cachedDetail) {
           if (!cancelled) setRouteActivity(cachedDetail);
@@ -380,18 +390,21 @@ const ActivityCard = memo(function ActivityCard({
           detailRequest = activityAPI.get(activityId);
           activityDetailRequests.set(key, detailRequest);
         }
+        activeRequest = detailRequest;
         const detail = await detailRequest;
-        cacheActivityDetail(key, detail);
+        if (activityDetailRequests.get(key) === detailRequest) cacheActivityDetail(key, detail);
         if (!cancelled) setRouteActivity(detail);
       } catch (error) {
         console.warn('[ActivityHistory] Could not load route thumbnail', error);
       } finally {
-        activityDetailRequests.delete(String(activityId));
+        if (activeRequest && activityDetailRequests.get(activityCacheKey) === activeRequest) {
+          activityDetailRequests.delete(activityCacheKey);
+        }
       }
     };
     void loadRoute();
     return () => { cancelled = true; };
-  }, [activityId, isVisible, routeActivity]);
+  }, [activityCacheKey, activityId, isVisible, routeActivity, thumbnailFailed, thumbnailUri]);
 
   const handleCardPress = () => {
     if (longPressHandledRef.current) {
@@ -448,7 +461,7 @@ const ActivityCard = memo(function ActivityCard({
         ]}
       >
       <TouchableOpacity
-        style={[styles.cardContent, !selectionMode && styles.cardContentWithMenu]}
+        style={[styles.cardContent, styles.cardContentWithMenu]}
         accessibilityRole="button"
         accessibilityLabel={`${activityName} activity, ${formatDistanceFromMeters(activity.distance, distanceUnit)}, ${formatDuration(duration)}, ${formatPaceFromSecondsPerKm(activity.avg_pace, distanceUnit)}, elevation gain ${formatElevationFromMeters(activity.elevation_gain, distanceUnit)}, elevation loss ${formatElevationFromMeters(activity.elevation_loss, distanceUnit)}`}
         accessibilityHint={selectionMode ? 'Tap to select or deselect this activity for deletion.' : 'Open activity details, or long press to select this activity for deletion.'}
@@ -497,8 +510,18 @@ const ActivityCard = memo(function ActivityCard({
           </View>
         </View>
 
-        <View pointerEvents="none" style={[styles.mapThumbnailContainer, !selectionMode && styles.mapThumbnailWithMenu]}>
-          {routeActivity ? (
+        <View pointerEvents="none" style={[styles.mapThumbnailContainer, styles.mapThumbnailWithMenu]}>
+          {thumbnailUri && !thumbnailFailed ? (
+            <ExpoImage
+              source={{ uri: thumbnailUri }}
+              style={styles.mapThumbnailImage}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={reduceMotion ? 0 : 120}
+              accessibilityLabel={`${activityName} route map`}
+              onError={() => setFailedThumbnailUri(thumbnailUri)}
+            />
+          ) : routeActivity ? (
             <ActivityRouteMap
               variant="preview"
               enableFullScreen={false}
@@ -629,6 +652,7 @@ async function fetchHistoryPageSkippingEmptyPages(cursor: string | null) {
 export default function ActivityScreen() {
   const { colors } = useTheme();
   const { user } = useAuth();
+  const userId = user?.id == null ? null : String(user.id);
   const distanceUnit = user?.profile?.distance_unit;
   const activityDistanceOptions = useMemo(() => getActivityDistanceOptions(distanceUnit), [distanceUnit]);
   const insets = useSafeAreaInsets();
@@ -641,6 +665,7 @@ export default function ActivityScreen() {
   const [visibleActivityIds, setVisibleActivityIds] = useState<Set<string>>(() => new Set());
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedActivityIds, setSelectedActivityIds] = useState<Set<string>>(() => new Set());
+  const deleteActivityRequestRef = useRef<(activity: BackendActivity) => void>(() => undefined);
   const [groupMode, setGroupMode] = useState<ActivityGroupMode>('month');
   const [selectionToast, setSelectionToast] = useState<string | null>(null);
   const [deleteSuccess, setDeleteSuccess] = useState(false);
@@ -667,6 +692,7 @@ export default function ActivityScreen() {
   const loadingFirstPageRef = useRef(false);
   const hasLoadedHistoryRef = useRef(false);
   const requestIdRef = useRef(0);
+  const activeAccountIdRef = useRef(userId);
   const activityViewabilityConfig = useMemo(() => ({ itemVisiblePercentThreshold: 10, minimumViewTime: 80 }), []);
   const selectionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deleteSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -682,6 +708,30 @@ export default function ActivityScreen() {
   const typeFilterAnchorRef = useRef<View>(null);
   const dateFilterAnchorRef = useRef<View>(null);
   const distanceFilterAnchorRef = useRef<View>(null);
+
+  useEffect(() => {
+    if (activeAccountIdRef.current === userId) return;
+
+    activeAccountIdRef.current = userId;
+    requestIdRef.current += 1;
+    hasLoadedHistoryRef.current = false;
+    loadingFirstPageRef.current = false;
+    loadingMoreRef.current = false;
+    cursorRef.current = null;
+    monthAutoLoadKeyRef.current = null;
+    activityDetails.clear();
+    activityDetailRequests.clear();
+
+    setActivities([]);
+    setVisibleActivityIds(new Set());
+    setSelectedActivityIds(new Set());
+    setSelectionMode(false);
+    setTotalHistoryCount(null);
+    setHasMore(true);
+    setLoadingMore(false);
+    setLoading(Boolean(userId));
+    setError(null);
+  }, [userId]);
 
   const openFilterPopover = useCallback((filter: FilterPopover, anchorRef: { current: View | null }, contentHeight: number) => {
     anchorRef.current?.measureInWindow((x, y, anchorWidth, anchorHeight) => {
@@ -911,6 +961,12 @@ export default function ActivityScreen() {
   }, [deleteSuccess, deleteSuccessScale]);
 
   const loadFirstPage = useCallback(async () => {
+    if (!userId) {
+      setActivities([]);
+      setLoading(false);
+      return;
+    }
+
     const requestId = ++requestIdRef.current;
     let hasUsableHistory = hasLoadedHistoryRef.current;
     cursorRef.current = null;
@@ -953,7 +1009,7 @@ export default function ActivityScreen() {
         setLoading(false);
       }
     }
-  }, [showSelectionToast]);
+  }, [showSelectionToast, userId]);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore || loadingMoreRef.current || loadingFirstPageRef.current || loading) return;
@@ -1044,6 +1100,7 @@ export default function ActivityScreen() {
   }, [dateSummary, distanceSummary, selectedDateRange, selectedDistanceRange, selectedType]);
 
   const visibleActivities = useMemo(() => {
+    if (activeAccountIdRef.current !== userId) return [];
     let filtered = [...activities];
 
     if (selectedType !== 'all') {
@@ -1066,7 +1123,7 @@ export default function ActivityScreen() {
     }
 
     return sortActivities(filtered);
-  }, [activities, distanceUnit, rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate, selectedDistanceRange, selectedMonthDate, selectedType]);
+  }, [activities, distanceUnit, rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate, selectedDistanceRange, selectedMonthDate, selectedType, userId]);
 
   const activityRows = useMemo(
     () => buildActivityRows(visibleActivities, groupMode),
@@ -1232,12 +1289,18 @@ export default function ActivityScreen() {
       text: 'Export GPX',
       onPress: () => { void exportActivityGpx(activity); },
     };
+    const deleteOption = {
+      text: 'Delete workout',
+      style: 'destructive' as const,
+      onPress: () => deleteActivityRequestRef.current(activity),
+    };
 
     if (activity.is_saved_to_my_routes) {
       const routeId = Number(activity.saved_route_id);
       if (!Number.isInteger(routeId) || routeId <= 0) {
         Alert.alert('Activity options', 'This route is saved, but its route ID is missing from the History response.', [
           exportOption,
+          deleteOption,
           { text: 'Cancel', style: 'cancel' },
         ]);
         return;
@@ -1245,6 +1308,7 @@ export default function ActivityScreen() {
 
       Alert.alert('Activity options', undefined, [
         exportOption,
+        deleteOption,
         {
           text: 'Change route visibility',
           onPress: () => {
@@ -1276,6 +1340,7 @@ export default function ActivityScreen() {
 
     Alert.alert('Activity options', undefined, [
       exportOption,
+      deleteOption,
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Save to My Routes',
@@ -1416,6 +1481,10 @@ export default function ActivityScreen() {
     confirmDeleteActivities(selectedActivities);
   }, [confirmDeleteActivities, selectedActivities]);
 
+  useEffect(() => {
+    deleteActivityRequestRef.current = (activity) => confirmDeleteActivities([activity]);
+  }, [confirmDeleteActivities]);
+
   const handleActivityPress = useCallback((activity: BackendActivity) => {
     if (selectionMode) {
       toggleActivitySelection(activity.id);
@@ -1469,6 +1538,7 @@ export default function ActivityScreen() {
     return (
       <ActivityCard
         activity={activity}
+        accountId={userId}
         distanceUnit={distanceUnit}
         onPress={handleActivityPress}
         onRouteMenu={openActivityRouteMenu}
@@ -1486,6 +1556,7 @@ export default function ActivityScreen() {
     colors.textSecondary,
     colors.textTertiary,
     distanceUnit,
+    userId,
     deletingActivityIds,
     exportingActivityIds,
     isDeletingActivities,
@@ -2300,6 +2371,7 @@ const styles = StyleSheet.create({
   metricSummaryItem: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 },
   metricSummaryText: { fontSize: 12, lineHeight: 15, fontWeight: '700', flexShrink: 1 },
   mapThumbnailContainer: { position: 'relative', width: '34%', aspectRatio: 1, flexShrink: 0, minWidth: 0, marginLeft: 8, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E5E7EB' },
+  mapThumbnailImage: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
   mapPreviewPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E5E7EB' },
   mapOverlayTop: { position: 'absolute', top: 8, left: 8, right: 8, flexDirection: 'row', justifyContent: 'flex-start' },
   mapBadge: { backgroundColor: 'rgba(11, 14, 15, 0.58)', borderRadius: 999, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 8, paddingVertical: 4 },
