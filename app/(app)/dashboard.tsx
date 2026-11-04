@@ -182,15 +182,13 @@ export default function DashboardScreen() {
     if (option === 'Logout') {
       Alert.alert('Logout', 'Are you sure you want to logout?', [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Logout', style: 'destructive', onPress: async () => { await logout(); router.replace('/(auth)/welcome'); } },
+        { text: 'Logout', style: 'destructive', onPress: async () => { await logout(); router.replace('/(auth)/welcome' as any); } },
       ]);
     }
   };
 
 
-  if (workoutPlanError && !workoutPlan) {
-    return <View style={[styles.center, { backgroundColor: colors.background }]}><Feather name="alert-circle" size={32} color="#FFB020" /><DashboardText style={[styles.centerText, { color: colors.text }]}>{workoutPlanError}</DashboardText><TouchableOpacity style={[styles.retry, { backgroundColor: BRAND_GREEN }]} onPress={() => void fetchWorkoutPlan(true)}><DashboardText style={[styles.retryText, { color: colors.background }]}>Try again</DashboardText></TouchableOpacity></View>;
-  }
+
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -278,24 +276,24 @@ export default function DashboardScreen() {
                 activeOpacity={0.85}
               >
                 <Feather name="play" size={24} color="#081009" />
-                <Text style={styles.recordText}>Record Workout</Text>
+                <DashboardText style={styles.recordText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>Record Workout</DashboardText>
               </TouchableOpacity>
 
               <View style={[styles.offlineCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <Feather name="wifi-off" size={28} color="#FFB020" style={{ marginBottom: 8 }} />
-                <Text style={[styles.offlineTitle, { color: colors.text }]}>
+                <DashboardText style={[styles.offlineTitle, { color: colors.text }]}>
                   Network connection error
-                </Text>
-                <Text style={[styles.offlineSubtext, { color: colors.textSecondary }]}>
+                </DashboardText>
+                <DashboardText style={[styles.offlineSubtext, { color: colors.textSecondary }]}>
                   {workoutPlanError || 'Could not connect to the internet. You can still record workouts offline.'}
-                </Text>
+                </DashboardText>
                 <TouchableOpacity
                   style={[styles.retryBtn, { backgroundColor: BRAND_GREEN }]}
                   onPress={() => void fetchWorkoutPlan(true)}
                   activeOpacity={0.85}
                 >
                   <Feather name="refresh-cw" size={16} color="#081009" />
-                  <Text style={styles.retryBtnText}>Try again</Text>
+                  <DashboardText style={styles.retryBtnText}>Try again</DashboardText>
                 </TouchableOpacity>
               </View>
             </View>
@@ -307,7 +305,7 @@ export default function DashboardScreen() {
                 activeOpacity={0.85}
               >
                 <Feather name="play" size={24} color="#081009" />
-                <Text style={styles.recordText}>Record Workout</Text>
+                <DashboardText style={styles.recordText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>Record Workout</DashboardText>
               </TouchableOpacity>
               <View style={[styles.offlineCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <RunningLoader size={36} label="Loading your dashboard..." />

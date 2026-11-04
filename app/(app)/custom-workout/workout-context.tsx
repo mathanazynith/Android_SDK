@@ -1,4 +1,6 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { useAuth } from "../../../service/auth";
+import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import { getBackendErrorMessage } from "../../../service/api";
 import {
     canonicalDistanceUnit,
@@ -80,6 +82,7 @@ interface CustomWorkoutContextType {
   addRun: (step: WorkoutStep) => void;
   addEmptyRun: () => void;
   addRepeatRun: () => void;
+  convertRunToRepeat: (index: number) => void;
   updateRun: (index: number, step: WorkoutStep) => void;
   addRunAfter: (index: number) => void;
   duplicateRunGroup: (index: number) => void;
@@ -103,6 +106,8 @@ interface CustomWorkoutContextType {
 const WorkoutContext = createContext<CustomWorkoutContextType | null>(null);
 
 export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  const profileUnit = getDistanceUnitCode(user?.profile?.distance_unit) === "mile" ? "mi" : "km";
   const [workout, setWorkout] = useState<WorkoutState>(createDefaultWorkout);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -181,81 +186,88 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const convertRunToRepeat = useCallback((index: number) => {
+    setWorkout((current) => {
+      const target = current.runs[index];
+      if (!target) return current;
+      const newGroupId = `run-group-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      return {
+        ...current,
+        runs: current.runs.map((step, idx) =>
+          idx === index
+            ? {
+                ...step,
+                groupId: newGroupId,
+                repeat: 2,
+                groupRepeat: 2,
+                rest: step.rest && step.rest !== "00:00:00" ? step.rest : "00:01:00",
+                skipLastRest: step.skipLastRest ?? true,
+                skipRest: false,
+              }
+            : step
+        ),
+      };
+    });
+  }, []);
+
   const addRepeatRun = useCallback(() => {
     setWorkout((current) => {
-      // Case A: No runs exist yet -> create new run directly with repeat group
+      const newGroupId = `run-group-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const newStep: WorkoutStep = {
+        title: "Run",
+        stepType: "Run",
+        inputType: "DISTANCE",
+        duration: "00:00:00",
+        distance: "0.00",
+        unit: getUnitFullLabel(profileUnit),
+        pace: "",
+        repeat: 2,
+        groupRepeat: 2,
+        groupId: newGroupId,
+        rest: "00:01:00",
+        skipLastRest: true,
+        skipRest: false,
+        notes: "",
+      };
+
+      // 1. If no run exists, create a new repeat group directly
       if (current.runs.length === 0) {
-        const newGroupId = `run-group-${Date.now()}`;
-        const newStep: WorkoutStep = {
-          title: "Run",
-          stepType: "Run",
-          inputType: "DISTANCE",
-          duration: "00:00:00",
-          distance: "0.00",
-          unit: "Kilometers (km)",
-          pace: "",
-          repeat: 2,
-          groupRepeat: 2,
-          groupId: newGroupId,
-          rest: "00:01:00",
-          skipLastRest: true,
-          skipRest: false,
-          notes: "",
-        };
         return {
           ...current,
           runs: [newStep],
         };
       }
 
-      // Check if an existing repeat group exists
-      const existingGroup = current.runs.find(
-        (r) => Boolean(r.groupId) || (r.repeat != null && r.repeat > 1)
+      // 2. If an unrepeated run card is already present, convert it into the repeat group!
+      const unrepeatedIdx = current.runs.findIndex(
+        (r) => !r.groupId && (r.repeat || 1) <= 1
       );
-
-      // Case B: Runs exist, but none are in a repeat group yet ("if has only card")
-      // Convert the existing single card(s) into a repeat group!
-      if (!existingGroup) {
-        const newGroupId = `run-group-${Date.now()}`;
+      if (unrepeatedIdx !== -1) {
         return {
           ...current,
-          runs: current.runs.map((r) => ({
-            ...r,
-            groupId: newGroupId,
-            repeat: Math.max(r.repeat || 1, 2),
-            groupRepeat: Math.max(r.groupRepeat || 1, 2),
-            rest: r.rest && r.rest !== "00:00:00" ? r.rest : "00:01:00",
-            skipLastRest: r.skipLastRest ?? true,
-          })),
+          runs: current.runs.map((step, idx) =>
+            idx === unrepeatedIdx
+              ? {
+                  ...step,
+                  groupId: newGroupId,
+                  repeat: 2,
+                  groupRepeat: 2,
+                  rest: step.rest && step.rest !== "00:00:00" ? step.rest : "00:01:00",
+                  skipLastRest: step.skipLastRest ?? true,
+                  skipRest: false,
+                }
+              : step
+          ),
         };
       }
 
-      // Case C: A repeat group already exists -> append another repeat step into this group
-      const targetGroupId = existingGroup.groupId || `run-group-${Date.now()}`;
-      const groupRepeat = existingGroup.groupRepeat || existingGroup.repeat || 2;
-      const newRepeatStep: WorkoutStep = {
-        title: "Run",
-        stepType: "Run",
-        inputType: "DISTANCE",
-        duration: "00:00:00",
-        distance: "0.00",
-        unit: "Kilometers (km)",
-        pace: "",
-        repeat: groupRepeat,
-        rest: "00:01:00",
-        skipLastRest: true,
-        skipRest: false,
-        groupId: targetGroupId,
-        groupRepeat,
-        notes: "",
-      };
-
+      // 3. If all existing runs are already repeated, add another repeat group into the outer box
       return {
         ...current,
-        runs: [...current.runs, newRepeatStep],
+        runs: [...current.runs, newStep],
       };
     });
-  }, []);
+  }, [profileUnit]);
 
   const updateRun = useCallback((index: number, step: WorkoutStep) => {
     setWorkout((current) => ({
@@ -341,11 +353,12 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateGroupRepeat = useCallback((groupId: string, repeat: number) => {
+    const val = Math.max(1, Math.min(40, repeat));
     setWorkout((current) => ({
       ...current,
       runs: current.runs.map((step) =>
         step.groupId === groupId
-          ? { ...step, groupRepeat: Math.max(1, Math.min(40, repeat)) }
+          ? { ...step, repeat: val, groupRepeat: val }
           : step
       ),
     }));
@@ -470,7 +483,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           pace: cleanPaceString(run.pace),
           repeats: Math.max(
             1,
-            Math.min(40, (run.repeat || 1) * (run.groupRepeat || 1))
+            Math.min(40, run.groupId ? (run.groupRepeat || run.repeat || 1) : (run.repeat || 1))
           ),
           rest_duration: restSec,
           skip_last_rest: run.skipLastRest ?? true,
@@ -516,6 +529,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         workout_date: workout.workoutDate || null,
         notes: workout.notes || "",
         is_benchmark: workout.isBenchmark ?? false,
+        distance_unit: profileUnit,
         segments,
       };
 
@@ -568,12 +582,12 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           loadedDistance = String(seg.display_distance);
         } else if (seg.rep_distance != null && seg.rep_distance > 0) {
           if (unitType === "m") loadedDistance = String(seg.rep_distance);
-          else if (unitType === "mi") loadedDistance = (seg.rep_distance / 1609.344).toFixed(2);
-          else loadedDistance = (seg.rep_distance / 1000).toFixed(2);
+          else if (unitType === "mi") loadedDistance = seg.rep_distance > 100 ? (seg.rep_distance / 1609.344).toFixed(2) : String(seg.rep_distance);
+          else loadedDistance = seg.rep_distance > 100 ? (seg.rep_distance / 1000).toFixed(2) : String(seg.rep_distance);
         } else if (seg.distance != null && seg.distance > 0) {
           if (unitType === "m") loadedDistance = String(seg.distance);
-          else if (unitType === "mi") loadedDistance = (seg.distance / 1609.344).toFixed(2);
-          else loadedDistance = (seg.distance / 1000).toFixed(2);
+          else if (unitType === "mi") loadedDistance = seg.distance > 100 ? (seg.distance / 1609.344).toFixed(2) : String(seg.distance);
+          else loadedDistance = seg.distance > 100 ? (seg.distance / 1000).toFixed(2) : String(seg.distance);
         }
 
         let cleanNotes = seg.notes || "";
@@ -618,7 +632,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           skipRest: !seg.rest_duration,
           notes: cleanNotes,
           groupId: loadedGroupId,
-          groupRepeat: 1,
+          groupRepeat: seg.repeats || 1,
         };
 
         if (isWarmup && !loadedWarmUp) {
@@ -679,6 +693,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         addRun,
         addEmptyRun,
         addRepeatRun,
+        convertRunToRepeat,
         updateRun,
         addRunAfter,
         duplicateRunGroup,

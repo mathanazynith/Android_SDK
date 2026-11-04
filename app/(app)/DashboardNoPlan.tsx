@@ -39,6 +39,10 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
 
   return (
     <>
+      <TouchableOpacity style={[styles.recordButton, { backgroundColor: BRAND_GREEN, marginBottom: 16 }]} onPress={() => router.push('/(app)/screens/map')}>
+        <Feather name="play" size={24} color="#081009" />
+        <DashboardText style={styles.recordText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>Record Workout</DashboardText>
+      </TouchableOpacity>
       <View style={[styles.card, styles.customWorkoutCard, {
         backgroundColor: colors.surface,
         borderColor: isDark ? '#3A3A3A' : colors.border,
@@ -78,10 +82,7 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]} onPress={() => router.push('/(app)/screens/map')}>
-        <Feather name="play" size={24} color="#081009" />
-        <DashboardText style={styles.recordText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>Record Workout</DashboardText>
-      </TouchableOpacity>
+
 
       <DashboardText style={[styles.sectionTitle, { color: colors.text }]}>POPULAR WORKOUTS</DashboardText>
       <View style={styles.workoutRow}>

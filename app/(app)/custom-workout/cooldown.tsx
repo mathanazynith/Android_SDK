@@ -21,7 +21,11 @@ import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { TargetPaceRangePicker } from "../../../components/TargetPaceRangePicker";
 import { useTheme, type ThemeColors } from "../../../contexts/ThemeContext";
 import { secondsToTimeString, timeStringToSeconds } from "../../../service/customWorkout";
+import { useAuth } from "../../../service/auth";
+import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import {
+  convertDistance,
+  convertPaceToSeconds,
   formatSecondsToPace,
   getMaxDistanceForUnit,
   getUnitFullLabel,
@@ -83,10 +87,16 @@ export default function Cooldown() {
   const [stepType, setStepType] = useState<StepTargetType>(initialType);
   const [typeDropdownVisible, setTypeDropdownVisible] = useState(false);
 
+  const { user } = useAuth();
+  const profileUnit: DistanceUnitType = getDistanceUnitCode(user?.profile?.distance_unit) === "mile" ? "mi" : "km";
+
   // Unit
   const [unit, setUnit] = useState<DistanceUnitType>(() => {
-    const norm = normalizeUnit(existing?.unit);
-    return norm === "m" ? "km" : norm;
+    if (existing?.unit) {
+      const norm = normalizeUnit(existing.unit);
+      return norm === "m" ? "km" : norm;
+    }
+    return profileUnit;
   });
   const [unitModalVisible, setUnitModalVisible] = useState(false);
 
@@ -160,6 +170,15 @@ export default function Cooldown() {
   const medianPaceStr = formatSecondsToPace(medianPaceSec, unit, true);
 
   const selectUnit = (selected: DistanceUnitType) => {
+    if (selected !== unit) {
+      const num = parseFloat(distance.replace(",", "."));
+      if (!isNaN(num) && num > 0) {
+        const converted = convertDistance(num, unit, selected);
+        setDistance(selected === "m" ? String(Math.round(converted)) : converted.toFixed(2));
+      }
+      setFasterPaceSec((prev) => convertPaceToSeconds(prev, unit, selected));
+      setSlowerPaceSec((prev) => convertPaceToSeconds(prev, unit, selected));
+    }
     setUnit(selected);
     setDistance((prev) => sanitizeDistanceInput(prev, selected));
     setUnitModalVisible(false);

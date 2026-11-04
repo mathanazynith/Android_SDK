@@ -13,7 +13,16 @@ import { ScrollTimePicker } from "../../../components/ScrollTimePicker";
 import { useTheme, type ThemeColors } from "../../../contexts/ThemeContext";
 import { clearCachedAssignedRoute, customWorkoutAPI, getCachedAssignedRoute, type SuggestedRoute } from "../../../service/customWorkout";
 import { BenchmarkStore } from "../../../src/services/benchmarkStore";
+import { useAuth } from "../../../service/auth";
+import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import {
+    convertDistance,
+    convertPace,
+    convertPaceToSeconds,
+    DistanceUnitType,
+    formatSecondsToPace,
+    getPaceUnitLabel,
+    getUnitFullLabel,
     normalizeUnit,
     parsePaceToSeconds,
 } from "../../../src/utils/workoutCalculations";
@@ -29,7 +38,7 @@ const seconds = (value: string) => {
   return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
 };
 
-const distanceInKm = (step: WorkoutStep) => {
+const distanceInKm = (step: WorkoutStep): number => {
   if (step.distance && step.distance.trim() !== "") {
     const raw = step.distance.replace(",", ".");
     const value = Number.parseFloat(raw) || 0;
@@ -44,12 +53,23 @@ const distanceInKm = (step: WorkoutStep) => {
   if (stepSec > 0) {
     const defaultPace = step.stepType === "Warmup" ? 400 : step.stepType === "Cooldown" ? 500 : 300;
     const paceSec = parsePaceToSeconds(step.pace) || defaultPace;
+    const unit = normalizeUnit(step.unit);
+    if (unit === "mi") {
+      return (stepSec / paceSec) * 1.609344;
+    }
     return stepSec / paceSec;
   }
   return 0;
 };
 
-const estimatedStepSeconds = (step: WorkoutStep) => {
+const stepDistanceInUnit = (step: WorkoutStep, targetUnit: DistanceUnitType): number => {
+  const km = distanceInKm(step);
+  if (targetUnit === "mi") return km / 1.609344;
+  if (targetUnit === "m") return km * 1000;
+  return km;
+};
+
+const estimatedStepSeconds = (step: WorkoutStep): number => {
   const declaredTime = seconds(step.duration || "00:00:00");
   if (declaredTime > 0) return declaredTime;
   const defaultPace = step.stepType === "Warmup" ? 400 : step.stepType === "Cooldown" ? 500 : 300;
@@ -58,13 +78,10 @@ const estimatedStepSeconds = (step: WorkoutStep) => {
   const distNum = Number.parseFloat(raw) || 0;
   if (!paceSec || distNum <= 0) return 0;
   const unit = normalizeUnit(step.unit);
-  let distInKm = distNum;
   if (unit === "m") {
-    distInKm = distNum / 1000;
-  } else if (unit === "mi") {
-    distInKm = distNum * 1.609344;
+    return Math.round((distNum / 1000) * paceSec);
   }
-  return Math.round(distInKm * paceSec);
+  return Math.round(distNum * paceSec);
 };
 
 const estimatedRestSeconds = (step: WorkoutStep) => {
@@ -191,8 +208,8 @@ function StepSuggestionBox({
   type?: "warmup" | "run" | "cooldown";
   subtitle?: string;
 }) {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
 
   return (
     <TouchableOpacity
@@ -249,6 +266,8 @@ function StepCard({
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { user } = useAuth();
+  const profileUnit: DistanceUnitType = getDistanceUnitCode(user?.profile?.distance_unit) === "mile" ? "mi" : "km";
 
   const openStep = () => {
     if (!editable) return;
@@ -277,41 +296,53 @@ function StepCard({
   }
 
   // Step Distance, Pace, and Duration display (consistent across Warmup, Run, Cooldown)
-  let dist = hasDistance(step) ? distanceText(step) : null;
-  let paceStr = hasPace(step) ? `Pace · ${step.pace} min/km` : null;
+  const stepUnit = normalizeUnit(step.unit);
+  const convertedDist = stepDistanceInUnit(step, profileUnit);
+  const stepSec = estimatedStepSeconds(step);
+
+  let dist: string | null = null;
+  if (hasDistance(step)) {
+    if (stepUnit === profileUnit) {
+      dist = distanceText(step);
+    } else {
+      const formattedNum = convertedDist % 1 === 0 ? convertedDist.toFixed(0) : convertedDist.toFixed(2);
+      dist = `${formattedNum} ${profileUnit}`;
+    }
+  }
+
+  let paceStr: string | null = null;
+  if (hasPace(step)) {
+    paceStr = `Pace · ${convertPace(step.pace, stepUnit, profileUnit, true)}`;
+  }
+
   let displayStepTime = stepTimeText(step);
 
-  const stepSec = estimatedStepSeconds(step);
-  const stepDistKm = distanceInKm(step);
-
   // If pace is missing, but duration & distance exist:
-  if (!paceStr && stepSec > 0 && stepDistKm > 0) {
-    const paceSec = Math.round(stepSec / stepDistKm);
-    const m = Math.floor(paceSec / 60);
-    const s = paceSec % 60;
-    paceStr = `Pace · ${m}:${String(s).padStart(2, "0")} min/km`;
+  if (!paceStr && stepSec > 0 && convertedDist > 0) {
+    const paceSec = Math.round(stepSec / convertedDist);
+    paceStr = `Pace · ${formatSecondsToPace(paceSec, profileUnit, true)}`;
   }
 
   // If distance is missing, but duration exists:
   if (!dist && stepSec > 0) {
-    const paceSec = (hasPace(step) ? parsePaceToSeconds(step.pace) : null) || (step.stepType === "Warmup" ? 400 : step.stepType === "Cooldown" ? 500 : 300);
-    const km = stepSec / (paceSec || 300);
-    dist = `${km.toFixed(2)} km`;
+    const defaultPace = step.stepType === "Warmup" ? 400 : step.stepType === "Cooldown" ? 500 : 300;
+    const paceSec = (hasPace(step) ? parsePaceToSeconds(step.pace) : null) || defaultPace;
+    const convertedPaceSec = convertPaceToSeconds(paceSec, stepUnit, profileUnit);
+    const distVal = stepSec / (convertedPaceSec || 300);
+    dist = `${distVal.toFixed(2)} ${profileUnit}`;
     if (!paceStr) {
-      const m = Math.floor(paceSec / 60);
-      const s = paceSec % 60;
-      paceStr = `Pace · ${m}:${String(s).padStart(2, "0")} min/km`;
+      paceStr = `Pace · ${formatSecondsToPace(convertedPaceSec, profileUnit, true)}`;
     }
   }
 
   // If duration is missing, but distance exists:
-  if ((!displayStepTime || displayStepTime === "--:--") && stepDistKm > 0) {
-    const paceSec = (hasPace(step) ? parsePaceToSeconds(step.pace) : null) || (step.stepType === "Warmup" ? 400 : step.stepType === "Cooldown" ? 500 : 300);
-    displayStepTime = displayTime(Math.round(stepDistKm * (paceSec || 300)));
+  if ((!displayStepTime || displayStepTime === "--:--") && convertedDist > 0) {
+    const defaultPace = step.stepType === "Warmup" ? 400 : step.stepType === "Cooldown" ? 500 : 300;
+    const paceSec = (hasPace(step) ? parsePaceToSeconds(step.pace) : null) || defaultPace;
+    const convertedPaceSec = convertPaceToSeconds(paceSec, stepUnit, profileUnit);
+    displayStepTime = displayTime(Math.round(convertedDist * (convertedPaceSec || 300)));
     if (!paceStr) {
-      const m = Math.floor(paceSec / 60);
-      const s = paceSec % 60;
-      paceStr = `Pace · ${m}:${String(s).padStart(2, "0")} min/km`;
+      paceStr = `Pace · ${formatSecondsToPace(convertedPaceSec, profileUnit, true)}`;
     }
   }
 
@@ -348,7 +379,7 @@ function StepCard({
             {dist ? (
               <Text style={styles.stepDistance}>{dist}</Text>
             ) : (
-              <Text style={styles.stepDistanceMuted}>-- km</Text>
+              <Text style={styles.stepDistanceMuted}>-- {profileUnit}</Text>
             )}
 
             {paceStr ? (
@@ -374,6 +405,20 @@ function StepCard({
                 {displayStepTime || "--:--"}
               </Text>
             </View>
+
+            {editable && onRepeat ? (
+              <TouchableOpacity
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onRepeat();
+                }}
+                style={styles.cardRepeatActionBtn}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityLabel="Repeat this run step"
+              >
+                <Feather name="repeat" size={15} color="#30D158" />
+              </TouchableOpacity>
+            ) : null}
 
             {editable && onDelete ? (
               <TouchableOpacity
@@ -629,6 +674,8 @@ const restPresets = [
 export default function CustomWorkoutOverview() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { user } = useAuth();
+  const profileUnit: DistanceUnitType = getDistanceUnitCode(user?.profile?.distance_unit) === "mile" ? "mi" : "km";
   const {
     workout,
     setWarmUp,
@@ -640,6 +687,7 @@ export default function CustomWorkoutOverview() {
     setNotes,
     reset,
     addRepeatRun,
+    convertRunToRepeat,
     removeWarmUp,
     removeRun,
     removeCooldown,
@@ -953,10 +1001,10 @@ export default function CustomWorkoutOverview() {
   const totalDistance = useMemo(() => {
     return steps.reduce(
       (total, step) =>
-        total + distanceInKm(step) * (step.repeat || 1),
+        total + stepDistanceInUnit(step, profileUnit) * (step.repeat || 1),
       0,
     );
-  }, [steps]);
+  }, [steps, profileUnit]);
 
   const runGroups = useMemo(() => {
     return workout.runs.reduce<
@@ -996,6 +1044,76 @@ export default function CustomWorkoutOverview() {
       return groups;
     }, []);
   }, [workout.runs]);
+
+  const repeatButtonText = useMemo(() => {
+    if (workout.runs.length === 0) return "REPEAT RUN";
+    const hasUnrepeated = workout.runs.some(
+      (r) => !r.groupId && (r.repeat || 1) <= 1
+    );
+    if (hasUnrepeated) return "REPEAT RUN";
+    return "ADD REPEAT";
+  }, [workout.runs]);
+
+  const handleRepeatAction = useCallback(() => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+
+    // Case 1: No run steps exist yet -> add a repeat run
+    if (workout.runs.length === 0) {
+      addRepeatRun();
+      setSelectedRun(0);
+      return;
+    }
+
+    // Case 2: An unrepeated run step is present -> convert it to a repeat group!
+    const targetIdx =
+      selectedRun !== null &&
+      workout.runs[selectedRun] &&
+      !workout.runs[selectedRun].groupId &&
+      (workout.runs[selectedRun].repeat || 1) <= 1
+        ? selectedRun
+        : workout.runs.findIndex((r) => !r.groupId && (r.repeat || 1) <= 1);
+
+    if (targetIdx !== -1) {
+      convertRunToRepeat(targetIdx);
+      setSelectedRun(targetIdx);
+      return;
+    }
+
+    // Case 3: All runs already in repeat groups -> add a new repeat group
+    addRepeatRun();
+    setSelectedRun(workout.runs.length);
+  }, [workout.runs, selectedRun, addRepeatRun, convertRunToRepeat]);
+
+  const workoutSections = useMemo(() => {
+    type Section =
+      | { type: "single"; item: { step: WorkoutStep; index: number } }
+      | {
+          type: "repeat_block";
+          groups: {
+            isGroup: boolean;
+            groupId?: string;
+            groupRepeat?: number;
+            items: { step: WorkoutStep; index: number }[];
+          }[];
+        };
+
+    const sections: Section[] = [];
+    for (const group of runGroups) {
+      if (group.isGroup && group.groupId) {
+        const last = sections[sections.length - 1];
+        if (last && last.type === "repeat_block") {
+          last.groups.push(group);
+        } else {
+          sections.push({ type: "repeat_block", groups: [group] });
+        }
+      } else if (group.items[0]) {
+        sections.push({ type: "single", item: group.items[0] });
+      }
+    }
+    return sections;
+  }, [runGroups]);
 
   const handleSave = async () => {
     if (!workout.runs.length) {
@@ -1174,7 +1292,7 @@ export default function CustomWorkoutOverview() {
           <View style={styles.statDivider} />
           <View style={styles.statBox}>
             <Text style={styles.statLabel}>EST. DISTANCE</Text>
-            <Text style={styles.statValue}>{totalDistance.toFixed(2)} km</Text>
+            <Text style={styles.statValue}>{totalDistance.toFixed(2)} {profileUnit}</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statBox}>
@@ -1233,72 +1351,82 @@ export default function CustomWorkoutOverview() {
           />
         ) : null}
 
-        {/* 2. Run Steps & Repeat Groups */}
+        {/* 2. Run Steps & Repeat Groups (Option 2: Outer Box wrapping Inner Group Boxes) */}
         {workout.runs.length > 0
-          ? runGroups.map((group, groupIdx) => {
-              if (group.isGroup && group.groupId) {
-                const groupRepeat =
-                  group.items[0]?.step?.groupRepeat ||
-                  group.items[0]?.step?.repeat ||
-                  2;
-                const firstIndex = group.items[0]?.index ?? 0;
-
+          ? workoutSections.map((section, secIdx) => {
+              if (section.type === "repeat_block") {
                 return (
-                  <View key={group.groupId || `group-${groupIdx}`} style={styles.groupBox}>
-                    {/* Small set dropdown on the left */}
-                    <TouchableOpacity
-                      disabled={!isEditing}
-                      onPress={() => setRepeatRun(firstIndex)}
-                      style={styles.cornerSetBadge}
-                      activeOpacity={isEditing ? 0.7 : 1}
-                    >
-                      <Text style={styles.cornerSetText}>
-                        {groupRepeat} {groupRepeat === 1 ? "Set" : "Sets"}
-                      </Text>
-                      {isEditing ? (
-                        <Feather name="chevron-down" size={12} color="#30D158" style={{ marginLeft: 3 }} />
-                      ) : null}
-                    </TouchableOpacity>
+                  <View key={`repeat-block-${secIdx}`} style={styles.outerGroupBox}>
+                    {section.groups.map((group, groupIdx) => {
+                      const groupRepeat =
+                        group.items[0]?.step?.groupRepeat ||
+                        group.items[0]?.step?.repeat ||
+                        2;
+                      const firstIndex = group.items[0]?.index ?? 0;
+                      const isLast = groupIdx === section.groups.length - 1;
 
-                    {group.items.map(({ step, index }) => (
-                      <View key={`${step.title}-${index}`}>
-                        <StepCard
-                          step={step}
-                          color={getStepColor(step)}
-                          index={index}
-                          editable={isEditing}
-                          selected={selectedRun === index}
-                          onSelect={() => {
-                            setSelectedRun(index);
-                            router.push(
-                              `/custom-workout/running-declaration?index=${index}`
-                            );
-                          }}
-                          onDelete={() =>
-                            confirmDelete(step.title || "Run Step", () => removeRun(index))
-                          }
-                        />
-                        {step.rest && step.rest !== "00:00:00" ? (
-                          <RestCard
-                            duration={step.rest}
-                            skipLastRest={step.skipLastRest ?? true}
-                            repeatCount={step.repeat || 1}
-                            editable={isEditing}
-                            onPress={() => openRestModal(index)}
-                            onDelete={() => deleteRestConfig(index)}
-                            onToggleSkipLastRest={(val) => updateRunSkipLastRest(index, val)}
-                          />
-                        ) : isEditing ? (
-                          <AddRecoveryCard onPress={() => openRestModal(index)} />
-                        ) : null}
-                      </View>
-                    ))}
+                      return (
+                        <View
+                          key={group.groupId || `inner-group-${groupIdx}`}
+                          style={[styles.innerGroupBox, isLast && styles.innerGroupBoxLast]}
+                        >
+                          {/* Small set dropdown on the left */}
+                          <TouchableOpacity
+                            disabled={!isEditing}
+                            onPress={() => setRepeatRun(firstIndex)}
+                            style={styles.cornerSetBadge}
+                            activeOpacity={isEditing ? 0.7 : 1}
+                          >
+                            <Text style={styles.cornerSetText}>
+                              {groupRepeat} {groupRepeat === 1 ? "Set" : "Sets"}
+                            </Text>
+                            {isEditing ? (
+                              <Feather name="chevron-down" size={12} color="#30D158" style={{ marginLeft: 3 }} />
+                            ) : null}
+                          </TouchableOpacity>
+
+                          {group.items.map(({ step, index }) => (
+                            <View key={`${step.title}-${index}`}>
+                              <StepCard
+                                step={step}
+                                color={getStepColor(step)}
+                                index={index}
+                                editable={isEditing}
+                                selected={selectedRun === index}
+                                onSelect={() => {
+                                  setSelectedRun(index);
+                                  router.push(
+                                    `/custom-workout/running-declaration?index=${index}`
+                                  );
+                                }}
+                                onDelete={() =>
+                                  confirmDelete(step.title || "Run Step", () => removeRun(index))
+                                }
+                              />
+                              {step.rest && step.rest !== "00:00:00" ? (
+                                <RestCard
+                                  duration={step.rest}
+                                  skipLastRest={step.skipLastRest ?? true}
+                                  repeatCount={step.repeat || 1}
+                                  editable={isEditing}
+                                  onPress={() => openRestModal(index)}
+                                  onDelete={() => deleteRestConfig(index)}
+                                  onToggleSkipLastRest={(val) => updateRunSkipLastRest(index, val)}
+                                />
+                              ) : isEditing ? (
+                                <AddRecoveryCard onPress={() => openRestModal(index)} />
+                              ) : null}
+                            </View>
+                          ))}
+                        </View>
+                      );
+                    })}
                   </View>
                 );
               }
 
-              const singleStep = group.items[0].step;
-              const singleIndex = group.items[0].index;
+              const singleStep = section.item.step;
+              const singleIndex = section.item.index;
 
               return (
                 <View key={`single-run-${singleIndex}`}>
@@ -1313,6 +1441,10 @@ export default function CustomWorkoutOverview() {
                       router.push(
                         `/custom-workout/running-declaration?index=${singleIndex}`
                       );
+                    }}
+                    onRepeat={() => {
+                      convertRunToRepeat(singleIndex);
+                      setSelectedRun(singleIndex);
                     }}
                     onDelete={() =>
                       confirmDelete(singleStep.title || "Run Step", () => removeRun(singleIndex))
@@ -1350,14 +1482,11 @@ export default function CustomWorkoutOverview() {
 
             <TouchableOpacity
               style={styles.actionRepeat}
-              onPress={() => {
-                addRepeatRun();
-                setSelectedRun(workout.runs.length);
-              }}
+              onPress={handleRepeatAction}
               activeOpacity={0.85}
             >
               <Feather name="repeat" size={16} color={colors.icon} />
-              <Text style={styles.actionRepeatText}>ADD REPEAT</Text>
+              <Text style={styles.actionRepeatText}>{repeatButtonText}</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -1881,7 +2010,7 @@ export default function CustomWorkoutOverview() {
   );
 }
 
-const createStyles = (colors: ThemeColors) => StyleSheet.create({
+const createStyles = (colors: ThemeColors, isDark: boolean = false) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   header: {
     minHeight: 64,
@@ -2199,6 +2328,15 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontWeight: "700",
     fontVariant: ["tabular-nums"],
   },
+  cardRepeatActionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: isDark ? "rgba(48, 209, 88, 0.15)" : "rgba(48, 209, 88, 0.12)",
+    marginLeft: 6,
+  },
   cardDeleteBtn: {
     width: 32,
     height: 32,
@@ -2415,6 +2553,25 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   skipRestLabelActive: {
     color: "#8E8E93",
+  },
+  outerGroupBox: {
+    padding: 10,
+    backgroundColor: isDark ? "rgba(48, 209, 88, 0.05)" : "rgba(48, 209, 88, 0.04)",
+    borderRadius: 18,
+    marginBottom: 14,
+    borderWidth: 1.5,
+    borderColor: isDark ? "rgba(48, 209, 88, 0.35)" : "rgba(48, 209, 88, 0.3)",
+  },
+  innerGroupBox: {
+    padding: 10,
+    backgroundColor: colors.surfaceRaised,
+    borderRadius: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  innerGroupBoxLast: {
+    marginBottom: 0,
   },
   groupBox: {
     padding: 12,

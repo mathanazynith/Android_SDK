@@ -80,8 +80,113 @@ export const formatSecondsToPace = (
   const sec = rounded % 60;
   const paceBase = `${min}:${String(sec).padStart(2, "0")}`;
   if (!includeUnitSuffix) return paceBase;
-  const suffix = unit === "mi" ? "/ mi" : "/ km";
+  const suffix = unit === "mi" ? "min/mi" : "min/km";
   return `${paceBase} ${suffix}`;
+};
+
+export const convertDistance = (
+  distance: number,
+  fromUnit: DistanceUnitType,
+  toUnit: DistanceUnitType
+): number => {
+  if (!distance || distance <= 0 || !Number.isFinite(distance)) return 0;
+  const f = normalizeUnit(fromUnit);
+  const t = normalizeUnit(toUnit);
+  if (f === t) return distance;
+
+  let meters = distance;
+  if (f === "km") meters = distance * 1000;
+  else if (f === "mi") meters = distance * 1609.344;
+
+  if (t === "km") return meters / 1000;
+  if (t === "mi") return meters / 1609.344;
+  return meters;
+};
+
+export const convertPace = (
+  paceStrOrSec: string | number | null | undefined,
+  fromUnit: DistanceUnitType,
+  toUnit: DistanceUnitType,
+  includeUnitSuffix = true
+): string => {
+  if (!paceStrOrSec) return "--:--";
+
+  const normFrom = normalizeUnit(fromUnit);
+  const normTo = normalizeUnit(toUnit);
+  const baseFrom: DistanceUnitType = normFrom === "m" ? "km" : normFrom;
+  const baseTo: DistanceUnitType = normTo === "m" ? "km" : normTo;
+
+  if (typeof paceStrOrSec === "number") {
+    if (paceStrOrSec <= 0 || !Number.isFinite(paceStrOrSec)) return "--:--";
+    let targetSec = paceStrOrSec;
+    if (baseFrom === "mi" && baseTo === "km") {
+      targetSec = Math.round(paceStrOrSec / 1.609344);
+    } else if (baseFrom === "km" && baseTo === "mi") {
+      targetSec = Math.round(paceStrOrSec * 1.609344);
+    }
+    return formatSecondsToPace(targetSec, baseTo, includeUnitSuffix);
+  }
+
+  const paceStr = String(paceStrOrSec).trim();
+  if (!paceStr || paceStr === "--:--") return "--:--";
+
+  const matches = [...paceStr.matchAll(/(\d+)\s*:\s*(\d+(?:\.\d+)?)/g)];
+  if (!matches || matches.length === 0) return paceStr;
+
+  if (matches.length >= 2) {
+    const s1 = (parseInt(matches[0][1], 10) || 0) * 60 + (parseFloat(matches[0][2]) || 0);
+    const s2 = (parseInt(matches[1][1], 10) || 0) * 60 + (parseFloat(matches[1][2]) || 0);
+
+    let t1 = s1;
+    let t2 = s2;
+    if (baseFrom === "mi" && baseTo === "km") {
+      t1 = Math.round(s1 / 1.609344);
+      t2 = Math.round(s2 / 1.609344);
+    } else if (baseFrom === "km" && baseTo === "mi") {
+      t1 = Math.round(s1 * 1.609344);
+      t2 = Math.round(s2 * 1.609344);
+    }
+
+    const min1 = Math.floor(t1 / 60);
+    const sec1 = t1 % 60;
+    const min2 = Math.floor(t2 / 60);
+    const sec2 = t2 % 60;
+
+    const formattedRange = `${min1}:${String(sec1).padStart(2, "0")} - ${min2}:${String(sec2).padStart(2, "0")}`;
+    if (!includeUnitSuffix) return formattedRange;
+    return `${formattedRange} ${getPaceUnitLabel(baseTo)}`;
+  }
+
+  const min = parseInt(matches[0][1], 10) || 0;
+  const sec = parseFloat(matches[0][2]) || 0;
+  const total = min * 60 + sec;
+
+  let convertedSec = total;
+  if (baseFrom === "mi" && baseTo === "km") {
+    convertedSec = Math.round(total / 1.609344);
+  } else if (baseFrom === "km" && baseTo === "mi") {
+    convertedSec = Math.round(total * 1.609344);
+  }
+
+  return formatSecondsToPace(convertedSec, baseTo, includeUnitSuffix);
+};
+
+export const convertPaceToSeconds = (
+  paceSec: number,
+  fromUnit: DistanceUnitType,
+  toUnit: DistanceUnitType
+): number => {
+  if (!paceSec || paceSec <= 0 || !Number.isFinite(paceSec)) return 0;
+  const baseFrom = normalizeUnit(fromUnit) === "m" ? "km" : normalizeUnit(fromUnit);
+  const baseTo = normalizeUnit(toUnit) === "m" ? "km" : normalizeUnit(toUnit);
+  if (baseFrom === baseTo) return paceSec;
+  if (baseFrom === "mi" && baseTo === "km") {
+    return Math.round(paceSec / 1.609344);
+  }
+  if (baseFrom === "km" && baseTo === "mi") {
+    return Math.round(paceSec * 1.609344);
+  }
+  return paceSec;
 };
 
 export const calculateTwoFields = ({
