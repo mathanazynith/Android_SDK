@@ -42,7 +42,7 @@ export const getDistanceUnitDisplayLabel = (value?: string | null): string => {
 };
 
 export const getDistanceUnitPaceLabel = (value?: string | null): string => {
-  return getDistanceUnitCode(value) === "mile" ? "min/mile" : "min/km";
+  return getDistanceUnitCode(value) === "mile" ? "min/mi" : "min/km";
 };
 
 export const getDistanceUnitDisplayText = (value?: string | null): string => {

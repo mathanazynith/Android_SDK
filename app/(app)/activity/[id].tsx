@@ -11,39 +11,20 @@ import ActivitySplitsModal from '../../../components/ActivitySplitsModal';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { useAuth } from '../../../service/auth';
 import { getBackendErrorMessage } from '../../../service/api';
 import { activityAPI, BackendActivity, normalizeActivitySplits, runRouteAPI } from '../../../src/services/activityApi';
 import { shareActivityAsGpx } from '../../../src/services/gpxFileExport';
 import { ActivityExtraSplits, ActivitySegmentSplits } from '../../../src/types/activity';
+import {
+  formatDistanceFromMeters,
+  formatElevationFromMeters,
+  formatPaceFromSecondsPerKm,
+  formatSpeedFromKilometersPerHour,
+  formatSpeedFromMetersPerSecond,
+} from '../../../src/utils/activityUnitFormatters';
 import { getActivityExtraDistanceMeters } from '../../../src/utils/extraDistance';
-
-const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
-
-const formatElevation = (meters: number | null | undefined) => (
-  meters !== null && meters !== undefined && Number.isFinite(Number(meters))
-    ? `${Math.round(Number(meters))} m`
-    : '—'
-);
-
-const formatDuration = (seconds: number) => {
-  if (!Number.isFinite(seconds)) return '--';
-  const totalSeconds = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const secondsRemaining = totalSeconds % 60;
-  return hours > 0
-    ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secondsRemaining).padStart(2, '0')}`
-    : `${minutes} min ${secondsRemaining} sec`;
-};
-
-const formatPace = (secondsPerKm: number) => {
-  if (!Number.isFinite(secondsPerKm) || secondsPerKm <= 0) return '-- /km';
-  const totalSeconds = Math.round(secondsPerKm);
-  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')} /km`;
-};
-
-const formatSpeed = (metersPerSecond: number) => `${(Math.max(0, metersPerSecond) * 3.6).toFixed(1)} km/h`;
-const formatBackendSpeed = (speed: number) => Number.isFinite(speed) ? `${speed} Km/hr` : '--';
+import { formatDurationMmSs as formatDuration } from '../../../src/utils/splitFormatters';
 
 const formatRecordedDate = (value: string) => {
   const date = new Date(value);
@@ -88,6 +69,8 @@ function DetailMetric({
 
 export default function ActivityDetailScreen() {
   const { colors, isDark } = useTheme();
+  const { user } = useAuth();
+  const distanceUnit = user?.profile?.distance_unit;
   const { id, cropStart, cropEnd, savedRouteId: savedRouteIdParam } = useLocalSearchParams<{
     id: string;
     cropStart?: string;
@@ -347,6 +330,7 @@ export default function ActivityDetailScreen() {
               cropStartIndex={Number.isFinite(cropStartIndex) ? cropStartIndex : undefined}
               cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
               enableFullScreen
+              distanceUnit={distanceUnit}
             />
             {savedRouteId !== null && savedRouteIsPublic !== null ? (
               <View style={[styles.routeVisibilityRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -388,31 +372,26 @@ export default function ActivityDetailScreen() {
             </View>
 
             <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <DetailMetric label="Distance" value={formatDistance(activity.distance)} />
+              <DetailMetric label="Distance" value={formatDistanceFromMeters(activity.distance, distanceUnit)} />
               <DetailMetric label="Moving time" value={formatDuration(activity.moving_time)} />
-              <DetailMetric label="Average pace" value={formatPace(activity.avg_pace)} />
+              <DetailMetric label="Average pace" value={formatPaceFromSecondsPerKm(activity.avg_pace, distanceUnit)} />
               <DetailMetric label="Calories" value={`${Math.round(activity.calories)} kcal`} />
             </View>
 
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Distance breakdown</Text>
             <View style={[styles.metricsCard, styles.verticalMetricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <DetailMetric fullWidth label="Distance" value={formatDistance(activity.distance)} />
-              <DetailMetric
-                fullWidth
-                label="Planned distance"
-                value={formatDistance(activity.distance)}
-              />
+              <DetailMetric fullWidth label="Distance" value={formatDistanceFromMeters(activity.distance, distanceUnit)} />
               {extraDistanceMeters !== null && (
-                <DetailMetric fullWidth label="Extra distance" value={formatDistance(extraDistanceMeters)} />
+                <DetailMetric fullWidth label="Extra distance" value={formatDistanceFromMeters(extraDistanceMeters, distanceUnit)} />
               )}
               <DetailMetric fullWidth label="Elapsed time" value={formatDuration(activity.elapsed_time)} />
                 <DetailMetric fullWidth label="Moving time" value={formatDuration(activity.moving_time)} />
-              <DetailMetric fullWidth label="Average pace" value={formatPace(activity.avg_pace)} />
-              <DetailMetric fullWidth label="Average speed" value={formatBackendSpeed(activity.avg_speed)} />
-              <DetailMetric fullWidth label="Max speed" value={formatSpeed(activity.max_speed)} />
+              <DetailMetric fullWidth label="Average pace" value={formatPaceFromSecondsPerKm(activity.avg_pace, distanceUnit)} />
+              <DetailMetric fullWidth label="Average speed" value={formatSpeedFromKilometersPerHour(activity.avg_speed, distanceUnit)} />
+              <DetailMetric fullWidth label="Max speed" value={formatSpeedFromMetersPerSecond(activity.max_speed, distanceUnit)} />
               <DetailMetric fullWidth label="Calories" value={`${Math.round(activity.calories)} kcal`} />
-              <DetailMetric fullWidth label="Elevation gain" value={formatElevation(activity.elevation_gain)} />
-              <DetailMetric fullWidth label="Elevation loss" value={formatElevation(activity.elevation_loss)} />
+              <DetailMetric fullWidth label="Elevation gain" value={formatElevationFromMeters(activity.elevation_gain, distanceUnit)} />
+              <DetailMetric fullWidth label="Elevation loss" value={formatElevationFromMeters(activity.elevation_loss, distanceUnit)} />
               <DetailMetric fullWidth singleLine label="Recorded" value={formatRecordedDate(activity.end_time)} />
             </View>
             </MotionEntrance>
@@ -426,6 +405,7 @@ export default function ActivityDetailScreen() {
         segments={splitSegments}
         extraSplits={extraSplits}
         extraDistanceMeters={extraDistanceMeters}
+        distanceUnit={distanceUnit}
         onClose={() => setSplitsVisible(false)}
         onRetry={() => void loadSplits()}
       />

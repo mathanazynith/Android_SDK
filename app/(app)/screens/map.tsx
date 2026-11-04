@@ -50,6 +50,10 @@ import { BackendWorkout, WorkoutEngineSnapshot } from '../../../src/types/workou
 import { isReliableRoutePoint } from '../../../src/utils/activityRouteGroups';
 import { offlineWorkoutQueue } from '../../../src/services/offlineWorkoutQueue';
 import { calculateDistanceMeters } from '../../../src/utils/distance';
+import {
+  formatDistanceFromMeters,
+  formatPaceFromSecondsPerKm,
+} from '../../../src/utils/activityUnitFormatters';
 import { decodePolyline } from '../../../src/utils/polylineDecoder';
 import {
   calculateAcceptedRouteDistance,
@@ -62,13 +66,6 @@ const formatTimerDisplay = (totalSec: number) => {
   const m = Math.floor(Math.max(0, totalSec) / 60);
   const s = Math.max(0, totalSec) % 60;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-};
-
-const formatPaceDisplay = (paceVal: number) => {
-  if (!paceVal || !isFinite(paceVal) || paceVal <= 0 || paceVal > 30) return '--:--';
-  const m = Math.floor(paceVal);
-  const s = Math.round((paceVal % 1) * 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
 };
 
 const getStepColor = (stepType?: string) => {
@@ -86,10 +83,12 @@ const getStepColor = (stepType?: string) => {
   }
 };
 
-const formatStepTargetSafe = (step?: WorkoutExecutionStep | null) => {
+const formatStepTargetSafe = (step?: WorkoutExecutionStep | null, distanceUnit?: string | null) => {
   if (!step) return '';
   if (typeof formatStepTarget === 'function') {
-    return formatStepTarget(step);
+    if (step.targetType !== 'DISTANCE' || !step.targetDistanceMeters) {
+      return formatStepTarget(step).toLowerCase();
+    }
   }
   if (step.targetType === 'DURATION' && step.targetDurationSeconds) {
     const mins = Math.floor(step.targetDurationSeconds / 60);
@@ -99,9 +98,23 @@ const formatStepTargetSafe = (step?: WorkoutExecutionStep | null) => {
     return `${secs} sec`;
   }
   if (step.targetType === 'DISTANCE' && step.targetDistanceMeters) {
-    return `${(step.targetDistanceMeters / 1000).toFixed(2)} km`;
+    return formatDistanceFromMeters(step.targetDistanceMeters, distanceUnit);
   }
   return 'Open target';
+};
+
+const formatTargetPace = (pace: string | undefined, sourceDistanceUnit: string | undefined, displayDistanceUnit: string | null | undefined) => {
+  if (!pace) return '--:--';
+  const paceMatch = pace.match(/(\d{1,3}):([0-5]\d)/);
+  if (!paceMatch) return pace.replace(/MIN\/KM/gi, 'min/km').replace(/MIN\/MI/gi, 'min/mi');
+
+  const minutes = Number(paceMatch[1]);
+  const seconds = Number(paceMatch[2]);
+  const explicitlyUsesMiles = /(?:\/|per\s*)mi(?:le)?\b/i.test(pace);
+  const sourceIsMiles = explicitlyUsesMiles || (!/\/km\b/i.test(pace) && /mi/i.test(sourceDistanceUnit ?? ''));
+  const secondsPerSourceUnit = minutes * 60 + seconds;
+  const secondsPerKm = sourceIsMiles ? secondsPerSourceUnit / 1.609344 : secondsPerSourceUnit;
+  return formatPaceFromSecondsPerKm(secondsPerKm, displayDistanceUnit);
 };
 
 interface Coordinate {
@@ -2881,18 +2894,16 @@ export default function MapScreen() {
                   <View style={styles.targetMetricsRow}>
                     <View>
                       <Text style={styles.countdownValue}>
-                        {(currentStepDistanceMeters / 1000).toFixed(2)}
-                        <Text style={styles.metricUnit}> km</Text>
+                        {formatDistanceFromMeters(currentStepDistanceMeters, user?.profile?.distance_unit)}
                       </Text>
                       <Text style={styles.targetSublabel}>
-                        {(remainingStepDistanceMeters / 1000).toFixed(2)} km TO GO
+                        {formatDistanceFromMeters(remainingStepDistanceMeters, user?.profile?.distance_unit)} TO GO
                       </Text>
                     </View>
                     <View style={styles.targetDivider} />
                     <View>
                       <Text style={styles.targetTotalValue}>
-                        {(activeStep.targetDistanceMeters / 1000).toFixed(2)}
-                        <Text style={styles.metricUnit}> km</Text>
+                        {formatDistanceFromMeters(activeStep.targetDistanceMeters, user?.profile?.distance_unit)}
                       </Text>
                       <Text style={styles.targetSublabel}>TARGET DISTANCE</Text>
                     </View>
@@ -2922,8 +2933,7 @@ export default function MapScreen() {
                     <View style={styles.targetDivider} />
                     <View>
                       <Text style={styles.targetTotalValue}>
-                        {(currentStepDistanceMeters / 1000).toFixed(2)}
-                        <Text style={styles.metricUnit}> km</Text>
+                        {formatDistanceFromMeters(currentStepDistanceMeters, user?.profile?.distance_unit)}
                       </Text>
                       <Text style={styles.targetSublabel}>DISTANCE</Text>
                     </View>
@@ -2936,23 +2946,21 @@ export default function MapScreen() {
                 <View style={styles.paceItem}>
                   <Text style={styles.paceLabel}>TARGET PACE</Text>
                   <Text style={styles.paceValue}>
-                    {activeStep.targetPace ? `${activeStep.targetPace}` : '--:--'}
+                    {formatTargetPace(activeStep.targetPace, activeStep.unit, user?.profile?.distance_unit)}
                   </Text>
                 </View>
                 <View style={styles.paceDivider} />
                 <View style={styles.paceItem}>
                   <Text style={styles.paceLabel}>LIVE PACE</Text>
                   <Text style={styles.paceValue}>
-                    {formatPaceDisplay(pace)}
-                    <Text style={styles.paceUnit}> /km</Text>
+                    {formatPaceFromSecondsPerKm(pace * 60, user?.profile?.distance_unit)}
                   </Text>
                 </View>
                 <View style={styles.paceDivider} />
                 <View style={styles.paceItem}>
                   <Text style={styles.paceLabel}>TOTAL DIST</Text>
                   <Text style={styles.paceValue}>
-                    {(distance / 1000).toFixed(2)}
-                    <Text style={styles.paceUnit}> km</Text>
+                    {formatDistanceFromMeters(distance, user?.profile?.distance_unit)}
                   </Text>
                 </View>
               </View>
@@ -2962,7 +2970,7 @@ export default function MapScreen() {
                 <View style={styles.upNextBanner}>
                   <Feather name="chevrons-right" size={13} color="#9BA3AF" />
                   <Text style={styles.upNextText} numberOfLines={1}>
-                    Up Next: <Text style={styles.upNextHighlight}>{nextStep.title}</Text> ({formatStepTargetSafe(nextStep)})
+                    Up Next: <Text style={styles.upNextHighlight}>{nextStep.title}</Text> ({formatStepTargetSafe(nextStep, user?.profile?.distance_unit)})
                   </Text>
                 </View>
               ) : (
@@ -3042,11 +3050,11 @@ export default function MapScreen() {
               <View style={styles.liveMetricRow}>
                 <View style={styles.liveMetricItem}>
                   <Text style={styles.liveMetricLabel} numberOfLines={1}>DISTANCE:</Text>
-                  <Text style={styles.liveMetricValue} numberOfLines={1} adjustsFontSizeToFit>{(distance / 1000).toFixed(2)} <Text style={styles.liveMetricUnit}>km</Text></Text>
+                  <Text style={styles.liveMetricValue} numberOfLines={1} adjustsFontSizeToFit>{formatDistanceFromMeters(distance, user?.profile?.distance_unit)}</Text>
                 </View>
                 <View style={styles.liveMetricItem}>
                   <Text style={styles.liveMetricLabel} numberOfLines={1}>AVG PACE:</Text>
-                  <Text style={styles.liveMetricValue} numberOfLines={1} adjustsFontSizeToFit>{formatPaceDisplay(pace)} <Text style={styles.liveMetricUnit}>/km</Text></Text>
+                  <Text style={styles.liveMetricValue} numberOfLines={1} adjustsFontSizeToFit>{formatPaceFromSecondsPerKm(pace * 60, user?.profile?.distance_unit)}</Text>
                 </View>
               </View>
               <View style={styles.liveMetricDivider} />

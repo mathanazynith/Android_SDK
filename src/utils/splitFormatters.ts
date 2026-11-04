@@ -6,11 +6,13 @@ export const formatSplitDistance = (meters: number): string => {
   return `${meters.toFixed(2)}m`;
 };
 
-export const formatSplitTime = (seconds: number): string => {
+export const formatDurationMmSs = (seconds: number): string => {
   if (!Number.isFinite(seconds) || seconds < 0) return '--';
   const totalSeconds = Math.round(seconds);
   return `${String(Math.floor(totalSeconds / 60)).padStart(2, '0')}:${String(totalSeconds % 60).padStart(2, '0')}`;
 };
+
+export const formatSplitTime = formatDurationMmSs;
 
 export const formatPace = (secondsPerKm: number): string => {
   if (!Number.isFinite(secondsPerKm) || secondsPerKm <= 0) return '--/km';

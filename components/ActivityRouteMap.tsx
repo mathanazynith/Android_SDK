@@ -8,6 +8,11 @@ import { useTheme } from '../contexts/ThemeContext';
 import type { BackendGpsPoint, BackendPauseEvent, BackendPolylineRoute } from '../src/services/activityApi';
 import { getGpsOptimizationConfig } from '../src/services/gpsOptimizationConfig';
 import { RdpSimplifier } from '../src/services/rdpSimplifier';
+import {
+  formatDistanceFromMeters,
+  formatElevationFromMeters,
+  formatPaceFromSecondsPerKm,
+} from '../src/utils/activityUnitFormatters';
 import { buildActivityRouteGroups, mergeActivityRouteGroups } from '../src/utils/activityRouteGroups';
 import { decodePolyline } from '../src/utils/polylineDecoder';
 
@@ -62,12 +67,8 @@ interface ActivityRouteMapProps {
   enableFullScreen?: boolean;
   onPress?: () => void;
   activityStats?: ActivityMapStats;
+  distanceUnit?: string | null;
 }
-
-const formatDistance = (meters?: number) => {
-  if (meters === undefined || !Number.isFinite(meters)) return '--';
-  return `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
-};
 
 const formatDuration = (seconds?: number) => {
   if (seconds === undefined || !Number.isFinite(seconds)) return '--';
@@ -78,12 +79,6 @@ const formatDuration = (seconds?: number) => {
   return hours > 0
     ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
     : `${minutes}:${String(secs).padStart(2, '0')}`;
-};
-
-const formatPace = (secondsPerKm?: number) => {
-  if (secondsPerKm === undefined || !Number.isFinite(secondsPerKm) || secondsPerKm <= 0) return '-- /km';
-  const totalSeconds = Math.round(secondsPerKm);
-  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')} /km`;
 };
 
 const routeSimplifier = new RdpSimplifier();
@@ -142,6 +137,7 @@ function ActivityRouteMap({
   enableFullScreen,
   onPress,
   activityStats,
+  distanceUnit,
 }: ActivityRouteMapProps) {
   const { colors, isDark } = useTheme();
   const { height: windowHeight } = useWindowDimensions();
@@ -814,7 +810,7 @@ function ActivityRouteMap({
                   <Text style={[styles.fullScreenTitleText, { color: colors.text }]}>Route View</Text>
                   {activityStats?.distance !== undefined && (
                     <Text style={[styles.fullScreenDistanceText, { color: colors.primary }]}>
-                      {formatDistance(activityStats.distance)}
+                      {formatDistanceFromMeters(activityStats.distance, distanceUnit)}
                     </Text>
                   )}
                 </View>
@@ -867,7 +863,7 @@ function ActivityRouteMap({
                   <View style={styles.statColumn}>
                     <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Distance</Text>
                     <Text style={[styles.statValue, { color: colors.text }]}>
-                      {formatDistance(activityStats.distance)}
+                      {formatDistanceFromMeters(activityStats.distance, distanceUnit)}
                     </Text>
                   </View>
 
@@ -884,7 +880,7 @@ function ActivityRouteMap({
                     <View style={[styles.statColumn, styles.statDivider, { borderLeftColor: colors.border }]}>
                       <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Pace</Text>
                       <Text style={[styles.statValue, { color: colors.text }]}>
-                        {formatPace(activityStats.pace)}
+                        {formatPaceFromSecondsPerKm(activityStats.pace, distanceUnit)}
                       </Text>
                     </View>
                   )}
@@ -893,7 +889,7 @@ function ActivityRouteMap({
                     <View style={[styles.statColumn, styles.statDivider, { borderLeftColor: colors.border }]}>
                       <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Gain</Text>
                       <Text style={[styles.statValue, { color: colors.text }]}>
-                        +{Math.round(activityStats.elevationGain)}m
+                        +{formatElevationFromMeters(activityStats.elevationGain, distanceUnit)}
                       </Text>
                     </View>
                   )}

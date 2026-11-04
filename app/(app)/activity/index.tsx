@@ -38,30 +38,18 @@ import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { useAuth } from '../../../service/auth';
 import { getBackendErrorMessage } from '../../../service/api';
 import { activityAPI, BackendActivity, runRouteAPI } from '../../../src/services/activityApi';
+import {
+  formatDistanceFromMeters,
+  formatElevationFromMeters,
+  formatPaceFromSecondsPerKm,
+} from '../../../src/utils/activityUnitFormatters';
+import { getDistanceUnitDisplayLabel, getDistanceUnitCode } from '../../../utils/distanceUnit';
 import { shareActivityAsGpx } from '../../../src/services/gpxFileExport';
 import { parseGpxWorkout, type GpxWorkoutPreview } from '../../../src/services/gpxService';
-
-const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
-
-const formatElevation = (meters: number | null | undefined) => (
-  meters !== null && meters !== undefined && Number.isFinite(Number(meters))
-    ? `${Math.round(Number(meters))} m`
-    : '—'
-);
-
-const formatDuration = (seconds: number) => {
-  const minutes = Math.max(0, Math.floor(seconds / 60));
-  const hours = Math.floor(minutes / 60);
-  return hours > 0 ? `${hours} hr ${minutes % 60} min` : `${minutes} min`;
-};
-
-const formatPace = (secondsPerKm: number) => {
-  if (!Number.isFinite(secondsPerKm) || secondsPerKm <= 0) return '-- /km';
-  const totalSeconds = Math.round(secondsPerKm);
-  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')} /km`;
-};
+import { formatDurationMmSs as formatDuration } from '../../../src/utils/splitFormatters';
 
 const formatActivityType = (activityType: string) =>
   activityType.toLowerCase() === 'walk' ? 'Walk' : 'Run';
@@ -113,14 +101,17 @@ const monthOptions = Array.from({ length: 12 }, (_, month) => ({
   value: month,
 }));
 
-const activityDistanceOptions: { label: string; value: ActivityDistanceFilter }[] = [
-  { label: 'All', value: 'all' },
-  { label: '<1 km', value: 'under1' },
-  { label: '<2 km', value: 'under2' },
-  { label: '<5 km', value: 'short' },
-  { label: '5–10 km', value: 'medium' },
-  { label: '10+ km', value: 'long' },
-];
+const getActivityDistanceOptions = (distanceUnit?: string | null): { label: string; value: ActivityDistanceFilter }[] => {
+  const unit = getDistanceUnitDisplayLabel(distanceUnit);
+  return [
+    { label: 'All', value: 'all' },
+    { label: `<1 ${unit}`, value: 'under1' },
+    { label: `<2 ${unit}`, value: 'under2' },
+    { label: `<5 ${unit}`, value: 'short' },
+    { label: `5–10 ${unit}`, value: 'medium' },
+    { label: `10+ ${unit}`, value: 'long' },
+  ];
+};
 
 const formatDateLabel = (value: Date | null) => {
   if (!value) return 'Select date';
@@ -179,15 +170,17 @@ const matchesDateRange = (
   return now - activityDate <= rangeMs;
 };
 
-const matchesDistanceRange = (activity: BackendActivity, range: ActivityDistanceFilter): boolean => {
+const matchesDistanceRange = (activity: BackendActivity, range: ActivityDistanceFilter, distanceUnit?: string | null): boolean => {
   if (range === 'all') return true;
 
-  const distanceKm = (Number(activity.distance) || 0) / 1000;
-  if (range === 'under1') return distanceKm < 1;
-  if (range === 'under2') return distanceKm < 2;
-  if (range === 'short') return distanceKm < 5;
-  if (range === 'medium') return distanceKm >= 5 && distanceKm < 10;
-  return distanceKm >= 10;
+  const distance = getDistanceUnitCode(distanceUnit) === 'mile'
+    ? (Number(activity.distance) || 0) / 1609.344
+    : (Number(activity.distance) || 0) / 1000;
+  if (range === 'under1') return distance < 1;
+  if (range === 'under2') return distance < 2;
+  if (range === 'short') return distance < 5;
+  if (range === 'medium') return distance >= 5 && distance < 10;
+  return distance >= 10;
 };
 
 const sortActivities = (items: BackendActivity[]) => {
@@ -323,6 +316,7 @@ const buildActivityRows = (
 
 interface ActivityCardProps {
   activity: BackendActivity;
+  distanceUnit?: string | null;
   onPress: (activity: BackendActivity) => void;
   onRouteMenu: (activity: BackendActivity) => void;
   onStartSelection: (activityId: BackendActivity['id']) => void;
@@ -336,6 +330,7 @@ interface ActivityCardProps {
 
 const ActivityCard = memo(function ActivityCard({
   activity,
+  distanceUnit,
   onPress,
   onRouteMenu,
   onStartSelection,
@@ -455,7 +450,7 @@ const ActivityCard = memo(function ActivityCard({
       <TouchableOpacity
         style={[styles.cardContent, !selectionMode && styles.cardContentWithMenu]}
         accessibilityRole="button"
-        accessibilityLabel={`${activityName} activity, ${formatDistance(activity.distance)}, ${formatDuration(duration)}, ${formatPace(activity.avg_pace)}, elevation gain ${formatElevation(activity.elevation_gain)}, elevation loss ${formatElevation(activity.elevation_loss)}`}
+        accessibilityLabel={`${activityName} activity, ${formatDistanceFromMeters(activity.distance, distanceUnit)}, ${formatDuration(duration)}, ${formatPaceFromSecondsPerKm(activity.avg_pace, distanceUnit)}, elevation gain ${formatElevationFromMeters(activity.elevation_gain, distanceUnit)}, elevation loss ${formatElevationFromMeters(activity.elevation_loss, distanceUnit)}`}
         accessibilityHint={selectionMode ? 'Tap to select or deselect this activity for deletion.' : 'Open activity details, or long press to select this activity for deletion.'}
         onPress={handleCardPress}
         onPressIn={() => { longPressHandledRef.current = false; }}
@@ -470,7 +465,7 @@ const ActivityCard = memo(function ActivityCard({
             adjustsFontSizeToFit
             minimumFontScale={0.75}
           >
-            {formatDistance(activity.distance)}
+            {formatDistanceFromMeters(activity.distance, distanceUnit)}
           </Text>
           <View style={styles.metricSummaryRow}>
             <View style={styles.metricSummaryItem}>
@@ -482,7 +477,7 @@ const ActivityCard = memo(function ActivityCard({
             <View style={styles.metricSummaryItem}>
               <Feather name="compass" size={13} color={colors.primary} />
               <Text style={[styles.metricSummaryText, { color: colors.text }]} numberOfLines={1}>
-                {formatPace(activity.avg_pace)}
+                {formatPaceFromSecondsPerKm(activity.avg_pace, distanceUnit)}
               </Text>
             </View>
           </View>
@@ -490,13 +485,13 @@ const ActivityCard = memo(function ActivityCard({
             <View style={styles.metricSummaryItem}>
               <Feather name="trending-up" size={13} color={colors.primary} />
               <Text style={[styles.metricSummaryText, { color: colors.text }]} numberOfLines={1}>
-                +{formatElevation(activity.elevation_gain)}
+                +{formatElevationFromMeters(activity.elevation_gain, distanceUnit)}
               </Text>
             </View>
             <View style={styles.metricSummaryItem}>
               <Feather name="trending-down" size={13} color={colors.primary} />
               <Text style={[styles.metricSummaryText, { color: colors.text }]} numberOfLines={1}>
-                −{formatElevation(activity.elevation_loss)}
+                −{formatElevationFromMeters(activity.elevation_loss, distanceUnit)}
               </Text>
             </View>
           </View>
@@ -633,6 +628,9 @@ async function fetchHistoryPageSkippingEmptyPages(cursor: string | null) {
 
 export default function ActivityScreen() {
   const { colors } = useTheme();
+  const { user } = useAuth();
+  const distanceUnit = user?.profile?.distance_unit;
+  const activityDistanceOptions = useMemo(() => getActivityDistanceOptions(distanceUnit), [distanceUnit]);
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const reduceMotion = useReducedMotion();
@@ -1025,7 +1023,7 @@ export default function ActivityScreen() {
   const distanceSummary = useMemo(() => {
     if (selectedDistanceRange === 'all') return 'Distance';
     return activityDistanceOptions.find((option) => option.value === selectedDistanceRange)?.label ?? 'Distance';
-  }, [selectedDistanceRange]);
+  }, [activityDistanceOptions, selectedDistanceRange]);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -1064,11 +1062,11 @@ export default function ActivityScreen() {
     }
 
     if (selectedDistanceRange !== 'all') {
-      filtered = filtered.filter((activity) => matchesDistanceRange(activity, selectedDistanceRange));
+      filtered = filtered.filter((activity) => matchesDistanceRange(activity, selectedDistanceRange, distanceUnit));
     }
 
     return sortActivities(filtered);
-  }, [activities, rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate, selectedDistanceRange, selectedMonthDate, selectedType]);
+  }, [activities, distanceUnit, rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate, selectedDistanceRange, selectedMonthDate, selectedType]);
 
   const activityRows = useMemo(
     () => buildActivityRows(visibleActivities, groupMode),
@@ -1471,6 +1469,7 @@ export default function ActivityScreen() {
     return (
       <ActivityCard
         activity={activity}
+        distanceUnit={distanceUnit}
         onPress={handleActivityPress}
         onRouteMenu={openActivityRouteMenu}
         onStartSelection={startActivitySelection}
@@ -1486,6 +1485,7 @@ export default function ActivityScreen() {
     colors.text,
     colors.textSecondary,
     colors.textTertiary,
+    distanceUnit,
     deletingActivityIds,
     exportingActivityIds,
     isDeletingActivities,
