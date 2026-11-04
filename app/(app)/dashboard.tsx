@@ -189,7 +189,26 @@ export default function DashboardScreen() {
 
 
   if (workoutPlanError && !workoutPlan) {
-    return <View style={[styles.center, { backgroundColor: colors.background }]}><Feather name="alert-circle" size={32} color="#FFB020" /><DashboardText style={[styles.centerText, { color: colors.text }]}>{workoutPlanError}</DashboardText><TouchableOpacity style={[styles.retry, { backgroundColor: BRAND_GREEN }]} onPress={() => void fetchWorkoutPlan(true)}><DashboardText style={[styles.retryText, { color: colors.background }]}>Try again</DashboardText></TouchableOpacity></View>;
+    return (
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
+        <Feather name="alert-circle" size={32} color="#FFB020" />
+        <DashboardText style={[styles.centerText, { color: colors.text }]}>{workoutPlanError}</DashboardText>
+        <TouchableOpacity
+          style={[styles.retry, { backgroundColor: BRAND_GREEN }]}
+          onPress={() => void fetchWorkoutPlan(true)}
+        >
+          <DashboardText style={[styles.retryText, { color: colors.background }]}>Try again</DashboardText>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]}
+          onPress={() => router.push('/(app)/screens/map')}
+          activeOpacity={0.85}
+        >
+          <Feather name="play" size={24} color="#081009" />
+          <DashboardText style={styles.recordText}>Record Workout</DashboardText>
+        </TouchableOpacity>
+      </View>
+    );
   }
 
   return (
@@ -269,7 +288,7 @@ export default function DashboardScreen() {
         )}
         <MotionEntrance delay={55}>
           {workoutPlan ? (
-            <DashboardActivePlan todayWorkout={todayWorkout} nextWorkout={nextWorkout} />
+            <DashboardActivePlan plan={workoutPlan} todayWorkout={todayWorkout} nextWorkout={nextWorkout} />
           ) : workoutPlanError ? (
             <View style={styles.offlineContainer}>
               <TouchableOpacity
