@@ -5,6 +5,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Rect
 import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Bundle
@@ -49,6 +52,7 @@ class ZYRunLiveUpdateModule : Module() {
     val launchIntent = createRunIntent(context, runId, null) ?: return false
     val builder = Notification.Builder.recoverBuilder(context, activeNotification.notification)
       .setSmallIcon(notificationIcon)
+      .setLargeIcon(getApplicationIconBitmap(context))
       .setContentTitle(title)
       .setContentText(text)
       .setContentIntent(pendingActivity(context, launchIntent, 1001))
@@ -79,6 +83,32 @@ class ZYRunLiveUpdateModule : Module() {
 
     notificationManager.notify(activeNotification.tag, activeNotification.id, builder.build())
     return true
+  }
+
+  private fun getApplicationIconBitmap(context: Context): Bitmap? {
+    val drawable = try {
+      context.packageManager.getApplicationIcon(context.applicationInfo)
+    } catch (error: Exception) {
+      Log.w(TAG, "The application icon could not be loaded for the live notification.", error)
+      return null
+    }
+
+    val originalBounds = Rect(drawable.bounds)
+    val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: LARGE_ICON_SIZE
+    val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: LARGE_ICON_SIZE
+    val scale = minOf(1f, LARGE_ICON_SIZE.toFloat() / maxOf(width, height))
+    val bitmapWidth = (width * scale).toInt().coerceAtLeast(1)
+    val bitmapHeight = (height * scale).toInt().coerceAtLeast(1)
+    val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
+
+    try {
+      drawable.setBounds(0, 0, bitmapWidth, bitmapHeight)
+      drawable.draw(Canvas(bitmap))
+    } finally {
+      drawable.bounds = originalBounds
+    }
+
+    return bitmap
   }
 
   private fun findLocationForegroundNotification(
@@ -192,5 +222,6 @@ class ZYRunLiveUpdateModule : Module() {
     const val INVALID_NOTIFICATION_ID = -1
     const val LOCATION_NOTIFICATION_TITLE = "Zy-Run - Tracking Live"
     const val EXTRA_ZYRUN_LIVE_UPDATE = "com.zyapp.extra.ZYRUN_LIVE_UPDATE"
+    const val LARGE_ICON_SIZE = 96
   }
 }

@@ -115,11 +115,11 @@ interface QuestionnaireContextType {
   fetchWorkoutPlan: (force?: boolean) => Promise<CurrentWorkoutPlan | null>;
   endWorkoutPlan: (reason: string) => Promise<void>;
   canGoBack: boolean;
-  loadQuestions: () => Promise<void>;
+  loadQuestions: () => Promise<boolean>;
   startAssessment: () => Promise<void>;
   setAnswer: (questionId: string, value: any, unit?: string | null, customValues?: Record<string, any> | null) => void;
   goToNext: () => Promise<void>;
-  goToPrevious: () => Promise<void>;
+  goToPrevious: () => Promise<boolean>;
   reset: () => Promise<void>;
   // Backward compatibility for running-plan/index.tsx
   answers: AnswerRecord[];
@@ -200,6 +200,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
   const navigationHistory = useRef<PageState[]>([]);
   const forwardNavigationHistory = useRef<PageState[]>([]);
   const isStartingAssessment = useRef(false);
+  const isInitializingAssessment = useRef(false);
   const isResettingAssessment = useRef(false);
 
   // Derive current page questions
@@ -284,6 +285,9 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     setQuestions([]);
     setAssessmentId(null);
     setCurrentNavigation(null);
+    setIsLoading(false);
+    setError(null);
+    setValidationErrors({});
     setIsComplete(false);
     setComputedResponses({});
     setAllAnswers({});
@@ -302,15 +306,21 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     PlanBenchmarkStore.clearAll().catch(() => {});
   };
 
-  const loadQuestions = async () => {
+  const loadQuestions = async (): Promise<boolean> => {
     try {
       setIsLoading(true);
       setError(null);
       setValidationErrors({});
       const qs = await assessmentService.fetchQuestions();
+      if (qs.length === 0) {
+        setError("No assessment questions were returned. Please try again.");
+        return false;
+      }
       setQuestions(qs);
+      return true;
     } catch (err: any) {
       setError(getBackendErrorMessage(err, "Failed to load questions"));
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -372,6 +382,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
             const cachedPlanJson = await storage.getItem(storage.KEYS.TRAINING_PLAN);
             if (cachedPlanJson) {
               const cachedPlan = JSON.parse(cachedPlanJson);
+              workoutPlanRef.current = cachedPlan;
               setWorkoutPlan(cachedPlan);
               setWorkoutPlanError(null);
               return cachedPlan;
@@ -381,7 +392,7 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        if (!workoutPlan) setWorkoutPlan(null);
+        if (!workoutPlanRef.current) setWorkoutPlan(null);
         setWorkoutPlanError(getBackendErrorMessage(err, "Failed to load your training plan."));
         return null;
       } finally {
@@ -573,6 +584,9 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setError(null);
       setValidationErrors({});
       const result = await assessmentService.startAssessment();
+      if (!result.navigation?.question_ids?.length) {
+        throw new Error("The assessment started without its first question page. Please retry.");
+      }
       setAssessmentId(result.assessmentId);
       setCurrentNavigation(result.navigation);
       setComputedResponses(result.computedResponses);
@@ -602,24 +616,24 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
     if (
       assessmentId
       || currentNavigation
-      || isStartingAssessment.current
+      || isInitializingAssessment.current
       || isResettingAssessment.current
     ) {
       return;
     }
 
     const initializeAssessment = async () => {
-      if (isStartingAssessment.current) return;
+      if (isInitializingAssessment.current) return;
+      isInitializingAssessment.current = true;
       try {
-        if (!questions.length) {
-          await loadQuestions();
-        }
+        const questionsLoaded = questions.length > 0 || await loadQuestions();
+        if (!questionsLoaded) return;
         if (isResettingAssessment.current) return;
         if (!assessmentId && !currentNavigation) {
           await startAssessment();
         }
-      } catch {
-        // startAssessment already sets error state
+      } finally {
+        isInitializingAssessment.current = false;
       }
     };
 
@@ -894,8 +908,8 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
 
   // Rewind through the shared backend flow. The server deletes the most
   // recently submitted page, making that page valid for a replacement submit.
-  const goToPrevious = async () => {
-    if (!assessmentId || !currentNavigation || navigationHistory.current.length === 0) return;
+  const goToPrevious = async (): Promise<boolean> => {
+    if (!assessmentId || !currentNavigation || navigationHistory.current.length === 0) return false;
 
     setCompletedPlanCheckAssessmentId(null);
     try {
@@ -914,8 +928,10 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
       setCurrentNavigation(nextNavigation);
       setComputedResponses(result.navigation ? result.computedResponses : previousPage?.computedResponses ?? result.computedResponses);
       setIsComplete(nextNavigation ? false : result.complete);
+      return true;
     } catch (err: any) {
       setError(getBackendErrorMessage(err, "Unable to return to the previous questionnaire page."));
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -931,8 +947,8 @@ export function QuestionnaireProvider({ children }: { children: ReactNode }) {
         storage.removeItem(storage.KEYS.QUESTIONNAIRE_ANSWERS),
       ]);
       if (user) {
-        await loadQuestions();
-        await startAssessment();
+        const questionsLoaded = await loadQuestions();
+        if (questionsLoaded) await startAssessment();
       }
     } finally {
       isResettingAssessment.current = false;

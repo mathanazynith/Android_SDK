@@ -113,7 +113,7 @@ export const DEFAULT_GPS_OPTIMIZATION_CONFIG: GpsOptimizationConfig = {
   liveDisplayThresholdMeters: 1.5,
   livePolylineJitterToleranceMeters: 1,
   maxReasonableSpeedMetersPerSecond: 16, // ~57 km/h, reasonable for running
-  maxJumpDistanceMeters: 80,        // Reject obvious GPS teleports
+  maxJumpDistanceMeters: 50,        // Match the live route's maximum accepted hop
 
   // Indoor Drift Detection
   indoorDriftMaxRadiusMeters: 30,   // Room-sized area

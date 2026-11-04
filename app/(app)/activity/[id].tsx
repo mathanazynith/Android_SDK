@@ -15,6 +15,7 @@ import { getBackendErrorMessage } from '../../../service/api';
 import { activityAPI, BackendActivity, normalizeActivitySplits, runRouteAPI } from '../../../src/services/activityApi';
 import { shareActivityAsGpx } from '../../../src/services/gpxFileExport';
 import { ActivityExtraSplits, ActivitySegmentSplits } from '../../../src/types/activity';
+import { getActivityExtraDistanceMeters } from '../../../src/utils/extraDistance';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
 
@@ -102,6 +103,7 @@ export default function ActivityDetailScreen() {
   const [extraSplits, setExtraSplits] = useState<ActivityExtraSplits['splits']>([]);
   const cropStartIndex = cropStart === undefined ? undefined : Number(cropStart);
   const cropEndIndex = cropEnd === undefined ? undefined : Number(cropEnd);
+  const extraDistanceMeters = getActivityExtraDistanceMeters(activity);
 
   const loadActivity = useCallback(async () => {
     if (!id) {
@@ -394,15 +396,9 @@ export default function ActivityDetailScreen() {
                 label="Planned distance"
                 value={formatDistance(activity.distance)}
               />
-              <DetailMetric
-                fullWidth
-                label="Extra distance"
-                value={activity.extra_distance != null
-                  ? (Number(activity.extra_distance) > 0 ? formatDistance(Number(activity.extra_distance)) : 'No extra distance')
-                  : activity.extra_distance_km != null
-                    ? (Number(activity.extra_distance_km) > 0 ? formatDistance(Number(activity.extra_distance_km) * 1000) : 'No extra distance')
-                    : 'No extra distance'}
-              />
+              {extraDistanceMeters !== null && (
+                <DetailMetric fullWidth label="Extra distance" value={formatDistance(extraDistanceMeters)} />
+              )}
               <DetailMetric fullWidth label="Elapsed time" value={formatDuration(activity.elapsed_time)} />
                 <DetailMetric fullWidth label="Moving time" value={formatDuration(activity.moving_time)} />
               <DetailMetric fullWidth label="Average pace" value={formatPace(activity.avg_pace)} />
@@ -423,6 +419,7 @@ export default function ActivityDetailScreen() {
         error={splitsError}
         segments={splitSegments}
         extraSplits={extraSplits}
+        extraDistanceMeters={extraDistanceMeters}
         onClose={() => setSplitsVisible(false)}
         onRetry={() => void loadSplits()}
       />

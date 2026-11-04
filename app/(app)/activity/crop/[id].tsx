@@ -10,9 +10,9 @@ import { CropRangeSlider } from '../../../../components/CropRangeSlider';
 import { getBackendErrorMessage } from '../../../../service/api';
 import { activityAPI, BackendActivity, BackendPauseEvent } from '../../../../src/services/activityApi';
 import { calculateActivityCropMetrics } from '../../../../src/utils/activityCropMetrics';
+import { getRichestActivityCropRoute } from '../../../../src/utils/activityCropRoute';
 import { buildActivityPauseMarkers, buildActivityRouteGroups } from '../../../../src/utils/activityRouteGroups';
 import { createCatmullRomPolyline } from '../../../../src/utils/catmullRom';
-import { decodePolyline } from '../../../../src/utils/polylineDecoder';
 import { addRouteTimestamps } from '../../../../src/utils/routeTimestamps';
 
 interface GPSPoint {
@@ -61,36 +61,26 @@ export default function CropActivityScreen() {
         ?? [];
       setPauseEvents(savedPauseEvents);
 
-      // Prefer timestamped backend GPS rows so crop indices match the server.
-      const backendPoints = activityData.route?.points?.length
-        ? activityData.route.points
-        : activityData.gps_points;
-      if (backendPoints && backendPoints.length > 0) {
-        const points = addRouteTimestamps(backendPoints.map((point) => ({
-          latitude: Number(point.latitude),
-          longitude: Number(point.longitude),
-          timestamp: point.timestamp,
-          is_extra_distance: point.is_extra_distance,
-          is_paused: point.is_paused,
-          pause_sequence: point.pause_sequence,
-        })), activityData.start_time, activityData.end_time);
+      const routePoints = getRichestActivityCropRoute([
+        activityData.gps_points,
+        activityData.points,
+        activityData.coordinates,
+        activityData.route?.gps_points,
+        activityData.route?.points,
+        activityData.route?.coordinates,
+      ], activityData.encoded_polyline);
+      const points = addRouteTimestamps(routePoints, activityData.start_time, activityData.end_time);
+
+      if (points.length > 0) {
         setGpsPoints(points);
         setStartIndex(0);
         setEndIndex(points.length - 1);
         calculateCropMetrics(0, points.length - 1, points, savedPauseEvents);
-      } else if (activityData.encoded_polyline) {
-        const decodedPoints = addRouteTimestamps(
-          decodePolyline(activityData.encoded_polyline),
-          activityData.start_time,
-          activityData.end_time,
-        );
-        setGpsPoints(decodedPoints);
-
-        if (decodedPoints.length > 0) {
-          setStartIndex(0);
-          setEndIndex(decodedPoints.length - 1);
-          calculateCropMetrics(0, decodedPoints.length - 1, decodedPoints, savedPauseEvents);
-        }
+      } else {
+        setGpsPoints([]);
+        setStartIndex(0);
+        setEndIndex(0);
+        calculateCropMetrics(0, 0, [], savedPauseEvents);
       }
     } catch (error) {
       console.error('Error loading activity:', error);

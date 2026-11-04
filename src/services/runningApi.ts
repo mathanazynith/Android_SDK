@@ -76,6 +76,17 @@ export class RunningApiClient {
     console.warn('[BACKEND RESPONSE]');
     console.warn(JSON.stringify(response.data, null, 2));
     const data = response.data?.data ?? response.data;
+    const backendRoute = data?.route && typeof data.route === 'object' ? data.route : {};
+    const backendPoints = data?.gps_points
+      ?? data?.points
+      ?? data?.coordinates
+      ?? backendRoute.gps_points
+      ?? backendRoute.points
+      ?? backendRoute.coordinates;
+    console.info('[GPS_POINT_COUNTS] Backend response', JSON.stringify({
+      gps_points_count: data?.gps_points_count ?? null,
+      returnedPointArrayLength: Array.isArray(backendPoints) ? backendPoints.length : null,
+    }));
     const activityId = data?.activity_id ?? data?.id ?? null;
     return {
       success: response.status >= 200 && response.status < 300,

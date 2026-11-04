@@ -612,10 +612,8 @@ export default function QuestionnaireScreen() {
     isComplete,
     computedResponses,
     assessmentId,
-    workoutPlan,
     completedPlanCheckAssessmentId,
     isWorkoutPlanLoaded,
-    workoutPlanError,
     isWorkoutPlanLoading,
     setAnswer,
     goToNext,
@@ -683,18 +681,8 @@ export default function QuestionnaireScreen() {
       || !isWorkoutPlanLoaded
     ) return;
 
-    if (workoutPlan) {
-      router.replace('/(app)/plan-recommendation');
-      return;
-    }
-
-    if (workoutPlanError) {
-      router.replace('/(app)/running-plan');
-      return;
-    }
-
-    router.replace('/(app)/plan-recommendation');
-  }, [isComplete, assessmentId, completedPlanCheckAssessmentId, isWorkoutPlanLoaded, isWorkoutPlanLoading, workoutPlan, workoutPlanError]);
+    router.replace('/(app)/plan-confirmation');
+  }, [isComplete, assessmentId, completedPlanCheckAssessmentId, isWorkoutPlanLoaded, isWorkoutPlanLoading]);
 
   React.useEffect(() => {
     const findQuestion = (pattern: RegExp, type?: string) =>
@@ -855,10 +843,18 @@ export default function QuestionnaireScreen() {
   }
 
   if (!currentNavigation || !questions.length) {
+    if (!error) {
+      return (
+        <View style={styles.centerContainer}>
+          <RunningLoader size={64} label="Loading assessment..." />
+        </View>
+      );
+    }
+
     return (
       <View style={[styles.centerContainer, { paddingTop: insets.top }]}>
-        <Text style={styles.errorText}>No questions available</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={reset}>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => void reset()}>
           <Text style={styles.retryText}>Retry</Text>
         </TouchableOpacity>
       </View>

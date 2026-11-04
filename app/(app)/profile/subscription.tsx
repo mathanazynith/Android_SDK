@@ -23,7 +23,7 @@ const formatPrice = (price: Pick<SubscriptionPricing, 'amount' | 'currency'>) =>
 };
 
 export default function SubscriptionScreen() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const { user } = useAuth();
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [current, setCurrent] = useState<UserSubscription | null>(null);
@@ -63,6 +63,32 @@ export default function SubscriptionScreen() {
   useFocusEffect(useCallback(() => { void loadData(); }, [loadData]));
 
   const currentIsActive = Boolean(current && ACTIVE_STATUSES.has(current.status));
+  const currentStatus = current?.status.trim().toLowerCase().replaceAll('_', ' ') ?? '';
+  const currentStatusTone = currentStatus === 'pending'
+    ? 'pending'
+    : currentStatus === 'paid' || current?.payment_status?.trim().toLowerCase() === 'paid'
+      ? 'paid'
+      : 'default';
+  const currentCardTone = currentStatusTone === 'pending'
+    ? {
+      backgroundColor: isDark ? '#332510' : '#FFF7E6',
+      borderColor: isDark ? '#A16207' : '#F59E0B',
+      accentColor: isDark ? '#FBBF24' : '#B45309',
+      iconBackgroundColor: isDark ? '#4A3412' : '#FEF3C7',
+    }
+    : currentStatusTone === 'paid'
+      ? {
+        backgroundColor: isDark ? '#12321F' : '#ECFDF3',
+        borderColor: isDark ? '#15803D' : '#22C55E',
+        accentColor: isDark ? '#4ADE80' : '#15803D',
+        iconBackgroundColor: isDark ? '#19452B' : '#D1FAE5',
+      }
+      : {
+        backgroundColor: colors.surface,
+        borderColor: colors.border,
+        accentColor: currentIsActive ? colors.primary : colors.textSecondary,
+        iconBackgroundColor: colors.selected,
+      };
 
   const purchase = async (plan: SubscriptionPlan) => {
     const pricingId = selectedPricing[plan.id];
@@ -203,14 +229,14 @@ export default function SubscriptionScreen() {
           ) : null}
 
           {current ? (
-            <View style={[styles.currentCard, surface]}>
+            <View style={[styles.currentCard, { backgroundColor: currentCardTone.backgroundColor, borderColor: currentCardTone.borderColor }]}>
               <View style={styles.currentHeading}>
-                <View style={[styles.currentIcon, { backgroundColor: colors.selected }]}><Feather name="award" size={20} color={colors.primary} /></View>
+                <View style={[styles.currentIcon, { backgroundColor: currentCardTone.iconBackgroundColor }]}><Feather name="award" size={20} color={currentCardTone.accentColor} /></View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.eyebrow, { color: colors.textSecondary }]}>YOUR SUBSCRIPTION</Text>
               <Text style={[styles.planTitle, { color: colors.text }]}>{current.plan_name_snapshot || plans.find(plan => plan.id === current.plan)?.name || 'Previous plan'}</Text>
                 </View>
-                <Text style={[styles.status, { color: currentIsActive ? colors.primary : colors.textSecondary }]}>{current.status.replaceAll('_', ' ')}</Text>
+                <Text style={[styles.status, { color: currentCardTone.accentColor, backgroundColor: currentCardTone.iconBackgroundColor }]}>{current.status.replaceAll('_', ' ')}</Text>
               </View>
               <Text style={[styles.currentPrice, { color: colors.text }]}>{formatPrice({ amount: current.amount, currency: current.currency })}<Text style={[styles.period, { color: colors.textSecondary }]}>{intervalLabel(current.billing_interval || 1, current.billing_interval_unit || 'month')}</Text></Text>
               {current.trial_ends_at ? <Text style={[styles.meta, { color: colors.textSecondary }]}>Trial ends {formatDate(current.trial_ends_at)}</Text> : null}
@@ -283,11 +309,11 @@ const styles = StyleSheet.create({
   notice: { borderWidth: 1, borderRadius: 16, padding: 14, gap: 10 },
   noticeText: { fontSize: 14, lineHeight: 20 },
   retry: { fontSize: 14, fontWeight: '700' },
-  currentCard: { borderWidth: 1, borderRadius: 20, padding: 17, gap: 8 },
+  currentCard: { borderWidth: 2, borderRadius: 20, padding: 17, gap: 8, shadowColor: '#0F172A', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.1, shadowRadius: 7, elevation: 3 },
   currentHeading: { flexDirection: 'row', alignItems: 'center', gap: 11 },
   currentIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   eyebrow: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
-  status: { textTransform: 'capitalize', fontSize: 12, fontWeight: '700' },
+  status: { textTransform: 'capitalize', fontSize: 12, fontWeight: '800', overflow: 'hidden', borderRadius: 99, paddingHorizontal: 10, paddingVertical: 6 },
   currentPrice: { fontSize: 24, fontWeight: '800', marginTop: 5 },
   period: { fontSize: 14, fontWeight: '500' },
   meta: { fontSize: 12, lineHeight: 17 },

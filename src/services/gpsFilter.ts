@@ -17,7 +17,7 @@ export const DEFAULT_GPS_FILTER_CONFIG: GpsFilterConfig = {
   maxAccuracyMeters: 50,
   minMovementDistanceMeters: 0.5,
   maxReasonableRunningSpeedMetersPerSecond: 16,
-  maxJumpDistanceMeters: 80,
+  maxJumpDistanceMeters: 50,
 };
 
 export class GpsFilter {

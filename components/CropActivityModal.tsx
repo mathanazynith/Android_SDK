@@ -11,8 +11,8 @@ import { getBackendErrorMessage } from '../service/api';
 import { activityAPI, BackendActivity } from '../src/services/activityApi';
 import { createCatmullRomPolyline } from '../src/utils/catmullRom';
 import { calculateActivityCropMetrics } from '../src/utils/activityCropMetrics';
+import { getRichestActivityCropRoute } from '../src/utils/activityCropRoute';
 import { buildActivityPauseMarkers, buildActivityRouteGroups } from '../src/utils/activityRouteGroups';
-import { decodePolyline } from '../src/utils/polylineDecoder';
 import { addRouteTimestamps } from '../src/utils/routeTimestamps';
 import { CustomSlider } from './CustomSlider';
 
@@ -76,51 +76,24 @@ export default function CropActivityModal({
   const loadGPSPoints = useCallback(async () => {
     setLoading(true);
     try {
-      const backendPoints = activity.route?.points?.length
-        ? activity.route.points
-        : activity.gps_points;
-      if (backendPoints && backendPoints.length > 1) {
-        const points = addRouteTimestamps(
-          backendPoints.map((point) => ({
-            latitude: Number(point.latitude),
-            longitude: Number(point.longitude),
-            timestamp: point.timestamp,
-            is_extra_distance: point.is_extra_distance,
-            is_paused: point.is_paused,
-            pause_sequence: point.pause_sequence,
-          })),
-          activity.start_time,
-          activity.end_time,
-        );
+      const routePoints = getRichestActivityCropRoute([
+        activity.gps_points,
+        activity.points,
+        activity.coordinates,
+        activity.route?.gps_points,
+        activity.route?.points,
+        activity.route?.coordinates,
+      ], activity.encoded_polyline);
+      const points = addRouteTimestamps(routePoints, activity.start_time, activity.end_time);
+
+      if (points.length > 1) {
         setGpsPoints(points);
         setStartIndex(0);
         setEndIndex(points.length - 1);
         calculateCropMetrics(0, points.length - 1, points);
         return;
       }
-
-      // Decode GPS points from encoded polyline in the activity's route data
-      if (!activity.encoded_polyline) {
-        console.warn('No encoded polyline available');
-        setGpsPoints([]);
-        setLoading(false);
-        return;
-      }
-
-      // Decode the polyline to get GPS coordinates
-      const decodedPoints = addRouteTimestamps(
-        decodePolyline(activity.encoded_polyline),
-        activity.start_time,
-        activity.end_time,
-      );
-
-      setGpsPoints(decodedPoints);
-
-      if (decodedPoints.length > 0) {
-        setStartIndex(0);
-        setEndIndex(decodedPoints.length - 1);
-        calculateCropMetrics(0, decodedPoints.length - 1, decodedPoints);
-      }
+      setGpsPoints([]);
     } catch (error) {
       console.error('Error loading GPS points:', error);
       Alert.alert('Error', 'Failed to decode route data for cropping');
@@ -131,6 +104,8 @@ export default function CropActivityModal({
     activity.encoded_polyline,
     activity.end_time,
     activity.gps_points,
+    activity.points,
+    activity.coordinates,
     activity.route,
     activity.start_time,
     calculateCropMetrics,

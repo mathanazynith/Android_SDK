@@ -21,6 +21,7 @@ const getINDOOR_DRIFT_MIN_DURATION_SECONDS = () => getGpsOptimizationConfig().in
 const getINDOOR_DRIFT_MIN_WANDER_RATIO = () => getGpsOptimizationConfig().indoorDriftMinWanderRatio;
 const getMIN_DISPLAY_INTERVAL_MS = () => getGpsOptimizationConfig().minDisplayIntervalSeconds * 1000;
 const getMAX_FINAL_POINT_GAP_METERS = () => getGpsOptimizationConfig().maxFinalPointGapMeters;
+const getMAX_JUMP_DISTANCE_METERS = () => getGpsOptimizationConfig().maxJumpDistanceMeters;
 
 export class PathProcessor {
   private readonly gpsFilter: GpsFilter;
@@ -171,10 +172,8 @@ export class PathProcessor {
           continue;
         }
 
-        // Indoor location callbacks can arrive in bursts, so their implied
-        // speed is unreliable. Keep plausible points and reject only a large,
-        // obvious GPS jump; RDP will simplify indoor jitter after saving.
-        if (distance > 500) {
+        // Keep the save route aligned with the live route's jump gate.
+        if (distance >= (this.isSimulator ? 500 : getMAX_JUMP_DISTANCE_METERS())) {
           continue;
         }
       }

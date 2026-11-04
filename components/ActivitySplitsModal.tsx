@@ -21,14 +21,21 @@ interface ActivitySplitsModalProps {
   error: string | null;
   segments: ActivitySegmentSplits[];
   extraSplits: ActivitySplit[];
+  extraDistanceMeters?: number | null;
   onClose: () => void;
   onRetry: () => void;
 }
 
-const typeColor = (type: string, isDark: boolean, colors: ThemeColors) =>
+const typePresentation = (type: string, isDark: boolean, colors: ThemeColors) =>
   type === 'EXTRA'
-    ? (isDark ? '#FF6B6B' : '#DC2626')
-    : colors.primary;
+    ? {
+      color: isDark ? '#FDA4AF' : '#B91C1C',
+      backgroundColor: isDark ? '#451A24' : '#FEE2E2',
+    }
+    : {
+      color: isDark ? '#4ADE80' : '#15803D',
+      backgroundColor: colors.selected,
+    };
 
 const displayType = (type: string) => type.replace(/[-_]/g, ' ').toUpperCase();
 
@@ -43,15 +50,33 @@ interface DisplaySegment {
   recovery?: ActivitySegmentSplits;
 }
 
-function SegmentMetric({ label, value, compact = false }: { label: string; value: string; compact?: boolean }) {
+function SegmentMetric({
+  label,
+  value,
+  compact = false,
+  highlighted = false,
+}: {
+  label: string;
+  value: string;
+  compact?: boolean;
+  highlighted?: boolean;
+}) {
   const { colors } = useTheme();
   return (
     <View style={[
       styles.metric,
       compact && [styles.summaryMetric, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }],
+      compact && highlighted && { backgroundColor: colors.selected, borderColor: colors.primary },
     ]}>
-      <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>{label}</Text>
-      <Text style={[styles.metricValue, { color: colors.text }]}>{value}</Text>
+      <Text style={[styles.metricLabel, { color: compact && highlighted ? colors.primary : colors.textSecondary }]}>{label}</Text>
+      <Text
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}
+        style={[styles.metricValue, { color: colors.text }]}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -62,6 +87,7 @@ export default function ActivitySplitsModal({
   error,
   segments,
   extraSplits,
+  extraDistanceMeters,
   onClose,
   onRetry,
 }: ActivitySplitsModalProps) {
@@ -70,16 +96,31 @@ export default function ActivitySplitsModal({
     total + (segment.completed_distance_m ?? sumSplits(segment.splits, 'distance_m'))
   ), 0) + sumSplits(extraSplits, 'distance_m'), [extraSplits, segments]);
   const plannedDistance = useMemo(() => segments.reduce((total, segment) => total + (segment.planned_distance_m ?? 0), 0), [segments]);
-  const extraDistance = sumSplits(extraSplits, 'distance_m');
-  const allSegments = useMemo(() => [
-    ...segments,
-    ...(extraSplits.length > 0 ? [{
-      sequence: segments.length + 1,
-      type: 'EXTRA',
-      splits: extraSplits,
-      completed_distance_m: sumSplits(extraSplits, 'distance_m'),
-    }] : []),
-  ], [extraSplits, segments]);
+  const splitExtraDistance = sumSplits(extraSplits, 'distance_m');
+  const extraDistance = extraDistanceMeters !== null
+    && extraDistanceMeters !== undefined
+    && Number.isFinite(extraDistanceMeters)
+    && extraDistanceMeters > 0
+    ? extraDistanceMeters
+    : splitExtraDistance;
+  const hasExtraDistance = Number.isFinite(extraDistance) && extraDistance > 0;
+  const allSegments = useMemo(() => {
+    const hasExtraDistance = (
+      Number.isFinite(extraDistanceMeters)
+      && extraDistanceMeters !== null
+      && extraDistanceMeters !== undefined
+      && extraDistanceMeters > 0
+    ) || sumSplits(extraSplits, 'distance_m') > 0;
+    return [
+      ...segments,
+      ...(hasExtraDistance && extraSplits.length > 0 ? [{
+        sequence: segments.length + 1,
+        type: 'EXTRA',
+        splits: extraSplits,
+        completed_distance_m: sumSplits(extraSplits, 'distance_m'),
+      }] : []),
+    ];
+  }, [extraDistanceMeters, extraSplits, segments]);
   const displaySegments = useMemo<DisplaySegment[]>(() => {
     const grouped: DisplaySegment[] = [];
     allSegments.forEach((segment) => {
@@ -125,20 +166,23 @@ export default function ActivitySplitsModal({
               <Text style={[styles.segmentCount, { color: colors.textSecondary }]}>{displaySegments.length} segments</Text>
             </View>
             <View style={styles.summaryRow}>
-              <SegmentMetric compact label="Distance" value={formatDistance(totalDistance)} />
+              <SegmentMetric compact highlighted label="Distance" value={formatDistance(totalDistance)} />
               <SegmentMetric compact label="Planned" value={formatDistance(plannedDistance || undefined)} />
-              <SegmentMetric compact label="Extra" value={formatDistance(extraDistance || undefined)} />
+              {hasExtraDistance && (
+                <SegmentMetric compact label="Extra" value={formatDistance(extraDistance)} />
+              )}
             </View>
             {displaySegments.map(({ segment, recovery }) => {
               const distance = segment.completed_distance_m ?? sumSplits(segment.splits, 'distance_m');
               const time = segment.actual_time_s ?? sumSplits(segment.splits, 'time_s');
               const pace = segment.actual_pace_s_per_km ?? (distance > 0 && time > 0 ? time / (distance / 1000) : undefined);
               const gpsPoints = segment.gps_points?.length;
+              const typeStyle = typePresentation(segment.type, isDark, colors);
               return (
                 <View key={`segment-${segment.sequence}-${segment.type}`} style={[styles.segmentCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                   <View style={styles.segmentHeader}>
                     <Text style={[styles.segmentTitle, { color: colors.text }]}>{segment.sequence}. {titleCase(segment.type)}</Text>
-                    <Text style={[styles.segmentType, { color: typeColor(segment.type, isDark, colors) }]}>{displayType(segment.type)}</Text>
+                    <Text style={[styles.segmentType, typeStyle]}>{displayType(segment.type)}</Text>
                   </View>
                   <View style={styles.segmentMetrics}>
                     <SegmentMetric label="Distance" value={formatDistance(distance)} />
@@ -148,10 +192,16 @@ export default function ActivitySplitsModal({
                   </View>
                   {gpsPoints !== undefined && <Text style={[styles.gpsPoints, { color: colors.textTertiary }]}>{gpsPoints} GPS points</Text>}
                   {segment.splits.length > 0 && <>
-                    <Text style={[styles.splitsTitle, { color: colors.text }]}>Splits</Text>
-                    {segment.splits.map((split) => (
-                      <View key={`${segment.sequence}-${split.split_number}`} style={styles.splitRow}>
-                        <Text style={[styles.splitLabel, { color: colors.text }]}>Split {split.split_number}</Text>
+                    <Text style={[styles.splitsTitle, { color: colors.primary }]}>Splits</Text>
+                    {segment.splits.map((split, index) => (
+                      <View
+                        key={`${segment.sequence}-${split.split_number}`}
+                        style={[
+                          styles.splitRow,
+                          index < segment.splits.length - 1 && { borderBottomColor: colors.border },
+                        ]}
+                      >
+                        <Text style={[styles.splitLabel, { color: colors.primary }]}>Split {split.split_number}</Text>
                         <Text style={[styles.splitValue, { color: colors.text }]}>{formatSplitDistance(split.distance_m)}</Text>
                         <Text style={[styles.splitValue, { color: colors.text }]}>{formatSplitTime(split.time_s)}</Text>
                         <Text style={[styles.splitValue, styles.paceValue, { color: colors.textSecondary }]}>{formatPace(split.pace_s_per_km)}</Text>
@@ -226,15 +276,15 @@ const styles = StyleSheet.create({
   segmentCard: { borderRadius: 22, padding: 20, marginBottom: 20, borderWidth: 1 },
   segmentHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   segmentTitle: { fontSize: 22, fontWeight: '700', flex: 1, letterSpacing: 0 },
-  segmentType: { fontSize: 15, fontWeight: '700', letterSpacing: 0 },
-  segmentMetrics: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 20, rowGap: 16 },
-  metric: { flex: 1, minWidth: '24%' },
+  segmentType: { fontSize: 12, fontWeight: '800', letterSpacing: 0.4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, overflow: 'hidden' },
+  segmentMetrics: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, marginTop: 20, rowGap: 16 },
+  metric: { flexGrow: 1, flexShrink: 1, flexBasis: '22%', minWidth: 0 },
   metricLabel: { fontSize: 14, letterSpacing: 0 },
   metricValue: { fontSize: 17, fontWeight: '700', marginTop: 5, letterSpacing: 0 },
   gpsPoints: { fontSize: 14, marginTop: 18 },
   splitsTitle: { fontSize: 22, fontWeight: '700', marginTop: 24, marginBottom: 12 },
-  splitRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, minHeight: 28 },
-  splitLabel: { fontSize: 15, flex: 1.45 },
+  splitRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, minHeight: 38, borderBottomWidth: StyleSheet.hairlineWidth },
+  splitLabel: { fontSize: 15, fontWeight: '600', flex: 1.45 },
   splitValue: { fontSize: 15, flex: 0.8, textAlign: 'right' },
   paceValue: { flex: 1.2 },
   recoveryDetails: { borderTopWidth: 1, marginTop: 20, paddingTop: 4 },

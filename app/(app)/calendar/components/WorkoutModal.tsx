@@ -602,7 +602,18 @@ export default function WorkoutModal({
 
     return (
       <SafeAreaView edges={['top', 'bottom']} style={[styles.fullScreen, { backgroundColor: colors.background }]}>
-        <View style={[styles.pageContent, { paddingHorizontal: compactPage ? 16 : 20, paddingTop: compactPage ? 8 : 14, paddingBottom: compactPage ? 8 : 14 }]}>
+        <ScrollView
+          style={styles.fullScreen}
+          contentContainerStyle={[
+            styles.pageContent,
+            {
+              paddingHorizontal: compactPage ? 16 : 20,
+              paddingTop: compactPage ? 8 : 14,
+              paddingBottom: compactPage ? 8 : 14,
+            },
+          ]}
+          showsVerticalScrollIndicator
+        >
           <View style={styles.pageMain}>
             <View>
               <Text style={[styles.caption, styles.pageCaption, { color: colors.textSecondary }]}>Workout Details</Text>
@@ -654,13 +665,11 @@ export default function WorkoutModal({
                   <Text style={[styles.benchmarkToggleTitle, { color: colors.text }]} numberOfLines={1}>
                     {isSavingBenchmark ? 'Saving benchmark...' : activeWorkout.isBenchmark ? 'Benchmark Workout Active' : 'Mark as Benchmark Workout'}
                   </Text>
-                  {!compactPage && (
-                    <Text style={[styles.benchmarkToggleSub, { color: colors.textSecondary }]} numberOfLines={2}>
-                      {activeWorkout.isBenchmark
-                        ? 'Tap to remove this workout from Benchmark list in Statistics'
-                        : `Tap to mark "${activeWorkout.title}" as benchmark in Statistics`}
-                    </Text>
-                  )}
+                  <Text style={[styles.benchmarkToggleSub, { color: colors.textSecondary }]}>
+                    {activeWorkout.isBenchmark
+                      ? 'Tap to remove this workout from Benchmark list in Statistics'
+                      : `Tap to mark "${activeWorkout.title}" as benchmark in Statistics`}
+                  </Text>
                 </View>
                 <Ionicons name={activeWorkout.isBenchmark ? 'checkmark-circle' : 'add-circle-outline'} size={22} color={activeWorkout.isBenchmark ? '#F59E0B' : colors.primary} />
               </TouchableOpacity>
@@ -722,16 +731,16 @@ export default function WorkoutModal({
             {!!activeWorkout.description && (
               <View style={styles.pageInfoBlock}>
                 <Text style={[styles.pageSectionTitle, { color: colors.text }]}>Description</Text>
-                <Text style={[styles.sectionText, { color: colors.textSecondary }]} numberOfLines={compactPage ? 2 : 3}>
+                <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
                   {activeWorkout.description}
                 </Text>
               </View>
             )}
 
-            {!compactPage && !!activeWorkout.instructions && (
+            {!!activeWorkout.instructions && (
               <View style={styles.pageInfoBlock}>
                 <Text style={[styles.pageSectionTitle, { color: colors.text }]}>Instructions</Text>
-                <Text style={[styles.sectionText, { color: colors.textSecondary }]} numberOfLines={3}>
+                <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
                   {activeWorkout.instructions}
                 </Text>
               </View>
@@ -803,7 +812,7 @@ export default function WorkoutModal({
               </TouchableOpacity>
             )}
           </View>
-        </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -926,7 +935,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   fullScreen: { flex: 1 },
-  pageContent: { flex: 1, justifyContent: 'space-between' },
+  pageContent: { flexGrow: 1, justifyContent: 'space-between' },
   pageMain: { gap: 14 },
   pageCaption: { marginBottom: 4 },
   pageTitleCompact: { fontSize: 24, lineHeight: 29 },

@@ -1,12 +1,9 @@
-import { Alert } from '@/components/ThemedAlert';
 import { Feather } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import React from "react";
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { RunningLoader } from "../../../components/common/RunningLoader";
 import MotionEntrance from "../../../components/MotionEntrance";
 import { Colors } from "../../../constants/theme";
 import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
@@ -70,8 +67,8 @@ const formatSubscriptionAmount = (subscription: UserSubscription) => {
 
 export default function ProfileScreen() {
   const { colors } = useTheme();
-  const { user, uploadProfilePicture } = useAuth();
-  const [isUploadingPicture, setIsUploadingPicture] = React.useState(false);
+  const { user } = useAuth();
+  const [isProfilePicturePreviewVisible, setIsProfilePicturePreviewVisible] = React.useState(false);
   const [activeSubscription, setActiveSubscription] = React.useState<UserSubscription | null>(null);
 
   useFocusEffect(
@@ -99,45 +96,6 @@ export default function ProfileScreen() {
 
   const handleBackPress = () => {
     router.replace('/(app)/dashboard');
-  };
-
-  const selectProfilePicture = async (source: "camera" | "gallery") => {
-    try {
-      const permission = source === "camera"
-        ? await ImagePicker.requestCameraPermissionsAsync()
-        : await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-      if (!permission.granted) {
-        Alert.alert("Permission needed", `Allow ${source === "camera" ? "camera" : "photo library"} access to choose a profile picture.`);
-        return;
-      }
-
-      const result = source === "camera"
-        ? await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.85 })
-        : await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.85, mediaTypes: ['images'] });
-
-      const asset = result.canceled ? null : result.assets[0];
-      if (!asset) return;
-
-      setIsUploadingPicture(true);
-      await uploadProfilePicture({
-        uri: asset.uri,
-        name: asset.fileName || `profile-${Date.now()}.jpg`,
-        type: asset.mimeType || "image/jpeg",
-      });
-    } catch (error: any) {
-      Alert.alert("Upload failed", error?.response?.data?.detail || "Unable to update your profile picture.");
-    } finally {
-      setIsUploadingPicture(false);
-    }
-  };
-
-  const openPictureOptions = () => {
-    Alert.alert("Profile picture", "Choose a source", [
-      { text: "Camera", onPress: () => selectProfilePicture("camera") },
-      { text: "Gallery", onPress: () => selectProfilePicture("gallery") },
-      { text: "Cancel", style: "cancel" },
-    ]);
   };
 
   if (!user) {
@@ -192,13 +150,17 @@ export default function ProfileScreen() {
           </View>
 
           <View style={styles.profileIdentity}>
-            <View style={styles.avatar}>
-              {profilePictureUri ? <Image source={{ uri: profilePictureUri }} style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: colors.primaryText }]}>{initials}</Text>}
-              {isUploadingPicture ? <View style={styles.uploadOverlay}><RunningLoader size={32} fillColor="#FFFFFF" /></View> : null}
-              <TouchableOpacity accessibilityLabel="Change profile picture" accessibilityRole="button" onPress={openPictureOptions} style={[styles.cameraBadge, { backgroundColor: colors.surface, borderColor: colors.primary }]} disabled={isUploadingPicture}>
-                <Feather name="camera" size={16} color={colors.primary} />
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              accessibilityRole={profilePictureUri ? "button" : undefined}
+              accessibilityLabel={profilePictureUri ? "View profile picture" : undefined}
+              onPress={() => profilePictureUri && setIsProfilePicturePreviewVisible(true)}
+              disabled={!profilePictureUri}
+              activeOpacity={profilePictureUri ? 0.85 : 1}
+            >
+              <View style={styles.avatar}>
+                {profilePictureUri ? <Image source={{ uri: profilePictureUri }} style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: colors.primaryText }]}>{initials}</Text>}
+              </View>
+            </TouchableOpacity>
             <Text style={[styles.name, { color: colors.primaryText }]} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8}>{displayName}</Text>
           </View>
           </LinearGradient>
@@ -267,6 +229,38 @@ export default function ProfileScreen() {
         </MotionEntrance>
 
       </ScrollView>
+        <Modal
+          visible={isProfilePicturePreviewVisible && Boolean(profilePictureUri)}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setIsProfilePicturePreviewVisible(false)}
+          statusBarTranslucent
+        >
+          <View style={styles.previewBackdrop}>
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={() => setIsProfilePicturePreviewVisible(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Close profile picture preview"
+            />
+            {profilePictureUri ? (
+              <Image
+                source={{ uri: profilePictureUri }}
+                style={styles.previewImage}
+                resizeMode="contain"
+                accessibilityLabel={`${displayName}'s profile picture`}
+              />
+            ) : null}
+            <TouchableOpacity
+              style={styles.previewCloseButton}
+              onPress={() => setIsProfilePicturePreviewVisible(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Close profile picture preview"
+            >
+              <Feather name="x" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </Modal>
     </SafeAreaView>
   );
 }
@@ -295,8 +289,9 @@ const styles = StyleSheet.create({
   avatar: { width: 76, height: 76, borderRadius: 38, borderWidth: 3, borderColor: "#FFFFFF", alignItems: "center", justifyContent: "center", position: "relative", marginBottom: 6, backgroundColor: "rgba(255,255,255,0.16)" },
   avatarImage: { width: "100%", height: "100%", borderRadius: 41 },
   avatarText: { color: "#FFFFFF", fontSize: 31, fontWeight: "600" },
-  uploadOverlay: { ...StyleSheet.absoluteFill, borderRadius: 41, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.42)" },
-  cameraBadge: { position: "absolute", right: -6, bottom: -4, width: 29, height: 29, borderRadius: 15, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#26B705", backgroundColor: "#FFFFFF" },
+  previewBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.94)", alignItems: "center", justifyContent: "center" },
+  previewImage: { width: "100%", height: "100%" },
+  previewCloseButton: { position: "absolute", top: 54, right: 20, width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.16)" },
   name: { color: "#FFFFFF", fontSize: 18, lineHeight: 23, fontWeight: "700", textAlign: "center" },
   detailsCard: { flex: 1, marginHorizontal: 16, marginTop: 12, borderRadius: 20, backgroundColor: "#242627", borderWidth: 1.25, borderColor: "#66686A", paddingHorizontal: 15, paddingVertical: 5, shadowColor: "#000000", shadowOpacity: 0.2, shadowOffset: { width: 0, height: 6 }, shadowRadius: 10, elevation: 3 },
   subscriptionCard: { minHeight: 70, marginHorizontal: 16, marginTop: 12, paddingHorizontal: 14, borderRadius: 17, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 12, overflow: "hidden" },

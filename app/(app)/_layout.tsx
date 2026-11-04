@@ -1,6 +1,6 @@
 import { Alert } from '@/components/ThemedAlert';
 import { BlurTargetView } from 'expo-blur';
-import { Stack, usePathname } from 'expo-router';
+import { router, Stack, usePathname } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { BackHandler, Platform, View } from 'react-native';
 import GlobalBottomNav, { isPrimaryTabPath } from '../../components/navigation/GlobalBottomNav';
@@ -16,16 +16,21 @@ export default function AppLayout() {
     if (!showBottomNav) return;
 
     const handleBackPress = () => {
-      Alert.alert('Exit App', 'Are you sure you want to close the app?', [
+      if (pathname.replace('/(app)', '') !== '/dashboard') {
+        router.replace('/(app)/dashboard');
+        return true;
+      }
+
+      Alert.alert('Exit App', 'Are you sure you want to exit the app?', [
         { text: 'Cancel', onPress: () => null, style: 'cancel' },
-        { text: 'OK', onPress: () => BackHandler.exitApp() },
+        { text: 'Exit', onPress: () => BackHandler.exitApp(), style: 'destructive' },
       ]);
       return true;
     };
 
     const backHandler = BackHandler.addEventListener('hardwareBackPress', handleBackPress);
     return () => backHandler.remove();
-  }, [showBottomNav]);
+  }, [pathname, showBottomNav]);
 
   const renderScreen = ({ route, children }: { route: { key: string; name: string }; children: React.ReactElement }) =>
     route.name === 'profile'
@@ -46,6 +51,7 @@ export default function AppLayout() {
       <Stack.Screen name="profile/edit" />
       <Stack.Screen name="profile/subscription" />
       <Stack.Screen name="questionnaire" options={{ headerShown: false }} />
+      <Stack.Screen name="plan-confirmation" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="plan-recommendation" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="training-plan" options={{ headerShown: false, animation: 'none' }} />
       <Stack.Screen name="calendar" options={{ headerShown: false }} />
@@ -71,6 +77,7 @@ export default function AppLayout() {
           <Stack.Screen name="history" />
           <Stack.Screen name="run" />
           <Stack.Screen name="questionnaire" options={{ headerShown: false }} />
+          <Stack.Screen name="plan-confirmation" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="plan-recommendation" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="training-plan" options={{ headerShown: false, animation: 'none' }} />
           <Stack.Screen name="calendar" options={{ headerShown: false }} />

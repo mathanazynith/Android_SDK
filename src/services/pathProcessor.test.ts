@@ -87,6 +87,20 @@ describe('PathProcessor live route geometry', () => {
     expect(processor.simplifyFinal(filtered)).toHaveLength(1);
   });
 
+  it('rejects save-route jumps at the same limit used by live distance tracking', () => {
+    const processor = new PathProcessor('jump-filter-run');
+    const startedAt = Date.now() - 10_000;
+
+    processor.ingestRaw({ ...pointAt(0, 0), accuracy: 3, timestamp: startedAt });
+    processor.ingestRaw({ ...pointAt(55, 0), accuracy: 3, timestamp: startedAt + 1_000 });
+    processor.ingestRaw({ ...pointAt(6, 0), accuracy: 3, timestamp: startedAt + 9_000 });
+
+    const filtered = processor.filterRawPoints();
+
+    expect(filtered).toHaveLength(2);
+    expect(filtered.at(-1)?.longitude).toBeCloseTo(6 / 111_320);
+  });
+
   it('collapses a short loop only when its radius is below reported GPS uncertainty', () => {
     const processor = new PathProcessor('uncertain-drift-run');
     const startedAt = Date.now() - 40_000;
