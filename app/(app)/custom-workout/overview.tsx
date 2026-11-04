@@ -208,8 +208,8 @@ function StepSuggestionBox({
   type?: "warmup" | "run" | "cooldown";
   subtitle?: string;
 }) {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
 
   return (
     <TouchableOpacity
@@ -405,6 +405,20 @@ function StepCard({
                 {displayStepTime || "--:--"}
               </Text>
             </View>
+
+            {editable && onRepeat ? (
+              <TouchableOpacity
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onRepeat();
+                }}
+                style={styles.cardRepeatActionBtn}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityLabel="Repeat this run step"
+              >
+                <Feather name="repeat" size={15} color="#30D158" />
+              </TouchableOpacity>
+            ) : null}
 
             {editable && onDelete ? (
               <TouchableOpacity
@@ -673,6 +687,7 @@ export default function CustomWorkoutOverview() {
     setNotes,
     reset,
     addRepeatRun,
+    convertRunToRepeat,
     removeWarmUp,
     removeRun,
     removeCooldown,
@@ -1030,6 +1045,76 @@ export default function CustomWorkoutOverview() {
     }, []);
   }, [workout.runs]);
 
+  const repeatButtonText = useMemo(() => {
+    if (workout.runs.length === 0) return "REPEAT RUN";
+    const hasUnrepeated = workout.runs.some(
+      (r) => !r.groupId && (r.repeat || 1) <= 1
+    );
+    if (hasUnrepeated) return "REPEAT RUN";
+    return "ADD REPEAT";
+  }, [workout.runs]);
+
+  const handleRepeatAction = useCallback(() => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+
+    // Case 1: No run steps exist yet -> add a repeat run
+    if (workout.runs.length === 0) {
+      addRepeatRun();
+      setSelectedRun(0);
+      return;
+    }
+
+    // Case 2: An unrepeated run step is present -> convert it to a repeat group!
+    const targetIdx =
+      selectedRun !== null &&
+      workout.runs[selectedRun] &&
+      !workout.runs[selectedRun].groupId &&
+      (workout.runs[selectedRun].repeat || 1) <= 1
+        ? selectedRun
+        : workout.runs.findIndex((r) => !r.groupId && (r.repeat || 1) <= 1);
+
+    if (targetIdx !== -1) {
+      convertRunToRepeat(targetIdx);
+      setSelectedRun(targetIdx);
+      return;
+    }
+
+    // Case 3: All runs already in repeat groups -> add a new repeat group
+    addRepeatRun();
+    setSelectedRun(workout.runs.length);
+  }, [workout.runs, selectedRun, addRepeatRun, convertRunToRepeat]);
+
+  const workoutSections = useMemo(() => {
+    type Section =
+      | { type: "single"; item: { step: WorkoutStep; index: number } }
+      | {
+          type: "repeat_block";
+          groups: {
+            isGroup: boolean;
+            groupId?: string;
+            groupRepeat?: number;
+            items: { step: WorkoutStep; index: number }[];
+          }[];
+        };
+
+    const sections: Section[] = [];
+    for (const group of runGroups) {
+      if (group.isGroup && group.groupId) {
+        const last = sections[sections.length - 1];
+        if (last && last.type === "repeat_block") {
+          last.groups.push(group);
+        } else {
+          sections.push({ type: "repeat_block", groups: [group] });
+        }
+      } else if (group.items[0]) {
+        sections.push({ type: "single", item: group.items[0] });
+      }
+    }
+    return sections;
+  }, [runGroups]);
+
   const handleSave = async () => {
     if (!workout.runs.length) {
       Alert.alert(
@@ -1266,72 +1351,82 @@ export default function CustomWorkoutOverview() {
           />
         ) : null}
 
-        {/* 2. Run Steps & Repeat Groups */}
+        {/* 2. Run Steps & Repeat Groups (Option 2: Outer Box wrapping Inner Group Boxes) */}
         {workout.runs.length > 0
-          ? runGroups.map((group, groupIdx) => {
-              if (group.isGroup && group.groupId) {
-                const groupRepeat =
-                  group.items[0]?.step?.groupRepeat ||
-                  group.items[0]?.step?.repeat ||
-                  2;
-                const firstIndex = group.items[0]?.index ?? 0;
-
+          ? workoutSections.map((section, secIdx) => {
+              if (section.type === "repeat_block") {
                 return (
-                  <View key={group.groupId || `group-${groupIdx}`} style={styles.groupBox}>
-                    {/* Small set dropdown on the left */}
-                    <TouchableOpacity
-                      disabled={!isEditing}
-                      onPress={() => setRepeatRun(firstIndex)}
-                      style={styles.cornerSetBadge}
-                      activeOpacity={isEditing ? 0.7 : 1}
-                    >
-                      <Text style={styles.cornerSetText}>
-                        {groupRepeat} {groupRepeat === 1 ? "Set" : "Sets"}
-                      </Text>
-                      {isEditing ? (
-                        <Feather name="chevron-down" size={12} color="#30D158" style={{ marginLeft: 3 }} />
-                      ) : null}
-                    </TouchableOpacity>
+                  <View key={`repeat-block-${secIdx}`} style={styles.outerGroupBox}>
+                    {section.groups.map((group, groupIdx) => {
+                      const groupRepeat =
+                        group.items[0]?.step?.groupRepeat ||
+                        group.items[0]?.step?.repeat ||
+                        2;
+                      const firstIndex = group.items[0]?.index ?? 0;
+                      const isLast = groupIdx === section.groups.length - 1;
 
-                    {group.items.map(({ step, index }) => (
-                      <View key={`${step.title}-${index}`}>
-                        <StepCard
-                          step={step}
-                          color={getStepColor(step)}
-                          index={index}
-                          editable={isEditing}
-                          selected={selectedRun === index}
-                          onSelect={() => {
-                            setSelectedRun(index);
-                            router.push(
-                              `/custom-workout/running-declaration?index=${index}`
-                            );
-                          }}
-                          onDelete={() =>
-                            confirmDelete(step.title || "Run Step", () => removeRun(index))
-                          }
-                        />
-                        {step.rest && step.rest !== "00:00:00" ? (
-                          <RestCard
-                            duration={step.rest}
-                            skipLastRest={step.skipLastRest ?? true}
-                            repeatCount={step.repeat || 1}
-                            editable={isEditing}
-                            onPress={() => openRestModal(index)}
-                            onDelete={() => deleteRestConfig(index)}
-                            onToggleSkipLastRest={(val) => updateRunSkipLastRest(index, val)}
-                          />
-                        ) : isEditing ? (
-                          <AddRecoveryCard onPress={() => openRestModal(index)} />
-                        ) : null}
-                      </View>
-                    ))}
+                      return (
+                        <View
+                          key={group.groupId || `inner-group-${groupIdx}`}
+                          style={[styles.innerGroupBox, isLast && styles.innerGroupBoxLast]}
+                        >
+                          {/* Small set dropdown on the left */}
+                          <TouchableOpacity
+                            disabled={!isEditing}
+                            onPress={() => setRepeatRun(firstIndex)}
+                            style={styles.cornerSetBadge}
+                            activeOpacity={isEditing ? 0.7 : 1}
+                          >
+                            <Text style={styles.cornerSetText}>
+                              {groupRepeat} {groupRepeat === 1 ? "Set" : "Sets"}
+                            </Text>
+                            {isEditing ? (
+                              <Feather name="chevron-down" size={12} color="#30D158" style={{ marginLeft: 3 }} />
+                            ) : null}
+                          </TouchableOpacity>
+
+                          {group.items.map(({ step, index }) => (
+                            <View key={`${step.title}-${index}`}>
+                              <StepCard
+                                step={step}
+                                color={getStepColor(step)}
+                                index={index}
+                                editable={isEditing}
+                                selected={selectedRun === index}
+                                onSelect={() => {
+                                  setSelectedRun(index);
+                                  router.push(
+                                    `/custom-workout/running-declaration?index=${index}`
+                                  );
+                                }}
+                                onDelete={() =>
+                                  confirmDelete(step.title || "Run Step", () => removeRun(index))
+                                }
+                              />
+                              {step.rest && step.rest !== "00:00:00" ? (
+                                <RestCard
+                                  duration={step.rest}
+                                  skipLastRest={step.skipLastRest ?? true}
+                                  repeatCount={step.repeat || 1}
+                                  editable={isEditing}
+                                  onPress={() => openRestModal(index)}
+                                  onDelete={() => deleteRestConfig(index)}
+                                  onToggleSkipLastRest={(val) => updateRunSkipLastRest(index, val)}
+                                />
+                              ) : isEditing ? (
+                                <AddRecoveryCard onPress={() => openRestModal(index)} />
+                              ) : null}
+                            </View>
+                          ))}
+                        </View>
+                      );
+                    })}
                   </View>
                 );
               }
 
-              const singleStep = group.items[0].step;
-              const singleIndex = group.items[0].index;
+              const singleStep = section.item.step;
+              const singleIndex = section.item.index;
 
               return (
                 <View key={`single-run-${singleIndex}`}>
@@ -1346,6 +1441,10 @@ export default function CustomWorkoutOverview() {
                       router.push(
                         `/custom-workout/running-declaration?index=${singleIndex}`
                       );
+                    }}
+                    onRepeat={() => {
+                      convertRunToRepeat(singleIndex);
+                      setSelectedRun(singleIndex);
                     }}
                     onDelete={() =>
                       confirmDelete(singleStep.title || "Run Step", () => removeRun(singleIndex))
@@ -1383,14 +1482,11 @@ export default function CustomWorkoutOverview() {
 
             <TouchableOpacity
               style={styles.actionRepeat}
-              onPress={() => {
-                addRepeatRun();
-                setSelectedRun(workout.runs.length);
-              }}
+              onPress={handleRepeatAction}
               activeOpacity={0.85}
             >
               <Feather name="repeat" size={16} color={colors.icon} />
-              <Text style={styles.actionRepeatText}>ADD REPEAT</Text>
+              <Text style={styles.actionRepeatText}>{repeatButtonText}</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -1914,7 +2010,7 @@ export default function CustomWorkoutOverview() {
   );
 }
 
-const createStyles = (colors: ThemeColors) => StyleSheet.create({
+const createStyles = (colors: ThemeColors, isDark: boolean = false) => StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   header: {
     minHeight: 64,
@@ -2232,6 +2328,15 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontWeight: "700",
     fontVariant: ["tabular-nums"],
   },
+  cardRepeatActionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: isDark ? "rgba(48, 209, 88, 0.15)" : "rgba(48, 209, 88, 0.12)",
+    marginLeft: 6,
+  },
   cardDeleteBtn: {
     width: 32,
     height: 32,
@@ -2448,6 +2553,25 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   skipRestLabelActive: {
     color: "#8E8E93",
+  },
+  outerGroupBox: {
+    padding: 10,
+    backgroundColor: isDark ? "rgba(48, 209, 88, 0.05)" : "rgba(48, 209, 88, 0.04)",
+    borderRadius: 18,
+    marginBottom: 14,
+    borderWidth: 1.5,
+    borderColor: isDark ? "rgba(48, 209, 88, 0.35)" : "rgba(48, 209, 88, 0.3)",
+  },
+  innerGroupBox: {
+    padding: 10,
+    backgroundColor: colors.surfaceRaised,
+    borderRadius: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  innerGroupBoxLast: {
+    marginBottom: 0,
   },
   groupBox: {
     padding: 12,

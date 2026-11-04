@@ -99,10 +99,17 @@ const formatWorkoutDistance = (item: UserWorkoutResponse, targetUnit: DistanceUn
 
   // Fallback if no segments: convert item.distance
   if (item.distance != null && item.distance > 0) {
-    if (targetUnit === "mi") {
-      return `${(item.distance / 1609.344).toFixed(2)} mi`;
+    const rawUnit = normalizeUnit(item.distance_unit);
+    let distInKm = 0;
+    if (item.distance > 100) {
+      // Backend distance in meters
+      distInKm = item.distance / 1000;
+    } else {
+      // Backend distance already in km or mi
+      distInKm = rawUnit === "mi" ? item.distance * 1.609344 : item.distance;
     }
-    return `${(item.distance / 1000).toFixed(2)} km`;
+    const converted = targetUnit === "mi" ? distInKm / 1.609344 : targetUnit === "m" ? distInKm * 1000 : distInKm;
+    return `${converted.toFixed(2)} ${targetUnit}`;
   }
 
   if (item.display_distance != null && item.display_distance > 0) {
