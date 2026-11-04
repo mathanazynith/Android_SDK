@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { normalizeActivitySplits } from './activityApi';
+import { ACTIVITY_HISTORY_FIELDS, normalizeActivitySplits, normalizeHistoryPage } from './activityApi';
 
 vi.mock('../../service/storage', () => ({
   storage: {
@@ -18,6 +18,7 @@ describe('normalizeActivitySplits', () => {
       longitude: metresToLongitude(metres),
       timestamp: new Date(seconds * 1000).toISOString(),
     });
+
     const result = normalizeActivitySplits({
       split_distance_m: 5,
       segments: [
@@ -100,5 +101,39 @@ describe('normalizeActivitySplits', () => {
     expect(result.segments[1]?.type).toBe('RECOVERY');
     expect(result.segments[1]?.splits).toEqual([]);
     expect(result.extra?.splits.map((split) => split.distance_m)).toEqual([24, 6]);
+  });
+});
+
+describe('activity history elevation metrics', () => {
+  it('requests backend elevation gain and loss in the history fields', () => {
+    expect(ACTIVITY_HISTORY_FIELDS.split(',')).toContain('elevation_gain');
+    expect(ACTIVITY_HISTORY_FIELDS.split(',')).toContain('elevation_loss');
+  });
+
+  it('preserves backend elevation values when normalizing history rows', async () => {
+    vi.stubGlobal('__DEV__', false);
+    try {
+      const result = await normalizeHistoryPage({
+        results: [{
+          id: 21,
+          activity_type: 'RUN',
+          distance: 5000,
+          moving_time: 1800,
+          elapsed_time: 1900,
+          avg_pace: 360,
+          start_time: '2026-11-04T06:00:00Z',
+          end_time: '2026-11-04T06:31:40Z',
+          elevation_gain: 124.6,
+          elevation_loss: 119.2,
+          processing_status: 'COMPLETED',
+        }],
+        has_more: false,
+      }, 10);
+
+      expect(result.activities[0]?.elevation_gain).toBe(124.6);
+      expect(result.activities[0]?.elevation_loss).toBe(119.2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -27,6 +27,32 @@ class ZYRunLiveUpdateModule : Module() {
       val context = appContext.reactContext?.applicationContext ?: return@Function false
       updateForegroundNotification(context, data)
     }
+
+    Function("dismissNotification") {
+      val context = appContext.reactContext?.applicationContext ?: return@Function false
+      dismissForegroundNotification(context)
+    }
+  }
+
+  private fun dismissForegroundNotification(context: Context): Boolean {
+    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+      ?: return false
+    val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+    val notificationId = preferences.getInt(KEY_NOTIFICATION_ID, INVALID_NOTIFICATION_ID)
+    val notificationTag = preferences.getString(KEY_NOTIFICATION_TAG, null)
+    if (notificationId == INVALID_NOTIFICATION_ID) return false
+
+    val activeNotification = notificationManager.activeNotifications.firstOrNull {
+      it.id == notificationId && it.tag == notificationTag && it.isRunForegroundNotification()
+    }
+    if (activeNotification != null) {
+      notificationManager.cancel(activeNotification.tag, activeNotification.id)
+    }
+    preferences.edit()
+      .remove(KEY_NOTIFICATION_ID)
+      .remove(KEY_NOTIFICATION_TAG)
+      .apply()
+    return activeNotification != null
   }
 
   private fun updateForegroundNotification(context: Context, data: Map<String, Any?>): Boolean {
@@ -46,9 +72,11 @@ class ZYRunLiveUpdateModule : Module() {
     val elapsedSeconds = (data["elapsedSeconds"] as? Number)?.toDouble()?.coerceAtLeast(0.0) ?: 0.0
     val paceMinutesPerKm = (data["paceMinutesPerKm"] as? Number)?.toDouble() ?: 0.0
     val startedAtMs = (data["startedAtMs"] as? Number)?.toLong() ?: System.currentTimeMillis()
+    val messageTitle = data["messageTitle"] as? String
+    val messageBody = data["messageBody"] as? String
 
-    val title = if (status == "paused") "ZYRun · Paused" else "ZYRun · Running"
-    val text = "${formatDuration(elapsedSeconds)} · ${String.format(Locale.US, "%.2f", distanceKm)} km · ${formatPace(paceMinutesPerKm)}/km"
+    val title = messageTitle ?: if (status == "paused") "ZYRun · Paused" else "ZYRun · Running"
+    val text = messageBody ?: "${formatDuration(elapsedSeconds)} · ${String.format(Locale.US, "%.2f", distanceKm)} km · ${formatPace(paceMinutesPerKm)}/km"
     val launchIntent = createRunIntent(context, runId, null) ?: return false
     val builder = Notification.Builder.recoverBuilder(context, activeNotification.notification)
       .setSmallIcon(notificationIcon)
@@ -63,7 +91,7 @@ class ZYRunLiveUpdateModule : Module() {
       .setOnlyAlertOnce(true)
       .setShowWhen(false)
       .setWhen(startedAtMs)
-      .setActions(*buildActions(context, runId, status))
+      .setActions(*(if (messageTitle == null) buildActions(context, runId, status) else emptyArray()))
       .addExtras(Bundle().apply {
         putBoolean(EXTRA_ZYRUN_LIVE_UPDATE, true)
       })
@@ -74,7 +102,7 @@ class ZYRunLiveUpdateModule : Module() {
         .addExtras(Bundle().apply {
           putBoolean("android.requestPromotedOngoing", true)
         })
-      if (status == "running") {
+      if (status == "running" && messageTitle == null) {
         builder.setStyle(Notification.ProgressStyle().setProgressIndeterminate(true))
       } else {
         builder.setStyle(null)

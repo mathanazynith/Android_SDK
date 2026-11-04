@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { calculateAcceptedRouteDistance } from './routeDistance';
+import {
+  calculateAcceptedRouteDistance,
+  calculateRouteDistanceBreakdown,
+  filterRoutePointsByMaximumJump,
+} from './routeDistance';
 
 const pointAt = (eastMeters: number, timestamp: number) => ({
   latitude: 0,
@@ -37,5 +41,25 @@ describe('calculateAcceptedRouteDistance', () => {
 
     expect(calculateAcceptedRouteDistance(points, [], (point) => point.timestamp === 2_000))
       .toBeCloseTo(10, 0);
+  });
+
+  it('splits the canonical distance into workout and additional distance', () => {
+    const points = [pointAt(0, 0), pointAt(10, 1_000), pointAt(20, 2_000)];
+
+    expect(calculateRouteDistanceBreakdown(
+      points,
+      [],
+      (point) => point.timestamp === 2_000,
+    )).toEqual({
+      totalDistance: expect.closeTo(20, 0),
+      additionalDistance: expect.closeTo(10, 0),
+      workoutDistance: expect.closeTo(10, 0),
+    });
+  });
+
+  it('rejects large jumps without bridging from the last accepted point', () => {
+    const points = [pointAt(0, 0), pointAt(100, 1_000), pointAt(110, 2_000)];
+
+    expect(filterRoutePointsByMaximumJump(points, 50)).toEqual([points[0]]);
   });
 });

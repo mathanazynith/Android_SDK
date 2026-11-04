@@ -2,6 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, StatusBar, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import Svg, { Circle, Defs, LinearGradient, Path, Rect, Stop, Text as SvgText } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import type { BackendGpsPoint, BackendPauseEvent, BackendPolylineRoute } from '../src/services/activityApi';
@@ -61,7 +62,6 @@ interface ActivityRouteMapProps {
   enableFullScreen?: boolean;
   onPress?: () => void;
   activityStats?: ActivityMapStats;
-  onPreviewSnapshot?: (uri: string) => void;
 }
 
 const formatDistance = (meters?: number) => {
@@ -142,7 +142,6 @@ function ActivityRouteMap({
   enableFullScreen,
   onPress,
   activityStats,
-  onPreviewSnapshot,
 }: ActivityRouteMapProps) {
   const { colors, isDark } = useTheme();
   const { height: windowHeight } = useWindowDimensions();
@@ -215,8 +214,8 @@ function ActivityRouteMap({
     () => useUnifiedRoute ? mergeActivityRouteGroups(savedRouteGroups) : savedRouteGroups,
     [savedRouteGroups, useUnifiedRoute],
   );
-  const hasSavedGpsPoints = (savedGpsPoints?.length ?? 0) > 0;
-  const useSavedRouteGroups = hasSavedGpsPoints
+  const hasDrawableSavedRoute = displaySavedRouteGroups.some((group) => group.coordinates.length >= 2);
+  const useSavedRouteGroups = hasDrawableSavedRoute
     && !(cropStartIndex !== undefined && cropEndIndex !== undefined);
 
   const visibleRoutePoints = useMemo(() => {
@@ -410,20 +409,6 @@ function ActivityRouteMap({
   }, [allRouteCoordinates.length, fitRoute, mapReady]);
 
   useEffect(() => {
-    if (variant !== 'preview' || !onPreviewSnapshot || !mapReady || allRouteCoordinates.length < 2) return;
-    const timer = setTimeout(() => {
-      void mapRef.current?.takeSnapshot({
-        width: 264,
-        height: 240,
-        format: 'jpg',
-        quality: 0.82,
-        result: 'file',
-      }).then(onPreviewSnapshot).catch(() => undefined);
-    }, 700);
-    return () => clearTimeout(timer);
-  }, [allRouteCoordinates.length, mapReady, onPreviewSnapshot, variant]);
-
-  useEffect(() => {
     if (!fullScreenVisible || !fullScreenMapReady || allRouteCoordinates.length < 2) return;
     const timer = setTimeout(() => {
       fitFullScreenRoute();
@@ -440,14 +425,6 @@ function ActivityRouteMap({
       setFullScreenVisible(true);
     }
   };
-
-  if (allRouteCoordinates.length === 0) {
-    return (
-      <View style={[styles.emptyRoute, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <Text style={[styles.emptyRouteText, { color: colors.textSecondary }]}>No saved route is available for this workout.</Text>
-      </View>
-    );
-  }
 
   const runningCoordinates = smoothedRunningRouteGroups.flat();
   const pauseCoordinates = smoothedPauseRouteGroups.flat();
@@ -467,20 +444,182 @@ function ActivityRouteMap({
     ?? pauseCoordinates.at(-1)
     ?? smoothedPlannedRoutePoints.at(-1)
     ?? extraCoordinates.at(-1);
+  const previewRouteGroups = useMemo(() => [
+    ...(useSavedRouteGroups
+      ? smoothedSavedRouteGroups
+      : smoothedRunningRouteGroups.map((coordinates) => ({ type: 'running' as const, coordinates }))
+    ).filter((group) => group.type === 'running'),
+    ...(useSavedRouteGroups
+      ? smoothedSavedRouteGroups
+      : smoothedPauseRouteGroups.map((coordinates) => ({ type: 'pause' as const, coordinates }))
+    ).filter((group) => group.type === 'pause'),
+    ...(showPlannedRoute ? [{ type: 'planned' as const, coordinates: smoothedPlannedRoutePoints }] : []),
+    ...(useSavedRouteGroups
+      ? smoothedSavedRouteGroups
+      : smoothedExtraRouteGroups.map((coordinates) => ({ type: 'extra' as const, coordinates }))
+    ).filter((group) => group.type === 'extra'),
+  ].filter((group) => group.coordinates.length >= 2), [
+    showPlannedRoute,
+    smoothedExtraRouteGroups,
+    smoothedPauseRouteGroups,
+    smoothedPlannedRoutePoints,
+    smoothedRunningRouteGroups,
+    smoothedSavedRouteGroups,
+    useSavedRouteGroups,
+  ]);
+  const previewProjection = useMemo(() => {
+    const width = 140;
+    const height = 140;
+    const padding = 25;
+    const points = previewRouteGroups.flatMap((group) => group.coordinates);
+    if (points.length < 2) return null;
+
+    const referenceLatitude = points.reduce((total, point) => total + point.latitude, 0) / points.length;
+    const longitudeScale = Math.max(0.01, Math.cos((referenceLatitude * Math.PI) / 180));
+    const projected = points.map((point) => ({
+      x: point.longitude * longitudeScale,
+      y: -point.latitude,
+    }));
+    const bounds = projected.reduce((current, point) => ({
+      minX: Math.min(current.minX, point.x),
+      maxX: Math.max(current.maxX, point.x),
+      minY: Math.min(current.minY, point.y),
+      maxY: Math.max(current.maxY, point.y),
+    }), {
+      minX: Number.POSITIVE_INFINITY,
+      maxX: Number.NEGATIVE_INFINITY,
+      minY: Number.POSITIVE_INFINITY,
+      maxY: Number.NEGATIVE_INFINITY,
+    });
+    const { minX, maxX, minY, maxY } = bounds;
+    const spanX = Math.max(maxX - minX, 0.000001);
+    const spanY = Math.max(maxY - minY, 0.000001);
+    const scale = Math.min((width - padding * 2) / spanX, (height - padding * 2) / spanY);
+    const offsetX = (width - spanX * scale) / 2;
+    const offsetY = (height - spanY * scale) / 2;
+    const project = (point: RouteCoordinate) => ({
+      x: offsetX + (point.longitude * longitudeScale - minX) * scale,
+      y: offsetY + (-point.latitude - minY) * scale,
+    });
+
+    return {
+      width,
+      height,
+      routes: previewRouteGroups.map((group) => ({
+        key: `${group.type}-${group.coordinates.length}`,
+        color: group.type === 'pause' ? '#FB7185' : group.type === 'extra' ? '#CBD5E1' : '#34D399',
+        path: group.coordinates.map((point, index) => {
+          const projectedPoint = project(point);
+          return `${index === 0 ? 'M' : 'L'}${projectedPoint.x.toFixed(2)},${projectedPoint.y.toFixed(2)}`;
+        }).join(' '),
+      })),
+      start: firstPoint ? project(firstPoint) : null,
+      finish: lastPoint ? project(lastPoint) : null,
+    };
+  }, [firstPoint, lastPoint, previewRouteGroups]);
+
+  if (allRouteCoordinates.length === 0) {
+    return (
+      <View style={[styles.emptyRoute, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Text style={[styles.emptyRouteText, { color: colors.textSecondary }]}>No saved route is available for this workout.</Text>
+      </View>
+    );
+  }
 
   return (
     <>
       <View
         style={[
-          styles.mapContainer,
-          { height: variant === 'preview' ? 110 : detailMapHeight },
+          variant === 'preview'
+            ? styles.previewMapFrame
+            : [styles.mapContainer, { height: detailMapHeight }],
           variant === 'preview' && styles.previewMapContainer,
         ]}
       >
+        {variant === 'preview' && previewProjection ? (
+          <Svg
+            width="100%"
+            height="100%"
+            viewBox={`0 0 ${previewProjection.width} ${previewProjection.height}`}
+            preserveAspectRatio="xMidYMid meet"
+          >
+            <Defs>
+              <LinearGradient id="activityPreviewBackground" x1="0" y1="0" x2="1" y2="1">
+                <Stop offset="0" stopColor={isDark ? '#132B2A' : '#E5F8EF'} />
+                <Stop offset="0.55" stopColor={isDark ? '#1A3833' : '#D8F1E7'} />
+                <Stop offset="1" stopColor={isDark ? '#20352D' : '#CBE9DC'} />
+              </LinearGradient>
+              <LinearGradient id="activityPreviewRoute" x1="0" y1="0" x2="1" y2="1">
+                <Stop offset="0" stopColor="#A3F766" />
+                <Stop offset="1" stopColor="#10B981" />
+              </LinearGradient>
+            </Defs>
+            <Rect width={previewProjection.width} height={previewProjection.height} fill="url(#activityPreviewBackground)" />
+            <Path
+              d="M-12 42 C18 20 40 56 70 35 S122 20 154 42 M-12 60 C18 38 40 74 70 53 S122 38 154 60 M-12 112 C18 90 40 126 70 105 S122 90 154 112"
+              fill="none"
+              stroke={isDark ? '#B7F7DA' : '#39856B'}
+              strokeWidth={0.8}
+              opacity={isDark ? 0.1 : 0.13}
+            />
+            <Circle cx={116} cy={27} r={25} fill={isDark ? '#6EE7B7' : '#34D399'} opacity={0.08} />
+            <Circle cx={116} cy={27} r={17} fill="none" stroke={isDark ? '#A7F3D0' : '#047857'} strokeWidth={0.8} opacity={0.15} />
+            <Circle cx={24} cy={116} r={19} fill="none" stroke={isDark ? '#A7F3D0' : '#047857'} strokeWidth={0.8} opacity={0.12} />
+            <Path d="M0 70 H140 M70 0 V140" stroke={isDark ? '#D1FAE5' : '#166534'} strokeWidth={0.6} opacity={0.07} />
+            {previewProjection.routes.map((route) => (
+              <Path
+                key={`${route.key}-glow`}
+                d={route.path}
+                fill="none"
+                stroke={route.color}
+                strokeWidth={13}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={0.2}
+              />
+            ))}
+            {previewProjection.routes.map((route) => (
+              <Path
+                key={`${route.key}-casing`}
+                d={route.path}
+                fill="none"
+                stroke={isDark ? '#0B1C1B' : '#FFFFFF'}
+                strokeWidth={8}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={0.9}
+              />
+            ))}
+            {previewProjection.routes.map((route) => (
+              <Path
+                key={route.key}
+                d={route.path}
+                fill="none"
+                stroke={route.key.startsWith('pause-') ? route.color : 'url(#activityPreviewRoute)'}
+                strokeWidth={4.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ))}
+            {previewProjection.start && (
+              <>
+                <Circle cx={previewProjection.start.x} cy={previewProjection.start.y} r={7} fill="#FFFFFF" opacity={0.96} />
+                <Circle cx={previewProjection.start.x} cy={previewProjection.start.y} r={4.5} fill="#10B981" />
+                <SvgText x={previewProjection.start.x} y={previewProjection.start.y + 1.8} textAnchor="middle" fill="#FFFFFF" fontSize={5} fontWeight="bold">S</SvgText>
+              </>
+            )}
+            {previewProjection.finish && (
+              <>
+                <Circle cx={previewProjection.finish.x} cy={previewProjection.finish.y} r={7} fill="#FFFFFF" opacity={0.96} />
+                <Circle cx={previewProjection.finish.x} cy={previewProjection.finish.y} r={4.5} fill="#F43F5E" />
+                <SvgText x={previewProjection.finish.x} y={previewProjection.finish.y + 1.8} textAnchor="middle" fill="#FFFFFF" fontSize={4.5} fontWeight="bold">F</SvgText>
+              </>
+            )}
+          </Svg>
+        ) : (
         <MapView
           ref={mapRef}
           provider={PROVIDER_GOOGLE}
-          liteMode={variant === 'preview'}
           style={styles.map}
           initialRegion={{
             latitude: firstPoint.latitude,
@@ -502,7 +641,7 @@ function ActivityRouteMap({
               key={`running-route-${index}`}
               coordinates={coordinates}
               strokeColor="#35C72B"
-              strokeWidth={variant === 'preview' ? 2 : 3}
+              strokeWidth={3}
             />
           ))}
           {(useSavedRouteGroups
@@ -513,18 +652,18 @@ function ActivityRouteMap({
               key={`pause-route-${pauseRoutes?.[index]?.sequence ?? index + 1}`}
               coordinates={coordinates}
               strokeColor="#EF4444"
-              strokeWidth={variant === 'preview' ? 2 : 3}
+              strokeWidth={3}
             />
           ))}
           {showPlannedRoute && (
-            <Polyline coordinates={smoothedPlannedRoutePoints} strokeColor="#35C72B" strokeWidth={variant === 'preview' ? 2 : 3} />
+            <Polyline coordinates={smoothedPlannedRoutePoints} strokeColor="#35C72B" strokeWidth={3} />
           )}
           {smoothedExtraRouteGroups.map((coordinates, index) => (
             <Polyline
               key={`extra-route-${index}`}
               coordinates={coordinates}
               strokeColor="#9CA3AF"
-              strokeWidth={variant === 'preview' ? 2 : 3}
+              strokeWidth={3}
             />
           ))}
           {savedPauseMarkers.map((marker) => (
@@ -540,6 +679,7 @@ function ActivityRouteMap({
           {firstPoint && <Marker coordinate={firstPoint} pinColor="#35C72B" title="Start" />}
           {lastPoint && <Marker coordinate={lastPoint} pinColor="#FF5B5B" title="Finish" />}
         </MapView>
+        )}
 
         {isFullScreenEnabled && (
           <TouchableOpacity
@@ -778,7 +918,8 @@ const styles = StyleSheet.create({
     borderColor: '#35C72B',
     position: 'relative',
   },
-  previewMapContainer: { height: 110, borderRadius: 20, overflow: 'hidden' },
+  previewMapContainer: { aspectRatio: 1, borderRadius: 20, overflow: 'hidden', borderColor: 'rgba(34, 197, 94, 0.38)' },
+  previewMapFrame: { width: '100%', aspectRatio: 1 },
   map: { flex: 1 },
   emptyRoute: {
     minHeight: 120,

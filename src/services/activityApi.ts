@@ -256,8 +256,8 @@ export interface BackendActivity {
   max_speed: number;
   avg_pace: number;
   calories: number;
-  elevation_gain: number;
-  elevation_loss: number;
+  elevation_gain?: number | null;
+  elevation_loss?: number | null;
   gps_points_count: number;
   route_generated: boolean;
   encoded_polyline?: string | null;
@@ -306,7 +306,8 @@ const RUN_ROUTES_PATH = (
 const GPX_ACTIVITY_IMPORT_PATH = (
   process.env.EXPO_PUBLIC_GPX_ACTIVITY_IMPORT_PATH || '/rundata/activities/import-gpx/'
 ).trim();
-const ACTIVITY_HISTORY_CACHE_KEY = 'activity_history_first_page_v3';
+const ACTIVITY_HISTORY_CACHE_KEY = 'activity_history_first_page_v4';
+export const ACTIVITY_HISTORY_FIELDS = 'id,activity_type,distance,moving_time,elapsed_time,start_time,end_time,avg_pace,elevation_gain,elevation_loss,processing_status,is_processed,thumbnail_url,is_saved_to_my_routes,saved_route_id';
 
 export interface ActivityHistoryPage {
   activities: BackendActivity[];
@@ -542,7 +543,7 @@ export const activityAPI = {
         limit,
         ...(cursor ? { cursor, last_id: cursor } : {}),
         // Route geometry is fetched only for an individual activity, never in the list payload.
-        fields: 'id,activity_type,distance,moving_time,elapsed_time,start_time,end_time,avg_pace,processing_status,is_processed,thumbnail_url,is_saved_to_my_routes,saved_route_id',
+        fields: ACTIVITY_HISTORY_FIELDS,
       },
     });
     if (__DEV__ && cursor === null) {

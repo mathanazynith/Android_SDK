@@ -60,10 +60,7 @@ const isEnabledFlag = (value: unknown): boolean => (
 export const buildActivityRouteGroups = (
   points: BackendGpsPoint[] = [],
 ): ActivityRouteGroup[] => {
-  const pointsWithReliableAccuracy = points.some((point) => typeof point.accuracy === 'number')
-    ? points.filter(isReliableRoutePoint)
-    : points;
-  const indexedPoints = pointsWithReliableAccuracy.map((point, index) => ({
+  const indexedPoints = points.map((point, index) => ({
     point,
     index,
     timestamp: point.timestamp ? Date.parse(point.timestamp) : Number.NaN,
@@ -76,7 +73,7 @@ export const buildActivityRouteGroups = (
   let previousCoordinate: ActivityRouteCoordinate | null = null;
 
   orderedPoints.forEach(({ point }) => {
-    if (!isReliableRoutePoint(point)) return;
+    if (typeof point.accuracy === 'number' && !isReliableRoutePoint(point)) return;
     const coordinate = toRouteCoordinate(point);
     if (!coordinate) return;
     const type: ActivityRouteType = isEnabledFlag(point.is_paused)

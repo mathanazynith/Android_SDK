@@ -6,6 +6,24 @@ export interface RouteTimeInterval {
   endedAt: number;
 }
 
+export interface RouteDistanceBreakdown {
+  totalDistance: number;
+  additionalDistance: number;
+  workoutDistance: number;
+}
+
+export const filterRoutePointsByMaximumJump = (
+  points: RunningGpsPoint[],
+  maximumJumpDistance: number,
+): RunningGpsPoint[] => points.reduce((accepted, point) => {
+  const previous = accepted.at(-1);
+  if (previous && calculateDistanceMeters(previous, point) >= maximumJumpDistance) {
+    return accepted;
+  }
+  accepted.push(point);
+  return accepted;
+}, [] as RunningGpsPoint[]);
+
 export const calculateAcceptedRouteDistance = (
   points: RunningGpsPoint[],
   excludedIntervals: RouteTimeInterval[] = [],
@@ -26,4 +44,21 @@ export const calculateAcceptedRouteDistance = (
     }
   }
   return total;
+};
+
+export const calculateRouteDistanceBreakdown = (
+  points: RunningGpsPoint[],
+  excludedIntervals: RouteTimeInterval[] = [],
+  isAdditionalDistancePoint?: (point: RunningGpsPoint) => boolean,
+): RouteDistanceBreakdown => {
+  const totalDistance = calculateAcceptedRouteDistance(points, excludedIntervals);
+  const additionalDistance = isAdditionalDistancePoint
+    ? calculateAcceptedRouteDistance(points, excludedIntervals, isAdditionalDistancePoint)
+    : 0;
+
+  return {
+    totalDistance,
+    additionalDistance,
+    workoutDistance: Math.max(0, totalDistance - additionalDistance),
+  };
 };

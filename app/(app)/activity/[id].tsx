@@ -19,6 +19,12 @@ import { getActivityExtraDistanceMeters } from '../../../src/utils/extraDistance
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
 
+const formatElevation = (meters: number | null | undefined) => (
+  meters !== null && meters !== undefined && Number.isFinite(Number(meters))
+    ? `${Math.round(Number(meters))} m`
+    : '—'
+);
+
 const formatDuration = (seconds: number) => {
   if (!Number.isFinite(seconds)) return '--';
   const totalSeconds = Math.max(0, Math.floor(seconds));
@@ -405,8 +411,8 @@ export default function ActivityDetailScreen() {
               <DetailMetric fullWidth label="Average speed" value={formatBackendSpeed(activity.avg_speed)} />
               <DetailMetric fullWidth label="Max speed" value={formatSpeed(activity.max_speed)} />
               <DetailMetric fullWidth label="Calories" value={`${Math.round(activity.calories)} kcal`} />
-              <DetailMetric fullWidth label="Elevation gain" value={`${Math.round(activity.elevation_gain)} m`} />
-              <DetailMetric fullWidth label="Elevation loss" value={`${Math.round(activity.elevation_loss)} m`} />
+              <DetailMetric fullWidth label="Elevation gain" value={formatElevation(activity.elevation_gain)} />
+              <DetailMetric fullWidth label="Elevation loss" value={formatElevation(activity.elevation_loss)} />
               <DetailMetric fullWidth singleLine label="Recorded" value={formatRecordedDate(activity.end_time)} />
             </View>
             </MotionEntrance>

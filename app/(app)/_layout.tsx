@@ -3,12 +3,15 @@ import { BlurTargetView } from 'expo-blur';
 import { router, Stack, usePathname } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { BackHandler, Platform, View } from 'react-native';
+import ActiveRunBanner from '../../components/navigation/ActiveRunBanner';
 import GlobalBottomNav, { isPrimaryTabPath } from '../../components/navigation/GlobalBottomNav';
 import TabZoomTransition from '../../components/navigation/TabZoomTransition';
+import { ActiveRunProvider, useActiveRun } from '../../contexts/ActiveRunContext';
 
-export default function AppLayout() {
+function AppLayoutContent() {
   const pathname = usePathname();
   const showBottomNav = isPrimaryTabPath(pathname);
+  const activeRun = useActiveRun();
   const blurTargetRef = useRef<View | null>(null);
   const isIOS = Platform.OS === 'ios';
 
@@ -35,7 +38,7 @@ export default function AppLayout() {
   const renderScreen = ({ route, children }: { route: { key: string; name: string }; children: React.ReactElement }) =>
     route.name === 'profile'
       ? children
-      : <TabZoomTransition key={route.key}>{children}</TabZoomTransition>;
+      : <TabZoomTransition key={route.key} animate={route.name !== 'screens/map'}>{children}</TabZoomTransition>;
 
   const stackContent = (
     <Stack
@@ -73,9 +76,10 @@ export default function AppLayout() {
           <Stack.Screen name="dashboard" options={{ animation: 'none' }} />
           <Stack.Screen name="stats" options={{ animation: 'none' }} />
           <Stack.Screen name="screens/weather-details" />
+          <Stack.Screen name="screens/map" options={{ gestureEnabled: !activeRun?.active }} />
           <Stack.Screen name="home" />
           <Stack.Screen name="history" />
-          <Stack.Screen name="run" />
+          <Stack.Screen name="run" options={{ gestureEnabled: !activeRun?.active }} />
           <Stack.Screen name="questionnaire" options={{ headerShown: false }} />
           <Stack.Screen name="plan-confirmation" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="plan-recommendation" options={{ headerShown: false, gestureEnabled: false }} />
@@ -85,11 +89,20 @@ export default function AppLayout() {
           <Stack.Screen name="profile" options={{ animation: 'none' }} />
           <Stack.Screen name="activity/[id]" />
           <Stack.Screen name="custom-workout" options={{ headerShown: false }} />
-      <Stack.Screen name="workout-setup" options={{ headerShown: false }} />
+          <Stack.Screen name="workout-setup" options={{ headerShown: false }} />
         </Stack>
       </BlurTargetView>
+      <ActiveRunBanner bottomOffset={showBottomNav ? 88 : 16} />
       {showBottomNav && <GlobalBottomNav blurTarget={blurTargetRef} />}
     </View>
+  );
+}
+
+export default function AppLayout() {
+  return (
+    <ActiveRunProvider>
+      <AppLayoutContent />
+    </ActiveRunProvider>
   );
 }
 

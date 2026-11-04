@@ -8,10 +8,13 @@ interface NativeRunNotification {
   paceMinutesPerKm: number;
   status: 'running' | 'paused';
   startedAtMs: number;
+  messageTitle?: string;
+  messageBody?: string;
 }
 
 interface NativeLiveUpdateModule {
   updateNotification: (data: NativeRunNotification) => boolean;
+  dismissNotification: () => boolean;
 }
 
 let nativeModule: NativeLiveUpdateModule | null | undefined;
@@ -41,6 +44,15 @@ export const updateNativeRunNotification = (data: NativeRunNotification): boolea
     return getNativeModule()?.updateNotification(data) ?? false;
   } catch (error) {
     console.warn('[LiveUpdate] Native notification update failed', error);
+    return false;
+  }
+};
+
+export const dismissNativeRunNotification = (): boolean => {
+  try {
+    return getNativeModule()?.dismissNotification() ?? false;
+  } catch (error) {
+    console.warn('[LiveUpdate] Native notification dismissal failed', error);
     return false;
   }
 };

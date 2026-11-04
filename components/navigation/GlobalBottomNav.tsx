@@ -38,11 +38,11 @@ export const isPrimaryTabPath = (pathname: string) => {
 };
 
 const tabs: Tab[] = [
-  { icon: 'user', label: 'Profile', route: '/(app)/profile' },
   { icon: 'home', label: 'Home', route: '/(app)/dashboard' },
   { icon: 'clipboard', label: 'Plan', route: '/(app)/training-plan' },
   { icon: 'activity', label: 'History', route: '/(app)/activity' },
   { icon: 'bar-chart-2', label: 'Stats', route: '/(app)/stats' },
+  { icon: 'user', label: 'Profile', route: '/(app)/profile' },
 ];
 
 const ACTIVE_GLOW_SIZE = 60;

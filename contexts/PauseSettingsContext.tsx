@@ -19,7 +19,7 @@ interface PauseSettingsContextValue extends PauseSettings {
 const DEFAULT_SETTINGS: PauseSettings = {
   manualPauseEnabled: true,
   autoPauseEnabled: false,
-  voiceAlertsEnabled: false,
+  voiceAlertsEnabled: true,
 };
 
 const PauseSettingsContext = createContext<PauseSettingsContextValue>({
@@ -46,7 +46,7 @@ export function PauseSettingsProvider({ children }: { children: ReactNode }) {
           const nextSettings = {
             manualPauseEnabled: true,
             autoPauseEnabled: parsed.autoPauseEnabled === true,
-            voiceAlertsEnabled: parsed.voiceAlertsEnabled === true,
+            voiceAlertsEnabled: parsed.voiceAlertsEnabled !== false,
           };
           settingsRef.current = nextSettings;
           setSettings(nextSettings);

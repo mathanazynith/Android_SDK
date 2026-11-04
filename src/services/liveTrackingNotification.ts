@@ -1,6 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import { updateNativeRunNotification } from '../../modules/zyrun-live-update';
+import { dismissNativeRunNotification, updateNativeRunNotification } from '../../modules/zyrun-live-update';
 
 /** Reserved ID for the one native Android workout foreground notification. */
 export const WORKOUT_FOREGROUND_NOTIFICATION_ID = 1001;
@@ -12,7 +12,7 @@ export const LIVE_TRACKING_STOP_ACTION = 'zyrun-stop';
 export const LIVE_TRACKING_PAUSE_ACTION = 'zyrun-pause';
 export const LIVE_TRACKING_RESUME_ACTION = 'zyrun-resume';
 
-type LiveTrackingMetrics = {
+export type LiveTrackingMetrics = {
   runId?: string | null;
   distanceKm: number;
   elapsedSeconds?: number;
@@ -27,6 +27,7 @@ let generation = 0;
 let lastPublishedDistanceKm: number | null = null;
 let lastPublishedAt = 0;
 let lastPublishedStatus: LiveTrackingMetrics['status'] | null = null;
+let processingMessage: { title: string; body: string } | null = null;
 const MIN_NOTIFICATION_DISTANCE_DELTA_KM = 0.01;
 const MAX_NOTIFICATION_UPDATE_INTERVAL_MS = 5_000;
 
@@ -122,13 +123,22 @@ const publish = async (metrics: LiveTrackingMetrics, currentGeneration: number):
   });
 };
 
-export async function publishWorkoutSummaryNotification(metrics: LiveTrackingMetrics): Promise<void> {
+export async function publishWorkoutSummaryNotification(
+  metrics: LiveTrackingMetrics,
+  outcome: 'saved' | 'queued' = 'saved',
+): Promise<void> {
   generation += 1;
+  processingMessage = null;
   updateQueue = updateQueue.then(async () => {
     if (!(await configureLiveTrackingNotifications())) return;
     const content = ({
-      title: '🎉 Workout Saved!',
-      body: `Distance: ${metrics.distanceKm.toFixed(2)} km  •  Pace: ${formatPace(metrics.paceMinutesPerKm)} /km  •  Time: ${formatTime(metrics.elapsedSeconds ?? 0)}`,
+      title: outcome === 'queued' ? 'Workout Saved Offline' : '🎉 Workout Saved!',
+      body: [
+        `Distance: ${metrics.distanceKm.toFixed(2)} km`,
+        `Pace: ${formatPace(metrics.paceMinutesPerKm)} /km`,
+        `Time: ${formatTime(metrics.elapsedSeconds ?? 0)}`,
+        ...(outcome === 'queued' ? ['Will sync when connected.'] : []),
+      ].join('  •  '),
       data: { screen: LIVE_TRACKING_ROUTE, trackingActive: false, workoutSummary: true },
       channelId: LIVE_TRACKING_CHANNEL_ID,
       when: Date.now(),
@@ -156,6 +166,7 @@ export async function publishWorkoutSummaryNotification(metrics: LiveTrackingMet
 
 export async function startLiveTrackingNotification(metrics: LiveTrackingMetrics): Promise<void> {
   generation += 1;
+  processingMessage = null;
   lastPublishedDistanceKm = metrics.distanceKm;
   lastPublishedAt = Date.now();
   lastPublishedStatus = metrics.status;
@@ -163,6 +174,7 @@ export async function startLiveTrackingNotification(metrics: LiveTrackingMetrics
 }
 
 export function updateLiveTrackingNotification(metrics: LiveTrackingMetrics): void {
+  if (processingMessage) return;
   const now = Date.now();
   const distanceChanged = lastPublishedDistanceKm === null
     || Math.abs(metrics.distanceKm - lastPublishedDistanceKm) >= MIN_NOTIFICATION_DISTANCE_DELTA_KM;
@@ -178,11 +190,74 @@ export function updateLiveTrackingNotification(metrics: LiveTrackingMetrics): vo
     .catch((error) => console.warn('[LiveTrackingNotification] Update failed', error));
 }
 
+export function updateLiveTrackingNotificationMessage(
+  message: { title: string; body: string },
+  metrics: LiveTrackingMetrics,
+): void {
+  generation += 1;
+  processingMessage = message;
+  lastPublishedDistanceKm = metrics.distanceKm;
+  lastPublishedAt = Date.now();
+  lastPublishedStatus = metrics.status;
+  const currentGeneration = generation;
+  updateQueue = updateQueue
+    .then(async () => {
+      if (currentGeneration !== generation || !(await configureLiveTrackingNotifications())) return;
+      if (Platform.OS === 'android') {
+        const updatedNativeNotification = updateNativeRunNotification({
+          runId: metrics.runId ?? null,
+          distanceKm: metrics.distanceKm,
+          elapsedSeconds: metrics.elapsedSeconds ?? 0,
+          paceMinutesPerKm: metrics.paceMinutesPerKm,
+          status: metrics.status,
+          startedAtMs: getStartTimestamp(metrics),
+          messageTitle: message.title,
+          messageBody: message.body,
+        });
+        if (updatedNativeNotification) {
+          await Notifications.dismissNotificationAsync(String(WORKOUT_FOREGROUND_NOTIFICATION_ID)).catch(() => undefined);
+          return;
+        }
+      }
+
+      const content = ({
+        title: message.title,
+        body: message.body,
+        data: { screen: LIVE_TRACKING_ROUTE, trackingActive: true, processing: true },
+        channelId: LIVE_TRACKING_CHANNEL_ID,
+        when: Date.now(),
+        showWhen: false,
+        usesChronometer: false,
+        ongoing: true,
+        sticky: true,
+        autoDismiss: false,
+        onlyAlertOnce: true,
+        priority: Notifications.AndroidNotificationPriority.HIGH,
+      } as unknown) as Notifications.NotificationContentInput & { channelId: string };
+      await Notifications.scheduleNotificationAsync({
+        identifier: String(WORKOUT_FOREGROUND_NOTIFICATION_ID),
+        content,
+        trigger: null,
+      });
+    })
+    .catch((error) => console.warn('[LiveTrackingNotification] Processing update failed', error));
+}
+
 export async function stopLiveTrackingNotification(): Promise<void> {
   generation += 1;
-  updateQueue = Promise.resolve();
+  processingMessage = null;
   lastPublishedDistanceKm = null;
   lastPublishedAt = 0;
   lastPublishedStatus = null;
-  await Notifications.dismissNotificationAsync(String(WORKOUT_FOREGROUND_NOTIFICATION_ID)).catch(() => undefined);
+  updateQueue = updateQueue
+    .catch((error) => console.warn('[LiveTrackingNotification] Pending update failed before dismissal', error))
+    .then(async () => {
+      dismissNativeRunNotification();
+      try {
+        await Notifications.dismissNotificationAsync(String(WORKOUT_FOREGROUND_NOTIFICATION_ID));
+      } catch (error) {
+        console.warn('[LiveTrackingNotification] Could not dismiss scheduled notification', error);
+      }
+    });
+  await updateQueue;
 }

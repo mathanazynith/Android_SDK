@@ -1,5 +1,6 @@
 // components/SettingsMenu.tsx
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
   Modal,
@@ -13,8 +14,10 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useActiveRun } from '../contexts/ActiveRunContext';
 import { usePauseSettings } from '../contexts/PauseSettingsContext';
 import { useTheme, type ThemePreference } from '../contexts/ThemeContext';
+import ActiveRunBanner from './navigation/ActiveRunBanner';
 import { useResponsive } from '../utils/responsive';
 
 interface SettingsMenuProps {
@@ -28,6 +31,8 @@ type SettingsPage = 'home' | 'pause' | 'appearance';
 
 export default function SettingsMenu({ visible, onClose, onSelect, hasPassword }: SettingsMenuProps) {
   const { colors, isDark, preference, setPreference } = useTheme();
+  const activeRun = useActiveRun();
+  const [navigateToRunAfterDismiss, setNavigateToRunAfterDismiss] = useState(false);
   const {
     autoPauseEnabled,
     isLoaded: pauseSettingsLoaded,
@@ -115,7 +120,20 @@ export default function SettingsMenu({ visible, onClose, onSelect, hasPassword }
   );
 
   return (
-    <Modal visible={visible} animationType="slide" onShow={() => setPage('home')} onRequestClose={handleBack}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      onShow={() => setPage('home')}
+      onRequestClose={handleBack}
+      onDismiss={() => {
+        if (!navigateToRunAfterDismiss) return;
+        setNavigateToRunAfterDismiss(false);
+        router.navigate({
+          pathname: '/(app)/screens/map',
+          params: activeRun?.runId ? { runId: activeRun.runId } : undefined,
+        });
+      }}
+    >
       <View style={[styles.fullPage, { backgroundColor: isDark ? colors.background : '#FFFFFF', paddingTop: insets.top, paddingBottom: insets.bottom }]}>
           <View {...swipeDismissResponder.panHandlers} style={[styles.pageHeader, page === 'home' && styles.homePageHeader]}>
           {page === 'home' ? (
@@ -150,7 +168,10 @@ export default function SettingsMenu({ visible, onClose, onSelect, hasPassword }
 
         <ScrollView
           style={styles.settingsScroll}
-          contentContainerStyle={[styles.settingsContent, { paddingHorizontal: spacing(16) }]}
+          contentContainerStyle={[
+            styles.settingsContent,
+            { paddingHorizontal: spacing(16), paddingBottom: activeRun?.active ? 88 : 24 },
+          ]}
           showsVerticalScrollIndicator={false}
         >
           {page === 'home' ? (
@@ -273,6 +294,13 @@ export default function SettingsMenu({ visible, onClose, onSelect, hasPassword }
             )}
 
         </ScrollView>
+        <ActiveRunBanner
+          bottomOffset={insets.bottom + 16}
+          onNavigateToRun={() => {
+            setNavigateToRunAfterDismiss(true);
+            onClose();
+          }}
+        />
       </View>
     </Modal>
   );

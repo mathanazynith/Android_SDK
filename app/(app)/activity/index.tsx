@@ -1,8 +1,7 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { Directory, File, Paths } from 'expo-file-system';
+import { File } from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
-import { Image as ExpoImage } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -39,12 +38,18 @@ import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { getBackendErrorMessage, resolveApiUrl } from '../../../service/api';
+import { getBackendErrorMessage } from '../../../service/api';
 import { activityAPI, BackendActivity, runRouteAPI } from '../../../src/services/activityApi';
 import { shareActivityAsGpx } from '../../../src/services/gpxFileExport';
 import { parseGpxWorkout, type GpxWorkoutPreview } from '../../../src/services/gpxService';
 
 const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
+
+const formatElevation = (meters: number | null | undefined) => (
+  meters !== null && meters !== undefined && Number.isFinite(Number(meters))
+    ? `${Math.round(Number(meters))} m`
+    : '—'
+);
 
 const formatDuration = (seconds: number) => {
   const minutes = Math.max(0, Math.floor(seconds / 60));
@@ -61,7 +66,6 @@ const formatPace = (secondsPerKm: number) => {
 const formatActivityType = (activityType: string) =>
   activityType.toLowerCase() === 'walk' ? 'Walk' : 'Run';
 
-const activityThumbnailDirectory = new Directory(Paths.document, 'activity-map-thumbnails');
 const activityDetailRequests = new Map<string, Promise<BackendActivity>>();
 const activityDetails = new Map<string, BackendActivity>();
 const cacheActivityDetail = (key: string, detail: BackendActivity) => {
@@ -72,11 +76,6 @@ const cacheActivityDetail = (key: string, detail: BackendActivity) => {
     if (oldestKey !== undefined) activityDetails.delete(oldestKey);
   }
 };
-const getActivityThumbnailFile = (activityId: BackendActivity['id']) => {
-  const safeId = encodeURIComponent(String(activityId)).replace(/%/g, '_');
-  return new File(activityThumbnailDirectory, `${safeId}.jpg`);
-};
-
 const getNormalizedActivityType = (activityType: string): 'run' | 'walk' =>
   activityType.toLowerCase() === 'walk' ? 'walk' : 'run';
 
@@ -352,15 +351,7 @@ const ActivityCard = memo(function ActivityCard({
   const activityId = activity.id;
   const isRouteSaved = Boolean(activity.is_saved_to_my_routes || activity.saved_route_id);
   const duration = activity.moving_time || activity.elapsed_time;
-  const thumbnailUri = resolveApiUrl(activity.thumbnail_url);
-  const [savedThumbnailUri, setSavedThumbnailUri] = useState<string | null>(null);
   const [routeActivity, setRouteActivity] = useState<BackendActivity | null>(() => activityDetails.get(String(activity.id)) ?? null);
-  const [thumbnailFailed, setThumbnailFailed] = useState(false);
-  const [prevThumbnailUri, setPrevThumbnailUri] = useState(thumbnailUri);
-  if (prevThumbnailUri !== thumbnailUri) {
-    setPrevThumbnailUri(thumbnailUri);
-    setThumbnailFailed(false);
-  }
   const longPressHandledRef = useRef(false);
   const [selectionScale] = useState(() => new Animated.Value(1));
   const holdProgress = useSharedValue(0);
@@ -379,16 +370,10 @@ const ActivityCard = memo(function ActivityCard({
   }, [selected, selectionScale]);
 
   useEffect(() => {
-    if (!isVisible || (thumbnailUri && !thumbnailFailed)) return;
+    if (!isVisible || routeActivity) return;
     let cancelled = false;
-    const thumbnailFile = getActivityThumbnailFile(activityId);
     const loadRoute = async () => {
       try {
-        await activityThumbnailDirectory.create({ idempotent: true, intermediates: true });
-        if (thumbnailFile.exists) {
-          if (!cancelled) setSavedThumbnailUri(thumbnailFile.uri);
-          return;
-        }
         const key = String(activityId);
         const cachedDetail = activityDetails.get(key);
         if (cachedDetail) {
@@ -411,18 +396,7 @@ const ActivityCard = memo(function ActivityCard({
     };
     void loadRoute();
     return () => { cancelled = true; };
-  }, [activityId, isVisible, thumbnailFailed, thumbnailUri]);
-
-  const saveRouteThumbnail = useCallback(async (snapshotUri: string) => {
-    try {
-      await activityThumbnailDirectory.create({ idempotent: true, intermediates: true });
-      const destination = getActivityThumbnailFile(activityId);
-      await new File(snapshotUri).copy(destination, { overwrite: true });
-      setSavedThumbnailUri(destination.uri);
-    } catch (error) {
-      console.warn('[ActivityHistory] Could not save route thumbnail', error);
-    }
-  }, [activityId]);
+  }, [activityId, isVisible, routeActivity]);
 
   const handleCardPress = () => {
     if (longPressHandledRef.current) {
@@ -481,7 +455,7 @@ const ActivityCard = memo(function ActivityCard({
       <TouchableOpacity
         style={[styles.cardContent, !selectionMode && styles.cardContentWithMenu]}
         accessibilityRole="button"
-        accessibilityLabel={`${activityName} activity, ${formatDistance(activity.distance)}, ${formatDuration(duration)}, ${formatPace(activity.avg_pace)}`}
+        accessibilityLabel={`${activityName} activity, ${formatDistance(activity.distance)}, ${formatDuration(duration)}, ${formatPace(activity.avg_pace)}, elevation gain ${formatElevation(activity.elevation_gain)}, elevation loss ${formatElevation(activity.elevation_loss)}`}
         accessibilityHint={selectionMode ? 'Tap to select or deselect this activity for deletion.' : 'Open activity details, or long press to select this activity for deletion.'}
         onPress={handleCardPress}
         onPressIn={() => { longPressHandledRef.current = false; }}
@@ -512,28 +486,24 @@ const ActivityCard = memo(function ActivityCard({
               </Text>
             </View>
           </View>
+          <View style={styles.metricSummaryRow}>
+            <View style={styles.metricSummaryItem}>
+              <Feather name="trending-up" size={13} color={colors.primary} />
+              <Text style={[styles.metricSummaryText, { color: colors.text }]} numberOfLines={1}>
+                +{formatElevation(activity.elevation_gain)}
+              </Text>
+            </View>
+            <View style={styles.metricSummaryItem}>
+              <Feather name="trending-down" size={13} color={colors.primary} />
+              <Text style={[styles.metricSummaryText, { color: colors.text }]} numberOfLines={1}>
+                −{formatElevation(activity.elevation_loss)}
+              </Text>
+            </View>
+          </View>
         </View>
 
         <View pointerEvents="none" style={[styles.mapThumbnailContainer, !selectionMode && styles.mapThumbnailWithMenu]}>
-          {thumbnailUri && !thumbnailFailed ? (
-            <ExpoImage
-              source={{ uri: thumbnailUri }}
-              style={styles.mapThumbnailImage}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-              transition={reduceMotion ? 0 : 120}
-              accessibilityLabel={`${activityName} route map`}
-              onError={() => setThumbnailFailed(true)}
-            />
-          ) : savedThumbnailUri ? (
-            <ExpoImage
-              source={{ uri: savedThumbnailUri }}
-              style={styles.mapThumbnailImage}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-              accessibilityLabel={`${activityName} route map`}
-            />
-          ) : routeActivity ? (
+          {routeActivity ? (
             <ActivityRouteMap
               variant="preview"
               enableFullScreen={false}
@@ -545,7 +515,6 @@ const ActivityCard = memo(function ActivityCard({
               pauseRoutes={routeActivity.route?.pause_routes}
               pauseEvents={routeActivity.pause_events ?? routeActivity.pauses ?? routeActivity.route?.pause_events ?? routeActivity.route?.pauses}
               pausePoints={routeActivity.route?.pause_points}
-              onPreviewSnapshot={saveRouteThumbnail}
             />
           ) : (
             <View style={styles.mapPreviewPlaceholder}>
@@ -2331,7 +2300,6 @@ const styles = StyleSheet.create({
   metricSummaryItem: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 },
   metricSummaryText: { fontSize: 12, lineHeight: 15, fontWeight: '700', flexShrink: 1 },
   mapThumbnailContainer: { position: 'relative', width: '34%', aspectRatio: 1, flexShrink: 0, minWidth: 0, marginLeft: 8, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E5E7EB' },
-  mapThumbnailImage: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
   mapPreviewPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E5E7EB' },
   mapOverlayTop: { position: 'absolute', top: 8, left: 8, right: 8, flexDirection: 'row', justifyContent: 'flex-start' },
   mapBadge: { backgroundColor: 'rgba(11, 14, 15, 0.58)', borderRadius: 999, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 8, paddingVertical: 4 },

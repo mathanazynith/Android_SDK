@@ -6,6 +6,7 @@ import * as TaskManager from 'expo-task-manager';
 import { AppState } from 'react-native';
 import { ActivityPauseEventPayload, RawGpsPayload } from '../types/running';
 import { calculateDistanceMeters } from '../utils/distance';
+import { calculateActiveRunElapsedSeconds } from '../utils/activeRunMetrics';
 import { appendActiveRunPoints, appendPausedRunPoints, readActiveRunJournal } from './activeRunJournal';
 import { updateLiveTrackingNotification, WORKOUT_FOREGROUND_NOTIFICATION_ID } from './liveTrackingNotification';
 
@@ -16,6 +17,9 @@ const secureStoreKey = (rawKey: string): string => rawKey.replace(/[^a-zA-Z0-9._
 const SAFE_BACKGROUND_LOCATION_SESSION_KEY = secureStoreKey(BACKGROUND_LOCATION_SESSION_KEY);
 let sessionWriteChain: Promise<void> = Promise.resolve();
 let backgroundTaskChain: Promise<void> = Promise.resolve();
+const backgroundLocationSessionListeners = new Set<
+  (session: BackgroundLocationSessionState | null) => void
+>();
 
 export interface BackgroundLocationSessionState {
   active: boolean;
@@ -61,16 +65,31 @@ export const getBackgroundLocationSession = async (): Promise<BackgroundLocation
   return readSessionState();
 };
 
+export const subscribeToBackgroundLocationSession = (
+  listener: (session: BackgroundLocationSessionState | null) => void
+): (() => void) => {
+  backgroundLocationSessionListeners.add(listener);
+  return () => backgroundLocationSessionListeners.delete(listener);
+};
+
+const notifyBackgroundLocationSessionListeners = (
+  session: BackgroundLocationSessionState | null
+): void => {
+  backgroundLocationSessionListeners.forEach((listener) => listener(session));
+};
+
 export const persistBackgroundLocationSession = async (
-  state: BackgroundLocationSessionState
+  state: BackgroundLocationSessionState,
+  options: { notifyListeners?: boolean } = {}
 ): Promise<void> => {
   sessionWriteChain = sessionWriteChain.then(async () => {
     try {
       if (BACKGROUND_LOCATION_SESSION_URI) {
         await FileSystem.writeAsStringAsync(BACKGROUND_LOCATION_SESSION_URI, JSON.stringify(state));
-        return;
+      } else {
+        await SecureStore.setItemAsync(SAFE_BACKGROUND_LOCATION_SESSION_KEY, JSON.stringify(state));
       }
-      await SecureStore.setItemAsync(SAFE_BACKGROUND_LOCATION_SESSION_KEY, JSON.stringify(state));
+      if (options.notifyListeners !== false) notifyBackgroundLocationSessionListeners(state);
     } catch (error) {
       console.warn('[BackgroundLocationTask] Unable to persist background session state', error);
     }
@@ -85,6 +104,7 @@ export const clearBackgroundLocationSession = async (): Promise<void> => {
         await FileSystem.deleteAsync(BACKGROUND_LOCATION_SESSION_URI, { idempotent: true });
       }
       await SecureStore.deleteItemAsync(SAFE_BACKGROUND_LOCATION_SESSION_KEY).catch(() => undefined);
+      notifyBackgroundLocationSessionListeners(null);
     } catch (error) {
       console.warn('[BackgroundLocationTask] Unable to clear background session state', error);
     }
@@ -131,15 +151,17 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, ({ data, error }) => {
       const previous = await readSessionState();
       if (!previous?.active) return;
       const paused = Boolean(previous.paused);
+      const taskUpdatedAt = Date.now();
 
       const nextState: BackgroundLocationSessionState = {
         ...previous,
         active: true,
         lastLocation: payload,
-        updatedAt: Date.now(),
+        updatedAt: taskUpdatedAt,
       };
+      nextState.elapsedSeconds = Math.floor(calculateActiveRunElapsedSeconds(previous, taskUpdatedAt));
 
-      await persistBackgroundLocationSession(nextState);
+      await persistBackgroundLocationSession(nextState, { notifyListeners: false });
 
       if (paused) {
         await appendPausedRunPoints(payloads, Math.max(1, previous.pauseEvents?.length ?? 1));
@@ -150,6 +172,12 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, ({ data, error }) => {
       const journal = await readActiveRunJournal();
       if (!paused && (journal?.points.length ?? 0) >= 2) {
         nextState.movementConfirmed = true;
+      }
+      const journalDistanceKm = (journal?.points.slice(1).reduce((total, point, index) => (
+        total + calculateDistanceMeters(journal.points[index], point)
+      ), 0) ?? 0) / 1000;
+      if (!paused && journal?.points.length && journal.points.length > 1) {
+        nextState.distanceKm = Math.max(previous.distanceKm ?? 0, journalDistanceKm);
       }
 
       if (AppState.currentState === 'active') {
@@ -164,15 +192,10 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, ({ data, error }) => {
         return;
       }
 
-      const journalDistanceKm = (journal?.points.slice(1).reduce((total, point, index) => (
-        total + calculateDistanceMeters(journal.points[index], point)
-      ), 0) ?? 0) / 1000;
-      const distanceKm = journal?.points.length && journal.points.length > 1
-        ? journalDistanceKm
-        : (previous.distanceKm ?? 0);
-      const elapsedSeconds = previous.elapsedSeconds ?? (previous.startedAt
-        ? Math.max(0, (Date.now() - new Date(previous.startedAt).getTime()) / 1000)
-        : 0);
+      const distanceKm = nextState.distanceKm ?? previous.distanceKm ?? 0;
+      const elapsedSeconds = nextState.elapsedSeconds ?? 0;
+      const currentSession = await readSessionState();
+      if (!currentSession?.active || currentSession.runId !== previous.runId) return;
       updateLiveTrackingNotification({
         runId: previous.runId,
         distanceKm,
