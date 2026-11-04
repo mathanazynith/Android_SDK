@@ -39,6 +39,7 @@ import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { useAuth } from '../../../service/auth';
 import { getBackendErrorMessage, resolveApiUrl } from '../../../service/api';
 import { activityAPI, BackendActivity, runRouteAPI } from '../../../src/services/activityApi';
 import { shareActivityAsGpx } from '../../../src/services/gpxFileExport';
@@ -479,7 +480,7 @@ const ActivityCard = memo(function ActivityCard({
         ]}
       >
       <TouchableOpacity
-        style={[styles.cardContent, !selectionMode && styles.cardContentWithMenu]}
+        style={[styles.cardContent, styles.cardContentWithMenu]}
         accessibilityRole="button"
         accessibilityLabel={`${activityName} activity, ${formatDistance(activity.distance)}, ${formatDuration(duration)}, ${formatPace(activity.avg_pace)}`}
         accessibilityHint={selectionMode ? 'Tap to select or deselect this activity for deletion.' : 'Open activity details, or long press to select this activity for deletion.'}
@@ -514,7 +515,7 @@ const ActivityCard = memo(function ActivityCard({
           </View>
         </View>
 
-        <View pointerEvents="none" style={[styles.mapThumbnailContainer, !selectionMode && styles.mapThumbnailWithMenu]}>
+        <View pointerEvents="none" style={[styles.mapThumbnailContainer, styles.mapThumbnailWithMenu]}>
           {thumbnailUri && !thumbnailFailed ? (
             <ExpoImage
               source={{ uri: thumbnailUri }}
@@ -664,6 +665,8 @@ async function fetchHistoryPageSkippingEmptyPages(cursor: string | null) {
 
 export default function ActivityScreen() {
   const { colors } = useTheme();
+  const { user } = useAuth();
+  const userId = user?.id == null ? null : String(user.id);
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const reduceMotion = useReducedMotion();
@@ -674,6 +677,7 @@ export default function ActivityScreen() {
   const [visibleActivityIds, setVisibleActivityIds] = useState<Set<string>>(() => new Set());
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedActivityIds, setSelectedActivityIds] = useState<Set<string>>(() => new Set());
+  const deleteActivityRequestRef = useRef<(activity: BackendActivity) => void>(() => undefined);
   const [groupMode, setGroupMode] = useState<ActivityGroupMode>('month');
   const [selectionToast, setSelectionToast] = useState<string | null>(null);
   const [deleteSuccess, setDeleteSuccess] = useState(false);
@@ -700,6 +704,7 @@ export default function ActivityScreen() {
   const loadingFirstPageRef = useRef(false);
   const hasLoadedHistoryRef = useRef(false);
   const requestIdRef = useRef(0);
+  const activeAccountIdRef = useRef(userId);
   const activityViewabilityConfig = useMemo(() => ({ itemVisiblePercentThreshold: 10, minimumViewTime: 80 }), []);
   const selectionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deleteSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -715,6 +720,29 @@ export default function ActivityScreen() {
   const typeFilterAnchorRef = useRef<View>(null);
   const dateFilterAnchorRef = useRef<View>(null);
   const distanceFilterAnchorRef = useRef<View>(null);
+
+  useEffect(() => {
+    if (activeAccountIdRef.current === userId) return;
+
+    activeAccountIdRef.current = userId;
+    requestIdRef.current += 1;
+    hasLoadedHistoryRef.current = false;
+    loadingFirstPageRef.current = false;
+    loadingMoreRef.current = false;
+    cursorRef.current = null;
+    monthAutoLoadKeyRef.current = null;
+    activityDetails.clear();
+    activityDetailRequests.clear();
+
+    setActivities([]);
+    setSelectedActivityIds(new Set());
+    setSelectionMode(false);
+    setTotalHistoryCount(null);
+    setHasMore(true);
+    setLoadingMore(false);
+    setLoading(Boolean(userId));
+    setError(null);
+  }, [userId]);
 
   const openFilterPopover = useCallback((filter: FilterPopover, anchorRef: { current: View | null }, contentHeight: number) => {
     anchorRef.current?.measureInWindow((x, y, anchorWidth, anchorHeight) => {
@@ -986,7 +1014,7 @@ export default function ActivityScreen() {
         setLoading(false);
       }
     }
-  }, [showSelectionToast]);
+  }, [showSelectionToast, userId]);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore || loadingMoreRef.current || loadingFirstPageRef.current || loading) return;
@@ -1265,12 +1293,18 @@ export default function ActivityScreen() {
       text: 'Export GPX',
       onPress: () => { void exportActivityGpx(activity); },
     };
+    const deleteOption = {
+      text: 'Delete workout',
+      style: 'destructive' as const,
+      onPress: () => deleteActivityRequestRef.current(activity),
+    };
 
     if (activity.is_saved_to_my_routes) {
       const routeId = Number(activity.saved_route_id);
       if (!Number.isInteger(routeId) || routeId <= 0) {
         Alert.alert('Activity options', 'This route is saved, but its route ID is missing from the History response.', [
           exportOption,
+          deleteOption,
           { text: 'Cancel', style: 'cancel' },
         ]);
         return;
@@ -1278,6 +1312,7 @@ export default function ActivityScreen() {
 
       Alert.alert('Activity options', undefined, [
         exportOption,
+        deleteOption,
         {
           text: 'Change route visibility',
           onPress: () => {
@@ -1309,6 +1344,7 @@ export default function ActivityScreen() {
 
     Alert.alert('Activity options', undefined, [
       exportOption,
+      deleteOption,
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Save to My Routes',
@@ -1448,6 +1484,10 @@ export default function ActivityScreen() {
   const confirmDeleteSelected = useCallback(() => {
     confirmDeleteActivities(selectedActivities);
   }, [confirmDeleteActivities, selectedActivities]);
+
+  useEffect(() => {
+    deleteActivityRequestRef.current = (activity) => confirmDeleteActivities([activity]);
+  }, [confirmDeleteActivities]);
 
   const handleActivityPress = useCallback((activity: BackendActivity) => {
     if (selectionMode) {

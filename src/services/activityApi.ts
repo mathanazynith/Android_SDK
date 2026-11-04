@@ -308,6 +308,19 @@ const GPX_ACTIVITY_IMPORT_PATH = (
 ).trim();
 const ACTIVITY_HISTORY_CACHE_KEY = 'activity_history_first_page_v3';
 
+const getActivityHistoryCacheKey = async () => {
+  try {
+    const userJson = await storage.getItem(storage.KEYS.USER);
+    const user = userJson ? JSON.parse(userJson) as { id?: string | number } : null;
+    const userId = user?.id;
+    return userId === undefined || userId === null || String(userId).trim() === ''
+      ? `${ACTIVITY_HISTORY_CACHE_KEY}_anonymous`
+      : `${ACTIVITY_HISTORY_CACHE_KEY}_user_${encodeURIComponent(String(userId))}`;
+  } catch {
+    return `${ACTIVITY_HISTORY_CACHE_KEY}_anonymous`;
+  }
+};
+
 export interface ActivityHistoryPage {
   activities: BackendActivity[];
   hasMore: boolean;
@@ -537,6 +550,7 @@ const toCachedActivity = (activity: BackendActivity): BackendActivity => ({
 
 export const activityAPI = {
   async listPage(cursor: string | null = null, limit = 10): Promise<ActivityHistoryPage> {
+    const historyCacheKey = cursor === null ? await getActivityHistoryCacheKey() : null;
     const response = await api.get(ACTIVITY_HISTORY_PATH, {
       params: {
         limit,
@@ -550,8 +564,8 @@ export const activityAPI = {
       const rawActivities = extractActivities(response.data);
     }
     const result = await normalizeHistoryPage(response.data, limit, cursor);
-    if (cursor === null) {
-      await storage.setItem(ACTIVITY_HISTORY_CACHE_KEY, JSON.stringify({
+    if (historyCacheKey) {
+      await storage.setItem(historyCacheKey, JSON.stringify({
         ...result,
         activities: result.activities.map(toCachedActivity),
       }));
@@ -561,7 +575,8 @@ export const activityAPI = {
 
   async getCachedFirstPage(): Promise<ActivityHistoryPage | null> {
     try {
-      const cached = await storage.getItem(ACTIVITY_HISTORY_CACHE_KEY);
+      const historyCacheKey = await getActivityHistoryCacheKey();
+      const cached = await storage.getItem(historyCacheKey);
       if (!cached) return null;
       const parsed = JSON.parse(cached) as ActivityHistoryPage;
       return Array.isArray(parsed.activities) ? parsed : null;
@@ -612,7 +627,8 @@ export const activityAPI = {
 
   async saveRoute(activityId: BackendActivity['id']): Promise<{ routeId: number | null }> {
     const response = await api.post(`${getActivityDetailPath(activityId)}save-route/`, {});
-    await storage.removeItem(ACTIVITY_HISTORY_CACHE_KEY).catch(() => undefined);
+    const historyCacheKey = await getActivityHistoryCacheKey();
+    await storage.removeItem(historyCacheKey).catch(() => undefined);
     const payload = response.data?.data ?? response.data;
     const savedRoute = payload?.route ?? payload?.run_route ?? payload;
     const routeId = Number(savedRoute?.id ?? savedRoute?.run_route_id ?? savedRoute?.route_id ?? savedRoute?.saved_route_id);
@@ -627,7 +643,8 @@ export const activityAPI = {
       throw new Error('Cannot delete activity because its ID is missing.');
     }
     const response = await api.delete(getActivityDeletePath(activityId));
-    await storage.removeItem(ACTIVITY_HISTORY_CACHE_KEY).catch(() => undefined);
+    const historyCacheKey = await getActivityHistoryCacheKey();
+    await storage.removeItem(historyCacheKey).catch(() => undefined);
     return typeof response.data?.message === 'string'
       ? response.data.message
       : 'Activity deleted successfully.';
