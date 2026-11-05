@@ -16,6 +16,9 @@ import { useAuth } from '../../service/auth';
 import { getFcmToken } from '../../service/fcmService';
 import { registerNotificationDevice } from '../../service/notificationService';
 import { offlineWorkoutQueue } from '../../src/services/offlineWorkoutQueue';
+import { flushActiveRunJournal, readActiveRunJournal } from '../../src/services/activeRunJournal';
+import { getBackgroundLocationSession } from '../../src/services/backgroundLocationTask';
+import { calculateDistanceMeters } from '../../src/utils/distance';
 import { isAssessmentProfileComplete } from '../../utils/profileEligibility';
 import { useResponsive } from '../../utils/responsive';
 import DashboardActivePlan from './DashboardActivePlan';
@@ -24,6 +27,22 @@ import DashboardNoPlan from './DashboardNoPlan';
 // import { getWeatherByLocation, type WeatherData } from '../../service/weather';
 
 const NOTIFICATION_PERMISSION_DELAY_MS = 1_000;
+
+type RecoverableWorkout = {
+  runId: string;
+  distanceMeters: number;
+  elapsedSeconds: number;
+};
+
+const formatRecoveryDuration = (seconds: number) => {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const remainingSeconds = safeSeconds % 60;
+  return hours > 0
+    ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`
+    : `00:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+};
 
 export default function DashboardScreen() {
   const { colors } = useTheme();
@@ -41,7 +60,51 @@ export default function DashboardScreen() {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [offlinePendingCount, setOfflinePendingCount] = useState(0);
   const [isSyncingOffline, setIsSyncingOffline] = useState(false);
+  const [recoverableWorkout, setRecoverableWorkout] = useState<RecoverableWorkout | null>(null);
   const permissionRequestStarted = useRef(false);
+
+  useFocusEffect(useCallback(() => {
+    let isActive = true;
+    const findRecoverableWorkout = async () => {
+      try {
+        await flushActiveRunJournal();
+        const [session, journal] = await Promise.all([
+          getBackgroundLocationSession(),
+          readActiveRunJournal(),
+        ]);
+        if (!isActive) return;
+        if (
+          !session?.active
+          || !session.runId
+          || !journal?.active
+          || journal.runId !== session.runId
+          || (session.userId && String(session.userId) !== String(user?.id ?? ''))
+        ) {
+          setRecoverableWorkout(null);
+          return;
+        }
+
+        const points = journal.points;
+        const journalDistanceMeters = points.slice(1).reduce((total, point, index) => (
+          total + calculateDistanceMeters(points[index], point)
+        ), 0);
+        const sessionDistanceMeters = Number.isFinite(session.distanceKm)
+          ? Math.max(0, Number(session.distanceKm) * 1000)
+          : journalDistanceMeters;
+        setRecoverableWorkout({
+          runId: session.runId,
+          distanceMeters: Math.max(sessionDistanceMeters, journalDistanceMeters),
+          elapsedSeconds: Math.max(0, session.elapsedSeconds ?? 0),
+        });
+      } catch (error) {
+        console.warn('[Dashboard] Could not inspect unfinished workout checkpoint', error);
+        if (isActive) setRecoverableWorkout(null);
+      }
+    };
+
+    void findRecoverableWorkout();
+    return () => { isActive = false; };
+  }, [user?.id]));
 
   useEffect(() => {
     const unsubscribe = offlineWorkoutQueue.subscribe((count) => {
@@ -223,6 +286,39 @@ export default function DashboardScreen() {
         </View>
       </View>
       <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: spacing(20), paddingBottom: spacing(118) }]} showsVerticalScrollIndicator={false}>
+        {recoverableWorkout ? (
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Review unfinished workout"
+            activeOpacity={0.85}
+            onPress={() => router.push({
+              pathname: '/(app)/screens/map',
+              params: { recoveryReview: '1', runId: recoverableWorkout.runId },
+            })}
+            style={{
+              minHeight: 76,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 12,
+              marginBottom: spacing(14),
+              paddingHorizontal: spacing(16),
+              paddingVertical: spacing(12),
+              borderRadius: 20,
+              borderWidth: 1.5,
+              borderColor: `${BRAND_GREEN}88`,
+              backgroundColor: colors.surface,
+            }}
+          >
+            <Feather name="corner-up-left" size={24} color={colors.text} />
+            <View style={{ flex: 1 }}>
+              <DashboardText style={{ color: colors.text, fontSize: 16, fontWeight: '800' }}>Unfinished workout found</DashboardText>
+              <DashboardText style={{ color: colors.textSecondary, fontSize: 13, marginTop: 3 }}>
+                {(recoverableWorkout.distanceMeters / 1000).toFixed(2)} km · {formatRecoveryDuration(recoverableWorkout.elapsedSeconds)}
+              </DashboardText>
+            </View>
+            <DashboardText style={{ color: colors.text, fontSize: 15, fontWeight: '800' }}>Review</DashboardText>
+          </TouchableOpacity>
+        ) : null}
         <MotionEntrance>
           <View style={[styles.greeting, { minHeight: spacing(82), paddingHorizontal: spacing(18), paddingVertical: spacing(14), marginBottom: spacing(14), backgroundColor: colors.surface }]}>
             <DashboardText style={[styles.greetingText, { color: colors.text, fontSize: fontSize(24, 20, 26) }]} numberOfLines={2}><DashboardText>Hi </DashboardText><DashboardText style={[styles.name, { color: BRAND_GREEN }]}>{userName}</DashboardText></DashboardText>

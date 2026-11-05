@@ -68,6 +68,16 @@ const formatTimerDisplay = (totalSec: number) => {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 };
 
+const formatPaceDisplay = (paceMinutesPerKm: number | null | undefined) => {
+  if (!Number.isFinite(paceMinutesPerKm) || paceMinutesPerKm === null || paceMinutesPerKm === undefined || paceMinutesPerKm <= 0) {
+    return '0:00';
+  }
+  const totalSeconds = Math.round(paceMinutesPerKm * 60);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+};
+
 const getStepColor = (stepType?: string) => {
   switch (stepType) {
     case 'Warmup':
@@ -216,6 +226,7 @@ export default function MapScreen() {
     runId?: string;
     notificationAction?: string;
     actionNonce?: string;
+    recoveryReview?: string;
   }>();
 
   const assignedRoute = useMemo(() => {
@@ -303,6 +314,8 @@ export default function MapScreen() {
   const [isPlannedWorkout, setIsPlannedWorkout] = useState(false);
   const [workoutSnapshot, setWorkoutSnapshot] = useState<WorkoutEngineSnapshot | null>(null);
   const [voiceCoachNoticeVisible, setVoiceCoachNoticeVisible] = useState(false);
+  const [recoveryPromptVisible, setRecoveryPromptVisible] = useState(false);
+  const [recoveryCheckpointAt, setRecoveryCheckpointAt] = useState<number | null>(null);
   const [completionPromptVisible, setCompletionPromptVisible] = useState(
     params.notificationAction === LIVE_TRACKING_STOP_ACTION,
   );
@@ -1204,7 +1217,14 @@ export default function MapScreen() {
         getBackgroundLocationSession(),
         readActiveRunJournal(),
       ]);
-      if (cancelled || !session?.active || !session.runId || !journal?.active || journal.runId !== session.runId) return;
+      if (
+        cancelled
+        || !session?.active
+        || !session.runId
+        || !journal?.active
+        || journal.runId !== session.runId
+        || (session.userId && String(session.userId) !== String(user?.id ?? ''))
+      ) return;
       if (params.runId && params.runId !== session.runId) return;
       if (isRunningRef.current || isStartingRef.current) return;
 
@@ -1305,6 +1325,10 @@ export default function MapScreen() {
         Boolean(session.confirmationPromptVisible)
           || params.notificationAction === LIVE_TRACKING_STOP_ACTION,
       );
+      if (params.recoveryReview === '1') {
+        setRecoveryCheckpointAt(session.updatedAt ?? null);
+        setRecoveryPromptVisible(true);
+      }
 
       const activityDetection = new ActivityDetectionService();
       activityDetectionRef.current = activityDetection;
@@ -1340,7 +1364,7 @@ export default function MapScreen() {
     };
     void restoreActiveRun();
     return () => { cancelled = true; };
-  }, [addLog, handleLocationUpdate, params.notificationAction, params.runId, startLiveGPS]);
+  }, [addLog, handleLocationUpdate, params.notificationAction, params.recoveryReview, params.runId, startLiveGPS, user?.id]);
 
   const startRun = async () => {
     if (isStartingRef.current || isRunningRef.current) {
@@ -2466,6 +2490,66 @@ export default function MapScreen() {
     }
   };
 
+  const discardRecoveredWorkout = async () => {
+    if (isStoppingRef.current) return;
+    isStoppingRef.current = true;
+    isRunningRef.current = false;
+    setRecoveryPromptVisible(false);
+    setIsRunning(false);
+    setIsPaused(false);
+    setCompletionPromptVisible(false);
+    setBackgroundLocationListener(undefined);
+
+    try {
+      locationSubscription.current?.remove();
+      locationSubscription.current = null;
+      activityDetectionRef.current?.stop();
+      activityDetectionRef.current = null;
+      stepDetectionRef.current?.stop();
+      stepDetectionRef.current = null;
+      workoutVoiceRef.current?.stop();
+      workoutVoiceRef.current = null;
+      workoutEngineRef.current = null;
+      await stopBackgroundLocationTracking();
+      await flushBackgroundLocationTask();
+      await clearBackgroundLocationSession();
+      await clearActiveRunJournal();
+      await stopLiveTrackingNotification();
+
+      startTimeRef.current = null;
+      runIdRef.current = null;
+      pathProcessorRef.current = null;
+      queueRef.current = null;
+      apiClientRef.current = null;
+      previousLocationRef.current = null;
+      lastRetainedCoordinateRef.current = null;
+      routeSegmentsRef.current = [];
+      pauseEventsRef.current = [];
+      distanceRef.current = 0;
+      extraDistanceRef.current = 0;
+      pausedTimeRef.current = null;
+      pauseStartTimeRef.current = null;
+      isPausedRef.current = false;
+      isAutoPausedRef.current = false;
+      splitEngineRef.current.reset();
+      setRouteSegments([]);
+      setPauseMarkers([]);
+      setDistance(0);
+      setElapsedSeconds(0);
+      setPace(0);
+      setWorkoutSnapshot(null);
+      setIsPlannedWorkout(false);
+      router.replace('/(app)/dashboard');
+    } catch (error) {
+      console.warn('[MapScreen] Could not discard recovered workout cleanly', error);
+      Alert.alert('Could not discard workout', 'Please try again. Your saved checkpoint is still available.');
+      isRunningRef.current = true;
+      setIsRunning(true);
+    } finally {
+      isStoppingRef.current = false;
+    }
+  };
+
   const requestSaveAndExit = () => {
     if (!isRunningRef.current || isStoppingRef.current || saveConfirmationOpenRef.current) {
       return;
@@ -2743,6 +2827,54 @@ export default function MapScreen() {
             </Text>
             <Feather name="x" size={16} color={colors.textSecondary} />
           </Pressable>
+        )}
+
+        {recoveryPromptVisible && isRunning && (
+          <View style={styles.recoveryOverlay}>
+            <Pressable style={styles.recoveryBackdrop} onPress={() => setRecoveryPromptVisible(false)} />
+            <View style={styles.recoveryPanel}>
+              <Text style={styles.recoveryEyebrow}>Workout Recovery</Text>
+              <View style={styles.recoveryTitleRow}>
+                <Feather name="corner-up-left" size={25} color="#111827" />
+                <Text style={styles.recoveryTitle}>Unfinished workout found</Text>
+              </View>
+              <Text style={styles.recoveryMessage}>
+                {recoveryCheckpointAt
+                  ? `Your last saved checkpoint is from ${new Date(recoveryCheckpointAt).toLocaleString()}.`
+                  : 'Your last saved workout checkpoint is ready to recover.'}
+              </Text>
+              <View style={styles.recoveryMetrics}>
+                <View style={styles.recoveryMetric}>
+                  <Text style={styles.recoveryMetricLabel}>Distance</Text>
+                  <Text style={styles.recoveryMetricValue}>{(distance / 1000).toFixed(2)} km</Text>
+                </View>
+                <View style={styles.recoveryMetric}>
+                  <Text style={styles.recoveryMetricLabel}>Duration</Text>
+                  <Text style={styles.recoveryMetricValue}>{formatTimerDisplay(elapsedSeconds)}</Text>
+                </View>
+                <View style={styles.recoveryMetric}>
+                  <Text style={styles.recoveryMetricLabel}>Route points</Text>
+                  <Text style={styles.recoveryMetricValue}>{routeSegments.reduce((total, segment) => total + segment.coordinates.length, 0)}</Text>
+                </View>
+              </View>
+              <Text style={styles.recoveryPace}>Average pace: {formatPaceDisplay(pace)} min/km</Text>
+              <Pressable
+                style={styles.recoverySaveButton}
+                onPress={() => {
+                  setRecoveryPromptVisible(false);
+                  void stopRun();
+                }}
+              >
+                <Text style={styles.recoverySaveText}>Recover &amp; Save Workout</Text>
+              </Pressable>
+              <Pressable style={styles.recoveryDiscardButton} onPress={() => void discardRecoveredWorkout()}>
+                <Text style={styles.recoveryDiscardText}>Discard Workout</Text>
+              </Pressable>
+              <Pressable style={styles.recoveryLaterButton} onPress={() => setRecoveryPromptVisible(false)}>
+                <Text style={styles.recoveryLaterText}>Not Now · Continue Workout</Text>
+              </Pressable>
+            </View>
+          </View>
         )}
 
         {completionPromptVisible && isRunning && (
@@ -3405,6 +3537,38 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
   },
+  recoveryOverlay: {
+    ...StyleSheet.absoluteFill,
+    justifyContent: 'flex-end',
+    zIndex: 30,
+  },
+  recoveryBackdrop: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0, 0, 0, 0.48)',
+  },
+  recoveryPanel: {
+    paddingTop: 22,
+    paddingHorizontal: 22,
+    paddingBottom: 28,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    backgroundColor: '#F8FAFC',
+  },
+  recoveryEyebrow: { color: '#6B7280', fontSize: 15, fontWeight: '700', textAlign: 'center', marginBottom: 28 },
+  recoveryTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  recoveryTitle: { flex: 1, color: '#111827', fontSize: 21, fontWeight: '800' },
+  recoveryMessage: { color: '#6B7280', fontSize: 14, lineHeight: 21, marginTop: 18 },
+  recoveryMetrics: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginTop: 18 },
+  recoveryMetric: { flex: 1, minWidth: 0 },
+  recoveryMetricLabel: { color: '#6B7280', fontSize: 12, marginBottom: 5 },
+  recoveryMetricValue: { color: '#111827', fontSize: 15, fontWeight: '700' },
+  recoveryPace: { color: '#111827', fontSize: 14, marginTop: 20, marginBottom: 24 },
+  recoverySaveButton: { minHeight: 52, borderRadius: 27, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0A84FF' },
+  recoverySaveText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  recoveryDiscardButton: { minHeight: 50, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
+  recoveryDiscardText: { color: '#EF4444', fontSize: 16, fontWeight: '600' },
+  recoveryLaterButton: { minHeight: 46, alignItems: 'center', justifyContent: 'center' },
+  recoveryLaterText: { color: '#6B7280', fontSize: 15 },
   completionPanel: {
     backgroundColor: '#1C1D24',
     borderRadius: 14,
