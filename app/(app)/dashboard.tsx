@@ -34,6 +34,8 @@ type RecoverableWorkout = {
   elapsedSeconds: number;
 };
 
+const WORKOUT_CHECKPOINT_STALE_AFTER_MS = 30_000;
+
 const formatRecoveryDuration = (seconds: number) => {
   const safeSeconds = Math.max(0, Math.floor(seconds));
   const hours = Math.floor(safeSeconds / 3600);
@@ -79,6 +81,7 @@ export default function DashboardScreen() {
           || !journal?.active
           || journal.runId !== session.runId
           || (session.userId && String(session.userId) !== String(user?.id ?? ''))
+          || (session.updatedAt != null && Date.now() - session.updatedAt < WORKOUT_CHECKPOINT_STALE_AFTER_MS)
         ) {
           setRecoverableWorkout(null);
           return;
