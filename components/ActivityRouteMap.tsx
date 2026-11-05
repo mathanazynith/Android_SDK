@@ -501,12 +501,12 @@ function ActivityRouteMap({
     return {
       width,
       height,
-      routes: previewRouteGroups.map((group) => ({
-        key: `${group.type}-${group.coordinates.length}`,
+      routes: previewRouteGroups.map((group, index) => ({
+        key: `${group.type}-${index}-${group.coordinates.length}`,
         color: group.type === 'pause' ? '#FB7185' : group.type === 'extra' ? '#CBD5E1' : '#34D399',
-        path: group.coordinates.map((point, index) => {
+        path: group.coordinates.map((point, pointIndex) => {
           const projectedPoint = project(point);
-          return `${index === 0 ? 'M' : 'L'}${projectedPoint.x.toFixed(2)},${projectedPoint.y.toFixed(2)}`;
+          return `${pointIndex === 0 ? 'M' : 'L'}${projectedPoint.x.toFixed(2)},${projectedPoint.y.toFixed(2)}`;
         }).join(' '),
       })),
       start: firstPoint ? project(firstPoint) : null,
@@ -645,7 +645,7 @@ function ActivityRouteMap({
             : smoothedPauseRouteGroups.map((coordinates) => ({ type: 'pause' as const, coordinates }))
           ).map(({ coordinates }, index) => (
             <Polyline
-              key={`pause-route-${pauseRoutes?.[index]?.sequence ?? index + 1}`}
+              key={`pause-route-${index}-${pauseRoutes?.[index]?.sequence ?? index + 1}`}
               coordinates={coordinates}
               strokeColor="#EF4444"
               strokeWidth={3}
@@ -750,7 +750,7 @@ function ActivityRouteMap({
                 : smoothedPauseRouteGroups.map((coordinates) => ({ type: 'pause' as const, coordinates }))
               ).map(({ coordinates }, index) => (
                 <Polyline
-                  key={`fs-pause-route-${pauseRoutes?.[index]?.sequence ?? index + 1}`}
+                  key={`fs-pause-route-${index}-${pauseRoutes?.[index]?.sequence ?? index + 1}`}
                   coordinates={coordinates}
                   strokeColor="#EF4444"
                   strokeWidth={4}

@@ -1,8 +1,8 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { File } from 'expo-file-system';
-import { Image as ExpoImage } from 'expo-image';
 import * as Haptics from 'expo-haptics';
+import { Image as ExpoImage } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -543,7 +543,7 @@ const ActivityCard = memo(function ActivityCard({
           <View pointerEvents="none" style={styles.mapOverlayTop}>
             <View style={styles.mapBadge}>
               <MaterialCommunityIcons
-                name={activityName === 'Walk' ? 'walk' : 'run-fast'}
+                name={activityName === 'Walk' ? 'run' : 'run-fast'}
                 size={14}
                 color="#F7F7F7"
               />
