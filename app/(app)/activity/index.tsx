@@ -4,7 +4,7 @@ import { File } from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import { Image as ExpoImage } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -29,6 +29,7 @@ import Reanimated, {
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -331,6 +332,132 @@ interface ActivityCardProps {
   busy: boolean;
   isVisible: boolean;
 }
+
+const FilterTile = memo(function FilterTile({
+  filter,
+  label,
+  icon,
+  onPress,
+  onDelete,
+  activeLongPress,
+  setActiveLongPress,
+  anchorRef,
+  accentColor,
+  surfaceColor,
+  borderColor,
+  primaryTextColor,
+  isActive,
+}: {
+  filter: FilterPopover;
+  label: string;
+  icon: keyof typeof Feather['glyphMap'];
+  onPress: () => void;
+  onDelete: () => void;
+  activeLongPress: FilterPopover | null;
+  setActiveLongPress: Dispatch<SetStateAction<FilterPopover | null>>;
+  anchorRef: MutableRefObject<View | null>;
+  accentColor: string;
+  surfaceColor: string;
+  borderColor: string;
+  primaryTextColor: string;
+  isActive: boolean;
+}) {
+  const progress = useSharedValue(0);
+  const trayOpacity = useSharedValue(0);
+  const trayTranslateY = useSharedValue(12);
+
+  const holdProgressStyle = useAnimatedStyle(() => ({
+    position: 'absolute',
+    left: 10,
+    right: 10,
+    top: -8,
+    height: 3,
+    borderRadius: 999,
+    overflow: 'hidden',
+    backgroundColor: '#35C72B',
+    width: `${progress.value * 100}%`,
+    opacity: progress.value > 0.03 ? 1 : 0,
+    transform: [{ scaleX: 0.96 + progress.value * 0.04 }],
+  }));
+
+  const deleteTrayStyle = useAnimatedStyle(() => ({
+    position: 'absolute',
+    left: '50%',
+    top: -52,
+    width: 90,
+    marginLeft: -45,
+    zIndex: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: trayOpacity.value,
+    transform: [{ translateY: trayTranslateY.value }, { scale: 0.92 + trayOpacity.value * 0.08 }],
+  }));
+
+  useEffect(() => {
+    const isSelected = activeLongPress === filter;
+    progress.value = withSpring(isSelected ? 1 : 0, {
+      damping: 16,
+      stiffness: 180,
+      overshootClamping: false,
+    });
+    trayOpacity.value = withSpring(isSelected ? 1 : 0, {
+      damping: 15,
+      stiffness: 200,
+      overshootClamping: false,
+    });
+    trayTranslateY.value = withSpring(isSelected ? 0 : 12, {
+      damping: 15,
+      stiffness: 200,
+      overshootClamping: false,
+    });
+  }, [activeLongPress, filter, progress, trayOpacity, trayTranslateY]);
+
+  return (
+    <View style={styles.filterTileWrap}>
+      <Reanimated.View pointerEvents="none" style={holdProgressStyle} />
+      <TouchableOpacity
+        ref={anchorRef}
+        accessibilityRole="button"
+        activeOpacity={0.85}
+        onPress={onPress}
+        onLongPress={() => {
+          setActiveLongPress((current) => (current === filter ? null : filter));
+        }}
+        style={[
+          styles.filterBarButton,
+          styles.compactFilterButton,
+          {
+            backgroundColor: surfaceColor,
+            borderColor: isActive ? accentColor : borderColor,
+            shadowColor: isActive ? accentColor : 'transparent',
+            shadowOpacity: isActive ? 0.2 : 0,
+            shadowRadius: isActive ? 8 : 0,
+          },
+        ]}
+      >
+        <Feather name={icon} size={14} color={isActive ? accentColor : primaryTextColor} />
+        <Text numberOfLines={1} style={[styles.filterBarText, styles.compactFilterText, { color: primaryTextColor }]}>
+          {label}
+        </Text>
+      </TouchableOpacity>
+
+      <Reanimated.View style={deleteTrayStyle}>
+        <TouchableOpacity
+          accessibilityRole="button"
+          activeOpacity={0.9}
+          onPress={() => {
+            onDelete();
+            setActiveLongPress(null);
+          }}
+          style={[styles.filterDeleteButton, { backgroundColor: '#1F2937', borderColor: '#374151' }]}
+        >
+          <Text style={[styles.filterDeleteText, { color: '#F9FAFB' }]}>Delete</Text>
+        </TouchableOpacity>
+        <View style={styles.filterDeleteCaret} />
+      </Reanimated.View>
+    </View>
+  );
+});
 
 const ActivityCard = memo(function ActivityCard({
   activity,
@@ -704,10 +831,35 @@ export default function ActivityScreen() {
   const [selectionToolbarTranslateY] = useState(() => new Animated.Value(8));
   const [selectionFiltersProgress] = useState(() => new Animated.Value(1));
   const [activeFilterPopover, setActiveFilterPopover] = useState<FilterPopover | null>(null);
+  const [activeLongPress, setActiveLongPress] = useState<FilterPopover | null>(null);
   const [filterPopoverPosition, setFilterPopoverPosition] = useState<FilterPopoverPosition>({ left: 12, top: 72, width: 280, maxHeight: 420, placement: 'below', caretLeft: 24 });
+  const filterPopoverScale = useRef(new Animated.Value(0.88)).current;
+  const filterPopoverOffset = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const typeFilterAnchorRef = useRef<View>(null);
   const dateFilterAnchorRef = useRef<View>(null);
   const distanceFilterAnchorRef = useRef<View>(null);
+
+  const resetTypeFilter = useCallback(() => {
+    setSelectedType('all');
+    setActiveFilterPopover(null);
+    setActiveLongPress(null);
+  }, []);
+
+  const resetDateFilter = useCallback(() => {
+    setSelectedDateRange('all');
+    setSelectedMonthDate(null);
+    setSelectedDayDate(null);
+    setRangeStartDate(null);
+    setRangeEndDate(null);
+    setActiveFilterPopover(null);
+    setActiveLongPress(null);
+  }, []);
+
+  const resetDistanceFilter = useCallback(() => {
+    setSelectedDistanceRange('all');
+    setActiveFilterPopover(null);
+    setActiveLongPress(null);
+  }, []);
 
   useEffect(() => {
     if (activeAccountIdRef.current === userId) return;
@@ -756,17 +908,56 @@ export default function ActivityScreen() {
         top = Math.max(topLimit, Math.min(top, bottomLimit - maxHeight));
       }
 
+      const anchorCenterX = x + anchorWidth / 2;
+      const anchorCenterY = y + anchorHeight / 2;
+      const modalCenterX = left + width / 2;
+      const modalCenterY = top + maxHeight / 2;
+      const startTranslateX = (anchorCenterX - modalCenterX) * 0.9;
+      const startTranslateY = (anchorCenterY - modalCenterY) * 0.9;
+      const caretLeft = Math.max(12, Math.min(anchorCenterX - left - 8, width - 12));
+
+      filterPopoverScale.setValue(0.88);
+      filterPopoverOffset.setValue({ x: startTranslateX, y: startTranslateY });
+
+      Animated.parallel([
+        Animated.timing(filterPopoverScale, {
+          toValue: 1,
+          duration: 240,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.spring(filterPopoverOffset.x, {
+          toValue: 0,
+          tension: 140,
+          friction: 12,
+          useNativeDriver: true,
+        }),
+        Animated.spring(filterPopoverOffset.y, {
+          toValue: 0,
+          tension: 140,
+          friction: 12,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
       setFilterPopoverPosition({
         left,
         top,
         width,
         maxHeight,
         placement,
-        caretLeft: Math.max(16, Math.min(x + anchorWidth / 2 - left - 7, width - 16)),
+        caretLeft,
       });
       setActiveFilterPopover(filter);
     });
-  }, [insets.bottom, insets.left, insets.right, insets.top, windowHeight, windowWidth]);
+  }, [filterPopoverOffset, filterPopoverScale, insets.bottom, insets.left, insets.right, insets.top, windowHeight, windowWidth]);
+
+  useEffect(() => {
+    if (!activeFilterPopover) {
+      filterPopoverScale.setValue(0.88);
+      filterPopoverOffset.setValue({ x: 0, y: 0 });
+    }
+  }, [activeFilterPopover, filterPopoverOffset, filterPopoverScale]);
 
   const showSelectionToast = useCallback((message: string) => {
     if (selectionToastTimerRef.current) clearTimeout(selectionToastTimerRef.current);
@@ -1580,8 +1771,38 @@ export default function ActivityScreen() {
   }, [activities.length, totalHistoryCount]);
 
   const listExtraData = useMemo(
-    () => ({ selectionMode, selectedActivityIds, deletingActivityIds, exportingActivityIds, isDeletingActivities }),
-    [deletingActivityIds, exportingActivityIds, isDeletingActivities, selectedActivityIds, selectionMode],
+    () => ({
+      selectionMode,
+      selectedActivityIds,
+      deletingActivityIds,
+      exportingActivityIds,
+      isDeletingActivities,
+      groupMode,
+      selectedType,
+      selectedDateRange,
+      selectedMonthDate,
+      selectedDayDate,
+      rangeStartDate,
+      rangeEndDate,
+      selectedDistanceRange,
+      visibleActivities,
+    }),
+    [
+      deletingActivityIds,
+      exportingActivityIds,
+      groupMode,
+      isDeletingActivities,
+      rangeEndDate,
+      rangeStartDate,
+      selectedActivityIds,
+      selectedDateRange,
+      selectedDayDate,
+      selectedDistanceRange,
+      selectedMonthDate,
+      selectedType,
+      selectionMode,
+      visibleActivities,
+    ],
   );
 
   return (
@@ -1699,46 +1920,60 @@ export default function ActivityScreen() {
 
       <MotionEntrance delay={45}>
         <View style={styles.filterRowBar}>
-        <TouchableOpacity
-          ref={typeFilterAnchorRef}
-          accessibilityRole="button"
-          accessibilityLabel={`Activity type: ${activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All Types'}`}
-          accessibilityHint="Choose which activity types to show"
-          activeOpacity={0.85}
-          onPress={() => openFilterPopover('type', typeFilterAnchorRef, 300)}
-          style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-        >
-          <Feather name="activity" size={14} color={colors.primary} />
-          <Text numberOfLines={1} style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
-            {activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All Types'}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          ref={dateFilterAnchorRef}
-          accessibilityRole="button"
-          activeOpacity={0.85}
-          onPress={() => openFilterPopover('date', dateFilterAnchorRef, 620)}
-          style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-        >
-          <Feather name="calendar" size={14} color={colors.primary} />
-          <Text numberOfLines={1} style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
-            {selectedDateRange === 'all' ? 'Date' : dateSummary}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          ref={distanceFilterAnchorRef}
-          accessibilityRole="button"
-          activeOpacity={0.85}
-          onPress={() => openFilterPopover('distance', distanceFilterAnchorRef, 420)}
-          style={[styles.filterBarButton, styles.compactFilterButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-        >
-          <Feather name="map-pin" size={14} color={colors.primary} />
-          <Text numberOfLines={1} style={[styles.filterBarText, styles.compactFilterText, { color: colors.text }]}>
-            {selectedDistanceRange === 'all' ? 'Distance' : distanceSummary}
-          </Text>
-        </TouchableOpacity>
-
+          <FilterTile
+            filter="type"
+            label={activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All Types'}
+            icon="activity"
+            onPress={() => {
+              setActiveLongPress(null);
+              openFilterPopover('type', typeFilterAnchorRef, 300);
+            }}
+            onDelete={resetTypeFilter}
+            activeLongPress={activeLongPress}
+            setActiveLongPress={setActiveLongPress}
+            anchorRef={typeFilterAnchorRef}
+            accentColor={colors.primary}
+            surfaceColor={colors.surface}
+            borderColor={colors.border}
+            primaryTextColor={colors.text}
+            isActive={selectedType !== 'all'}
+          />
+          <FilterTile
+            filter="date"
+            label={selectedDateRange === 'all' ? 'Date' : dateSummary}
+            icon="calendar"
+            onPress={() => {
+              setActiveLongPress(null);
+              openFilterPopover('date', dateFilterAnchorRef, 620);
+            }}
+            onDelete={resetDateFilter}
+            activeLongPress={activeLongPress}
+            setActiveLongPress={setActiveLongPress}
+            anchorRef={dateFilterAnchorRef}
+            accentColor={colors.primary}
+            surfaceColor={colors.surface}
+            borderColor={colors.border}
+            primaryTextColor={colors.text}
+            isActive={selectedDateRange !== 'all'}
+          />
+          <FilterTile
+            filter="distance"
+            label={selectedDistanceRange === 'all' ? 'Distance' : distanceSummary}
+            icon="map-pin"
+            onPress={() => {
+              setActiveLongPress(null);
+              openFilterPopover('distance', distanceFilterAnchorRef, 420);
+            }}
+            onDelete={resetDistanceFilter}
+            activeLongPress={activeLongPress}
+            setActiveLongPress={setActiveLongPress}
+            anchorRef={distanceFilterAnchorRef}
+            accentColor={colors.primary}
+            surfaceColor={colors.surface}
+            borderColor={colors.border}
+            primaryTextColor={colors.text}
+            isActive={selectedDistanceRange !== 'all'}
+          />
         </View>
       </MotionEntrance>
 
@@ -1764,294 +1999,333 @@ export default function ActivityScreen() {
       <Modal transparent visible={activeFilterPopover === 'type'} animationType="fade" onRequestClose={() => setActiveFilterPopover(null)}>
         <View style={styles.filterPopoverBackdrop}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close activity type filter" onPress={() => setActiveFilterPopover(null)} style={StyleSheet.absoluteFill} />
-          <View style={[styles.filterPopoverCard, { left: filterPopoverPosition.left, top: filterPopoverPosition.top, width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.modalHeaderRow}>
-              <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
-                <Feather name="activity" size={14} color={colors.primary} />
+          <Animated.View style={{
+            position: 'absolute',
+            left: filterPopoverPosition.left,
+            top: filterPopoverPosition.top,
+            width: filterPopoverPosition.width,
+            maxHeight: filterPopoverPosition.maxHeight,
+            transform: [
+              { translateX: filterPopoverOffset.x },
+              { translateY: filterPopoverOffset.y },
+              { scale: filterPopoverScale },
+            ],
+          }}>
+            <View style={[styles.filterPopoverCard, { width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={styles.modalHeaderRow}>
+                <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
+                  <Feather name="activity" size={14} color={colors.primary} />
+                </View>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Activity type</Text>
               </View>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Activity type</Text>
-            </View>
 
-            <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight - 60 }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
-            <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Show activities</Text>
-            {activityTypeOptions.map((option) => {
-              const active = selectedType === option.value;
-              return (
+              <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight - 60 }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
+                <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Show activities</Text>
+                {activityTypeOptions.map((option) => {
+                  const active = selectedType === option.value;
+                  return (
+                    <TouchableOpacity
+                      key={option.value}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setSelectedType(option.value);
+                        setActiveFilterPopover(null);
+                      }}
+                      style={[styles.optionRow, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
+                    >
+                      <Text style={[styles.optionText, { color: active ? colors.primary : colors.text }]}>{option.label}</Text>
+                      {active && <Feather name="check" size={16} color={colors.primary} />}
+                    </TouchableOpacity>
+                  );
+                })}
                 <TouchableOpacity
-                  key={option.value}
-                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  activeOpacity={0.85}
                   onPress={() => {
-                    setSelectedType(option.value);
+                    setSelectedType('all');
                     setActiveFilterPopover(null);
                   }}
-                  style={[styles.optionRow, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
+                  style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
                 >
-                  <Text style={[styles.optionText, { color: active ? colors.primary : colors.text }]}>{option.label}</Text>
-                  {active && <Feather name="check" size={16} color={colors.primary} />}
+                  <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
                 </TouchableOpacity>
-              );
-            })}
-            <TouchableOpacity
-              accessibilityRole="button"
-              activeOpacity={0.85}
-              onPress={() => {
-                setSelectedType('all');
-                setActiveFilterPopover(null);
-              }}
-              style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
-            >
-              <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
-            </TouchableOpacity>
-            </ScrollView>
-            {filterPopoverPosition.placement !== 'center' ? (
-              <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
-            ) : null}
-          </View>
+              </ScrollView>
+              {filterPopoverPosition.placement !== 'center' ? (
+                <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
+              ) : null}
+            </View>
+          </Animated.View>
         </View>
       </Modal>
 
       <Modal transparent visible={activeFilterPopover === 'date'} animationType="fade" onRequestClose={() => setActiveFilterPopover(null)}>
         <View style={styles.filterPopoverBackdrop}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close date filter" onPress={() => setActiveFilterPopover(null)} style={StyleSheet.absoluteFill} />
-          <View style={[styles.filterPopoverCard, { left: filterPopoverPosition.left, top: filterPopoverPosition.top, width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.modalHeaderRow}>
-              <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
-                <Feather name="calendar" size={14} color={colors.primary} />
+          <Animated.View style={{
+            position: 'absolute',
+            left: filterPopoverPosition.left,
+            top: filterPopoverPosition.top,
+            width: filterPopoverPosition.width,
+            maxHeight: filterPopoverPosition.maxHeight,
+            transform: [
+              { translateX: filterPopoverOffset.x },
+              { translateY: filterPopoverOffset.y },
+              { scale: filterPopoverScale },
+            ],
+          }}>
+            <View style={[styles.filterPopoverCard, { width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={styles.modalHeaderRow}>
+                <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
+                  <Feather name="calendar" size={14} color={colors.primary} />
+                </View>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Date filter</Text>
               </View>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Date filter</Text>
-            </View>
 
-            <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight - 112 }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
-            <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Quick ranges</Text>
-            <View style={styles.modalPresetRow}>
-              {activityDateOptions.filter((option) => option.value !== 'single' && option.value !== 'range').map((option) => (
+              <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight - 112 }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
+                <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Quick ranges</Text>
+                <View style={styles.modalPresetRow}>
+                  {activityDateOptions.filter((option) => option.value !== 'single' && option.value !== 'range').map((option) => (
+                    <TouchableOpacity
+                      key={option.value}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setSelectedDateRange(option.value);
+                        setSelectedMonthDate(null);
+                        setSelectedDayDate(null);
+                        setRangeStartDate(null);
+                        setRangeEndDate(null);
+                        setActiveFilterPopover(null);
+                      }}
+                      style={[styles.presetButton, { backgroundColor: selectedDateRange === option.value ? colors.selected : colors.surfaceRaised, borderColor: selectedDateRange === option.value ? colors.primary : colors.border }]}
+                    >
+                      <Text style={[styles.presetButtonText, { color: selectedDateRange === option.value ? colors.primary : colors.text }]}>{option.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Selection mode</Text>
+                <View style={styles.segmentedRow}>
+                  {(['month', 'single', 'range'] as const).map((mode) => {
+                    const active = selectedDateRange === mode;
+                    return (
+                      <TouchableOpacity
+                        key={mode}
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          setSelectedDateRange(mode);
+                          if (mode === 'month') {
+                            setSelectedMonthDate((current) => current ?? new Date());
+                            setSelectedDayDate(null);
+                            setRangeStartDate(null);
+                            setRangeEndDate(null);
+                          } else if (mode === 'single') {
+                            setSelectedMonthDate(null);
+                            setRangeStartDate(null);
+                            setRangeEndDate(null);
+                          } else {
+                            setSelectedMonthDate(null);
+                            setSelectedDayDate(null);
+                          }
+                        }}
+                        style={[styles.segmentedButton, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
+                      >
+                        <Text style={[styles.segmentedButtonText, { color: active ? colors.primary : colors.text }]}>
+                          {mode === 'month' ? 'Month' : mode === 'single' ? 'Single date' : 'Date range'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {selectedDateRange === 'month' ? (
+                  <View style={styles.monthPicker}>
+                    <View style={styles.monthYearRow}>
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel="Previous year"
+                        onPress={() => setSelectedMonthDate((current) => {
+                          const date = current ?? new Date();
+                          return new Date(date.getFullYear() - 1, date.getMonth(), 1);
+                        })}
+                        style={[styles.monthYearButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
+                      >
+                        <Feather name="chevron-left" size={18} color={colors.text} />
+                      </TouchableOpacity>
+                      <Text style={[styles.monthYearText, { color: colors.text }]}>{selectedMonthDate?.getFullYear()}</Text>
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel="Next year"
+                        onPress={() => setSelectedMonthDate((current) => {
+                          const date = current ?? new Date();
+                          return new Date(date.getFullYear() + 1, date.getMonth(), 1);
+                        })}
+                        style={[styles.monthYearButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
+                      >
+                        <Feather name="chevron-right" size={18} color={colors.text} />
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.monthGrid}>
+                      {monthOptions.map((month) => {
+                        const active = selectedMonthDate?.getMonth() === month.value;
+                        return (
+                          <TouchableOpacity
+                            key={month.value}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${month.label} ${selectedMonthDate?.getFullYear()}`}
+                            accessibilityState={{ selected: active }}
+                            onPress={() => setSelectedMonthDate((current) =>
+                              new Date(current?.getFullYear() ?? new Date().getFullYear(), month.value, 1))}
+                            style={[styles.monthOption, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
+                          >
+                            <Text style={[styles.monthOptionText, { color: active ? colors.primary : colors.text }]}>{month.label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : selectedDateRange === 'single' ? (
+                  <View style={styles.dateSelectionRow}>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setShowNativeDatePicker(true);
+                        setDatePickerTarget('start');
+                      }}
+                      style={[styles.dateValueBox, { backgroundColor: colors.background, borderColor: colors.border }]}
+                    >
+                      <Text style={[styles.dateValueLabel, { color: colors.textSecondary }]}>Date</Text>
+                      <Text style={[styles.dateValueText, { color: colors.text }]}>{selectedDayDate ? formatDateLabel(selectedDayDate) : 'Select date'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={styles.dateSelectionRow}>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setDatePickerTarget('start');
+                        setShowNativeDatePicker(true);
+                      }}
+                      style={[styles.dateValueBox, { backgroundColor: colors.background, borderColor: colors.border }]}
+                    >
+                      <Text style={[styles.dateValueLabel, { color: colors.textSecondary }]}>Start</Text>
+                      <Text style={[styles.dateValueText, { color: colors.text }]}>{rangeStartDate ? formatDateLabel(rangeStartDate) : 'Select start'}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setDatePickerTarget('end');
+                        setShowNativeDatePicker(true);
+                      }}
+                      style={[styles.dateValueBox, { backgroundColor: colors.background, borderColor: colors.border }]}
+                    >
+                      <Text style={[styles.dateValueLabel, { color: colors.textSecondary }]}>End</Text>
+                      <Text style={[styles.dateValueText, { color: colors.text }]}>{rangeEndDate ? formatDateLabel(rangeEndDate) : 'Select end'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </ScrollView>
+
+              <View style={styles.modalActions}>
                 <TouchableOpacity
-                  key={option.value}
-                  activeOpacity={0.8}
+                  activeOpacity={0.85}
                   onPress={() => {
-                    setSelectedDateRange(option.value);
+                    setSelectedDateRange('all');
                     setSelectedMonthDate(null);
                     setSelectedDayDate(null);
                     setRangeStartDate(null);
                     setRangeEndDate(null);
                     setActiveFilterPopover(null);
                   }}
-                  style={[styles.presetButton, { backgroundColor: selectedDateRange === option.value ? colors.selected : colors.surfaceRaised, borderColor: selectedDateRange === option.value ? colors.primary : colors.border }]}
+                  style={[styles.modalActionButton, { backgroundColor: colors.background, borderColor: colors.border }]}
                 >
-                  <Text style={[styles.presetButtonText, { color: selectedDateRange === option.value ? colors.primary : colors.text }]}>{option.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Selection mode</Text>
-            <View style={styles.segmentedRow}>
-              {(['month', 'single', 'range'] as const).map((mode) => {
-                const active = selectedDateRange === mode;
-                return (
-                  <TouchableOpacity
-                    key={mode}
-                    activeOpacity={0.8}
-                    onPress={() => {
-                      setSelectedDateRange(mode);
-                      if (mode === 'month') {
-                        setSelectedMonthDate((current) => current ?? new Date());
-                        setSelectedDayDate(null);
-                        setRangeStartDate(null);
-                        setRangeEndDate(null);
-                      } else if (mode === 'single') {
-                        setSelectedMonthDate(null);
-                        setRangeStartDate(null);
-                        setRangeEndDate(null);
-                      } else {
-                        setSelectedMonthDate(null);
-                        setSelectedDayDate(null);
-                      }
-                    }}
-                    style={[styles.segmentedButton, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
-                  >
-                    <Text style={[styles.segmentedButtonText, { color: active ? colors.primary : colors.text }]}>
-                      {mode === 'month' ? 'Month' : mode === 'single' ? 'Single date' : 'Date range'}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            {selectedDateRange === 'month' ? (
-              <View style={styles.monthPicker}>
-                <View style={styles.monthYearRow}>
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    accessibilityLabel="Previous year"
-                    onPress={() => setSelectedMonthDate((current) => {
-                      const date = current ?? new Date();
-                      return new Date(date.getFullYear() - 1, date.getMonth(), 1);
-                    })}
-                    style={[styles.monthYearButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
-                  >
-                    <Feather name="chevron-left" size={18} color={colors.text} />
-                  </TouchableOpacity>
-                  <Text style={[styles.monthYearText, { color: colors.text }]}>{selectedMonthDate?.getFullYear()}</Text>
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    accessibilityLabel="Next year"
-                    onPress={() => setSelectedMonthDate((current) => {
-                      const date = current ?? new Date();
-                      return new Date(date.getFullYear() + 1, date.getMonth(), 1);
-                    })}
-                    style={[styles.monthYearButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
-                  >
-                    <Feather name="chevron-right" size={18} color={colors.text} />
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.monthGrid}>
-                  {monthOptions.map((month) => {
-                    const active = selectedMonthDate?.getMonth() === month.value;
-                    return (
-                      <TouchableOpacity
-                        key={month.value}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${month.label} ${selectedMonthDate?.getFullYear()}`}
-                        accessibilityState={{ selected: active }}
-                        onPress={() => setSelectedMonthDate((current) =>
-                          new Date(current?.getFullYear() ?? new Date().getFullYear(), month.value, 1))}
-                        style={[styles.monthOption, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
-                      >
-                        <Text style={[styles.monthOptionText, { color: active ? colors.primary : colors.text }]}>{month.label}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-            ) : selectedDateRange === 'single' ? (
-              <View style={styles.dateSelectionRow}>
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => {
-                    setShowNativeDatePicker(true);
-                    setDatePickerTarget('start');
-                  }}
-                  style={[styles.dateValueBox, { backgroundColor: colors.background, borderColor: colors.border }]}
-                >
-                  <Text style={[styles.dateValueLabel, { color: colors.textSecondary }]}>Date</Text>
-                  <Text style={[styles.dateValueText, { color: colors.text }]}>{selectedDayDate ? formatDateLabel(selectedDayDate) : 'Select date'}</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={styles.dateSelectionRow}>
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => {
-                    setDatePickerTarget('start');
-                    setShowNativeDatePicker(true);
-                  }}
-                  style={[styles.dateValueBox, { backgroundColor: colors.background, borderColor: colors.border }]}
-                >
-                  <Text style={[styles.dateValueLabel, { color: colors.textSecondary }]}>Start</Text>
-                  <Text style={[styles.dateValueText, { color: colors.text }]}>{rangeStartDate ? formatDateLabel(rangeStartDate) : 'Select start'}</Text>
+                  <Text style={[styles.modalActionText, { color: '#EF4444' }]}>Clear</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  activeOpacity={0.8}
+                  activeOpacity={0.85}
                   onPress={() => {
-                    setDatePickerTarget('end');
-                    setShowNativeDatePicker(true);
-                  }}
-                  style={[styles.dateValueBox, { backgroundColor: colors.background, borderColor: colors.border }]}
-                >
-                  <Text style={[styles.dateValueLabel, { color: colors.textSecondary }]}>End</Text>
-                  <Text style={[styles.dateValueText, { color: colors.text }]}>{rangeEndDate ? formatDateLabel(rangeEndDate) : 'Select end'}</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-            </ScrollView>
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                activeOpacity={0.85}
-                onPress={() => {
-                  setSelectedDateRange('all');
-                  setSelectedMonthDate(null);
-                  setSelectedDayDate(null);
-                  setRangeStartDate(null);
-                  setRangeEndDate(null);
-                  setActiveFilterPopover(null);
-                }}
-                style={[styles.modalActionButton, { backgroundColor: colors.background, borderColor: colors.border }]}
-              >
-                <Text style={[styles.modalActionText, { color: '#EF4444' }]}>Clear</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                activeOpacity={0.85}
-                onPress={() => {
-                  if (selectedDateRange === 'single' && selectedDayDate) {
+                    if (selectedDateRange === 'single' && selectedDayDate) {
+                      setActiveFilterPopover(null);
+                      return;
+                    }
+                    if (selectedDateRange === 'range' && rangeStartDate && rangeEndDate) {
+                      setActiveFilterPopover(null);
+                      return;
+                    }
                     setActiveFilterPopover(null);
-                    return;
-                  }
-                  if (selectedDateRange === 'range' && rangeStartDate && rangeEndDate) {
-                    setActiveFilterPopover(null);
-                    return;
-                  }
-                  setActiveFilterPopover(null);
-                }}
-                style={[styles.modalActionButton, { backgroundColor: colors.primary, borderColor: colors.primary }]}
-              >
-                <Text style={[styles.modalActionText, { color: colors.primaryText }]}>Apply</Text>
-              </TouchableOpacity>
+                  }}
+                  style={[styles.modalActionButton, { backgroundColor: colors.primary, borderColor: colors.primary }]}
+                >
+                  <Text style={[styles.modalActionText, { color: colors.primaryText }]}>Apply</Text>
+                </TouchableOpacity>
+              </View>
+              {filterPopoverPosition.placement !== 'center' ? (
+                <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
+              ) : null}
             </View>
-            {filterPopoverPosition.placement !== 'center' ? (
-              <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
-            ) : null}
-          </View>
+          </Animated.View>
         </View>
       </Modal>
 
       <Modal transparent visible={activeFilterPopover === 'distance'} animationType="fade" onRequestClose={() => setActiveFilterPopover(null)}>
         <View style={styles.filterPopoverBackdrop}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close distance filter" onPress={() => setActiveFilterPopover(null)} style={StyleSheet.absoluteFill} />
-          <View style={[styles.filterPopoverCard, { left: filterPopoverPosition.left, top: filterPopoverPosition.top, width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.modalHeaderRow}>
-              <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
-                <Feather name="map-pin" size={14} color={colors.primary} />
+          <Animated.View style={{
+            position: 'absolute',
+            left: filterPopoverPosition.left,
+            top: filterPopoverPosition.top,
+            width: filterPopoverPosition.width,
+            maxHeight: filterPopoverPosition.maxHeight,
+            transform: [
+              { translateX: filterPopoverOffset.x },
+              { translateY: filterPopoverOffset.y },
+              { scale: filterPopoverScale },
+            ],
+          }}>
+            <View style={[styles.filterPopoverCard, { width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={styles.modalHeaderRow}>
+                <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
+                  <Feather name="map-pin" size={14} color={colors.primary} />
+                </View>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Distance</Text>
               </View>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Distance</Text>
-            </View>
 
-            <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight - 60 }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
-            <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Choose range</Text>
-            {activityDistanceOptions.map((option) => {
-              const active = selectedDistanceRange === option.value;
-              return (
+              <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight - 60 }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
+                <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Choose range</Text>
+                {activityDistanceOptions.map((option) => {
+                  const active = selectedDistanceRange === option.value;
+                  return (
+                    <TouchableOpacity
+                      key={option.value}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setSelectedDistanceRange(option.value);
+                        setActiveFilterPopover(null);
+                      }}
+                      style={[styles.optionRow, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
+                    >
+                      <Text style={[styles.optionText, { color: active ? colors.primary : colors.text }]}>{option.label}</Text>
+                      {active && <Feather name="check" size={16} color={colors.primary} />}
+                    </TouchableOpacity>
+                  );
+                })}
                 <TouchableOpacity
-                  key={option.value}
-                  activeOpacity={0.8}
+                  activeOpacity={0.85}
                   onPress={() => {
-                    setSelectedDistanceRange(option.value);
+                    setSelectedDistanceRange('all');
                     setActiveFilterPopover(null);
                   }}
-                  style={[styles.optionRow, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
+                  style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
                 >
-                  <Text style={[styles.optionText, { color: active ? colors.primary : colors.text }]}>{option.label}</Text>
-                  {active && <Feather name="check" size={16} color={colors.primary} />}
+                  <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
                 </TouchableOpacity>
-              );
-            })}
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => {
-                setSelectedDistanceRange('all');
-                setActiveFilterPopover(null);
-              }}
-              style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
-            >
-              <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
-            </TouchableOpacity>
-            </ScrollView>
-            {filterPopoverPosition.placement !== 'center' ? (
-              <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
-            ) : null}
-          </View>
+              </ScrollView>
+              {filterPopoverPosition.placement !== 'center' ? (
+                <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
+              ) : null}
+            </View>
+          </Animated.View>
         </View>
       </Modal>
 
@@ -2293,6 +2567,10 @@ const styles = StyleSheet.create({
   filterPopoverCaretAbove: { bottom: -6 },
   filterPopoverCaretBelow: { top: -6 },
   filterBarText: { fontSize: 12, fontWeight: '600' },
+  filterTileWrap: { position: 'relative', flex: 1, minWidth: 0 },
+  filterDeleteButton: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 12, borderWidth: 1 },
+  filterDeleteText: { fontSize: 11, fontWeight: '700' },
+  filterDeleteCaret: { width: 10, height: 10, borderWidth: 1, borderBottomWidth: 0, borderRightWidth: 0, borderTopLeftRadius: 2, marginTop: -5, transform: [{ rotate: '45deg' }] },
   compactFilterButton: { flex: 1, minWidth: 0, justifyContent: 'center', gap: 6, paddingHorizontal: 8 },
   compactFilterText: { flexShrink: 1, minWidth: 0, fontSize: 12 },
   resetButton: { alignSelf: 'flex-start', marginBottom: 12, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, backgroundColor: '#23372A' },
