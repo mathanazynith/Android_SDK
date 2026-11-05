@@ -170,6 +170,7 @@ type MovementState = 'STATIONARY' | 'STARTING' | 'MOVING' | 'STOPPING';
 const MOVEMENT_CONFIRMATION_SAMPLES = 3;
 const STATIONARY_CONFIRMATION_SAMPLES = 3;
 const AUTO_PAUSE_STATIONARY_DURATION_MS = 5_000;
+const WORKOUT_CHECKPOINT_STALE_AFTER_MS = 30_000;
 // A 30m GPS radius is too large for indoor distance: the displayed point can
 // be several rooms away from the user. Reject low-confidence fixes before
 // they reach the route processor instead of adding false distance.
@@ -326,9 +327,13 @@ export default function MapScreen() {
   const activityDetectionRef = useRef<ActivityDetectionService | null>(null);
   const stepDetectionRef = useRef<StepDetectionService | null>(null);
   const startTimeRef = useRef<number | null>(null);
+  const recoveredElapsedBaseRef = useRef<number | null>(null);
+  const recoveredResumeAtRef = useRef<number | null>(null);
+  const recoveredPausedBaselineRef = useRef(0);
   const previousLocationRef = useRef<RawGpsPayload | null>(null);
   const processedLocationKeysRef = useRef<Set<string>>(new Set());
   const runIdRef = useRef<string | null>(null);
+  const restoredRunIdRef = useRef<string | null>(null);
   const apiClientRef = useRef<RunningApiClient | null>(null);
   const pathProcessorRef = useRef<PathProcessor | null>(null);
   const queueRef = useRef<LocationQueue | null>(null);
@@ -715,11 +720,16 @@ export default function MapScreen() {
 
     const timer = setInterval(() => {
       if (startTimeRef.current) {
-        let elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
-        
-        // Subtract paused duration from elapsed time
-        if (pausedTimeRef.current) {
-          elapsed -= Math.floor(pausedTimeRef.current / 1000);
+        let elapsed: number;
+        if (recoveredElapsedBaseRef.current !== null) {
+          const continuedSeconds = recoveredResumeAtRef.current === null
+            ? 0
+            : (Date.now() - recoveredResumeAtRef.current) / 1000;
+          const pausedAfterRecovery = Math.max(0, (pausedTimeRef.current ?? 0) - recoveredPausedBaselineRef.current) / 1000;
+          elapsed = Math.floor(recoveredElapsedBaseRef.current + continuedSeconds - pausedAfterRecovery);
+        } else {
+          elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+          if (pausedTimeRef.current) elapsed -= Math.floor(pausedTimeRef.current / 1000);
         }
         
         setElapsedSeconds(elapsed);
@@ -1164,6 +1174,59 @@ export default function MapScreen() {
     addLog('?? Live GPS tracking started');
   }, [addLog, handleLocationUpdate, reconcileJournaledPoints]);
 
+  const continueRecoveredWorkout = async () => {
+    if (!runIdRef.current || isRunningRef.current || isStartingRef.current) return;
+    isStartingRef.current = true;
+    try {
+      const activityDetection = new ActivityDetectionService();
+      activityDetectionRef.current = activityDetection;
+      void activityDetection.start().catch((error) => {
+        console.warn('[MapScreen] Recovered activity monitoring unavailable', error);
+      });
+      const stepDetection = new StepDetectionService();
+      stepDetectionRef.current = stepDetection;
+      void stepDetection.start((steps) => {
+        lastStepTimestampRef.current = Date.now();
+        stepCountRef.current = steps;
+      }).catch((error) => {
+        console.warn('[MapScreen] Recovered pedometer unavailable', error);
+      });
+
+      isRunningRef.current = true;
+      setIsRunning(true);
+      lastMovementTimestampRef.current = isPausedRef.current ? null : Date.now();
+      await startLiveGPS();
+      recoveredResumeAtRef.current = isPausedRef.current ? null : Date.now();
+      recoveredPausedBaselineRef.current = pausedTimeRef.current ?? 0;
+      await startLiveTrackingNotification({
+        runId: runIdRef.current,
+        distanceKm: distanceRef.current / 1000,
+        elapsedSeconds,
+        paceMinutesPerKm: pace,
+        status: isPausedRef.current ? 'paused' : 'running',
+        startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+      });
+      setRecoveryPromptVisible(false);
+    } catch (error) {
+      isRunningRef.current = false;
+      setIsRunning(false);
+      setBackgroundLocationListener(undefined);
+      locationSubscription.current?.remove();
+      locationSubscription.current = null;
+      void stopBackgroundLocationTracking().catch((stopError) => {
+        console.warn('[BackgroundLocationTask] Could not stop after resume failure', stopError);
+      });
+      activityDetectionRef.current?.stop();
+      activityDetectionRef.current = null;
+      stepDetectionRef.current?.stop();
+      stepDetectionRef.current = null;
+      console.warn('[MapScreen] Could not continue recovered workout', error);
+      Alert.alert('Could not resume workout', 'Your checkpoint is still saved. Check location access and try again.');
+    } finally {
+      isStartingRef.current = false;
+    }
+  };
+
   useEffect(() => {
     if (!isRunning) return;
     const startedAt = startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null;
@@ -1227,6 +1290,8 @@ export default function MapScreen() {
       ) return;
       if (params.runId && params.runId !== session.runId) return;
       if (isRunningRef.current || isStartingRef.current) return;
+      if (restoredRunIdRef.current === session.runId) return;
+      restoredRunIdRef.current = session.runId;
 
       const processor = new PathProcessor(session.runId);
       pathProcessorRef.current = processor;
@@ -1320,14 +1385,27 @@ export default function MapScreen() {
       setDistance(distanceRef.current);
       const restoredElapsed = session.elapsedSeconds ?? Math.max(0, (Date.now() - startTimeRef.current) / 1000);
       setElapsedSeconds(restoredElapsed);
+      recoveredElapsedBaseRef.current = restoredElapsed;
+      recoveredResumeAtRef.current = null;
+      recoveredPausedBaselineRef.current = pausedTimeRef.current ?? 0;
       setPace(session.paceMinutesPerKm ?? (distanceRef.current > 0 ? restoredElapsed / 60 / (distanceRef.current / 1000) : 0));
       setCompletionPromptVisible(
         Boolean(session.confirmationPromptVisible)
           || params.notificationAction === LIVE_TRACKING_STOP_ACTION,
       );
-      if (params.recoveryReview === '1') {
+      const shouldWaitForRecoveryChoice = params.recoveryReview === '1'
+        || session.updatedAt == null
+        || Date.now() - session.updatedAt >= WORKOUT_CHECKPOINT_STALE_AFTER_MS;
+      if (shouldWaitForRecoveryChoice) {
         setRecoveryCheckpointAt(session.updatedAt ?? null);
         setRecoveryPromptVisible(true);
+      }
+
+      queueRef.current = new LocationQueue();
+      if (shouldWaitForRecoveryChoice) {
+        isRunningRef.current = false;
+        setIsRunning(false);
+        return;
       }
 
       const activityDetection = new ActivityDetectionService();
@@ -1343,12 +1421,13 @@ export default function MapScreen() {
       }).catch((error) => {
         console.warn('[MapScreen] Restored pedometer unavailable', error);
       });
-      queueRef.current = new LocationQueue();
       isRunningRef.current = true;
       setIsRunning(true);
       lastMovementTimestampRef.current = session.paused ? null : Date.now();
       try {
         await startLiveGPS();
+        recoveredResumeAtRef.current = session.paused ? null : Date.now();
+        recoveredPausedBaselineRef.current = pausedTimeRef.current ?? 0;
         await startLiveTrackingNotification({
           runId: session.runId,
           distanceKm: distanceRef.current / 1000,
@@ -1388,6 +1467,7 @@ export default function MapScreen() {
 
       routeSegmentsRef.current = [];
       pauseEventsRef.current = [];
+      restoredRunIdRef.current = null;
       processedLocationKeysRef.current = new Set();
       setRouteSegments([]);
       setPauseMarkers([]);
@@ -1427,6 +1507,9 @@ export default function MapScreen() {
 
       const startedAt = new Date().toISOString();
       startTimeRef.current = new Date(startedAt).getTime();
+      recoveredElapsedBaseRef.current = null;
+      recoveredResumeAtRef.current = null;
+      recoveredPausedBaselineRef.current = 0;
       const userId = String(user?.id ?? '1');
       let runId = 'RUN-' + Date.now() + '-OFFLINE';
       try {
@@ -1650,6 +1733,7 @@ export default function MapScreen() {
       locationSubscription.current = null;
       pathProcessorRef.current = null;
       runIdRef.current = null;
+      restoredRunIdRef.current = null;
       apiClientRef.current = null;
       activityDetectionRef.current?.stop();
       activityDetectionRef.current = null;
@@ -1767,6 +1851,10 @@ export default function MapScreen() {
       isAutoPausedRef.current = false;
       lastMovementTimestampRef.current = resumedAt;
       setIsPaused(false);
+      if (recoveredElapsedBaseRef.current !== null) {
+        recoveredResumeAtRef.current = resumedAt;
+        recoveredPausedBaselineRef.current = pausedTimeRef.current ?? 0;
+      }
       prepareMovementGateForResume();
       await persistBackgroundLocationSession({
         active: true,
@@ -1898,9 +1986,13 @@ export default function MapScreen() {
       // submitted when Android activity recognition explicitly reports it.
       const workoutType = detectedActivity === 'running' ? 'run' : 'walk';
       const activityType = workoutType === 'walk' ? 'WALK' : 'RUN';
-      const elapsedTimeSeconds = startTimeRef.current
-        ? Math.max(0, (stoppedAt.getTime() - startTimeRef.current) / 1000)
-        : Math.max(0, elapsedSeconds);
+      const elapsedTimeSeconds = recoveredElapsedBaseRef.current !== null
+        ? Math.max(0, recoveredElapsedBaseRef.current
+          + (recoveredResumeAtRef.current === null ? 0 : (stoppedAt.getTime() - recoveredResumeAtRef.current) / 1000)
+          + Math.max(0, pausedTimeRef.current ?? 0) / 1000)
+        : startTimeRef.current
+          ? Math.max(0, (stoppedAt.getTime() - startTimeRef.current) / 1000)
+          : Math.max(0, elapsedSeconds);
       const pausedTimeSeconds = Number(((pausedTimeRef.current ?? 0) / 1000).toFixed(3));
       const movingTimeSeconds = Number(Math.max(0, elapsedTimeSeconds - pausedTimeSeconds).toFixed(3));
       const movingTimePayloadSeconds = Math.round(movingTimeSeconds);
@@ -2369,9 +2461,13 @@ export default function MapScreen() {
       setIsRunning(false);
       isRunningRef.current = false;
       startTimeRef.current = null;
+      recoveredElapsedBaseRef.current = null;
+      recoveredResumeAtRef.current = null;
+      recoveredPausedBaselineRef.current = 0;
       previousLocationRef.current = null;
       lastRetainedCoordinateRef.current = null;
       runIdRef.current = null;
+      restoredRunIdRef.current = null;
       queueRef.current = null;
       pathProcessorRef.current = null;
       apiClientRef.current = null;
@@ -2501,6 +2597,15 @@ export default function MapScreen() {
     setBackgroundLocationListener(undefined);
 
     try {
+      if (runIdRef.current && apiClientRef.current && !runIdRef.current.startsWith('RUN-') && !runIdRef.current.includes('-OFFLINE')) {
+        await apiClientRef.current.stopRun({
+          run_id: runIdRef.current,
+          ended_at: new Date().toISOString(),
+          final_sequence: 0,
+        }).catch((error) => {
+          console.warn('[MapScreen] Could not close discarded backend run', error);
+        });
+      }
       locationSubscription.current?.remove();
       locationSubscription.current = null;
       activityDetectionRef.current?.stop();
@@ -2517,7 +2622,11 @@ export default function MapScreen() {
       await stopLiveTrackingNotification();
 
       startTimeRef.current = null;
+      recoveredElapsedBaseRef.current = null;
+      recoveredResumeAtRef.current = null;
+      recoveredPausedBaselineRef.current = 0;
       runIdRef.current = null;
+      restoredRunIdRef.current = null;
       pathProcessorRef.current = null;
       queueRef.current = null;
       apiClientRef.current = null;
@@ -2829,9 +2938,9 @@ export default function MapScreen() {
           </Pressable>
         )}
 
-        {recoveryPromptVisible && isRunning && (
+        {recoveryPromptVisible && !isRunning && (
           <View style={styles.recoveryOverlay}>
-            <Pressable style={styles.recoveryBackdrop} onPress={() => setRecoveryPromptVisible(false)} />
+            <View style={styles.recoveryBackdrop} />
             <View style={styles.recoveryPanel}>
               <Text style={styles.recoveryEyebrow}>Workout Recovery</Text>
               <View style={styles.recoveryTitleRow}>
@@ -2858,20 +2967,23 @@ export default function MapScreen() {
                 </View>
               </View>
               <Text style={styles.recoveryPace}>Average pace: {formatPaceDisplay(pace)} min/km</Text>
+              <Pressable style={styles.recoverySaveButton} onPress={() => void continueRecoveredWorkout()}>
+                <Text style={styles.recoverySaveText}>Continue Workout</Text>
+              </Pressable>
               <Pressable
-                style={styles.recoverySaveButton}
+                style={styles.recoveryStopButton}
                 onPress={() => {
                   setRecoveryPromptVisible(false);
                   void stopRun();
                 }}
               >
-                <Text style={styles.recoverySaveText}>Recover &amp; Save Workout</Text>
+                <Text style={styles.recoveryStopText}>Stop &amp; Save Activity</Text>
               </Pressable>
               <Pressable style={styles.recoveryDiscardButton} onPress={() => void discardRecoveredWorkout()}>
                 <Text style={styles.recoveryDiscardText}>Discard Workout</Text>
               </Pressable>
-              <Pressable style={styles.recoveryLaterButton} onPress={() => setRecoveryPromptVisible(false)}>
-                <Text style={styles.recoveryLaterText}>Not Now · Continue Workout</Text>
+              <Pressable style={styles.recoveryLaterButton} onPress={() => router.replace('/(app)/dashboard')}>
+                <Text style={styles.recoveryLaterText}>Not Now</Text>
               </Pressable>
             </View>
           </View>
@@ -3565,6 +3677,8 @@ const styles = StyleSheet.create({
   recoveryPace: { color: '#111827', fontSize: 14, marginTop: 20, marginBottom: 24 },
   recoverySaveButton: { minHeight: 52, borderRadius: 27, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0A84FF' },
   recoverySaveText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  recoveryStopButton: { minHeight: 50, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
+  recoveryStopText: { color: '#111827', fontSize: 16, fontWeight: '700' },
   recoveryDiscardButton: { minHeight: 50, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   recoveryDiscardText: { color: '#EF4444', fontSize: 16, fontWeight: '600' },
   recoveryLaterButton: { minHeight: 46, alignItems: 'center', justifyContent: 'center' },
