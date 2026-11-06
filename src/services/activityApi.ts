@@ -348,6 +348,16 @@ const extractActivities = (payload: unknown): BackendActivity[] => {
   return [];
 };
 
+const deduplicateActivitiesById = (activities: BackendActivity[]): BackendActivity[] => {
+  const seenIds = new Set<string>();
+  return activities.filter((activity) => {
+    const id = String(activity.id ?? activity.activity_id ?? '').trim();
+    if (!id || seenIds.has(id)) return false;
+    seenIds.add(id);
+    return true;
+  });
+};
+
 const encodeRouteFallback = (activity: BackendActivity): string | null => {
   const candidates = [
     activity.gps_points,
@@ -485,7 +495,7 @@ export const normalizeHistoryPage = async (
   const pageStart = cursorIndex >= 0 ? cursorIndex + 1 : 0;
   const rawSlice = rawActivities.slice(pageStart, pageStart + limit);
   const normalized = await Promise.all(rawSlice.map(normalizeActivity).map(applySdkDistance));
-  const activities = normalized.filter((activity) => {
+  const activities = deduplicateActivitiesById(normalized.filter((activity) => {
     const activityType = String(activity.activity_type).toUpperCase();
     const hasDistance = Number(activity.distance) > 0;
     const hasTime = Number(activity.moving_time || activity.elapsed_time) > 0;
@@ -495,7 +505,7 @@ export const normalizeHistoryPage = async (
       isCompleted &&
       (hasDistance || hasTime)
     );
-  });
+  }));
   const parsedResponseLimit = Number(source.limit ?? limit);
   const responseLimit = Number.isFinite(parsedResponseLimit) && parsedResponseLimit > 0
     ? parsedResponseLimit
@@ -580,7 +590,9 @@ export const activityAPI = {
       const cached = await storage.getItem(historyCacheKey);
       if (!cached) return null;
       const parsed = JSON.parse(cached) as ActivityHistoryPage;
-      return Array.isArray(parsed.activities) ? parsed : null;
+      return Array.isArray(parsed.activities)
+        ? { ...parsed, activities: deduplicateActivitiesById(parsed.activities) }
+        : null;
     } catch {
       return null;
     }

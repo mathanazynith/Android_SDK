@@ -136,4 +136,31 @@ describe('activity history elevation metrics', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('keeps only one History row when the backend repeats an activity ID', async () => {
+    vi.stubGlobal('__DEV__', false);
+    const activity = {
+      id: 'run-duplicate-page-row',
+      activity_type: 'RUN',
+      distance: 5000,
+      moving_time: 1800,
+      elapsed_time: 1900,
+      avg_pace: 360,
+      start_time: '2026-11-04T06:00:00Z',
+      end_time: '2026-11-04T06:31:40Z',
+      processing_status: 'COMPLETED',
+    };
+
+    try {
+      const result = await normalizeHistoryPage({
+        results: [activity, { ...activity }],
+        has_more: false,
+      }, 10);
+
+      expect(result.activities).toHaveLength(1);
+      expect(result.activities[0]?.id).toBe(activity.id);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

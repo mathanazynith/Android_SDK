@@ -40,7 +40,7 @@ export class RunningApiClient {
   }
 
   /** Send the optimized final activity as JSON to Django's UploadActivityAPIView. */
-  public async submitActivity(payload: ActivitySubmissionPayload): Promise<{
+  public async submitActivity(payload: ActivitySubmissionPayload, idempotencyKey?: string | null): Promise<{
     success: boolean;
     activityId: string | number | null;
   }> {
@@ -66,8 +66,13 @@ export class RunningApiClient {
     let response;
     try {
       console.warn(`[WORKOUT_PAUSE_PAYLOAD] POST started: ${ACTIVITY_UPLOAD_PATH}`);
+      // The API must persist this key and return the original result for retries
+      // to guarantee one History row after an ambiguous timeout.
       response = await api.post(ACTIVITY_UPLOAD_PATH, payload, {
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+        },
       });
     } catch (error: any) {
       throw error;

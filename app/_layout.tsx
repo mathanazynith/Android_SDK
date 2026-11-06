@@ -39,6 +39,11 @@ function RootSurface({ children }: { children: ReactNode }) {
       if (handledNotificationIds.current.has(responseId)) return;
       handledNotificationIds.current.add(responseId);
       const data = response.notification.request.content.data as { screen?: string; trackingActive?: boolean };
+      console.info('[NotificationLifecycle] NOTIFICATION_CLICKED', {
+        screen: data.screen ?? null,
+        trackingActive: Boolean(data.trackingActive),
+        action: response.actionIdentifier,
+      });
       if (data.screen === LIVE_TRACKING_ROUTE && data.trackingActive) {
         const alreadyOnTrackingScreen = pathname.endsWith('/screens/map');
         if (alreadyOnTrackingScreen && response.actionIdentifier !== LIVE_TRACKING_STOP_ACTION) return;

@@ -7,8 +7,18 @@ import { AppState } from 'react-native';
 import { ActivityPauseEventPayload, RawGpsPayload } from '../types/running';
 import { calculateDistanceMeters } from '../utils/distance';
 import { calculateActiveRunElapsedSeconds } from '../utils/activeRunMetrics';
-import { appendActiveRunPoints, appendPausedRunPoints, readActiveRunJournal } from './activeRunJournal';
-import { updateLiveTrackingNotification, WORKOUT_FOREGROUND_NOTIFICATION_ID } from './liveTrackingNotification';
+import {
+  appendActiveRunPoints,
+  appendPausedRunPoints,
+  clearActiveRunJournal,
+  readActiveRunJournal,
+} from './activeRunJournal';
+import {
+  stopLiveTrackingNotification,
+  updateLiveTrackingNotification,
+  WORKOUT_FOREGROUND_NOTIFICATION_ID,
+} from './liveTrackingNotification';
+import { acknowledgeBootRestore, isBootRestorePending } from '../../modules/zyrun-live-update';
 
 export const BACKGROUND_LOCATION_TASK_NAME = 'zyrun-background-location-task';
 export const BACKGROUND_LOCATION_SESSION_KEY = 'zyrun:background-location-session';
@@ -17,12 +27,14 @@ const secureStoreKey = (rawKey: string): string => rawKey.replace(/[^a-zA-Z0-9._
 const SAFE_BACKGROUND_LOCATION_SESSION_KEY = secureStoreKey(BACKGROUND_LOCATION_SESSION_KEY);
 let sessionWriteChain: Promise<void> = Promise.resolve();
 let backgroundTaskChain: Promise<void> = Promise.resolve();
+let bootRestoreCheck: Promise<boolean> | null = null;
 const backgroundLocationSessionListeners = new Set<
   (session: BackgroundLocationSessionState | null) => void
 >();
 
 export interface BackgroundLocationSessionState {
   active: boolean;
+  status?: 'active' | 'paused' | 'finalizing' | 'completed' | 'cancelled' | 'pending_sync' | 'save_failed';
   paused?: boolean;
   autoPaused?: boolean;
   confirmationPromptVisible?: boolean;
@@ -30,6 +42,8 @@ export interface BackgroundLocationSessionState {
   userId?: string | null;
   startedAt?: string | null;
   lastLocation?: RawGpsPayload | null;
+  /** Timestamp of the latest GPS fix, separate from session-state updates. */
+  lastLocationAt?: number | null;
   updatedAt?: number | null;
   distanceKm?: number;
   elapsedSeconds?: number;
@@ -54,6 +68,7 @@ const readSessionState = async (): Promise<BackgroundLocationSessionState | null
       ? await FileSystem.readAsStringAsync(BACKGROUND_LOCATION_SESSION_URI)
       : await SecureStore.getItemAsync(SAFE_BACKGROUND_LOCATION_SESSION_KEY);
     if (!value) return null;
+
     return JSON.parse(value) as BackgroundLocationSessionState;
   } catch (error) {
     console.warn('[BackgroundLocationTask] Unable to read background session state', error);
@@ -62,7 +77,114 @@ const readSessionState = async (): Promise<BackgroundLocationSessionState | null
 };
 
 export const getBackgroundLocationSession = async (): Promise<BackgroundLocationSessionState | null> => {
+  if (await rejectPreBootSession()) return null;
   return readSessionState();
+};
+
+const rejectPreBootSession = async (): Promise<boolean> => {
+  if (!bootRestoreCheck) {
+    bootRestoreCheck = (async () => {
+      if (!isBootRestorePending()) return false;
+
+      const storedSession = await readSessionState();
+      const storedStatus = storedSession?.status ?? (storedSession?.active ? 'active' : 'missing');
+      const terminalStatus = new Set(['finalizing', 'completed', 'cancelled', 'pending_sync', 'save_failed']);
+      const isTerminalSession = Boolean(storedSession && terminalStatus.has(storedSession.status ?? ''));
+      console.info('[BootRestore] BOOT_SESSION_CHECK_STARTED', {
+        runId: storedSession?.runId ?? null,
+        status: storedStatus,
+      });
+      console.info('[BootRestore] STORED_SESSION_FOUND', {
+        runId: storedSession?.runId ?? null,
+        found: Boolean(storedSession),
+      });
+      console.info('[BootRestore] STORED_SESSION_STATUS', {
+        runId: storedSession?.runId ?? null,
+        status: storedStatus,
+      });
+      const eligibleForRestore = Boolean(
+        storedSession?.active
+        && storedSession.runId
+        && !terminalStatus.has(storedSession.status ?? '')
+      );
+      console.info('[BootRestore] SESSION_ELIGIBLE_FOR_RESTORE', {
+        runId: storedSession?.runId ?? null,
+        status: storedStatus,
+        eligible: eligibleForRestore,
+        reason: eligibleForRestore
+          ? 'Session meets the device-restart recovery gate'
+          : 'This app does not restore workouts after device reboot',
+      });
+
+      if (storedSession && (storedSession.status === 'completed' || storedSession.status === 'cancelled' || storedSession.status === 'pending_sync' || storedSession.status === 'save_failed')) {
+        console.info('[BootRestore] COMPLETED_SESSION_DETECTED', {
+          runId: storedSession.runId ?? null,
+          status: storedSession.status,
+        });
+      }
+      if (storedSession?.active && storedSession.runId) {
+        const isAlreadyTerminal = terminalStatus.has(storedSession.status ?? '');
+        await persistBackgroundLocationSession({
+          ...storedSession,
+          active: false,
+          status: isAlreadyTerminal ? storedSession.status : 'cancelled',
+          updatedAt: Date.now(),
+        });
+      }
+      console.info('[BootRestore] SESSION_RESTORE_REJECTED', {
+        runId: storedSession?.runId ?? null,
+        status: storedStatus,
+        reason: isTerminalSession || !eligibleForRestore
+          ? 'Device reboot invalidates the previous workout checkpoint'
+          : 'Device reboot invalidates in-progress workout restoration',
+      });
+      console.info('[NotificationLifecycle] LIVE_NOTIFICATION_RECREATION_BLOCKED', {
+        runId: storedSession?.runId ?? null,
+        status: storedStatus,
+        reason: 'Device reboot invalidates the previous live run',
+      });
+
+      const serviceStopped = await stopBackgroundLocationTracking();
+      await Promise.all([clearActiveRunJournal(), stopLiveTrackingNotification()]);
+      console.info('[BootRestore] STALE_NOTIFICATION_CANCELLED', {
+        runId: storedSession?.runId ?? null,
+        status: storedStatus,
+      });
+      console.info('[BootRestore] FOREGROUND_SERVICE_RESTORE_SKIPPED', {
+        runId: storedSession?.runId ?? null,
+        status: storedStatus,
+        serviceStopped,
+      });
+      console.info('[BootRestore] BACKGROUND_TRACKING_RESTORE_SKIPPED', {
+        runId: storedSession?.runId ?? null,
+        status: storedStatus,
+        serviceStopped,
+      });
+      acknowledgeBootRestore();
+      console.info('[BootRestore] SESSION_RESTORE_COMPLETED', {
+        runId: storedSession?.runId ?? null,
+        status: storedSession?.active
+          ? (terminalStatus.has(storedSession.status ?? '') ? storedSession.status : 'cancelled')
+          : storedStatus,
+      });
+      bootRestoreCheck = null;
+      return true;
+    })().catch((error) => {
+      bootRestoreCheck = null;
+      console.warn('[BootRestore] Boot session cleanup failed', error);
+      return false;
+    });
+  }
+  return bootRestoreCheck;
+};
+
+export const isBackgroundLocationTrackingStarted = async (): Promise<boolean> => {
+  try {
+    return await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME);
+  } catch (error) {
+    console.warn('[BackgroundLocationTask] Could not inspect the location task state', error);
+    return false;
+  }
 };
 
 export const subscribeToBackgroundLocationSession = (
@@ -136,6 +258,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, ({ data, error }) => {
       console.warn('[BackgroundLocationTask] Previous task batch failed', previousError);
     })
     .then(async () => {
+      if (await rejectPreBootSession()) return;
       if (error) {
         console.warn('[BackgroundLocationTask] Task error', error.message);
         return;
@@ -149,14 +272,22 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, ({ data, error }) => {
         .sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
       const payload = payloads[payloads.length - 1];
       const previous = await readSessionState();
-      if (!previous?.active) return;
+      if (
+        !previous?.active
+        || previous.status === 'finalizing'
+        || previous.status === 'completed'
+        || previous.status === 'cancelled'
+        || previous.status === 'pending_sync'
+      ) return;
       const paused = Boolean(previous.paused);
       const taskUpdatedAt = Date.now();
 
       const nextState: BackgroundLocationSessionState = {
         ...previous,
         active: true,
+        status: paused ? 'paused' : 'active',
         lastLocation: payload,
+        lastLocationAt: taskUpdatedAt,
         updatedAt: taskUpdatedAt,
       };
       nextState.elapsedSeconds = Math.floor(calculateActiveRunElapsedSeconds(previous, taskUpdatedAt));
@@ -218,7 +349,15 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, ({ data, error }) => {
 });
 
 export const startBackgroundLocationTracking = async (): Promise<void> => {
-  if (await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME)) return;
+  console.info('[ServiceLifecycle] FOREGROUND_SERVICE_START_REQUESTED', {
+    taskName: BACKGROUND_LOCATION_TASK_NAME,
+  });
+  if (await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME)) {
+    console.info('[ServiceLifecycle] BACKGROUND_TASK_ALREADY_STARTED', {
+      taskName: BACKGROUND_LOCATION_TASK_NAME,
+    });
+    return;
+  }
   await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME, {
     accuracy: Location.Accuracy.BestForNavigation,
     timeInterval: 1_000,
@@ -230,10 +369,37 @@ export const startBackgroundLocationTracking = async (): Promise<void> => {
       killServiceOnDestroy: false,
     },
   });
+  console.info('[ServiceLifecycle] BACKGROUND_TASK_STARTED', {
+    taskName: BACKGROUND_LOCATION_TASK_NAME,
+  });
+  console.info('[ServiceLifecycle] FOREGROUND_SERVICE_STARTED', {
+    taskName: BACKGROUND_LOCATION_TASK_NAME,
+  });
 };
 
-export const stopBackgroundLocationTracking = async (): Promise<void> => {
-  if (await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME)) {
-    await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME);
+export const stopBackgroundLocationTracking = async (): Promise<boolean> => {
+  try {
+    const wasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME);
+    if (wasStarted) {
+      await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME);
+    }
+    const stopped = !(await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME));
+    if (stopped && wasStarted) {
+      console.info('[ServiceLifecycle] BACKGROUND_TASK_STOPPED', {
+        taskName: BACKGROUND_LOCATION_TASK_NAME,
+      });
+      console.info('[ServiceLifecycle] FOREGROUND_SERVICE_STOPPED', {
+        taskName: BACKGROUND_LOCATION_TASK_NAME,
+      });
+    }
+    if (!stopped) {
+      console.warn('[ServiceLifecycle] LOCATION_TASK_STILL_REGISTERED', {
+        taskName: BACKGROUND_LOCATION_TASK_NAME,
+      });
+    }
+    return stopped;
+  } catch (error) {
+    console.warn('[BackgroundLocationTask] Unable to stop background tracking cleanly', error);
+    return false;
   }
 };

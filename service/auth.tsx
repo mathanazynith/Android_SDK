@@ -10,6 +10,11 @@ import { subscribeToFcmTokenRefresh } from "./fcmService";
 import "./googleAuth"; // Ensure GoogleAuthService is initialized
 import { googleAuthService } from "./googleAuth";
 import {
+  clearBackgroundLocationSession,
+  stopBackgroundLocationTracking,
+} from "../src/services/backgroundLocationTask";
+import { clearActiveRunJournal } from "../src/services/activeRunJournal";
+import {
   deactivateNotificationDevice,
   registerNotificationDevice,
 } from "./notificationService";
@@ -114,6 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const isLoggingOut = useRef(false);
+  const previousUserIdRef = useRef<string | null>(null);
 
   const storeUser = async (userObj: User | null) => {
     try {
@@ -186,11 +192,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           } else if (status === 401 || status === 403) {
             await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
             await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
+            await Promise.all([
+              clearBackgroundLocationSession(),
+              stopBackgroundLocationTracking(),
+              clearActiveRunJournal(),
+            ]).catch((error) => {
+              console.warn('[Auth] Failed to clear background run after token invalidation', error);
+            });
             await storeUser(null);
             setUser(null);
           }
         }
       } else {
+        await Promise.all([
+          clearBackgroundLocationSession(),
+          stopBackgroundLocationTracking(),
+          clearActiveRunJournal(),
+        ]).catch((error) => {
+          console.warn('[Auth] Failed to clear stale background run for signed-out state', error);
+        });
         await storeUser(null);
         setUser(null);
       }
@@ -204,6 +224,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void Promise.resolve().then(initializeAuth);
   }, []);
+
+  useEffect(() => {
+    const previousUserId = previousUserIdRef.current;
+    const currentUserId = user?.id == null ? null : String(user.id);
+
+    const shouldClearLiveRun = previousUserId !== null
+      && (currentUserId === null || previousUserId !== currentUserId);
+
+    if (shouldClearLiveRun) {
+      void Promise.all([
+        clearBackgroundLocationSession(),
+        stopBackgroundLocationTracking(),
+        clearActiveRunJournal(),
+      ]).catch((error) => {
+        console.warn('[Auth] Failed to clear live run during account switch or logout', error);
+      });
+    }
+
+    previousUserIdRef.current = currentUserId;
+  }, [user?.id]);
 
   useEffect(() => {
     const userId = user?.id;
@@ -369,6 +409,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
+      await Promise.all([
+        clearBackgroundLocationSession(),
+        stopBackgroundLocationTracking(),
+      ]).catch((error) => {
+        console.warn('[Auth] Failed to clear live run state during logout', error);
+      });
+
       const refreshToken = await storage.getItem(storage.KEYS.REFRESH_TOKEN);
       await authAPI.logout({ refresh: refreshToken || "" });
     } catch (error) {

@@ -17,7 +17,7 @@ import { getFcmToken } from '../../service/fcmService';
 import { registerNotificationDevice } from '../../service/notificationService';
 import { offlineWorkoutQueue } from '../../src/services/offlineWorkoutQueue';
 import { flushActiveRunJournal, readActiveRunJournal } from '../../src/services/activeRunJournal';
-import { getBackgroundLocationSession } from '../../src/services/backgroundLocationTask';
+import { getBackgroundLocationSession, isBackgroundLocationTrackingStarted } from '../../src/services/backgroundLocationTask';
 import { calculateDistanceMeters } from '../../src/utils/distance';
 import { isAssessmentProfileComplete } from '../../utils/profileEligibility';
 import { useResponsive } from '../../utils/responsive';
@@ -70,17 +70,23 @@ export default function DashboardScreen() {
     const findRecoverableWorkout = async () => {
       try {
         await flushActiveRunJournal();
-        const [session, journal] = await Promise.all([
+        const [session, journal, trackingStarted] = await Promise.all([
           getBackgroundLocationSession(),
           readActiveRunJournal(),
+          isBackgroundLocationTrackingStarted(),
         ]);
         if (!isActive) return;
         if (
           !session?.active
           || !session.runId
+          || session.status === 'finalizing'
+          || session.status === 'completed'
+          || session.status === 'cancelled'
+          || session.status === 'pending_sync'
           || !journal?.active
           || journal.runId !== session.runId
           || (session.userId && String(session.userId) !== String(user?.id ?? ''))
+          || trackingStarted
           || (session.updatedAt != null && Date.now() - session.updatedAt < WORKOUT_CHECKPOINT_STALE_AFTER_MS)
         ) {
           setRecoverableWorkout(null);

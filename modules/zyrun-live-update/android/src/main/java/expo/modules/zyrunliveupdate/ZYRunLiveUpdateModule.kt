@@ -32,6 +32,20 @@ class ZYRunLiveUpdateModule : Module() {
       val context = appContext.reactContext?.applicationContext ?: return@Function false
       dismissForegroundNotification(context)
     }
+
+    Function("isBootRestorePending") {
+      val context = appContext.reactContext?.applicationContext ?: return@Function false
+      context.getSharedPreferences(BootRestoreReceiver.PREFERENCES_NAME, Context.MODE_PRIVATE)
+        .getBoolean(BootRestoreReceiver.KEY_BOOT_RESTORE_PENDING, false)
+    }
+
+    Function("acknowledgeBootRestore") {
+      val context = appContext.reactContext?.applicationContext ?: return@Function null
+      context.getSharedPreferences(BootRestoreReceiver.PREFERENCES_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putBoolean(BootRestoreReceiver.KEY_BOOT_RESTORE_PENDING, false)
+        .apply()
+    }
   }
 
   private fun dismissForegroundNotification(context: Context): Boolean {

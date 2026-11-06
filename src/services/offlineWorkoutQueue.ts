@@ -67,6 +67,7 @@ export const offlineWorkoutQueue = {
     workout: Omit<QueuedOfflineWorkout, 'id' | 'createdAt' | 'retryCount'>
   ): Promise<string> {
     const id = `offline-workout-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    let queuedId = id;
     const fullItem: QueuedOfflineWorkout = {
       ...workout,
       id,
@@ -76,6 +77,13 @@ export const offlineWorkoutQueue = {
 
     queueWriteChain = queueWriteChain.then(async () => {
       const current = await offlineWorkoutQueue.getPending();
+      const existing = workout.runId
+        ? current.find((item) => item.runId === workout.runId)
+        : undefined;
+      if (existing) {
+        queuedId = existing.id;
+        return;
+      }
       current.push(fullItem);
       if (QUEUE_FILE_URI) {
         await FileSystem.writeAsStringAsync(QUEUE_FILE_URI, JSON.stringify(current));
@@ -84,8 +92,8 @@ export const offlineWorkoutQueue = {
     });
 
     await queueWriteChain;
-    console.log(`[OfflineWorkoutQueue] Workout ${id} saved to offline queue.`);
-    return id;
+    console.log(`[OfflineWorkoutQueue] Workout ${queuedId} saved to offline queue.`);
+    return queuedId;
   },
 
   async remove(id: string): Promise<void> {
@@ -121,7 +129,7 @@ export const offlineWorkoutQueue = {
 
     for (const item of items) {
       try {
-        const submission = await apiClient.submitActivity(item.payload);
+        const submission = await apiClient.submitActivity(item.payload, item.runId);
         if (submission.success) {
           const activityId = submission.activityId;
           if (activityId !== null) {
