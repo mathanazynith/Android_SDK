@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { formatDurationMmSs, formatPace, formatSplitDistance, formatSplitTime } from './splitFormatters';
 
 describe('split formatters', () => {
-  it('shows full split intervals as 500m and other distances to two decimals', () => {
-    expect(formatSplitDistance(500)).toBe('500m');
+  it('shows full split intervals as 1000m and other distances to two decimals', () => {
+    expect(formatSplitDistance(1000)).toBe('1000m');
     expect(formatSplitDistance(54.45)).toBe('54.45m');
     expect(formatSplitDistance(499.876)).toBe('499.88m');
     expect(formatSplitDistance(1010.41)).toBe('1010.41m');

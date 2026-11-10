@@ -11,17 +11,17 @@ import ActivitySplitsModal from '../../../components/ActivitySplitsModal';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { useAuth } from '../../../service/auth';
 import { getBackendErrorMessage } from '../../../service/api';
+import { useAuth } from '../../../service/auth';
 import { activityAPI, BackendActivity, normalizeActivitySplits, runRouteAPI } from '../../../src/services/activityApi';
 import { shareActivityAsGpx } from '../../../src/services/gpxFileExport';
-import { ActivityExtraSplits, ActivitySegmentSplits } from '../../../src/types/activity';
+import { ActivityExtraSplits, ActivityLapRecord, ActivitySegmentSplits } from '../../../src/types/activity';
 import {
-  formatDistanceFromMeters,
-  formatElevationFromMeters,
-  formatPaceFromSecondsPerKm,
-  formatSpeedFromKilometersPerHour,
-  formatSpeedFromMetersPerSecond,
+    formatDistanceFromMeters,
+    formatElevationFromMeters,
+    formatPaceFromSecondsPerKm,
+    formatSpeedFromKilometersPerHour,
+    formatSpeedFromMetersPerSecond,
 } from '../../../src/utils/activityUnitFormatters';
 import { getActivityExtraDistanceMeters } from '../../../src/utils/extraDistance';
 import { formatDurationMmSs as formatDuration } from '../../../src/utils/splitFormatters';
@@ -89,6 +89,7 @@ export default function ActivityDetailScreen() {
   const [splitsLoading, setSplitsLoading] = useState(false);
   const [splitsError, setSplitsError] = useState<string | null>(null);
   const [splitSegments, setSplitSegments] = useState<ActivitySegmentSplits[]>([]);
+  const [lapRecords, setLapRecords] = useState<ActivityLapRecord[]>([]);
   const [extraSplits, setExtraSplits] = useState<ActivityExtraSplits['splits']>([]);
   const cropStartIndex = cropStart === undefined ? undefined : Number(cropStart);
   const cropEndIndex = cropEnd === undefined ? undefined : Number(cropEnd);
@@ -245,6 +246,7 @@ export default function ActivityDetailScreen() {
       const detail = await activityAPI.get(activity.id);
       const splitData = normalizeActivitySplits(detail);
       setSplitSegments(splitData.segments);
+      setLapRecords(splitData.laps);
       setExtraSplits(splitData.extra?.splits ?? []);
     } catch (requestError) {
       setSplitsError(getBackendErrorMessage(requestError, 'Unable to load split details.'));
@@ -403,6 +405,7 @@ export default function ActivityDetailScreen() {
         loading={splitsLoading}
         error={splitsError}
         segments={splitSegments}
+        laps={lapRecords}
         extraSplits={extraSplits}
         extraDistanceMeters={extraDistanceMeters}
         distanceUnit={distanceUnit}

@@ -101,6 +101,10 @@ export interface ActivitySubmissionPayload {
 export interface ActivityLapEventPayload {
   event_number: number;
   timestamp: string;
+  split_number?: number;
+  distance_m?: number;
+  time_s?: number;
+  pace_s_per_km?: number;
 }
 
 export interface ActivityPauseEventPayload {
@@ -122,6 +126,12 @@ export interface ActivitySegmentPayload {
   actual_time_s: number;
   actual_pace_s_per_km: number;
   gps_points: ActivityGpsPointPayload[];
+  splits?: {
+    split_number: number;
+    distance_m: number;
+    time_s: number;
+    pace_s_per_km: number;
+  }[];
   recovery?: ActivityRecoveryPayload | null;
 }
 

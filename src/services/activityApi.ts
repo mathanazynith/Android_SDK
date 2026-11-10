@@ -1,7 +1,7 @@
 import polyline from '@mapbox/polyline';
 import api from '../../service/api';
 import { storage } from '../../service/storage';
-import { ActivityExtraSplits, ActivitySegmentSplits, ActivitySplit, SPLIT_DISTANCE_METERS } from '../types/activity';
+import { ActivityExtraSplits, ActivityLapRecord, ActivitySegmentSplits, ActivitySplit, SPLIT_DISTANCE_METERS } from '../types/activity';
 import { calculateDistanceMeters } from '../utils/distance';
 import { activityDistanceOverrides } from './activityDistanceOverrides';
 import { activityTimingOverrides } from './activityTimingOverrides';
@@ -112,6 +112,142 @@ const getActivityPoints = (value: Record<string, unknown>): BackendGpsPoint[] =>
   return points ?? [];
 };
 
+const getLapGpsPoints = (value: Record<string, unknown>): BackendGpsPoint[] => {
+  const route = value.route && typeof value.route === 'object'
+    ? value.route as Record<string, unknown>
+    : {};
+  const candidates = [value.gps_points, value.points, value.coordinates, route.points, route.gps_points, route.coordinates];
+  return candidates.find((candidate): candidate is BackendGpsPoint[] => (
+    Array.isArray(candidate) && candidate.length > 0
+  )) ?? [];
+};
+
+const parseTimestamp = (value: unknown): number | null => {
+  const timestamp = typeof value === 'number'
+    ? value
+    : typeof value === 'string'
+      ? Date.parse(value)
+      : Number.NaN;
+  return Number.isFinite(timestamp) ? timestamp : null;
+};
+
+const optionalNumber = (...values: unknown[]): number | undefined => {
+  for (const value of values) {
+    if (value === null || value === undefined || value === '') continue;
+    const number = Number(value);
+    if (Number.isFinite(number) && number >= 0) return number;
+  }
+  return undefined;
+};
+
+const pauseSecondsBetween = (
+  pauses: unknown[],
+  intervalStart: number,
+  intervalEnd: number,
+  activityEnd: number,
+): number => pauses.reduce<number>((total, pause) => {
+  if (!pause || typeof pause !== 'object') return total;
+  const value = pause as Record<string, unknown>;
+  const pauseStart = parseTimestamp(value.paused_at);
+  const pauseEnd = parseTimestamp(value.resumed_at) ?? activityEnd;
+  if (pauseStart === null || pauseEnd <= pauseStart) return total;
+  const overlap = Math.max(0, Math.min(intervalEnd, pauseEnd) - Math.max(intervalStart, pauseStart));
+  return total + overlap / 1000;
+}, 0);
+
+const distanceBetweenPoints = (
+  points: BackendGpsPoint[],
+  intervalStart: number,
+  intervalEnd: number,
+): number | undefined => {
+  let distance = 0;
+  let foundTimedPair = false;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    if (previous.is_paused || current.is_paused || previous.is_extra_distance || current.is_extra_distance) continue;
+    const previousTime = getPointTimestamp(previous);
+    const currentTime = getPointTimestamp(current);
+    if (previousTime === null || currentTime === null || currentTime <= previousTime) continue;
+    const overlapStart = Math.max(intervalStart, previousTime);
+    const overlapEnd = Math.min(intervalEnd, currentTime);
+    if (overlapEnd <= overlapStart) continue;
+    const segmentDistance = calculateDistanceMeters(previous, current);
+    if (!Number.isFinite(segmentDistance) || segmentDistance <= 0) continue;
+    distance += segmentDistance * ((overlapEnd - overlapStart) / (currentTime - previousTime));
+    foundTimedPair = true;
+  }
+  return foundTimedPair ? distance : undefined;
+};
+
+const normalizeLapRecords = (value: Record<string, unknown>): ActivityLapRecord[] => {
+  const backendLaps = Array.isArray(value.laps) ? value.laps : [];
+  const lapEvents = Array.isArray(value.lap_events) ? value.lap_events : [];
+  const points = getLapGpsPoints(value);
+  const pauses = Array.isArray(value.pause_events)
+    ? value.pause_events
+    : Array.isArray(value.pauses)
+      ? value.pauses
+      : [];
+  const activityStart = parseTimestamp(value.start_time ?? value.started_at);
+  const activityEnd = parseTimestamp(value.end_time ?? value.ended_at) ?? Date.now();
+
+  if (backendLaps.length > 0) {
+    return backendLaps.flatMap((lap, index) => {
+      if (!lap || typeof lap !== 'object') return [];
+      const item = lap as Record<string, unknown>;
+      const sequence = Math.max(1, Math.floor(toNumber(item.lap_number ?? item.event_number ?? item.sequence, index + 1)));
+      const segmentType = String(item.segment_type ?? item.type ?? '').replace(/[-_]/g, ' ').trim();
+      const repeat = optionalNumber(item.repeat_number);
+      const repeats = optionalNumber(item.total_repeats);
+      const label = segmentType
+        ? `${segmentType}${repeat !== undefined ? ` ${repeat}${repeats !== undefined ? `/${repeats}` : ''}` : ''}`
+        : `Lap ${sequence}`;
+      const distance = optionalNumber(item.distance_meters, item.distance_m, item.distance);
+      const time = optionalNumber(item.duration_seconds, item.time_s, item.duration);
+      const pace = optionalNumber(item.pace_seconds_per_km, item.pace_s_per_km, item.pace)
+        ?? (distance !== undefined && distance > 0 && time !== undefined ? time / (distance / 1000) : undefined);
+      return [{
+        sequence,
+        label,
+        timestamp: typeof item.timestamp === 'string' ? item.timestamp : undefined,
+        distance_m: distance,
+        time_s: time,
+        pace_s_per_km: pace,
+      }];
+    });
+  }
+
+  let previousBoundary = activityStart;
+  return lapEvents.flatMap((event, index) => {
+    if (!event || typeof event !== 'object') return [];
+    const item = event as Record<string, unknown>;
+    const eventTimestamp = parseTimestamp(item.timestamp ?? item.ended_at);
+    const sequence = Math.max(1, Math.floor(toNumber(item.split_number ?? item.event_number ?? item.sequence, index + 1)));
+    const distance = optionalNumber(item.distance_m, item.distance_meters, item.distance)
+      ?? (eventTimestamp !== null && previousBoundary !== null
+        ? distanceBetweenPoints(points, previousBoundary, eventTimestamp)
+        : undefined);
+    const suppliedTime = optionalNumber(item.time_s, item.duration_seconds, item.duration);
+    const time = suppliedTime ?? (eventTimestamp !== null && previousBoundary !== null
+      ? Math.max(0, (eventTimestamp - previousBoundary) / 1000
+        - pauseSecondsBetween(pauses, previousBoundary, eventTimestamp, activityEnd))
+      : undefined);
+    const pace = optionalNumber(item.pace_s_per_km, item.pace)
+      ?? (distance !== undefined && distance > 0 && time !== undefined ? time / (distance / 1000) : undefined);
+    if (eventTimestamp !== null) previousBoundary = eventTimestamp;
+    if (eventTimestamp === null && time === undefined && distance === undefined) return [];
+    return [{
+      sequence,
+      label: `Lap ${sequence}`,
+      timestamp: typeof item.timestamp === 'string' ? item.timestamp : undefined,
+      distance_m: distance,
+      time_s: time,
+      pace_s_per_km: pace,
+    }];
+  });
+};
+
 const toNumber = (value: unknown, fallback = 0) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -165,12 +301,16 @@ const normalizeSegment = (value: unknown, index: number): ActivitySegmentSplits 
 export const normalizeActivitySplits = (activity: unknown): {
   segments: ActivitySegmentSplits[];
   extra: ActivityExtraSplits | null;
+  laps: ActivityLapRecord[];
 } => {
   const source = activity && typeof activity === 'object' && 'data' in activity
     ? (activity as { data?: unknown }).data
     : activity;
   const value = source && typeof source === 'object' ? source as Record<string, unknown> : {};
-  const splitDistanceMeters = SPLIT_DISTANCE_METERS;
+  const configuredSplitDistance = toNumber(value.split_distance_m, SPLIT_DISTANCE_METERS);
+  const splitDistanceMeters = configuredSplitDistance > 0
+    ? configuredSplitDistance
+    : SPLIT_DISTANCE_METERS;
   const normalizedSegments = Array.isArray(value.segments)
     ? value.segments.map((segment, index) => normalizeSegment(segment, index)).filter((segment): segment is ActivitySegmentSplits => segment !== null)
     : [];
@@ -188,41 +328,87 @@ export const normalizeActivitySplits = (activity: unknown): {
       })
       .filter((split): split is ActivitySplit => split !== null)
     : [];
+  const manualLapSplits = Array.isArray(value.lap_events)
+    ? value.lap_events
+      .map((event, index) => {
+        if (!event || typeof event !== 'object') return null;
+        const lapEvent = event as Record<string, unknown>;
+        return normalizeSplit({
+          split_number: lapEvent.split_number ?? lapEvent.event_number ?? index + 1,
+          distance_m: lapEvent.distance_m,
+          time_s: lapEvent.time_s,
+          pace_s_per_km: lapEvent.pace_s_per_km,
+        }, index);
+      })
+      .filter((split): split is ActivitySplit => split !== null)
+    : [];
   const activityPoints = getActivityPoints(value);
   const generatedActivitySplits = createSplitsFromGpsPoints(activityPoints.filter((point) => !point.is_extra_distance), splitDistanceMeters);
   const generatedExtraSplits = createSplitsFromGpsPoints(activityPoints.filter((point) => point.is_extra_distance), splitDistanceMeters);
-  const segmentsWithGeneratedSplits = normalizedSegments.map((segment) => {
+  const runSegmentIndex = normalizedSegments.findIndex((segment) => segment.type === 'RUN');
+  const segmentsWithGeneratedSplits = normalizedSegments.map((segment, index) => {
     const generatedSplits = segment.gps_points
       ? createSplitsFromGpsPoints(segment.gps_points, splitDistanceMeters)
       : [];
+    const manualSplits = index === runSegmentIndex ? manualLapSplits : [];
+    const splits = segment.splits.length > 0
+      ? segment.splits
+      : manualSplits.length > 0
+        ? manualSplits
+        : generatedSplits;
+    const manualDistance = manualSplits.reduce((total, split) => total + split.distance_m, 0);
+    const manualTime = manualSplits.reduce((total, split) => total + split.time_s, 0);
     return {
       ...segment,
+      completed_distance_m: segment.completed_distance_m ?? (manualDistance > 0 ? manualDistance : undefined),
+      actual_time_s: segment.actual_time_s ?? (manualTime > 0 ? manualTime : undefined),
+      actual_pace_s_per_km: segment.actual_pace_s_per_km
+        ?? (manualDistance > 0 ? manualTime / (manualDistance / 1000) : undefined),
       splits: isRecovery(segment.type)
         ? []
-        : segment.splits.length > 0 ? segment.splits : generatedSplits,
+        : splits,
     };
   });
   const extraSegment = segmentsWithGeneratedSplits.find((segment) => segment.type === 'EXTRA')
     ?? normalizeSegment(value.extra, normalizedSegments.length + 1);
   const segments = segmentsWithGeneratedSplits.filter((segment) => segment.type !== 'EXTRA');
-  if (segments.length === 0 && lapSplits.length > 0) {
+  if (segments.length === 0 && manualLapSplits.length > 0) {
+    const manualDistance = manualLapSplits.reduce((total, split) => total + split.distance_m, 0);
+    const manualTime = manualLapSplits.reduce((total, split) => total + split.time_s, 0);
     segments.push({
       sequence: 1,
       type: 'RUN',
-      completed_distance_m: lapSplits.reduce((total, split) => total + split.distance_m, 0),
-      actual_time_s: lapSplits.reduce((total, split) => total + split.time_s, 0),
+      completed_distance_m: manualDistance,
+      actual_time_s: manualTime,
+      actual_pace_s_per_km: manualDistance > 0 ? manualTime / (manualDistance / 1000) : undefined,
+      splits: manualLapSplits,
+    });
+  } else if (segments.length === 0 && lapSplits.length > 0) {
+    const lapDistance = lapSplits.reduce((total, split) => total + split.distance_m, 0);
+    const lapTime = lapSplits.reduce((total, split) => total + split.time_s, 0);
+    segments.push({
+      sequence: 1,
+      type: 'RUN',
+      completed_distance_m: lapDistance,
+      actual_time_s: lapTime,
+      actual_pace_s_per_km: lapDistance > 0 ? lapTime / (lapDistance / 1000) : undefined,
       splits: lapSplits,
     });
   } else if (segments.length === 0 && generatedActivitySplits.length > 0) {
+    const generatedDistance = generatedActivitySplits.reduce((total, split) => total + split.distance_m, 0);
+    const generatedTime = generatedActivitySplits.reduce((total, split) => total + split.time_s, 0);
     segments.push({
       sequence: 1,
       type: 'RUN',
-      completed_distance_m: generatedActivitySplits.reduce((total, split) => total + split.distance_m, 0),
+      completed_distance_m: generatedDistance,
+      actual_time_s: generatedTime,
+      actual_pace_s_per_km: generatedDistance > 0 ? generatedTime / (generatedDistance / 1000) : undefined,
       splits: generatedActivitySplits,
     });
   }
   return {
     segments,
+    laps: normalizeLapRecords(value),
     extra: extraSegment && (extraSegment.splits.length > 0 || generatedExtraSplits.length > 0)
       ? {
         id: extraSegment.id,

@@ -10,22 +10,23 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { RunningLoader } from './common/RunningLoader';
 import { useTheme, type ThemeColors } from '../contexts/ThemeContext';
-import { ActivitySegmentSplits, ActivitySplit } from '../src/types/activity';
+import { ActivityLapRecord, ActivitySegmentSplits, ActivitySplit } from '../src/types/activity';
 import {
-  formatDistanceValueFromMeters,
-  formatPaceValueFromSecondsPerKm,
-  formatSplitDistanceValue,
+    formatDistanceValueFromMeters,
+    formatPaceValueFromSecondsPerKm,
+    formatSplitDistanceValue,
 } from '../src/utils/activityUnitFormatters';
 import { formatSplitTime } from '../src/utils/splitFormatters';
 import { getDistanceUnitCode, getDistanceUnitDisplayLabel } from '../utils/distanceUnit';
+import { RunningLoader } from './common/RunningLoader';
 
 interface ActivitySplitsModalProps {
   visible: boolean;
   loading: boolean;
   error: string | null;
   segments: ActivitySegmentSplits[];
+  laps: ActivityLapRecord[];
   extraSplits: ActivitySplit[];
   extraDistanceMeters?: number | null;
   distanceUnit?: string | null;
@@ -94,6 +95,7 @@ export default function ActivitySplitsModal({
   loading,
   error,
   segments,
+  laps,
   extraSplits,
   extraDistanceMeters,
   distanceUnit,
@@ -166,7 +168,7 @@ export default function ActivitySplitsModal({
               <Text style={[styles.retryText, { color: colors.primaryText }]}>Retry</Text>
             </TouchableOpacity>
           </View>
-        ) : allSegments.length === 0 ? (
+        ) : allSegments.length === 0 && laps.length === 0 ? (
           <View style={styles.state}>
             <Text style={[styles.stateText, { color: colors.textSecondary }]}>No split data available for this activity.</Text>
           </View>
@@ -174,7 +176,9 @@ export default function ActivitySplitsModal({
           <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
             <View style={styles.overviewHeader}>
               <Text style={[styles.workoutTitle, { color: colors.text }]}>Workout Breakdown</Text>
-              <Text style={[styles.segmentCount, { color: colors.textSecondary }]}>{displaySegments.length} segments</Text>
+              <Text style={[styles.segmentCount, { color: colors.textSecondary }]}>
+                {displaySegments.length} segments{laps.length > 0 ? ` · ${laps.length} laps` : ''}
+              </Text>
             </View>
             <View style={styles.summaryRow}>
               <SegmentMetric compact highlighted label={`Distance (${distanceLabel})`} value={formatDistanceValueFromMeters(totalDistance, distanceUnit)} />
@@ -182,6 +186,34 @@ export default function ActivitySplitsModal({
                 <SegmentMetric compact label={`Extra (${distanceLabel})`} value={formatDistanceValueFromMeters(extraDistance, distanceUnit)} />
               )}
             </View>
+            {laps.length > 0 && (
+              <View style={[styles.lapCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[styles.splitsTitle, { color: colors.primary, marginTop: 0 }]}>Laps</Text>
+                <View style={[styles.splitHeaderRow, { borderBottomColor: colors.border }]}>
+                  <Text style={[styles.splitHeader, styles.splitLabelColumn, { color: colors.textSecondary }]}>Lap</Text>
+                  <Text style={[styles.splitHeader, styles.splitDistanceColumn, { color: colors.textSecondary }]}>Distance ({distanceLabel})</Text>
+                  <Text style={[styles.splitHeader, styles.splitTimeColumn, { color: colors.textSecondary }]}>Time</Text>
+                  <Text style={[styles.splitHeader, styles.splitPaceColumn, { color: colors.textSecondary }]}>Pace ({paceLabel})</Text>
+                </View>
+                {laps.map((lap, index) => (
+                  <View
+                    key={`lap-${lap.sequence}-${index}`}
+                    style={[styles.splitRow, index < laps.length - 1 && { borderBottomColor: colors.border }]}
+                  >
+                    <Text style={[styles.splitValue, styles.splitLabelColumn, styles.splitNumber, { color: colors.primary }]}>{lap.label}</Text>
+                    <Text style={[styles.splitValue, styles.splitDistanceColumn, { color: colors.text }]}>
+                      {formatMetric(lap.distance_m, (value) => formatDistanceValueFromMeters(value, distanceUnit))}
+                    </Text>
+                    <Text style={[styles.splitValue, styles.splitTimeColumn, { color: colors.text }]}>
+                      {formatMetric(lap.time_s, formatSplitTime)}
+                    </Text>
+                    <Text style={[styles.splitValue, styles.splitPaceColumn, { color: colors.textSecondary }]}>
+                      {formatMetric(lap.pace_s_per_km, (value) => formatPaceValueFromSecondsPerKm(value, distanceUnit))}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
             {displaySegments.map(({ segment, recovery }) => {
               const distance = segment.completed_distance_m ?? sumSplits(segment.splits, 'distance_m');
               const time = segment.actual_time_s ?? sumSplits(segment.splits, 'time_s');
@@ -287,6 +319,7 @@ const styles = StyleSheet.create({
   segmentCount: { fontSize: 16, marginTop: 8 },
   summaryRow: { flexDirection: 'row', gap: 10, marginBottom: 22 },
   summaryMetric: { borderRadius: 16, padding: 14, minHeight: 82 },
+  lapCard: { borderRadius: 20, padding: 17, marginBottom: 16, borderWidth: 1 },
   segmentCard: { borderRadius: 20, padding: 17, marginBottom: 16, borderWidth: 1 },
   segmentHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   segmentTitle: { fontSize: 22, fontWeight: '700', flex: 1, letterSpacing: 0 },

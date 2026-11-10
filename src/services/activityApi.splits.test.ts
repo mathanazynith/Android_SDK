@@ -20,7 +20,7 @@ describe('normalizeActivitySplits', () => {
     });
 
     const result = normalizeActivitySplits({
-      split_distance_m: 5,
+      split_distance_m: 500,
       segments: [
         { id: 'warmup-1', type: 'WARM_UP', gps_points: [point(0, 0), point(700, 700)] },
         { id: 'run-1', type: 'RUN', gps_points: [point(0, 10), point(700, 710)] },
@@ -63,6 +63,127 @@ describe('normalizeActivitySplits', () => {
       time_s: 61.25,
       pace_s_per_km: 122.62,
     }]);
+  });
+
+  it('uses the saved manual lap events when a RUN segment has no GPS-derived splits', () => {
+    const result = normalizeActivitySplits({
+      split_distance_m: 1000,
+      segments: [{
+        sequence: 1,
+        type: 'RUN',
+        completed_distance_m: 0,
+        actual_time_s: 0,
+        gps_points: [],
+        splits: [],
+      }],
+      lap_events: [{
+        event_number: 1,
+        timestamp: '2026-11-10T05:35:00.000Z',
+        split_number: 1,
+        distance_m: 1000,
+        time_s: 300,
+        pace_s_per_km: 300,
+      }],
+    });
+
+    expect(result.segments).toHaveLength(1);
+    expect(result.segments[0]?.completed_distance_m).toBe(1000);
+    expect(result.segments[0]?.actual_time_s).toBe(300);
+    expect(result.segments[0]?.splits).toEqual([{
+      split_number: 1,
+      distance_m: 1000,
+      time_s: 300,
+      pace_s_per_km: 300,
+    }]);
+  });
+
+  it('keeps timestamp-only lap events visible as laps without inventing distance', () => {
+    const result = normalizeActivitySplits({
+      activity_type: 'RUN',
+      start_time: '2026-11-02T01:11:07Z',
+      end_time: '2026-11-02T02:01:53Z',
+      gps_points: [{
+        latitude: 13.0827,
+        longitude: 80.2707,
+        timestamp: '2026-11-02T01:11:08Z',
+      }],
+      lap_events: [
+        { event_number: 1, timestamp: '2026-11-02T01:20:30Z' },
+        { event_number: 2, timestamp: '2026-11-02T01:31:00Z' },
+      ],
+    });
+
+    expect(result.laps).toHaveLength(2);
+    expect(result.laps.map((lap) => lap.label)).toEqual(['Lap 1', 'Lap 2']);
+    expect(result.laps[0]?.time_s).toBe(563);
+    expect(result.laps[1]?.time_s).toBe(630);
+    expect(result.laps[0]?.distance_m).toBeUndefined();
+    expect(result.laps[0]?.pace_s_per_km).toBeUndefined();
+  });
+
+  it('subtracts paused time from timestamp-only manual lap duration', () => {
+    const result = normalizeActivitySplits({
+      start_time: '2026-11-02T01:11:07Z',
+      end_time: '2026-11-02T02:01:53Z',
+      gps_points: [{ latitude: 13.0827, longitude: 80.2707, timestamp: '2026-11-02T01:11:08Z' }],
+      lap_events: [{ event_number: 1, timestamp: '2026-11-02T01:31:00Z' }],
+      pause_events: [{
+        sequence: 1,
+        paused_at: '2026-11-02T01:25:00Z',
+        resumed_at: '2026-11-02T01:26:00Z',
+        duration_s: 60,
+      }],
+    });
+
+    expect(result.laps[0]?.time_s).toBe(1_133);
+  });
+
+  it('prefers complete backend lap records while retaining generated split rows', () => {
+    const result = normalizeActivitySplits({
+      split_distance_m: 1000,
+      start_time: '2026-11-02T01:11:07Z',
+      laps: [{
+        segment_order: 1,
+        segment_type: 'Run',
+        repeat_number: 1,
+        total_repeats: 2,
+        distance_meters: 1000,
+        duration_seconds: 300,
+        pace_seconds_per_km: 300,
+      }],
+      lap_events: [{ event_number: 1, timestamp: '2026-11-02T01:20:30Z' }],
+      gps_points: [
+        { latitude: 0, longitude: 0, timestamp: '2026-11-02T01:11:07Z' },
+        { latitude: 0, longitude: 0.01, timestamp: '2026-11-02T01:20:30Z' },
+      ],
+    });
+
+    expect(result.laps).toEqual([{
+      sequence: 1,
+      label: 'Run 1/2',
+      distance_m: 1000,
+      time_s: 300,
+      pace_s_per_km: 300,
+    }]);
+    expect(result.segments[0]?.splits.length).toBeGreaterThan(0);
+  });
+
+  it('uses a backend-provided split distance for GPS estimates', () => {
+    const metresToLongitude = (metres: number) => metres / (6_371_000 * Math.PI / 180);
+    const result = normalizeActivitySplits({
+      split_distance_m: 1000,
+      segments: [{
+        sequence: 1,
+        type: 'RUN',
+        gps_points: [
+          { latitude: 0, longitude: 0, timestamp: '2026-01-01T00:00:00Z' },
+          { latitude: 0, longitude: metresToLongitude(1500), timestamp: '2026-01-01T00:15:00Z' },
+        ],
+      }],
+    });
+
+    expect(result.segments[0]?.splits[0]?.distance_m).toBe(1000);
+    expect(result.segments[0]?.splits[1]?.distance_m).toBeCloseTo(500, 5);
   });
 
   it('maps EXTRA segments into the separate extra split section', () => {

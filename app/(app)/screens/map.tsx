@@ -45,7 +45,6 @@ import {
   removePendingWorkoutRecovery,
 } from '../../../src/services/pendingWorkoutRecoveries';
 import { RunningApiClient } from '../../../src/services/runningApi';
-import { DistanceSplitEngine } from '../../../src/services/splitEngine';
 import { DistanceSplitEngine, type CompletedLiveSplit } from '../../../src/services/splitEngine';
 import { StepDetectionService } from '../../../src/services/stepDetectionService';
 import voiceCoach from '../../../src/services/voiceCoach';
@@ -54,20 +53,20 @@ import { WorkoutVoiceService } from '../../../src/services/workoutVoiceService';
 import { SPLIT_DISTANCE_METERS } from '../../../src/types/activity';
 import { ActivityExtraPayload, ActivityGpsPointPayload, ActivityLapEventPayload, ActivityLapPayload, ActivityPauseEventPayload, ActivityRecoveryPayload, ActivitySegmentPayload, ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
 import { BackendWorkout, WorkoutEngineSnapshot } from '../../../src/types/workout';
+import { calculateMovingPaceMinutesPerKm } from '../../../src/utils/activeRunMetrics';
 import { isReliableRoutePoint } from '../../../src/utils/activityRouteGroups';
 import {
   formatDistanceFromMeters,
   formatPaceFromSecondsPerKm,
 } from '../../../src/utils/activityUnitFormatters';
+import { createCatmullRomPolyline } from '../../../src/utils/catmullRom';
 import { calculateDistanceMeters } from '../../../src/utils/distance';
-import { calculateMovingPaceMinutesPerKm } from '../../../src/utils/activeRunMetrics';
 import { decodePolyline } from '../../../src/utils/polylineDecoder';
 import {
   calculateAcceptedRouteDistance,
   calculateRouteDistanceBreakdown,
   filterRoutePointsByMaximumJump,
 } from '../../../src/utils/routeDistance';
-import { createCatmullRomPolyline } from '../../../src/utils/catmullRom';
 import { formatStepTarget, WorkoutExecutionStep } from '../../../src/utils/workoutPlanBuilder';
 
 const formatTimerDisplay = (totalSec: number) => {
@@ -1217,12 +1216,20 @@ export default function MapScreen() {
     const split = splitEngineRef.current.markSplit(pressedAt);
     if (!split) {
       addLog('Volume split ignored: no accepted distance since the last split');
+      Alert.alert(
+        'Split not recorded',
+        'Move far enough for GPS to record distance before marking a manual split.',
+      );
       return;
     }
     setLastManualSplit(split);
     lapEventsRef.current.push({
       event_number: lapEventsRef.current.length + 1,
       timestamp: new Date(pressedAt).toISOString(),
+      split_number: split.splitNumber,
+      distance_m: split.distanceMeters,
+      time_s: split.timeSeconds,
+      pace_s_per_km: split.paceSecondsPerKm,
     });
     void workoutVoiceRef.current?.splitCompleted(split.distanceMeters);
     addLog(`Manual split ${split.splitNumber}: ${split.distanceMeters.toFixed(1)}m`);
@@ -2162,11 +2169,6 @@ export default function MapScreen() {
     autoResumeActionRef.current = () => { void triggerAutoResume(); };
   }, [triggerAutoPause, triggerAutoResume]);
 
-  const stopRun = async ({
-    discard = false,
-    fromRecoveryReview = false,
-    recoveryId,
-  }: { discard?: boolean; fromRecoveryReview?: boolean; recoveryId?: string } = {}) => {
   useEffect(() => {
     if (!isRunning || isPaused || !pauseSettingsLoaded || !autoPauseEnabled) return;
 
@@ -2192,6 +2194,12 @@ export default function MapScreen() {
 
     return () => clearInterval(timer);
   }, [autoPauseEnabled, isPaused, isRunning, pauseSettingsLoaded]);
+
+  const stopRun = async ({
+    discard = false,
+    fromRecoveryReview = false,
+    recoveryId,
+  }: { discard?: boolean; fromRecoveryReview?: boolean; recoveryId?: string } = {}) => {
     if (isStoppingRef.current) {
       console.warn('[SaveLifecycle] SAVE_ALREADY_IN_PROGRESS; DUPLICATE_SAVE_BLOCKED', {
         runId: runIdRef.current,
@@ -2662,6 +2670,37 @@ export default function MapScreen() {
             gps_points: extraPoints,
           }
           : null;
+        const manualRunSplits = lapEventsRef.current
+          .map((event, index) => ({
+            split_number: event.split_number ?? event.event_number ?? index + 1,
+            distance_m: Number(event.distance_m),
+            time_s: Number(event.time_s),
+            pace_s_per_km: Number(event.pace_s_per_km),
+          }))
+          .filter((split) => Number.isFinite(split.distance_m) && split.distance_m > 0
+            && Number.isFinite(split.time_s) && split.time_s >= 0
+            && Number.isFinite(split.pace_s_per_km) && split.pace_s_per_km >= 0);
+        if (manualRunSplits.length > 0) {
+          const runSegmentIndex = segmentPayloads.findIndex((segment) => segment.type === 'RUN');
+          if (runSegmentIndex >= 0) {
+            const runSegment = segmentPayloads[runSegmentIndex];
+            if (!runSegment.splits?.length) {
+              segmentPayloads[runSegmentIndex] = { ...runSegment, splits: manualRunSplits };
+            }
+          } else if (segmentPayloads.length === 0) {
+            segmentPayloads.push({
+              sequence: 1,
+              type: 'RUN',
+              planned_distance_m: 0,
+              planned_time_s: 0,
+              completed_distance_m: workoutDistance,
+              actual_time_s: movingTimePayloadSeconds,
+              actual_pace_s_per_km: paceSecondsPerKm,
+              gps_points: submittedRoutePoints.map((point) => pointPayload(point, isExtraDistancePoint(point))),
+              splits: manualRunSplits,
+            });
+          }
+        }
         const iosStyleActivityPayload: ActivitySubmissionPayload = {
           gps_points: submittedRoutePoints
             .map((point) => pointPayload(point, isExtraDistancePoint(point))),
@@ -3103,7 +3142,7 @@ export default function MapScreen() {
         'Save this workout to your history, or discard it without saving?',
         [
           {
-            text: 'Discard…',
+            text: 'Discard',
             style: 'destructive',
             onPress: showDiscardConfirmation,
           },
