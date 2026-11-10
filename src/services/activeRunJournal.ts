@@ -44,6 +44,16 @@ export const beginActiveRunJournal = async (runId: string, startedAt: string): P
   return writeChain;
 };
 
+export const restoreActiveRunJournal = async (journal: ActiveRunJournal): Promise<void> => {
+  writeChain = writeChain.then(() => save({
+    ...journal,
+    active: true,
+    points: [...journal.points],
+    pausePoints: [...(journal.pausePoints ?? [])],
+  }));
+  return writeChain;
+};
+
 export const appendActiveRunPoints = async (points: RawGpsPayload[]): Promise<void> => {
   writeChain = writeChain.then(async () => {
     const journal = await readActiveRunJournal();

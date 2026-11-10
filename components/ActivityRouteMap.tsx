@@ -15,6 +15,7 @@ import {
 } from '../src/utils/activityUnitFormatters';
 import { buildActivityRouteGroups, mergeActivityRouteGroups } from '../src/utils/activityRouteGroups';
 import { decodePolyline } from '../src/utils/polylineDecoder';
+import { createCatmullRomPolyline } from '../src/utils/catmullRom';
 
 export interface ActivityMapStats {
   distance?: number;
@@ -85,6 +86,9 @@ const routeSimplifier = new RdpSimplifier();
 const simplifyRouteForDisplay = (points: RouteCoordinate[]) => routeSimplifier.simplifyPreservingTurns(
   points,
   getGpsOptimizationConfig().livePolylineJitterToleranceMeters,
+);
+const smoothRecordedRouteForDisplay = (points: RouteCoordinate[]) => createCatmullRomPolyline(
+  simplifyRouteForDisplay(points),
 );
 const ROUTE_OVERLAP_TOLERANCE_METERS = 8;
 
@@ -225,7 +229,7 @@ function ActivityRouteMap({
   }, [cropEndIndex, cropStartIndex, routePoints]);
 
   const smoothedVisibleRoutePoints = useMemo(
-    () => simplifyRouteForDisplay(visibleRoutePoints),
+    () => smoothRecordedRouteForDisplay(visibleRoutePoints),
     [visibleRoutePoints],
   );
   const smoothedPlannedRoutePoints = useMemo(
@@ -233,7 +237,7 @@ function ActivityRouteMap({
     [plannedRoutePoints],
   );
   const smoothedExtraRoutePoints = useMemo(
-    () => simplifyRouteForDisplay(extraRoutePoints),
+    () => smoothRecordedRouteForDisplay(extraRoutePoints),
     [extraRoutePoints],
   );
   const smoothedSavedRouteGroups = useMemo(
@@ -241,7 +245,7 @@ function ActivityRouteMap({
       .filter((group) => group.coordinates.length >= 2)
       .map((group) => ({
         type: group.type,
-        coordinates: simplifyRouteForDisplay(group.coordinates),
+        coordinates: smoothRecordedRouteForDisplay(group.coordinates),
       })),
     [displaySavedRouteGroups],
   );
@@ -258,10 +262,10 @@ function ActivityRouteMap({
       const coordinates = routePoints.length >= 2
         ? smoothedVisibleRoutePoints
         : backendRunningRouteGroups.flat();
-      return coordinates.length >= 2 ? [simplifyRouteForDisplay(coordinates)] : [];
+      return coordinates.length >= 2 ? [smoothRecordedRouteForDisplay(coordinates)] : [];
     }
     if (backendRunningRouteGroups.length > 0) {
-      return backendRunningRouteGroups.map(simplifyRouteForDisplay);
+      return backendRunningRouteGroups.map(smoothRecordedRouteForDisplay);
     }
     if (plannedRoutePoints.length >= 2 || extraRoutePoints.length >= 2) return [];
     return smoothedVisibleRoutePoints.length >= 2 ? [smoothedVisibleRoutePoints] : [];

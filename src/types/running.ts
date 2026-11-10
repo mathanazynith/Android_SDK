@@ -90,11 +90,17 @@ export interface ActivitySubmissionPayload {
   avg_pace: number;
   pace_seconds_per_km: number;
   laps?: ActivityLapPayload[];
+  lap_events?: ActivityLapEventPayload[];
   segments?: ActivitySegmentPayload[];
   extra?: ActivityExtraPayload | null;
   pause_events?: ActivityPauseEventPayload[];
   pause_count?: number;
   paused_time_s?: number;
+}
+
+export interface ActivityLapEventPayload {
+  event_number: number;
+  timestamp: string;
 }
 
 export interface ActivityPauseEventPayload {

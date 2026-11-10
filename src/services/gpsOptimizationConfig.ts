@@ -23,6 +23,9 @@ export interface GpsOptimizationConfig {
   /** Minimum movement (meters) before adding a point to the live display route */
   liveDisplayThresholdMeters: number;
 
+  /** Minimum movement (meters) between native location callbacks */
+  locationUpdateDistanceMeters: number;
+
   /** Maximum cross-track deviation (meters) treated as visual GPS jitter */
   livePolylineJitterToleranceMeters: number;
 
@@ -111,6 +114,7 @@ export const DEFAULT_GPS_OPTIMIZATION_CONFIG: GpsOptimizationConfig = {
   maxAccuracyMetersSave: 50,        // Save filtering: consistent with live
   minMovementDistanceMeters: 0.5,   // Any movement above GPS noise floor
   liveDisplayThresholdMeters: 1.5,
+  locationUpdateDistanceMeters: 3,  // Match iOS route-quality sampling
   livePolylineJitterToleranceMeters: 1,
   maxReasonableSpeedMetersPerSecond: 16, // ~57 km/h, reasonable for running
   maxJumpDistanceMeters: 50,        // Match the live route's maximum accepted hop

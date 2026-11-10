@@ -4,14 +4,14 @@ import * as Device from 'expo-device';
 import * as Location from 'expo-location';
 import { useFocusEffect, useLocalSearchParams, usePathname, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, BackHandler, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, BackHandler, Linking, NativeEventEmitter, NativeModules, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import { usePauseSettings } from '../../../contexts/PauseSettingsContext';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useAuth } from '../../../service/auth';
 import { workoutPlanService } from '../../../service/workoutPlan';
-import { beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal } from '../../../src/services/activeRunJournal';
+import { beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal, restoreActiveRunJournal } from '../../../src/services/activeRunJournal';
 import { ActivityDetectionService } from '../../../src/services/activityDetectionService';
 import { activityDistanceOverrides } from '../../../src/services/activityDistanceOverrides';
 import { activityTimingOverrides } from '../../../src/services/activityTimingOverrides';
@@ -46,12 +46,13 @@ import {
 } from '../../../src/services/pendingWorkoutRecoveries';
 import { RunningApiClient } from '../../../src/services/runningApi';
 import { DistanceSplitEngine } from '../../../src/services/splitEngine';
+import { DistanceSplitEngine, type CompletedLiveSplit } from '../../../src/services/splitEngine';
 import { StepDetectionService } from '../../../src/services/stepDetectionService';
 import voiceCoach from '../../../src/services/voiceCoach';
 import { WorkoutEngine } from '../../../src/services/workoutEngine';
 import { WorkoutVoiceService } from '../../../src/services/workoutVoiceService';
 import { SPLIT_DISTANCE_METERS } from '../../../src/types/activity';
-import { ActivityExtraPayload, ActivityGpsPointPayload, ActivityLapPayload, ActivityPauseEventPayload, ActivityRecoveryPayload, ActivitySegmentPayload, ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
+import { ActivityExtraPayload, ActivityGpsPointPayload, ActivityLapEventPayload, ActivityLapPayload, ActivityPauseEventPayload, ActivityRecoveryPayload, ActivitySegmentPayload, ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
 import { BackendWorkout, WorkoutEngineSnapshot } from '../../../src/types/workout';
 import { isReliableRoutePoint } from '../../../src/utils/activityRouteGroups';
 import {
@@ -66,6 +67,7 @@ import {
   calculateRouteDistanceBreakdown,
   filterRoutePointsByMaximumJump,
 } from '../../../src/utils/routeDistance';
+import { createCatmullRomPolyline } from '../../../src/utils/catmullRom';
 import { formatStepTarget, WorkoutExecutionStep } from '../../../src/utils/workoutPlanBuilder';
 
 const formatTimerDisplay = (totalSec: number) => {
@@ -175,7 +177,10 @@ type MovementState = 'STATIONARY' | 'STARTING' | 'MOVING' | 'STOPPING';
 
 const MOVEMENT_CONFIRMATION_SAMPLES = 3;
 const STATIONARY_CONFIRMATION_SAMPLES = 3;
+const STATIONARY_CONFIRMATION_DURATION_MS = 8_000;
 const AUTO_PAUSE_STATIONARY_DURATION_MS = 5_000;
+const AUTO_PAUSE_GRACE_DURATION_MS = 8_000;
+const STEP_MOVEMENT_EVIDENCE_WINDOW_MS = 5_000;
 const WORKOUT_CHECKPOINT_STALE_AFTER_MS = 30_000;
 // A 30m GPS radius is too large for indoor distance: the displayed point can
 // be several rooms away from the user. Reject low-confidence fixes before
@@ -185,7 +190,7 @@ const MAX_MOVEMENT_ACCURACY_METERS = 15;
 // Require a displacement outside the fix's uncertainty, and meaningful speed,
 // before a live sample can confirm movement.
 const MIN_MOVEMENT_DISTANCE_METERS = 3;
-const MIN_MOVEMENT_SPEED_METERS_PER_SECOND = 0.8;
+const MIN_MOVEMENT_SPEED_METERS_PER_SECOND = 0.6;
 const ROUTE_ON_DISTANCE_METERS = 20;
 const ROUTE_WARNING_DISTANCE_METERS = 75;
 
@@ -321,6 +326,7 @@ export default function MapScreen() {
   const [routeSegments, setRouteSegments] = useState<RouteSegment[]>([]);
   const [distance, setDistance] = useState(0);
   const [workoutDistance, setWorkoutDistance] = useState(0);
+  const [lastManualSplit, setLastManualSplit] = useState<CompletedLiveSplit | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [accuracy, setAccuracy] = useState<number | null>(null);
   const [isPaused, setIsPaused] = useState(false);
@@ -370,6 +376,7 @@ export default function MapScreen() {
   const autoPauseEnabledRef = useRef(false);
   const voiceAlertsEnabledRef = useRef(false);
   const lastMovementTimestampRef = useRef<number | null>(null);
+  const autoPauseGraceUntilRef = useRef(0);
   const autoPauseActionRef = useRef<() => void>(() => {});
   const autoResumeActionRef = useRef<() => void>(() => {});
   const stepCountRef = useRef(0);
@@ -378,10 +385,12 @@ export default function MapScreen() {
   const movementStateRef = useRef<MovementState>('STATIONARY');
   const consecutiveMovementRef = useRef(0);
   const consecutiveStationaryRef = useRef(0);
+  const stationaryCandidateStartedAtRef = useRef<number | null>(null);
   const resumeMovementPendingRef = useRef(false);
   const workoutEngineRef = useRef<WorkoutEngine | null>(null);
   const workoutVoiceRef = useRef<WorkoutVoiceService | null>(null);
   const splitEngineRef = useRef(new DistanceSplitEngine());
+  const lapEventsRef = useRef<ActivityLapEventPayload[]>([]);
   const previousWorkoutPointRef = useRef<RunningGpsPoint | null>(null);
   const routeSegmentsRef = useRef<RouteSegment[]>([]);
   const pauseEventsRef = useRef<PauseEvent[]>([]);
@@ -411,6 +420,7 @@ export default function MapScreen() {
       movementStateRef.current = 'STATIONARY';
       consecutiveMovementRef.current = 0;
       consecutiveStationaryRef.current = 0;
+      stationaryCandidateStartedAtRef.current = null;
       resumeMovementPendingRef.current = true;
       void persistBackgroundLocationSession({
         active: true,
@@ -692,6 +702,9 @@ export default function MapScreen() {
 
   useEffect(() => {
     return () => {
+      if (Platform.OS === 'android') {
+        void NativeModules.WorkoutVolumeSplit?.setEnabled(false);
+      }
       isRunningRef.current = false;
       if (locationSubscription.current) {
         locationSubscription.current.remove();
@@ -884,7 +897,7 @@ export default function MapScreen() {
       const detectedActivity = activityDetection?.getCurrentActivity() ?? 'unknown';
       const hasDetectedMovement = detectedActivity === 'walking' || detectedActivity === 'running';
       const hasRecentStepEvidence = lastStepTimestampRef.current !== null
-        && timestamp - lastStepTimestampRef.current <= 5_000;
+        && timestamp - lastStepTimestampRef.current <= STEP_MOVEMENT_EVIDENCE_WINDOW_MS;
       const previousPointDistance = previousLocationRef.current
         ? calculateDistanceMeters(previousLocationRef.current, effectiveGps)
         : 0;
@@ -920,6 +933,7 @@ export default function MapScreen() {
         && (fromDurableJournal || hasMotionEvidence || hasExplicitResumeMovement);
       const isLiveMovementSample = !fromDurableJournal || fromBackgroundTask;
       if (hasMovementObservation) {
+        stationaryCandidateStartedAtRef.current = null;
         if (isLiveMovementSample && capturedPaused !== true) {
           lastMovementTimestampRef.current = timestamp;
         }
@@ -943,6 +957,9 @@ export default function MapScreen() {
         }
       } else {
         if (!resumeMovementPendingRef.current) consecutiveMovementRef.current = 0;
+        if (stationaryCandidateStartedAtRef.current === null) {
+          stationaryCandidateStartedAtRef.current = timestamp;
+        }
         consecutiveStationaryRef.current += 1;
         if (movementStateRef.current === 'MOVING') {
           movementStateRef.current = 'STOPPING';
@@ -950,6 +967,7 @@ export default function MapScreen() {
         if (
           (movementStateRef.current === 'STARTING' || movementStateRef.current === 'STOPPING')
           && consecutiveStationaryRef.current >= STATIONARY_CONFIRMATION_SAMPLES
+          && timestamp - stationaryCandidateStartedAtRef.current >= STATIONARY_CONFIRMATION_DURATION_MS
         ) {
           movementStateRef.current = 'STATIONARY';
           if (!movementConfirmedRef.current) movementConfirmedRef.current = false;
@@ -985,6 +1003,7 @@ export default function MapScreen() {
           && movementState === 'STATIONARY'
           && hasGoodAccuracy
           && speed < MIN_MOVEMENT_SPEED_METERS_PER_SECOND
+          && timestamp >= autoPauseGraceUntilRef.current
           && lastMovementTimestampRef.current !== null
           && timestamp - lastMovementTimestampRef.current >= AUTO_PAUSE_STATIONARY_DURATION_MS
         ) {
@@ -1164,6 +1183,8 @@ export default function MapScreen() {
   }, [handleLocationUpdate]);
 
   const startLiveGPS = useCallback(async () => {
+    autoPauseGraceUntilRef.current = Date.now() + AUTO_PAUSE_GRACE_DURATION_MS;
+    stationaryCandidateStartedAtRef.current = null;
     if (locationSubscription.current) {
       locationSubscription.current.remove();
       locationSubscription.current = null;
@@ -1190,6 +1211,39 @@ export default function MapScreen() {
     addLog('?? Live GPS tracking started');
   }, [addLog, handleLocationUpdate, reconcileJournaledPoints]);
 
+  const handleVolumeSplitPress = useCallback(() => {
+    if (!isRunningRef.current || isPausedRef.current) return;
+    const pressedAt = Date.now();
+    const split = splitEngineRef.current.markSplit(pressedAt);
+    if (!split) {
+      addLog('Volume split ignored: no accepted distance since the last split');
+      return;
+    }
+    setLastManualSplit(split);
+    lapEventsRef.current.push({
+      event_number: lapEventsRef.current.length + 1,
+      timestamp: new Date(pressedAt).toISOString(),
+    });
+    void workoutVoiceRef.current?.splitCompleted(split.distanceMeters);
+    addLog(`Manual split ${split.splitNumber}: ${split.distanceMeters.toFixed(1)}m`);
+  }, [addLog]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const nativeModule = NativeModules.WorkoutVolumeSplit;
+    if (!nativeModule) return;
+
+    const emitter = new NativeEventEmitter(nativeModule);
+    const subscription = emitter.addListener('workoutVolumeSplitPressed', handleVolumeSplitPress);
+    return () => subscription.remove();
+  }, [handleVolumeSplitPress]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const nativeModule = NativeModules.WorkoutVolumeSplit;
+    if (!nativeModule) return;
+    void nativeModule.setEnabled(Boolean(isRunning && !isPaused));
+  }, [isPaused, isRunning]);
   useEffect(() => {
     if (!isRunning) return;
     const startedAt = startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null;
@@ -1219,6 +1273,92 @@ export default function MapScreen() {
       startedAt,
     });
   }, [completionPromptVisible, distance, elapsedSeconds, isPaused, isRunning, pace, user?.id]);
+
+  const continueRecoveredWorkout = async () => {
+    const recoveryId = recoveryRouteId;
+    if (!recoveryId || !runIdRef.current || isRunningRef.current || isStartingRef.current) return;
+    isStartingRef.current = true;
+    try {
+      const recovery = await getPendingWorkoutRecovery(recoveryId);
+      if (!recovery || recovery.session.runId !== runIdRef.current) {
+        throw new Error('This saved workout recovery is no longer available.');
+      }
+      const activeSession = await getBackgroundLocationSession();
+      if (activeSession?.active && activeSession.runId !== recoveryId) {
+        throw new Error('Finish or save your current workout before continuing this recovery.');
+      }
+
+      await restoreActiveRunJournal(recovery.journal);
+      const resumedAt = Date.now();
+      const resumedSession = {
+        ...recovery.session,
+        active: true,
+        status: isPausedRef.current ? 'paused' as const : 'active' as const,
+        recoveryReviewRequired: false,
+        updatedAt: resumedAt,
+        distanceKm: recordedDistanceRef.current / 1000,
+        elapsedSeconds,
+        paceMinutesPerKm: calculateMovingPaceMinutesPerKm(elapsedSeconds, recordedDistanceRef.current / 1000),
+      };
+      await persistBackgroundLocationSession(resumedSession);
+      recoveryReviewRequiredRef.current = false;
+
+      const activityDetection = new ActivityDetectionService();
+      activityDetectionRef.current = activityDetection;
+      void activityDetection.start().catch((error) => {
+        console.warn('[MapScreen] Recovered activity monitoring unavailable', error);
+      });
+      const stepDetection = new StepDetectionService();
+      stepDetectionRef.current = stepDetection;
+      void stepDetection.start((steps) => {
+        lastStepTimestampRef.current = Date.now();
+        stepCountRef.current = steps;
+      }).catch((error) => {
+        console.warn('[MapScreen] Recovered pedometer unavailable', error);
+      });
+
+      isRunningRef.current = true;
+      setIsRunning(true);
+      lastMovementTimestampRef.current = isPausedRef.current ? null : resumedAt;
+      await startLiveGPS();
+      recoveredResumeAtRef.current = isPausedRef.current ? null : resumedAt;
+      recoveredPausedBaselineRef.current = pausedTimeRef.current ?? 0;
+      await removePendingWorkoutRecovery(recoveryId);
+      setRecoveryPromptVisible(false);
+      await startLiveTrackingNotification({
+        runId: recoveryId,
+        distanceKm: recordedDistanceRef.current / 1000,
+        elapsedSeconds,
+        paceMinutesPerKm: calculateMovingPaceMinutesPerKm(elapsedSeconds, recordedDistanceRef.current / 1000),
+        status: isPausedRef.current ? 'paused' : 'running',
+        startedAt: resumedSession.startedAt,
+      });
+    } catch (error) {
+      isRunningRef.current = false;
+      setIsRunning(false);
+      recoveryReviewRequiredRef.current = true;
+      setBackgroundLocationListener(undefined);
+      locationSubscription.current?.remove();
+      locationSubscription.current = null;
+      await stopBackgroundLocationTracking().catch((stopError) => {
+        console.warn('[BackgroundLocationTask] Could not stop after recovery continuation failure', stopError);
+      });
+      await flushBackgroundLocationTask();
+      await clearBackgroundLocationSession();
+      await clearActiveRunJournal();
+      activityDetectionRef.current?.stop();
+      activityDetectionRef.current = null;
+      stepDetectionRef.current?.stop();
+      stepDetectionRef.current = null;
+      console.warn('[MapScreen] Could not continue recovered workout', error);
+      Alert.alert(
+        'Could not resume workout',
+        error instanceof Error ? error.message : 'Your checkpoint is still saved. Check location access and try again.',
+      );
+    } finally {
+      isStartingRef.current = false;
+    }
+  };
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
@@ -1545,6 +1685,7 @@ export default function MapScreen() {
       routeSegmentsRef.current = [];
       pauseEventsRef.current = [];
       restoredRunIdRef.current = null;
+      setLastManualSplit(null);
       processedLocationKeysRef.current = new Set();
       setRouteSegments([]);
       setPauseMarkers([]);
@@ -1553,6 +1694,7 @@ export default function MapScreen() {
       recordedDistanceRef.current = 0;
       splitEngineRef.current.reset();
       setWorkoutDistance(0);
+      lapEventsRef.current = [];
       setDistance(0);
       setElapsedSeconds(0);
       stepCountRef.current = 0;
@@ -1934,6 +2076,8 @@ export default function MapScreen() {
       isPausedRef.current = false;
       isAutoPausedRef.current = false;
       lastMovementTimestampRef.current = resumedAt;
+      autoPauseGraceUntilRef.current = resumedAt + AUTO_PAUSE_GRACE_DURATION_MS;
+      stationaryCandidateStartedAtRef.current = null;
       setIsPaused(false);
       if (recoveredElapsedBaseRef.current !== null) {
         recoveredResumeAtRef.current = resumedAt;
@@ -2023,6 +2167,31 @@ export default function MapScreen() {
     fromRecoveryReview = false,
     recoveryId,
   }: { discard?: boolean; fromRecoveryReview?: boolean; recoveryId?: string } = {}) => {
+  useEffect(() => {
+    if (!isRunning || isPaused || !pauseSettingsLoaded || !autoPauseEnabled) return;
+
+    const timer = setInterval(() => {
+      const now = Date.now();
+      const lastMovement = lastMovementTimestampRef.current;
+      const lastStep = lastStepTimestampRef.current;
+      if (
+        !isRunningRef.current
+        || isPausedRef.current
+        || !autoPauseEnabledRef.current
+        || now < autoPauseGraceUntilRef.current
+        || lastMovement === null
+        || now - lastMovement < AUTO_PAUSE_STATIONARY_DURATION_MS
+        || (lastStep !== null && now - lastStep <= STEP_MOVEMENT_EVIDENCE_WINDOW_MS)
+        || workoutEngineRef.current?.getSnapshot().state === 'waiting'
+      ) {
+        return;
+      }
+
+      autoPauseActionRef.current();
+    }, 1_000);
+
+    return () => clearInterval(timer);
+  }, [autoPauseEnabled, isPaused, isRunning, pauseSettingsLoaded]);
     if (isStoppingRef.current) {
       console.warn('[SaveLifecycle] SAVE_ALREADY_IN_PROGRESS; DUPLICATE_SAVE_BLOCKED', {
         runId: runIdRef.current,
@@ -2373,7 +2542,7 @@ export default function MapScreen() {
             .filter((point) => point.timestamp >= interval.startedAt && point.timestamp <= interval.endedAt)
             .map((point) => pointPayload(point, isExtraDistancePoint(point))),
         }));
-        const laps: ActivityLapPayload[] = completedLaps.map((lap) => ({
+        const workoutLaps: ActivityLapPayload[] = completedLaps.map((lap) => ({
           segment_order: lap.segmentOrder,
           segment_type: lap.segmentType,
           repeat_number: lap.repeatNumber,
@@ -2385,6 +2554,7 @@ export default function MapScreen() {
             : null,
           completed: lap.completed,
         }));
+        const laps = workoutLaps;
         const pointsBetween = (start: number, end: number | null, nextStart: number | undefined) => uploadRoutePoints
           .filter((point) => point.timestamp >= start
             && (end === null || point.timestamp <= end)
@@ -2516,6 +2686,7 @@ export default function MapScreen() {
           avg_pace: Number(paceSecondsPerKm.toFixed(2)),
           pace_seconds_per_km: Number(paceSecondsPerKm.toFixed(2)),
           laps,
+          lap_events: lapEventsRef.current,
           segments: segmentPayloads,
           extra: extraPayload,
           pause_events: pauseEventPayload,
@@ -2685,6 +2856,7 @@ export default function MapScreen() {
       workoutVoiceRef.current = null;
       workoutEngineRef.current = null;
       splitEngineRef.current.reset();
+      lapEventsRef.current = [];
       previousWorkoutPointRef.current = null;
       movementStateRef.current = 'STATIONARY';
       consecutiveMovementRef.current = 0;
@@ -2859,6 +3031,49 @@ export default function MapScreen() {
       }
       await removePendingWorkoutRecovery(recoveryId);
       recoveryReviewRequiredRef.current = false;
+      locationSubscription.current?.remove();
+      locationSubscription.current = null;
+      activityDetectionRef.current?.stop();
+      activityDetectionRef.current = null;
+      stepDetectionRef.current?.stop();
+      stepDetectionRef.current = null;
+      workoutVoiceRef.current?.stop();
+      workoutVoiceRef.current = null;
+      workoutEngineRef.current = null;
+      await stopBackgroundLocationTracking();
+      await flushBackgroundLocationTask();
+      await clearBackgroundLocationSession();
+      await clearActiveRunJournal();
+      await stopLiveTrackingNotification();
+
+      startTimeRef.current = null;
+      recoveredElapsedBaseRef.current = null;
+      recoveredResumeAtRef.current = null;
+      recoveredPausedBaselineRef.current = 0;
+      runIdRef.current = null;
+      restoredRunIdRef.current = null;
+      pathProcessorRef.current = null;
+      queueRef.current = null;
+      apiClientRef.current = null;
+      previousLocationRef.current = null;
+      lastRetainedCoordinateRef.current = null;
+      routeSegmentsRef.current = [];
+      pauseEventsRef.current = [];
+      distanceRef.current = 0;
+      extraDistanceRef.current = 0;
+      pausedTimeRef.current = null;
+      pauseStartTimeRef.current = null;
+      isPausedRef.current = false;
+      isAutoPausedRef.current = false;
+      splitEngineRef.current.reset();
+      lapEventsRef.current = [];
+      setRouteSegments([]);
+      setPauseMarkers([]);
+      setDistance(0);
+      setElapsedSeconds(0);
+      setPace(0);
+      setWorkoutSnapshot(null);
+      setIsPlannedWorkout(false);
       router.replace('/(app)/dashboard');
       Alert.alert('Workout Discarded', 'The interrupted workout was removed from your recovery list.');
     } catch (error) {
@@ -3021,7 +3236,9 @@ export default function MapScreen() {
   const renderedRouteSegments = useMemo(
     () => routeSegments.map((segment) => ({
       ...segment,
-      coordinates: PathProcessor.simplifyLivePolyline(segment.coordinates),
+      coordinates: createCatmullRomPolyline(
+        PathProcessor.simplifyLivePolyline(segment.coordinates),
+      ),
     })),
     [routeSegments],
   );
@@ -3186,6 +3403,9 @@ export default function MapScreen() {
                 </View>
               </View>
               <Text style={styles.recoveryPace}>Average pace: {formatPaceDisplay(pace)} min/km</Text>
+              <Pressable style={styles.recoveryStopButton} onPress={() => void continueRecoveredWorkout()}>
+                <Text style={styles.recoveryStopText}>Continue Workout</Text>
+              </Pressable>
               <Pressable
                 style={styles.recoverySaveButton}
                 onPress={() => {
@@ -3526,6 +3746,13 @@ export default function MapScreen() {
                 </View>
                 <Text style={styles.liveMetricStatus}>{isRunning ? (isPaused ? 'PAUSED' : 'LIVE') : controlStatusValue.toUpperCase()}</Text>
               </View>
+              {lastManualSplit ? (
+                <Text style={styles.manualSplitStatus} numberOfLines={1}>
+                  SPLIT {lastManualSplit.splitNumber} · {Math.round(lastManualSplit.distanceMeters)} m
+                </Text>
+              ) : isRunning && Platform.OS === 'android' ? (
+                <Text style={styles.manualSplitHint} numberOfLines={1}>Press either volume button to mark a split</Text>
+              ) : null}
             </View>
 
             <View style={styles.controlActionsRow}>
@@ -4030,6 +4257,8 @@ const styles = StyleSheet.create({
   liveMetricUnit: { color: '#B7C5BA', fontSize: 11, fontWeight: '700' },
   liveMetricDivider: { height: 1, marginVertical: 5, backgroundColor: '#35C72B', shadowColor: '#35C72B', shadowOpacity: 0.9, shadowRadius: 5, shadowOffset: { width: 0, height: 0 } },
   liveMetricStatus: { color: '#35C72B', fontSize: 8, fontWeight: '900', letterSpacing: 0.5, paddingTop: 10 },
+  manualSplitStatus: { color: '#FFFFFF', fontSize: 11, fontWeight: '800', marginTop: 7 },
+  manualSplitHint: { color: '#9BA3AF', fontSize: 9, fontWeight: '700', marginTop: 6 },
   controlStatusValue: { color: '#fff', fontSize: 17, fontWeight: '800' },
   paceStatus: { color: '#FFB800', fontSize: 11, fontWeight: '700', marginTop: 3 },
   startButton: { position: 'absolute', inset: 0, backgroundColor: '#20D000', borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
