@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 import { Platform } from 'react-native';
 import { RawGpsPayload } from '../types/running';
+import { getGpsOptimizationConfig } from './gpsOptimizationConfig';
 
 export class LocationService {
   public static async requestForegroundPermissions(): Promise<boolean> {
@@ -103,11 +104,9 @@ export class LocationService {
     const subscription = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.BestForNavigation,
-        // Match the iOS live-map behaviour: request fresh callbacks while the
-        // user is walking, including indoors. PathProcessor keeps these visual
-        // points separate from the stricter save-time route.
+        // Keep the native watcher aligned with iOS route-quality sampling.
         timeInterval: 1_000,
-        distanceInterval: 0,
+        distanceInterval: getGpsOptimizationConfig().locationUpdateDistanceMeters,
         mayShowUserSettingsDialog: true,
       },
       (location) => {

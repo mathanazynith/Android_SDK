@@ -8,6 +8,7 @@ import { ActivityPauseEventPayload, RawGpsPayload } from '../types/running';
 import { calculateDistanceMeters } from '../utils/distance';
 import { appendActiveRunPoints, appendPausedRunPoints, readActiveRunJournal } from './activeRunJournal';
 import { updateLiveTrackingNotification, WORKOUT_FOREGROUND_NOTIFICATION_ID } from './liveTrackingNotification';
+import { getGpsOptimizationConfig } from './gpsOptimizationConfig';
 
 export const BACKGROUND_LOCATION_TASK_NAME = 'zyrun-background-location-task';
 export const BACKGROUND_LOCATION_SESSION_KEY = 'zyrun:background-location-session';
@@ -199,7 +200,7 @@ export const startBackgroundLocationTracking = async (): Promise<void> => {
   await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME, {
     accuracy: Location.Accuracy.BestForNavigation,
     timeInterval: 1_000,
-    distanceInterval: 0,
+    distanceInterval: getGpsOptimizationConfig().locationUpdateDistanceMeters,
     foregroundService: {
       notificationTitle: 'Zy-Run - Tracking Live',
       notificationBody: `Tap to return to your active run (${WORKOUT_FOREGROUND_NOTIFICATION_ID}).`,
