@@ -29,9 +29,11 @@ describe('activity unit formatters', () => {
   });
 
   it('formats split intervals in the selected distance unit', () => {
-    expect(formatSplitDistance(500, 'km')).toBe('500 m');
+    expect(formatSplitDistance(1000, 'km')).toBe('1 km');
+    expect(formatSplitDistance(500, 'km')).toBe('0.5 km');
     expect(formatSplitDistance(500, 'mile')).toBe('0.31 mi');
-    expect(formatSplitDistanceValue(500, 'km')).toBe('500');
+    expect(formatSplitDistanceValue(1000, 'km')).toBe('1');
+    expect(formatSplitDistanceValue(500, 'km')).toBe('0.5');
     expect(formatSplitDistanceValue(500, 'mile')).toBe('0.31');
   });
 

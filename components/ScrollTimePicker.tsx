@@ -23,27 +23,20 @@ const ITEM_HEIGHT = 50;
 const COMPACT_ITEM_HEIGHT = 46;
 const VISIBLE_ITEMS = 3;
 const SCROLL_VIEW_HEIGHT = ITEM_HEIGHT * VISIBLE_ITEMS;
-export const DEFAULT_TIME_VALUE = '01:00:00';
-
-type TimeAxis = 'hours' | 'minutes' | 'seconds';
-type TimeParts = { hours: number; minutes: number; seconds: number };
-
-const parseTimeComponent = (part: string, maxValue: number) => {
-  const parsed = Number.parseInt(part, 10);
-  return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), maxValue) : 0;
+import {
+  calculateRolloverTime,
+  DEFAULT_TIME_VALUE,
+  formatTimeValue,
+  parseTimeValue,
+  type TimeParts,
+} from '../src/utils/timePickerUtils';
+export {
+  calculateRolloverTime,
+  DEFAULT_TIME_VALUE,
+  formatTimeValue,
+  parseTimeValue,
+  type TimeParts,
 };
-
-const parseTimeValue = (timeValue: string | undefined, maxHours: number, allowEmpty = false): TimeParts => {
-  const parts = String(timeValue || (allowEmpty ? '00:00:00' : DEFAULT_TIME_VALUE)).split(':');
-  return {
-    hours: parseTimeComponent(parts[0] || '0', maxHours),
-    minutes: parseTimeComponent(parts[1] || '0', 59),
-    seconds: parseTimeComponent(parts[2] || '0', 59),
-  };
-};
-
-const formatTimeValue = ({ hours, minutes, seconds }: TimeParts) =>
-  `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 
 const WheelValue = ({
   value,
@@ -76,16 +69,25 @@ const WheelValue = ({
   );
 };
 
+const CYCLE_COUNT = 15;
+const CENTER_CYCLE = Math.floor(CYCLE_COUNT / 2); // 7
+
+interface LoopingItem {
+  index: number;
+  value: number;
+}
+
 /**
  * ScrollTimePicker Component
  *
  * A wheel/picker-style time selector with three scrollable columns:
  * - Hours (0-99)
- * - Minutes (0-59)
- * - Seconds (0-59)
+ * - Minutes (0-59, looping)
+ * - Seconds (0-59, looping)
  *
- * Provides visual feedback with a centered highlight and displays
- * the selected time in HH:MM:SS format below the picker.
+ * Scrolling seconds past 59 wraps to 00 and increments minutes (+1).
+ * Scrolling minutes past 59 wraps to 00 and increments hours (+1).
+ * Hours can also be scrolled independently.
  */
 export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
   label,
@@ -116,15 +118,48 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
     return Array.from({ length: maxHours + 1 }, (_, i) => i);
   }, [maxHours]);
 
-  const minutesArray = useMemo(() => {
-    return Array.from({ length: 60 }, (_, i) => i);
+  const minutesArray = useMemo<LoopingItem[]>(() => {
+    const items: LoopingItem[] = [];
+    for (let cycle = 0; cycle < CYCLE_COUNT; cycle += 1) {
+      for (let min = 0; min < 60; min += 1) {
+        items.push({ index: cycle * 60 + min, value: min });
+      }
+    }
+    return items;
   }, []);
 
-  const secondsArray = useMemo(() => {
-    return Array.from({ length: 60 }, (_, i) => i);
+  const secondsArray = useMemo<LoopingItem[]>(() => {
+    const items: LoopingItem[] = [];
+    for (let cycle = 0; cycle < CYCLE_COUNT; cycle += 1) {
+      for (let sec = 0; sec < 60; sec += 1) {
+        items.push({ index: cycle * 60 + sec, value: sec });
+      }
+    }
+    return items;
   }, []);
 
   const selectedTime = useMemo(() => formatTimeValue(time), [time]);
+
+  // Initial content offset for instantaneous layout on mount
+  const initialTime = useMemo(() => parseTimeValue(value, maxHours, allowEmpty), []);
+  const initialSecondsOffset = useMemo(
+    () => (CENTER_CYCLE * 60 + initialTime.seconds) * itemHeight,
+    [initialTime.seconds, itemHeight]
+  );
+  const initialMinutesOffset = useMemo(
+    () => (CENTER_CYCLE * 60 + initialTime.minutes) * itemHeight,
+    [initialTime.minutes, itemHeight]
+  );
+  const initialHoursOffset = useMemo(
+    () => initialTime.hours * itemHeight,
+    [initialTime.hours, itemHeight]
+  );
+
+  // Position tracking refs
+  const secondsIndexRef = useRef<number>(CENTER_CYCLE * 60 + initialTime.seconds);
+  const minutesIndexRef = useRef<number>(CENTER_CYCLE * 60 + initialTime.minutes);
+  const hoursIndexRef = useRef<number>(initialTime.hours);
+  const isProgrammaticScrollRef = useRef<{ minutes?: boolean; hours?: boolean }>({});
 
   const scrollIndexFromOffset = useCallback((offsetY: number, length: number) => {
     const index = Math.round(offsetY / itemHeight);
@@ -141,29 +176,58 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
     }
   }, [itemHeight]);
 
-  const scrollToMinute = useCallback((targetMinute: number, animated: boolean = true) => {
+  const scrollToMinuteIndex = useCallback((targetIndex: number, animated: boolean = true) => {
     if (minutesScrollRef.current) {
       minutesScrollRef.current.scrollTo({
-        y: Math.max(0, targetMinute * itemHeight),
+        y: Math.max(0, targetIndex * itemHeight),
         animated,
       });
     }
   }, [itemHeight]);
 
-  const scrollToSecond = useCallback((targetSecond: number, animated: boolean = true) => {
+  const scrollToSecondIndex = useCallback((targetIndex: number, animated: boolean = true) => {
     if (secondsScrollRef.current) {
       secondsScrollRef.current.scrollTo({
-        y: Math.max(0, targetSecond * itemHeight),
+        y: Math.max(0, targetIndex * itemHeight),
         animated,
       });
     }
   }, [itemHeight]);
 
   const scrollToTime = useCallback((nextTime: TimeParts, animated = false) => {
+    const secIndex = CENTER_CYCLE * 60 + nextTime.seconds;
+    const minIndex = CENTER_CYCLE * 60 + nextTime.minutes;
+    secondsIndexRef.current = secIndex;
+    minutesIndexRef.current = minIndex;
+    hoursIndexRef.current = nextTime.hours;
+
     scrollToHour(nextTime.hours, animated);
-    scrollToMinute(nextTime.minutes, animated);
-    scrollToSecond(nextTime.seconds, animated);
-  }, [scrollToHour, scrollToMinute, scrollToSecond]);
+    scrollToMinuteIndex(minIndex, animated);
+    scrollToSecondIndex(secIndex, animated);
+  }, [scrollToHour, scrollToMinuteIndex, scrollToSecondIndex]);
+
+  // Silent re-centering to keep infinite scroll bounds around the middle cycle
+  const checkAndRecenter = useCallback((axis: 'seconds' | 'minutes', currentIndex: number, currentValue: number) => {
+    const currentCycle = Math.floor(currentIndex / 60);
+    if (currentCycle < 3 || currentCycle > 11) {
+      const recenteredIndex = CENTER_CYCLE * 60 + currentValue;
+      setTimeout(() => {
+        if (axis === 'seconds') {
+          secondsIndexRef.current = recenteredIndex;
+          secondsScrollRef.current?.scrollTo({
+            y: recenteredIndex * itemHeight,
+            animated: false,
+          });
+        } else {
+          minutesIndexRef.current = recenteredIndex;
+          minutesScrollRef.current?.scrollTo({
+            y: recenteredIndex * itemHeight,
+            animated: false,
+          });
+        }
+      }, 50);
+    }
+  }, [itemHeight]);
 
   // A parent update after a user selection must not reset the wheels. Only
   // synchronize when an externally supplied value actually differs.
@@ -177,8 +241,10 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
   }, [allowEmpty, maxHours, scrollToTime, value]);
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => scrollToTime(timeRef.current));
-    return () => cancelAnimationFrame(frame);
+    const timer = setTimeout(() => {
+      scrollToTime(timeRef.current, false);
+    }, 30);
+    return () => clearTimeout(timer);
   }, [scrollToTime]);
 
   // Keep the displayed default, parent answer, validation, and pace in sync
@@ -190,18 +256,103 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
     }
   }, [allowEmpty, onChange, value]);
 
-  const finalizeScroll = useCallback((axis: TimeAxis, offsetY: number) => {
-    const length = axis === 'hours' ? hoursArray.length : 60;
-    const nextValue = scrollIndexFromOffset(offsetY, length);
-    const currentTime = timeRef.current;
-    const nextTime = { ...currentTime, [axis]: nextValue } as TimeParts;
+  const finalizeSecondsScroll = useCallback((offsetY: number) => {
+    const rawIndex = Math.round(offsetY / itemHeight);
+    const newIndex = Math.max(0, Math.min(rawIndex, secondsArray.length - 1));
+    const prevIndex = secondsIndexRef.current;
 
-    if (formatTimeValue(nextTime) === formatTimeValue(currentTime)) return;
+    if (newIndex === prevIndex) return;
+
+    secondsIndexRef.current = newIndex;
+    const { nextTime, cycleDelta } = calculateRolloverTime(
+      timeRef.current,
+      'seconds',
+      newIndex,
+      prevIndex,
+      maxHours,
+    );
 
     timeRef.current = nextTime;
     setTime(nextTime);
     onChange(formatTimeValue(nextTime));
-  }, [hoursArray.length, onChange, scrollIndexFromOffset]);
+
+    if (cycleDelta !== 0) {
+      // Update minutes wheel with smooth animation
+      const prevMinIndex = minutesIndexRef.current;
+      const targetMinIndex = prevMinIndex + cycleDelta;
+      minutesIndexRef.current = targetMinIndex;
+      isProgrammaticScrollRef.current.minutes = true;
+      scrollToMinuteIndex(targetMinIndex, true);
+
+      // If hours changed as well, animate hours wheel
+      if (nextTime.hours !== hoursIndexRef.current) {
+        hoursIndexRef.current = nextTime.hours;
+        isProgrammaticScrollRef.current.hours = true;
+        scrollToHour(nextTime.hours, true);
+      }
+
+      checkAndRecenter('minutes', targetMinIndex, nextTime.minutes);
+    }
+
+    checkAndRecenter('seconds', newIndex, nextTime.seconds);
+  }, [checkAndRecenter, itemHeight, maxHours, onChange, scrollToHour, scrollToMinuteIndex, secondsArray.length]);
+
+  const finalizeMinutesScroll = useCallback((offsetY: number) => {
+    if (isProgrammaticScrollRef.current.minutes) {
+      isProgrammaticScrollRef.current.minutes = false;
+      return;
+    }
+
+    const rawIndex = Math.round(offsetY / itemHeight);
+    const newIndex = Math.max(0, Math.min(rawIndex, minutesArray.length - 1));
+    const prevIndex = minutesIndexRef.current;
+
+    if (newIndex === prevIndex) return;
+
+    minutesIndexRef.current = newIndex;
+    const { nextTime, cycleDelta } = calculateRolloverTime(
+      timeRef.current,
+      'minutes',
+      newIndex,
+      prevIndex,
+      maxHours,
+    );
+
+    timeRef.current = nextTime;
+    setTime(nextTime);
+    onChange(formatTimeValue(nextTime));
+
+    if (cycleDelta !== 0 && nextTime.hours !== hoursIndexRef.current) {
+      hoursIndexRef.current = nextTime.hours;
+      isProgrammaticScrollRef.current.hours = true;
+      scrollToHour(nextTime.hours, true);
+    }
+
+    checkAndRecenter('minutes', newIndex, nextTime.minutes);
+  }, [checkAndRecenter, itemHeight, maxHours, minutesArray.length, onChange, scrollToHour]);
+
+  const finalizeHoursScroll = useCallback((offsetY: number) => {
+    if (isProgrammaticScrollRef.current.hours) {
+      isProgrammaticScrollRef.current.hours = false;
+      return;
+    }
+
+    const newHour = scrollIndexFromOffset(offsetY, hoursArray.length);
+    if (newHour === timeRef.current.hours) return;
+
+    hoursIndexRef.current = newHour;
+    const { nextTime } = calculateRolloverTime(
+      timeRef.current,
+      'hours',
+      newHour,
+      timeRef.current.hours,
+      maxHours,
+    );
+
+    timeRef.current = nextTime;
+    setTime(nextTime);
+    onChange(formatTimeValue(nextTime));
+  }, [hoursArray.length, maxHours, onChange, scrollIndexFromOffset]);
 
 
   return (
@@ -252,15 +403,16 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
               paddingTop: itemHeight,
               paddingBottom: itemHeight,
             }}
+            contentOffset={{ x: 0, y: initialHoursOffset }}
             scrollEventThrottle={16}
-            onMomentumScrollEnd={(event) => finalizeScroll('hours', event.nativeEvent.contentOffset.y)}
-            onScrollEndDrag={(event) => finalizeScroll('hours', event.nativeEvent.contentOffset.y)}
+            onMomentumScrollEnd={(event) => finalizeHoursScroll(event.nativeEvent.contentOffset.y)}
+            onScrollEndDrag={(event) => finalizeHoursScroll(event.nativeEvent.contentOffset.y)}
             scrollEnabled={true}
             nestedScrollEnabled={true}
             showsVerticalScrollIndicator={false}
             snapToInterval={itemHeight}
             snapToAlignment="center"
-            decelerationRate="normal"
+            decelerationRate="fast"
           >
             {hoursArray.map((hour) => (
               <View key={`hour-${hour}`} style={[styles.item, { height: itemHeight }]}>
@@ -296,22 +448,23 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
               paddingTop: itemHeight,
               paddingBottom: itemHeight,
             }}
+            contentOffset={{ x: 0, y: initialMinutesOffset }}
             scrollEventThrottle={16}
-            onMomentumScrollEnd={(event) => finalizeScroll('minutes', event.nativeEvent.contentOffset.y)}
-            onScrollEndDrag={(event) => finalizeScroll('minutes', event.nativeEvent.contentOffset.y)}
+            onMomentumScrollEnd={(event) => finalizeMinutesScroll(event.nativeEvent.contentOffset.y)}
+            onScrollEndDrag={(event) => finalizeMinutesScroll(event.nativeEvent.contentOffset.y)}
             scrollEnabled={true}
             nestedScrollEnabled={true}
             showsVerticalScrollIndicator={false}
             snapToInterval={itemHeight}
             snapToAlignment="center"
-            decelerationRate="normal"
+            decelerationRate="fast"
           >
-            {minutesArray.map((minute) => (
-              <View key={`minute-${minute}`} style={[styles.item, { height: itemHeight }]}>
+            {minutesArray.map((item) => (
+              <View key={`minute-${item.index}`} style={[styles.item, { height: itemHeight }]}>
                 <WheelValue
-                  value={minute}
+                  value={item.value}
                   unit="m"
-                  selected={minute === time.minutes}
+                  selected={item.value === time.minutes}
                   accentColor={accentColor}
                   compact={compact}
                 />
@@ -340,22 +493,23 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
               paddingTop: itemHeight,
               paddingBottom: itemHeight,
             }}
+            contentOffset={{ x: 0, y: initialSecondsOffset }}
             scrollEventThrottle={16}
-            onMomentumScrollEnd={(event) => finalizeScroll('seconds', event.nativeEvent.contentOffset.y)}
-            onScrollEndDrag={(event) => finalizeScroll('seconds', event.nativeEvent.contentOffset.y)}
+            onMomentumScrollEnd={(event) => finalizeSecondsScroll(event.nativeEvent.contentOffset.y)}
+            onScrollEndDrag={(event) => finalizeSecondsScroll(event.nativeEvent.contentOffset.y)}
             scrollEnabled={true}
             nestedScrollEnabled={true}
             showsVerticalScrollIndicator={false}
             snapToInterval={itemHeight}
             snapToAlignment="center"
-            decelerationRate="normal"
+            decelerationRate="fast"
           >
-            {secondsArray.map((second) => (
-              <View key={`second-${second}`} style={[styles.item, { height: itemHeight }]}>
+            {secondsArray.map((item) => (
+              <View key={`second-${item.index}`} style={[styles.item, { height: itemHeight }]}>
                 <WheelValue
-                  value={second}
+                  value={item.value}
                   unit="s"
-                  selected={second === time.seconds}
+                  selected={item.value === time.seconds}
                   accentColor={accentColor}
                   compact={compact}
                 />

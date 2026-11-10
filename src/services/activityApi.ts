@@ -138,6 +138,127 @@ const normalizeSplits = (value: unknown): ActivitySplit[] =>
 
 const isRecovery = (type: string) => ['RECOVERY', 'REST'].includes(type.replace(/[-_ ]/g, '').toUpperCase());
 
+const repartitionSplits = (splits: ActivitySplit[], targetDistanceMeters: number = 1000): ActivitySplit[] => {
+  if (splits.length === 0) return [];
+  const totalDistance = splits.reduce((sum, s) => sum + s.distance_m, 0);
+  const totalTime = splits.reduce((sum, s) => sum + s.time_s, 0);
+  if (totalDistance <= 0) return [];
+
+  // If total distance is <= targetDistanceMeters (1 km), keep as a single split
+  if (totalDistance <= targetDistanceMeters + 0.000001) {
+    if (splits.length === 1 && Math.abs(splits[0].distance_m - totalDistance) < 0.001) {
+      return splits;
+    }
+    return [{
+      split_number: 1,
+      distance_m: totalDistance,
+      time_s: totalTime,
+      pace_s_per_km: totalDistance > 0 ? totalTime / (totalDistance / 1000) : 0,
+    }];
+  }
+
+  // If already properly partitioned at targetDistanceMeters, keep as is
+  const isAlreadyPartitioned = splits.every((split, idx) => {
+    if (idx < splits.length - 1) {
+      return Math.abs(split.distance_m - targetDistanceMeters) < 0.01;
+    }
+    return split.distance_m <= targetDistanceMeters + 0.01;
+  });
+  if (isAlreadyPartitioned) {
+    return splits;
+  }
+
+  // Repartition into targetDistanceMeters (1000m) splits
+  const repartitioned: ActivitySplit[] = [];
+  let splitNumber = 1;
+  let currentSplitDistance = 0;
+  let currentSplitTime = 0;
+
+  for (const split of splits) {
+    let remainingDistance = split.distance_m;
+    let remainingTime = split.time_s;
+
+    while (remainingDistance > 0) {
+      const distanceNeeded = targetDistanceMeters - currentSplitDistance;
+      const takeDistance = Math.min(distanceNeeded, remainingDistance);
+      const takeTime = remainingDistance > 0 ? remainingTime * (takeDistance / remainingDistance) : 0;
+
+      currentSplitDistance += takeDistance;
+      currentSplitTime += takeTime;
+      remainingDistance -= takeDistance;
+      remainingTime -= takeTime;
+
+      if (currentSplitDistance >= targetDistanceMeters - 0.000001) {
+        repartitioned.push({
+          split_number: splitNumber,
+          distance_m: targetDistanceMeters,
+          time_s: currentSplitTime,
+          pace_s_per_km: currentSplitTime / (targetDistanceMeters / 1000),
+        });
+        splitNumber += 1;
+        currentSplitDistance = 0;
+        currentSplitTime = 0;
+      }
+    }
+  }
+
+  if (currentSplitDistance > 0.000001) {
+    repartitioned.push({
+      split_number: splitNumber,
+      distance_m: currentSplitDistance,
+      time_s: currentSplitTime,
+      pace_s_per_km: currentSplitTime / (currentSplitDistance / 1000),
+    });
+  }
+
+  return repartitioned;
+};
+
+const createSplitsFromDistanceAndTime = (
+  distanceMeters: number,
+  timeSeconds: number,
+  targetDistanceMeters: number = 1000,
+): ActivitySplit[] => {
+  if (distanceMeters <= 0 || timeSeconds < 0) return [];
+  if (distanceMeters <= targetDistanceMeters + 0.000001) {
+    return [{
+      split_number: 1,
+      distance_m: distanceMeters,
+      time_s: timeSeconds,
+      pace_s_per_km: distanceMeters > 0 ? timeSeconds / (distanceMeters / 1000) : 0,
+    }];
+  }
+
+  const splits: ActivitySplit[] = [];
+  let remainingDistance = distanceMeters;
+  let remainingTime = timeSeconds;
+  let splitNumber = 1;
+
+  while (remainingDistance >= targetDistanceMeters - 0.000001) {
+    const splitTime = distanceMeters > 0 ? timeSeconds * (targetDistanceMeters / distanceMeters) : 0;
+    splits.push({
+      split_number: splitNumber,
+      distance_m: targetDistanceMeters,
+      time_s: splitTime,
+      pace_s_per_km: targetDistanceMeters > 0 ? splitTime / (targetDistanceMeters / 1000) : 0,
+    });
+    splitNumber += 1;
+    remainingDistance -= targetDistanceMeters;
+    remainingTime -= splitTime;
+  }
+
+  if (remainingDistance > 0.000001) {
+    splits.push({
+      split_number: splitNumber,
+      distance_m: remainingDistance,
+      time_s: Math.max(0, remainingTime),
+      pace_s_per_km: remainingDistance > 0 ? Math.max(0, remainingTime) / (remainingDistance / 1000) : 0,
+    });
+  }
+
+  return splits;
+};
+
 const normalizeSegment = (value: unknown, index: number): ActivitySegmentSplits | null => {
   if (!value || typeof value !== 'object') return null;
   const segment = value as Record<string, unknown>;
@@ -178,14 +299,31 @@ export const normalizeActivitySplits = (activity: unknown): {
   const generatedActivitySplits = createSplitsFromGpsPoints(activityPoints.filter((point) => !point.is_extra_distance), splitDistanceMeters);
   const generatedExtraSplits = createSplitsFromGpsPoints(activityPoints.filter((point) => point.is_extra_distance), splitDistanceMeters);
   const segmentsWithGeneratedSplits = normalizedSegments.map((segment) => {
-    const generatedSplits = segment.gps_points
-      ? createSplitsFromGpsPoints(segment.gps_points, splitDistanceMeters)
-      : [];
+    if (isRecovery(segment.type)) {
+      return {
+        ...segment,
+        splits: [],
+      };
+    }
+
+    let segmentSplits = segment.splits;
+    if (segmentSplits.length === 1 && segmentSplits[0].distance_m > splitDistanceMeters) {
+      segmentSplits = repartitionSplits(segmentSplits, splitDistanceMeters);
+    } else if (segmentSplits.length === 0) {
+      if (segment.gps_points && segment.gps_points.length >= 2) {
+        segmentSplits = createSplitsFromGpsPoints(segment.gps_points, splitDistanceMeters);
+      } else {
+        const distance = segment.completed_distance_m ?? segment.planned_distance_m ?? 0;
+        const time = segment.actual_time_s ?? 0;
+        if (distance > 0) {
+          segmentSplits = createSplitsFromDistanceAndTime(distance, time, splitDistanceMeters);
+        }
+      }
+    }
+
     return {
       ...segment,
-      splits: isRecovery(segment.type)
-        ? []
-        : segment.splits.length > 0 ? segment.splits : generatedSplits,
+      splits: segmentSplits,
     };
   });
   const extraSegment = segmentsWithGeneratedSplits.find((segment) => segment.type === 'EXTRA')
@@ -208,7 +346,11 @@ export const normalizeActivitySplits = (activity: unknown): {
         distance_m: extraSegment.completed_distance_m ?? extraSegment.planned_distance_m,
         actual_time_s: extraSegment.actual_time_s,
         actual_pace_s_per_km: extraSegment.actual_pace_s_per_km,
-        splits: extraSegment.splits.length > 0 ? extraSegment.splits : generatedExtraSplits,
+        splits: extraSegment.splits.length > 0
+          ? (extraSegment.splits.length === 1 && extraSegment.splits[0].distance_m > splitDistanceMeters
+              ? repartitionSplits(extraSegment.splits, splitDistanceMeters)
+              : extraSegment.splits)
+          : generatedExtraSplits,
       }
       : null,
   };

@@ -1,14 +1,14 @@
 import { Alert } from '@/components/ThemedAlert';
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Device from 'expo-device';
 import * as Location from 'expo-location';
 import { useLocalSearchParams, usePathname, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, BackHandler, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import { usePauseSettings } from '../../../contexts/PauseSettingsContext';
-import { useTheme } from '../../../contexts/ThemeContext';
+import { BRAND_GREEN, useTheme } from '../../../contexts/ThemeContext';
 import { useAuth } from '../../../service/auth';
 import { workoutPlanService } from '../../../service/workoutPlan';
 import { beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal } from '../../../src/services/activeRunJournal';
@@ -223,6 +223,8 @@ export default function MapScreen() {
   const params = useLocalSearchParams<{
     workoutTitle?: string;
     workoutPlan?: string;
+    workoutType?: string;
+    activityType?: string;
     assignedRoute?: string;
     runId?: string;
     notificationAction?: string;
@@ -320,6 +322,32 @@ export default function MapScreen() {
   const [completionPromptVisible, setCompletionPromptVisible] = useState(
     params.notificationAction === LIVE_TRACKING_STOP_ACTION,
   );
+
+  const isStructuredOrPlannedWorkout = useMemo(() => {
+    return Boolean(
+      params.workoutPlan ||
+      params.workoutTitle ||
+      executionPlan.length > 0
+    );
+  }, [params.workoutPlan, params.workoutTitle, executionPlan.length]);
+
+  const initialActivityType: 'RUN' | 'WALK' = useMemo(() => {
+    // For training plans and custom workouts, default strictly to RUN
+    if (params.workoutPlan || params.workoutTitle || executionPlan.length > 0) {
+      return 'RUN';
+    }
+    const raw = (params.workoutType || params.activityType || '').toLowerCase();
+    return raw.includes('walk') ? 'WALK' : 'RUN';
+  }, [params.activityType, params.workoutPlan, params.workoutTitle, params.workoutType, executionPlan.length]);
+
+  const [selectedActivityType, setSelectedActivityType] = useState<'RUN' | 'WALK'>(initialActivityType);
+  const selectedActivityTypeRef = useRef<'RUN' | 'WALK'>(initialActivityType);
+  const [isActivityModalVisible, setIsActivityModalVisible] = useState(false);
+
+  useEffect(() => {
+    selectedActivityTypeRef.current = initialActivityType;
+    setSelectedActivityType(initialActivityType);
+  }, [initialActivityType]);
 
   const voiceCoachNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mapRef = useRef<MapView | null>(null);
@@ -1302,6 +1330,10 @@ export default function MapScreen() {
       isAutoPausedRef.current = Boolean(session.autoPaused);
       lastMovementTimestampRef.current = session.paused ? null : Date.now();
       setIsPaused(Boolean(session.paused));
+      if (session.activityType === 'WALK' || session.activityType === 'RUN') {
+        selectedActivityTypeRef.current = session.activityType;
+        setSelectedActivityType(session.activityType);
+      }
       pauseEventsRef.current = session.pauseEvents ?? [];
       pausedTimeRef.current = pauseEventsRef.current.reduce((total, event) => {
         const startedAt = Date.parse(event.paused_at);
@@ -1445,10 +1477,14 @@ export default function MapScreen() {
     return () => { cancelled = true; };
   }, [addLog, handleLocationUpdate, params.notificationAction, params.recoveryReview, params.runId, startLiveGPS, user?.id]);
 
-  const startRun = async () => {
+  const startRun = async (overrideType?: 'RUN' | 'WALK') => {
     if (isStartingRef.current || isRunningRef.current) {
       return;
     }
+
+    const activityTypeToUse: 'RUN' | 'WALK' = overrideType || selectedActivityTypeRef.current || 'RUN';
+    selectedActivityTypeRef.current = activityTypeToUse;
+    setSelectedActivityType(activityTypeToUse);
 
     isStartingRef.current = true;
     let backgroundServiceStartedForAttempt = false;
@@ -1533,6 +1569,7 @@ export default function MapScreen() {
         startedAt,
         updatedAt: new Date(startedAt).getTime(),
         pauseEvents: pauseEventsRef.current,
+        activityType: activityTypeToUse,
       });
 
       // Start the location foreground service while the app is visible. This
@@ -1670,7 +1707,7 @@ export default function MapScreen() {
         voiceCoach?.announceStepStart?.(executionPlan[0]);
       }
 
-      addLog(`?? Run ${runId} started`);
+      addLog(`🚀 ${activityTypeToUse === 'WALK' ? 'Walk' : 'Run'} ${runId} started`);
       if (params.workoutTitle) addLog(`Planned workout: ${params.workoutTitle}`);
       addLog('?? GPS tracking enabled');
       moveMapToLocation(startingPoint.latitude, startingPoint.longitude);
@@ -1745,6 +1782,13 @@ export default function MapScreen() {
     } finally {
       isStartingRef.current = false;
     }
+  };
+
+  const handleSelectActivityAndStart = async (type: 'RUN' | 'WALK') => {
+    setIsActivityModalVisible(false);
+    selectedActivityTypeRef.current = type;
+    setSelectedActivityType(type);
+    await startRun(type);
   };
 
   const pauseRun = useCallback(async () => {
@@ -1982,10 +2026,12 @@ export default function MapScreen() {
       const hasMeaningfulDistance = distanceRef.current > 2;
       let stationarySession = !movementConfirmedRef.current
         || (!hasDetectedMovement && !hasStepEvidence && !hasMeaningfulDistance);
-      // Never infer a run from an unknown or stationary state. A run is only
-      // submitted when Android activity recognition explicitly reports it.
-      const workoutType = detectedActivity === 'running' ? 'run' : 'walk';
-      const activityType = workoutType === 'walk' ? 'WALK' : 'RUN';
+      // Strictly respect user's selected activity type (RUN or WALK).
+      // Even if pace is slow like walking, a chosen RUN is saved as RUN.
+      // Even if pace is fast like running, a chosen WALK is saved as WALK.
+      const chosenActivityType: 'RUN' | 'WALK' = selectedActivityTypeRef.current === 'WALK' ? 'WALK' : 'RUN';
+      const workoutType: 'run' | 'walk' = chosenActivityType === 'WALK' ? 'walk' : 'run';
+      const activityType: 'RUN' | 'WALK' = chosenActivityType;
       const elapsedTimeSeconds = recoveredElapsedBaseRef.current !== null
         ? Math.max(0, recoveredElapsedBaseRef.current
           + (recoveredResumeAtRef.current === null ? 0 : (stoppedAt.getTime() - recoveredResumeAtRef.current) / 1000)
@@ -2014,6 +2060,7 @@ export default function MapScreen() {
         paceMinutesPerKm: pace,
         movementConfirmed: movementConfirmedRef.current,
         pauseEvents: pauseEventsRef.current,
+        activityType: chosenActivityType,
       });
       try {
         await stopBackgroundLocationTracking();
@@ -2425,7 +2472,7 @@ export default function MapScreen() {
               await offlineWorkoutQueue.enqueue({
                 runId: runIdRef.current,
                 userId: user?.id ? String(user.id) : null,
-                workoutTitle: params.workoutTitle ?? null,
+                workoutTitle: params.workoutTitle ?? (activityType === 'WALK' ? 'Outdoor Walk' : 'Outdoor Run'),
                 payload: iosStyleActivityPayload,
                 totalDistance,
                 movingTimePayloadSeconds,
@@ -2449,7 +2496,7 @@ export default function MapScreen() {
           };
           shouldPublishSummary = true;
 
-          addLog('Run ' + (runIdRef.current ?? 'activity') + ' completed');
+          addLog(`${activityType === 'WALK' ? 'Walk' : 'Run'} ${(runIdRef.current ?? 'activity')} completed`);
         }
       }
 
@@ -2488,10 +2535,21 @@ export default function MapScreen() {
       pauseStartTimeRef.current = null;
       setIsPaused(false);
 
-      router.replace('/(app)/dashboard');
       if (discard) {
+        router.replace('/(app)/dashboard');
         return;
       }
+
+      const isCustomWorkout = executionPlanRef.current.length > 0 || Boolean(params.workoutPlan);
+      if (isCustomWorkout && savedActivityId) {
+        router.replace({
+          pathname: '/(app)/activity/[id]',
+          params: { id: String(savedActivityId), autoOpenSplits: 'true' },
+        });
+        return;
+      }
+
+      router.replace('/(app)/dashboard');
 
       const completionMessage = stationarySession
         ? 'No route was drawn or uploaded because the device remained stationary.'
@@ -2511,18 +2569,19 @@ export default function MapScreen() {
         });
       };
 
+      const completionTitle = activityType === 'WALK' ? 'Walk Completed!' : 'Run Completed!';
       if (activitySubmitted && payloadForExport) {
-        Alert.alert('Run Completed!', completionMessage, [
+        Alert.alert(completionTitle, completionMessage, [
           { text: 'Export Payload JSON', onPress: () => exportPayload(false) },
           { text: 'Done', style: 'cancel' },
         ]);
       } else if (payloadQueuedOffline && payloadForExport) {
-        Alert.alert('Run Completed!', completionMessage, [
+        Alert.alert(completionTitle, completionMessage, [
           { text: 'Export Pending Payload JSON', onPress: () => exportPayload(true) },
           { text: 'Done', style: 'cancel' },
         ]);
       } else {
-        Alert.alert('Run Completed!', completionMessage);
+        Alert.alert(completionTitle, completionMessage);
       }
     } catch (error: any) {
       const backendData = error?.response?.data;
@@ -3244,7 +3303,7 @@ export default function MapScreen() {
             {!isRunning ? (
               <Pressable
                 style={[styles.primaryActionButton, styles.startBtnBg]}
-                onPress={() => void startRun()}
+                onPress={() => void startRun('RUN')}
               >
                 <Feather name="play" size={18} color="#000000" />
                 <Text style={styles.primaryActionTextDark}>START WORKOUT</Text>
@@ -3307,9 +3366,62 @@ export default function MapScreen() {
                   <Text style={styles.liveMetricLabel} numberOfLines={1}>TIME:</Text>
                   <Text style={styles.liveMetricValue} numberOfLines={1}>{formatTimerDisplay(elapsedSeconds)}</Text>
                 </View>
-                <Text style={styles.liveMetricStatus}>{isRunning ? (isPaused ? 'PAUSED' : 'LIVE') : controlStatusValue.toUpperCase()}</Text>
+                <Text style={styles.liveMetricStatus}>{isRunning ? `${selectedActivityType} · ${isPaused ? 'PAUSED' : 'LIVE'}` : `${selectedActivityType} · READY`}</Text>
               </View>
             </View>
+
+            {!isRunning && !isStructuredOrPlannedWorkout && (
+              <View style={styles.activitySelectorBar}>
+                <Pressable
+                  style={[
+                    styles.activityTypeChip,
+                    selectedActivityType === 'RUN' && styles.activityTypeChipActiveRun,
+                  ]}
+                  onPress={() => {
+                    selectedActivityTypeRef.current = 'RUN';
+                    setSelectedActivityType('RUN');
+                  }}
+                >
+                  <MaterialCommunityIcons
+                    name="run-fast"
+                    size={15}
+                    color={selectedActivityType === 'RUN' ? '#081009' : '#8E8E93'}
+                  />
+                  <Text
+                    style={[
+                      styles.activityTypeChipText,
+                      selectedActivityType === 'RUN' && styles.activityTypeChipTextActive,
+                    ]}
+                  >
+                    RUN
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.activityTypeChip,
+                    selectedActivityType === 'WALK' && styles.activityTypeChipActiveWalk,
+                  ]}
+                  onPress={() => {
+                    selectedActivityTypeRef.current = 'WALK';
+                    setSelectedActivityType('WALK');
+                  }}
+                >
+                  <MaterialCommunityIcons
+                    name="walk"
+                    size={15}
+                    color={selectedActivityType === 'WALK' ? '#FFFFFF' : '#8E8E93'}
+                  />
+                  <Text
+                    style={[
+                      styles.activityTypeChipText,
+                      selectedActivityType === 'WALK' && styles.activityTypeChipTextActiveWalk,
+                    ]}
+                  >
+                    WALK
+                  </Text>
+                </Pressable>
+              </View>
+            )}
 
             <View style={styles.controlActionsRow}>
               <View style={styles.actionButtonSlot}>
@@ -3319,10 +3431,15 @@ export default function MapScreen() {
                     hitSlop={16}
                     android_disableSound
                     onPress={() => {
-                      void startRun();
+                      if (isStructuredOrPlannedWorkout) {
+                        void startRun('RUN');
+                      } else {
+                        setIsActivityModalVisible(true);
+                      }
                     }}
                   >
-                    <Text style={styles.startButtonText}>START RUN</Text>
+                    <Feather name="play" size={17} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.startButtonText}>START WORKOUT</Text>
                   </Pressable>
                 ) : manualPauseEnabled ? (
                   isPaused ? (
@@ -3374,6 +3491,96 @@ export default function MapScreen() {
         )}
       </View>
       </View>
+
+      {/* Activity Type Selection Modal (Walk or Run) */}
+      <Modal
+        visible={isActivityModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsActivityModalVisible(false)}
+      >
+        <Pressable
+          style={styles.activityModalOverlay}
+          onPress={() => setIsActivityModalVisible(false)}
+        >
+          <Pressable style={styles.activityModalContent} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.activityModalHeader}>
+              <View>
+                <Text style={styles.activityModalTitle}>START WORKOUT</Text>
+                <Text style={styles.activityModalSubtitle}>
+                  Choose your activity type to begin
+                </Text>
+              </View>
+              <Pressable
+                style={styles.activityModalCloseBtn}
+                onPress={() => setIsActivityModalVisible(false)}
+                hitSlop={12}
+              >
+                <Feather name="x" size={20} color="#8E8E93" />
+              </Pressable>
+            </View>
+
+            <View style={styles.activityOptionCardsRow}>
+              {/* RUN Option Card */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.activityOptionCard,
+                  styles.activityOptionCardRun,
+                  selectedActivityType === 'RUN' && styles.activityOptionCardSelectedRun,
+                  pressed && { opacity: 0.88, transform: [{ scale: 0.98 }] },
+                ]}
+                onPress={() => void handleSelectActivityAndStart('RUN')}
+              >
+                <View style={[styles.activityIconCircle, { backgroundColor: '#30D158' }]}>
+                  <MaterialCommunityIcons name="run-fast" size={28} color="#081009" />
+                </View>
+                <Text style={styles.activityOptionTitle}>RUN</Text>
+                <Text style={styles.activityOptionDesc}>
+                  Outdoor running, jogging, intervals. Recorded & saved as RUN.
+                </Text>
+                <View style={[styles.activityOptionStartBadge, { backgroundColor: 'rgba(48, 209, 88, 0.2)' }]}>
+                  <Text style={[styles.activityOptionStartText, { color: '#30D158' }]}>
+                    START RUN
+                  </Text>
+                  <Feather name="arrow-right" size={13} color="#30D158" />
+                </View>
+              </Pressable>
+
+              {/* WALK Option Card */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.activityOptionCard,
+                  styles.activityOptionCardWalk,
+                  selectedActivityType === 'WALK' && styles.activityOptionCardSelectedWalk,
+                  pressed && { opacity: 0.88, transform: [{ scale: 0.98 }] },
+                ]}
+                onPress={() => void handleSelectActivityAndStart('WALK')}
+              >
+                <View style={[styles.activityIconCircle, { backgroundColor: '#0A84FF' }]}>
+                  <MaterialCommunityIcons name="walk" size={28} color="#FFFFFF" />
+                </View>
+                <Text style={styles.activityOptionTitle}>WALK</Text>
+                <Text style={styles.activityOptionDesc}>
+                  Outdoor walking, brisk walk, stroll. Recorded & saved as WALK.
+                </Text>
+                <View style={[styles.activityOptionStartBadge, { backgroundColor: 'rgba(10, 132, 255, 0.2)' }]}>
+                  <Text style={[styles.activityOptionStartText, { color: '#0A84FF' }]}>
+                    START WALK
+                  </Text>
+                  <Feather name="arrow-right" size={13} color="#0A84FF" />
+                </View>
+              </Pressable>
+            </View>
+
+            <View style={styles.activityNoteRow}>
+              <Feather name="info" size={12} color="#8E8E93" />
+              <Text style={styles.activityNoteText}>
+                Your workout will be saved strictly as chosen, regardless of your pace.
+              </Text>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -3815,7 +4022,7 @@ const styles = StyleSheet.create({
   liveMetricStatus: { color: '#35C72B', fontSize: 8, fontWeight: '900', letterSpacing: 0.5, paddingTop: 10 },
   controlStatusValue: { color: '#fff', fontSize: 17, fontWeight: '800' },
   paceStatus: { color: '#FFB800', fontSize: 11, fontWeight: '700', marginTop: 3 },
-  startButton: { position: 'absolute', inset: 0, backgroundColor: '#20D000', borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
+  startButton: { position: 'absolute', inset: 0, backgroundColor: '#20D000', borderRadius: 30, justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 6 },
   startButtonText: { color: '#fff', fontWeight: '900', fontSize: 15 },
   pauseButton: { position: 'absolute', inset: 0, backgroundColor: '#FFB800', borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
   pauseButtonText: { color: '#fff', fontWeight: '900', fontSize: 15 },
@@ -3823,6 +4030,164 @@ const styles = StyleSheet.create({
   resumeButtonText: { color: '#fff', fontWeight: '900', fontSize: 15 },
   stopButton: { position: 'absolute', inset: 0, backgroundColor: '#F04444', borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
   stopButtonText: { color: '#fff', fontWeight: '900', fontSize: 15 },
+  activitySelectorBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  activityTypeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  activityTypeChipActiveRun: {
+    backgroundColor: '#30D158',
+    borderColor: '#30D158',
+  },
+  activityTypeChipActiveWalk: {
+    backgroundColor: '#0A84FF',
+    borderColor: '#0A84FF',
+  },
+  activityTypeChipText: {
+    color: '#8E8E93',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  activityTypeChipTextActive: {
+    color: '#081009',
+  },
+  activityTypeChipTextActiveWalk: {
+    color: '#FFFFFF',
+  },
+  activityModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  activityModalContent: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#16191D',
+    borderRadius: 24,
+    borderWidth: 1.25,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    padding: 22,
+    gap: 16,
+  },
+  activityModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  activityModalTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.4,
+  },
+  activityModalSubtitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#8E8E93',
+    marginTop: 2,
+  },
+  activityModalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activityOptionCardsRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  activityOptionCard: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#1E232A',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 180,
+  },
+  activityOptionCardRun: {
+    borderColor: 'rgba(48, 209, 88, 0.35)',
+  },
+  activityOptionCardWalk: {
+    borderColor: 'rgba(10, 132, 255, 0.35)',
+  },
+  activityOptionCardSelectedRun: {
+    borderColor: '#30D158',
+    backgroundColor: 'rgba(48, 209, 88, 0.12)',
+  },
+  activityOptionCardSelectedWalk: {
+    borderColor: '#0A84FF',
+    backgroundColor: 'rgba(10, 132, 255, 0.12)',
+  },
+  activityIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  activityOptionTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  activityOptionDesc: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: '#8E8E93',
+    textAlign: 'center',
+    lineHeight: 14,
+    flex: 1,
+  },
+  activityOptionStartBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  activityOptionStartText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  activityNoteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingTop: 4,
+    justifyContent: 'center',
+  },
+  activityNoteText: {
+    fontSize: 10,
+    color: '#8E8E93',
+    fontWeight: '500',
+    textAlign: 'center',
+  },
    pauseMarker: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#FFFFFF', borderWidth: 2, borderColor: '#D1D5DB' },
   resumeMarker: { backgroundColor: '#FFFFFF' },
   controlBars: {

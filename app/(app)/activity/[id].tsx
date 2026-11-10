@@ -1,7 +1,7 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -71,12 +71,14 @@ export default function ActivityDetailScreen() {
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
   const distanceUnit = user?.profile?.distance_unit;
-  const { id, cropStart, cropEnd, savedRouteId: savedRouteIdParam } = useLocalSearchParams<{
+  const { id, cropStart, cropEnd, savedRouteId: savedRouteIdParam, autoOpenSplits } = useLocalSearchParams<{
     id: string;
     cropStart?: string;
     cropEnd?: string;
     savedRouteId?: string;
+    autoOpenSplits?: string;
   }>();
+  const autoOpenedSplitsRef = useRef(false);
   const [activity, setActivity] = useState<BackendActivity | null>(null);
   const [savedRouteId, setSavedRouteId] = useState<number | null>(null);
   const [savedRouteIsPublic, setSavedRouteIsPublic] = useState<boolean | null>(null);
@@ -108,6 +110,12 @@ export default function ActivityDetailScreen() {
       setError(null);
       const loadedActivity = await activityAPI.get(id);
       setActivity(loadedActivity);
+      setSplitSegments(loadedActivity.segments ?? []);
+      setExtraSplits(loadedActivity.extra?.splits ?? []);
+      if (autoOpenSplits === 'true' && !autoOpenedSplitsRef.current) {
+        autoOpenedSplitsRef.current = true;
+        setSplitsVisible(true);
+      }
       const parsedRouteId = Number(savedRouteIdParam ?? loadedActivity.saved_route_id);
       if (Number.isInteger(parsedRouteId) && parsedRouteId > 0) {
         try {
@@ -130,7 +138,7 @@ export default function ActivityDetailScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id, savedRouteIdParam]);
+  }, [id, savedRouteIdParam, autoOpenSplits]);
 
   const exportActivityGpx = useCallback(async () => {
     if (!activity) return;

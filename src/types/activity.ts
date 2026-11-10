@@ -1,4 +1,4 @@
-export const SPLIT_DISTANCE_METERS = 500;
+export const SPLIT_DISTANCE_METERS = 1000;
 
 export interface ActivitySplit {
   split_number: number;

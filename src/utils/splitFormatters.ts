@@ -2,7 +2,7 @@ import { SPLIT_DISTANCE_METERS } from '../types/activity';
 
 export const formatSplitDistance = (meters: number): string => {
   if (!Number.isFinite(meters) || meters < 0) return '--';
-  if (meters === SPLIT_DISTANCE_METERS) return `${SPLIT_DISTANCE_METERS}m`;
+  if (meters % 1 === 0) return `${meters}m`;
   return `${meters.toFixed(2)}m`;
 };
 

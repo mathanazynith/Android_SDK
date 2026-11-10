@@ -36,6 +36,7 @@ export interface BackgroundLocationSessionState {
   paceMinutesPerKm?: number;
   movementConfirmed?: boolean;
   pauseEvents?: Omit<ActivityPauseEventPayload, 'sequence' | 'paused_points'>[];
+  activityType?: 'RUN' | 'WALK';
 }
 
 declare global {

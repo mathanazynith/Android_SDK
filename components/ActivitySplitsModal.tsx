@@ -102,7 +102,7 @@ export default function ActivitySplitsModal({
 }: ActivitySplitsModalProps) {
   const { isDark, colors } = useTheme();
   const distanceLabel = getDistanceUnitDisplayLabel(distanceUnit);
-  const splitDistanceLabel = getDistanceUnitCode(distanceUnit) === 'mile' ? 'mi' : 'm';
+  const splitDistanceLabel = getDistanceUnitCode(distanceUnit) === 'mile' ? 'mi' : 'km';
   const paceLabel = `min/${getDistanceUnitCode(distanceUnit) === 'mile' ? 'mi' : 'km'}`;
   const totalDistance = useMemo(() => segments.reduce((total, segment) => (
     total + (segment.completed_distance_m ?? sumSplits(segment.splits, 'distance_m'))

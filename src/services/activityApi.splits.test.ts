@@ -11,7 +11,7 @@ vi.mock('../../service/storage', () => ({
 }));
 
 describe('normalizeActivitySplits', () => {
-  it('creates independent 500 metre splits from each segment GPS sequence', () => {
+  it('creates 1 km splits for segments above 1 km and preserves single split for segments under 1 km', () => {
     const metresToLongitude = (metres: number) => metres / (6_371_000 * Math.PI / 180);
     const point = (metres: number, seconds: number) => ({
       latitude: 0,
@@ -20,21 +20,26 @@ describe('normalizeActivitySplits', () => {
     });
 
     const result = normalizeActivitySplits({
-      split_distance_m: 5,
       segments: [
         { id: 'warmup-1', type: 'WARM_UP', gps_points: [point(0, 0), point(700, 700)] },
-        { id: 'run-1', type: 'RUN', gps_points: [point(0, 10), point(700, 710)] },
+        { id: 'run-1', type: 'RUN', gps_points: [point(0, 10), point(1700, 1710)] },
         { id: 'recovery-1', type: 'RECOVERY', gps_points: [point(0, 20), point(7, 50)] },
       ],
     });
 
-    expect(result.segments[0]?.splits[0]?.distance_m).toBe(500);
-    expect(result.segments[0]?.splits[1]?.distance_m).toBeCloseTo(200, 5);
-    expect(result.segments[0]?.splits.map((split) => split.split_number)).toEqual([1, 2]);
+    // 700m is under 1 km -> kept as a single split as it is
+    expect(result.segments[0]?.splits).toHaveLength(1);
+    expect(result.segments[0]?.splits[0]?.distance_m).toBeCloseTo(700, 1);
+    expect(result.segments[0]?.splits[0]?.split_number).toBe(1);
+
+    // 1700m is over 1 km -> split into 1000m + 700m remainder
+    expect(result.segments[1]?.splits).toHaveLength(2);
+    expect(result.segments[1]?.splits[0]?.distance_m).toBe(1000);
+    expect(result.segments[1]?.splits[1]?.distance_m).toBeCloseTo(700, 1);
     expect(result.segments[1]?.splits.map((split) => split.split_number)).toEqual([1, 2]);
-    expect(result.segments[1]?.splits[0]?.distance_m).toBe(500);
-    expect(result.segments[1]?.splits[1]?.distance_m).toBeCloseTo(200, 5);
-    expect(result.segments[1]?.splits[0]?.time_s).toBeCloseTo(500, 0);
+    expect(result.segments[1]?.splits[0]?.time_s).toBeCloseTo(1000, 0);
+
+    // Recovery has no splits
     expect(result.segments[2]?.splits).toEqual([]);
     expect(result.segments[2]?.id).toBe('recovery-1');
   });
