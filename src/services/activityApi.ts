@@ -174,6 +174,20 @@ export const normalizeActivitySplits = (activity: unknown): {
   const normalizedSegments = Array.isArray(value.segments)
     ? value.segments.map((segment, index) => normalizeSegment(segment, index)).filter((segment): segment is ActivitySegmentSplits => segment !== null)
     : [];
+  const lapSplits = Array.isArray(value.laps)
+    ? value.laps
+      .map((lap, index) => {
+        if (!lap || typeof lap !== 'object') return null;
+        const lapValue = lap as Record<string, unknown>;
+        return normalizeSplit({
+          split_number: lapValue.repeat_number ?? index + 1,
+          distance_m: lapValue.distance_meters ?? lapValue.distance_m,
+          time_s: lapValue.duration_seconds ?? lapValue.time_s,
+          pace_s_per_km: lapValue.pace_seconds_per_km ?? lapValue.pace_s_per_km,
+        }, index);
+      })
+      .filter((split): split is ActivitySplit => split !== null)
+    : [];
   const activityPoints = getActivityPoints(value);
   const generatedActivitySplits = createSplitsFromGpsPoints(activityPoints.filter((point) => !point.is_extra_distance), splitDistanceMeters);
   const generatedExtraSplits = createSplitsFromGpsPoints(activityPoints.filter((point) => point.is_extra_distance), splitDistanceMeters);
@@ -191,7 +205,15 @@ export const normalizeActivitySplits = (activity: unknown): {
   const extraSegment = segmentsWithGeneratedSplits.find((segment) => segment.type === 'EXTRA')
     ?? normalizeSegment(value.extra, normalizedSegments.length + 1);
   const segments = segmentsWithGeneratedSplits.filter((segment) => segment.type !== 'EXTRA');
-  if (segments.length === 0 && generatedActivitySplits.length > 0) {
+  if (segments.length === 0 && lapSplits.length > 0) {
+    segments.push({
+      sequence: 1,
+      type: 'RUN',
+      completed_distance_m: lapSplits.reduce((total, split) => total + split.distance_m, 0),
+      actual_time_s: lapSplits.reduce((total, split) => total + split.time_s, 0),
+      splits: lapSplits,
+    });
+  } else if (segments.length === 0 && generatedActivitySplits.length > 0) {
     segments.push({
       sequence: 1,
       type: 'RUN',

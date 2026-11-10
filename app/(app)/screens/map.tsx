@@ -4,7 +4,7 @@ import * as Device from 'expo-device';
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, BackHandler, NativeEventEmitter, NativeModules, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import { usePauseSettings } from '../../../contexts/PauseSettingsContext';
@@ -37,13 +37,13 @@ import { LocationService } from '../../../src/services/locationService';
 import { PathProcessor } from '../../../src/services/pathProcessor';
 import { RunningApiClient } from '../../../src/services/runningApi';
 import { shareActivityPayloadAsJson } from '../../../src/services/gpxFileExport';
-import { DistanceSplitEngine } from '../../../src/services/splitEngine';
+import { DistanceSplitEngine, type CompletedLiveSplit } from '../../../src/services/splitEngine';
 import { StepDetectionService } from '../../../src/services/stepDetectionService';
 import voiceCoach from '../../../src/services/voiceCoach';
 import { WorkoutEngine } from '../../../src/services/workoutEngine';
 import { WorkoutVoiceService } from '../../../src/services/workoutVoiceService';
 import { SPLIT_DISTANCE_METERS } from '../../../src/types/activity';
-import { ActivityExtraPayload, ActivityGpsPointPayload, ActivityLapPayload, ActivityPauseEventPayload, ActivityRecoveryPayload, ActivitySegmentPayload, ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
+import { ActivityExtraPayload, ActivityGpsPointPayload, ActivityLapEventPayload, ActivityLapPayload, ActivityPauseEventPayload, ActivityRecoveryPayload, ActivitySegmentPayload, ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
 import { BackendWorkout, WorkoutEngineSnapshot } from '../../../src/types/workout';
 import { isReliableRoutePoint } from '../../../src/utils/activityRouteGroups';
 import { offlineWorkoutQueue } from '../../../src/services/offlineWorkoutQueue';
@@ -275,6 +275,7 @@ export default function MapScreen() {
   const [floatingOverlayHeight, setFloatingOverlayHeight] = useState(216);
   const [routeSegments, setRouteSegments] = useState<RouteSegment[]>([]);
   const [distance, setDistance] = useState(0);
+  const [lastManualSplit, setLastManualSplit] = useState<CompletedLiveSplit | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [accuracy, setAccuracy] = useState<number | null>(null);
   const [isPaused, setIsPaused] = useState(false);
@@ -332,6 +333,7 @@ export default function MapScreen() {
   const workoutEngineRef = useRef<WorkoutEngine | null>(null);
   const workoutVoiceRef = useRef<WorkoutVoiceService | null>(null);
   const splitEngineRef = useRef(new DistanceSplitEngine());
+  const lapEventsRef = useRef<ActivityLapEventPayload[]>([]);
   const previousWorkoutPointRef = useRef<RunningGpsPoint | null>(null);
   const routeSegmentsRef = useRef<RouteSegment[]>([]);
   const pauseEventsRef = useRef<PauseEvent[]>([]);
@@ -634,6 +636,9 @@ export default function MapScreen() {
 
   useEffect(() => {
     return () => {
+      if (Platform.OS === 'android') {
+        void NativeModules.WorkoutVolumeSplit?.setEnabled(false);
+      }
       isRunningRef.current = false;
       if (locationSubscription.current) {
         locationSubscription.current.remove();
@@ -1084,6 +1089,40 @@ export default function MapScreen() {
     addLog('?? Live GPS tracking started');
   }, [addLog, handleLocationUpdate, reconcileJournaledPoints]);
 
+  const handleVolumeSplitPress = useCallback(() => {
+    if (!isRunningRef.current || isPausedRef.current) return;
+    const pressedAt = Date.now();
+    const split = splitEngineRef.current.markSplit(pressedAt);
+    if (!split) {
+      addLog('Volume split ignored: no accepted distance since the last split');
+      return;
+    }
+    setLastManualSplit(split);
+    lapEventsRef.current.push({
+      event_number: lapEventsRef.current.length + 1,
+      timestamp: new Date(pressedAt).toISOString(),
+    });
+    void workoutVoiceRef.current?.splitCompleted(split.distanceMeters);
+    addLog(`Manual split ${split.splitNumber}: ${split.distanceMeters.toFixed(1)}m`);
+  }, [addLog]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const nativeModule = NativeModules.WorkoutVolumeSplit;
+    if (!nativeModule) return;
+
+    const emitter = new NativeEventEmitter(nativeModule);
+    const subscription = emitter.addListener('workoutVolumeSplitPressed', handleVolumeSplitPress);
+    return () => subscription.remove();
+  }, [handleVolumeSplitPress]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const nativeModule = NativeModules.WorkoutVolumeSplit;
+    if (!nativeModule) return;
+    void nativeModule.setEnabled(Boolean(isRunning && !isPaused));
+  }, [isPaused, isRunning]);
+
   const continueRecoveredWorkout = async () => {
     if (!runIdRef.current || isRunningRef.current || isStartingRef.current) return;
     isStartingRef.current = true;
@@ -1374,12 +1413,14 @@ export default function MapScreen() {
       routeSegmentsRef.current = [];
       pauseEventsRef.current = [];
       restoredRunIdRef.current = null;
+      setLastManualSplit(null);
       processedLocationKeysRef.current = new Set();
       setRouteSegments([]);
       setPauseMarkers([]);
       distanceRef.current = 0;
       extraDistanceRef.current = 0;
       splitEngineRef.current.reset();
+      lapEventsRef.current = [];
       setDistance(0);
       setElapsedSeconds(0);
       stepCountRef.current = 0;
@@ -2098,7 +2139,7 @@ export default function MapScreen() {
             .filter((point) => point.timestamp >= interval.startedAt && point.timestamp <= interval.endedAt)
             .map((point) => pointPayload(point, isExtraDistancePoint(point))),
         }));
-        const laps: ActivityLapPayload[] = completedLaps.map((lap) => ({
+        const workoutLaps: ActivityLapPayload[] = completedLaps.map((lap) => ({
           segment_order: lap.segmentOrder,
           segment_type: lap.segmentType,
           repeat_number: lap.repeatNumber,
@@ -2110,6 +2151,7 @@ export default function MapScreen() {
             : null,
           completed: lap.completed,
         }));
+        const laps = workoutLaps;
         const pointsBetween = (start: number, end: number | null, nextStart: number | undefined) => uploadRoutePoints
           .filter((point) => point.timestamp >= start
             && (end === null || point.timestamp <= end)
@@ -2241,6 +2283,7 @@ export default function MapScreen() {
           avg_pace: Number(paceSecondsPerKm.toFixed(2)),
           pace_seconds_per_km: Number(paceSecondsPerKm.toFixed(2)),
           laps,
+          lap_events: lapEventsRef.current,
           segments: segmentPayloads,
           extra: extraPayload,
           pause_events: pauseEventPayload,
@@ -2342,6 +2385,7 @@ export default function MapScreen() {
       workoutVoiceRef.current = null;
       workoutEngineRef.current = null;
       splitEngineRef.current.reset();
+      lapEventsRef.current = [];
       previousWorkoutPointRef.current = null;
       movementStateRef.current = 'STATIONARY';
       consecutiveMovementRef.current = 0;
@@ -2488,6 +2532,7 @@ export default function MapScreen() {
       isPausedRef.current = false;
       isAutoPausedRef.current = false;
       splitEngineRef.current.reset();
+      lapEventsRef.current = [];
       setRouteSegments([]);
       setPauseMarkers([]);
       setDistance(0);
@@ -3127,6 +3172,13 @@ export default function MapScreen() {
                 </View>
                 <Text style={styles.liveMetricStatus}>{isRunning ? (isPaused ? 'PAUSED' : 'LIVE') : controlStatusValue.toUpperCase()}</Text>
               </View>
+              {lastManualSplit ? (
+                <Text style={styles.manualSplitStatus} numberOfLines={1}>
+                  SPLIT {lastManualSplit.splitNumber} · {Math.round(lastManualSplit.distanceMeters)} m
+                </Text>
+              ) : isRunning && Platform.OS === 'android' ? (
+                <Text style={styles.manualSplitHint} numberOfLines={1}>Press either volume button to mark a split</Text>
+              ) : null}
             </View>
 
             <View style={styles.controlActionsRow}>
@@ -3610,6 +3662,8 @@ const styles = StyleSheet.create({
   liveMetricUnit: { color: '#B7C5BA', fontSize: 11, fontWeight: '700' },
   liveMetricDivider: { height: 1, marginVertical: 5, backgroundColor: '#35C72B', shadowColor: '#35C72B', shadowOpacity: 0.9, shadowRadius: 5, shadowOffset: { width: 0, height: 0 } },
   liveMetricStatus: { color: '#35C72B', fontSize: 8, fontWeight: '900', letterSpacing: 0.5, paddingTop: 10 },
+  manualSplitStatus: { color: '#FFFFFF', fontSize: 11, fontWeight: '800', marginTop: 7 },
+  manualSplitHint: { color: '#9BA3AF', fontSize: 9, fontWeight: '700', marginTop: 6 },
   controlStatusValue: { color: '#fff', fontSize: 17, fontWeight: '800' },
   paceStatus: { color: '#FFB800', fontSize: 11, fontWeight: '700', marginTop: 3 },
   startButton: { position: 'absolute', inset: 0, backgroundColor: '#20D000', borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
