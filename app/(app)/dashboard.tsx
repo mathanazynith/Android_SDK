@@ -15,9 +15,17 @@ import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../service/auth';
 import { getFcmToken } from '../../service/fcmService';
 import { registerNotificationDevice } from '../../service/notificationService';
+import { clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal } from '../../src/services/activeRunJournal';
+import {
+  clearBackgroundLocationSession,
+  getBackgroundLocationSession,
+  isBackgroundLocationTrackingStarted,
+} from '../../src/services/backgroundLocationTask';
 import { offlineWorkoutQueue } from '../../src/services/offlineWorkoutQueue';
-import { flushActiveRunJournal, readActiveRunJournal } from '../../src/services/activeRunJournal';
-import { getBackgroundLocationSession, isBackgroundLocationTrackingStarted } from '../../src/services/backgroundLocationTask';
+import {
+  listPendingWorkoutRecoveries,
+  savePendingWorkoutRecovery,
+} from '../../src/services/pendingWorkoutRecoveries';
 import { calculateDistanceMeters } from '../../src/utils/distance';
 import { isAssessmentProfileComplete } from '../../utils/profileEligibility';
 import { useResponsive } from '../../utils/responsive';
@@ -29,12 +37,11 @@ import DashboardNoPlan from './DashboardNoPlan';
 const NOTIFICATION_PERMISSION_DELAY_MS = 1_000;
 
 type RecoverableWorkout = {
+  id: string;
   runId: string;
   distanceMeters: number;
   elapsedSeconds: number;
 };
-
-const WORKOUT_CHECKPOINT_STALE_AFTER_MS = 30_000;
 
 const formatRecoveryDuration = (seconds: number) => {
   const safeSeconds = Math.max(0, Math.floor(seconds));
@@ -51,6 +58,7 @@ export default function DashboardScreen() {
   const { spacing, fontSize } = useResponsive();
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
+  const userId = user?.id;
   const { unreadCount } = useNotifications();
   const {
     workoutPlan,
@@ -69,30 +77,46 @@ export default function DashboardScreen() {
     let isActive = true;
     const findRecoverableWorkout = async () => {
       try {
-        await flushActiveRunJournal();
-        const [session, journal, trackingStarted] = await Promise.all([
-          getBackgroundLocationSession(),
-          readActiveRunJournal(),
-          isBackgroundLocationTrackingStarted(),
-        ]);
+        let recoveries = await listPendingWorkoutRecoveries();
         if (!isActive) return;
-        if (
-          !session?.active
-          || !session.runId
-          || session.status === 'finalizing'
-          || session.status === 'completed'
-          || session.status === 'cancelled'
-          || session.status === 'pending_sync'
-          || !journal?.active
-          || journal.runId !== session.runId
-          || (session.userId && String(session.userId) !== String(user?.id ?? ''))
-          || trackingStarted
-          || (session.updatedAt != null && Date.now() - session.updatedAt < WORKOUT_CHECKPOINT_STALE_AFTER_MS)
-        ) {
+        let recovery = recoveries.find((item) => (
+          Boolean(item.session.runId)
+          && (!item.session.userId || String(item.session.userId) === String(userId ?? ''))
+        ));
+        if (!recovery) {
+          await flushActiveRunJournal();
+          const [legacySession, legacyJournal, trackingStarted] = await Promise.all([
+            getBackgroundLocationSession(),
+            readActiveRunJournal(),
+            isBackgroundLocationTrackingStarted(),
+          ]);
+          if (
+            legacySession?.active
+            && legacySession.recoveryReviewRequired
+            && legacySession.runId
+            && legacyJournal?.active
+            && legacyJournal.runId === legacySession.runId
+            && !trackingStarted
+            && (!legacySession.userId || String(legacySession.userId) === String(userId ?? ''))
+          ) {
+            await savePendingWorkoutRecovery(legacySession, legacyJournal);
+            await clearActiveRunJournal();
+            await clearBackgroundLocationSession();
+            recoveries = await listPendingWorkoutRecoveries();
+            recovery = recoveries.find((item) => item.id === legacySession.runId);
+          }
+        }
+        if (!recovery) {
           setRecoverableWorkout(null);
           return;
         }
 
+        const runId = recovery.session.runId;
+        if (!runId) {
+          setRecoverableWorkout(null);
+          return;
+        }
+        const { session, journal } = recovery;
         const points = journal.points;
         const journalDistanceMeters = points.slice(1).reduce((total, point, index) => (
           total + calculateDistanceMeters(points[index], point)
@@ -101,7 +125,8 @@ export default function DashboardScreen() {
           ? Math.max(0, Number(session.distanceKm) * 1000)
           : journalDistanceMeters;
         setRecoverableWorkout({
-          runId: session.runId,
+          id: recovery.id,
+          runId,
           distanceMeters: Math.max(sessionDistanceMeters, journalDistanceMeters),
           elapsedSeconds: Math.max(0, session.elapsedSeconds ?? 0),
         });
@@ -113,7 +138,7 @@ export default function DashboardScreen() {
 
     void findRecoverableWorkout();
     return () => { isActive = false; };
-  }, [user?.id]));
+  }, [userId]));
 
   useEffect(() => {
     const unsubscribe = offlineWorkoutQueue.subscribe((count) => {
@@ -302,7 +327,11 @@ export default function DashboardScreen() {
             activeOpacity={0.85}
             onPress={() => router.push({
               pathname: '/(app)/screens/map',
-              params: { recoveryReview: '1', runId: recoverableWorkout.runId },
+              params: {
+                recoveryReview: '1',
+                recoveryId: recoverableWorkout.id,
+                runId: recoverableWorkout.runId,
+              },
             })}
             style={{
               minHeight: 76,

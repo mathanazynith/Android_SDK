@@ -6,6 +6,12 @@ export interface RouteTimeInterval {
   endedAt: number;
 }
 
+export interface RouteDistancePoint {
+  latitude: number;
+  longitude: number;
+  timestamp: number;
+}
+
 export interface RouteDistanceBreakdown {
   totalDistance: number;
   additionalDistance: number;
@@ -24,10 +30,10 @@ export const filterRoutePointsByMaximumJump = (
   return accepted;
 }, [] as RunningGpsPoint[]);
 
-export const calculateAcceptedRouteDistance = (
-  points: RunningGpsPoint[],
+export const calculateAcceptedRouteDistance = <T extends RouteDistancePoint>(
+  points: T[],
   excludedIntervals: RouteTimeInterval[] = [],
-  includeSegment?: (point: RunningGpsPoint) => boolean,
+  includeSegment?: (point: T) => boolean,
 ): number => {
   let total = 0;
   for (let index = 1; index < points.length; index += 1) {

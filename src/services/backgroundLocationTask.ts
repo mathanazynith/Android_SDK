@@ -4,13 +4,16 @@ import * as Location from 'expo-location';
 import * as SecureStore from 'expo-secure-store';
 import * as TaskManager from 'expo-task-manager';
 import { AppState } from 'react-native';
+import { acknowledgeBootRestore, isBootRestorePending } from '../../modules/zyrun-live-update';
 import { ActivityPauseEventPayload, RawGpsPayload } from '../types/running';
-import { calculateDistanceMeters } from '../utils/distance';
-import { calculateActiveRunElapsedSeconds } from '../utils/activeRunMetrics';
+import { calculateActiveRunElapsedSeconds, calculateMovingPaceMinutesPerKm } from '../utils/activeRunMetrics';
+import { isReliableRoutePoint } from '../utils/activityRouteGroups';
+import { calculateAcceptedRouteDistance } from '../utils/routeDistance';
 import {
   appendActiveRunPoints,
   appendPausedRunPoints,
   clearActiveRunJournal,
+  flushActiveRunJournal,
   readActiveRunJournal,
 } from './activeRunJournal';
 import {
@@ -18,7 +21,7 @@ import {
   updateLiveTrackingNotification,
   WORKOUT_FOREGROUND_NOTIFICATION_ID,
 } from './liveTrackingNotification';
-import { acknowledgeBootRestore, isBootRestorePending } from '../../modules/zyrun-live-update';
+import { savePendingWorkoutRecovery } from './pendingWorkoutRecoveries';
 
 export const BACKGROUND_LOCATION_TASK_NAME = 'zyrun-background-location-task';
 export const BACKGROUND_LOCATION_SESSION_KEY = 'zyrun:background-location-session';
@@ -38,6 +41,7 @@ export interface BackgroundLocationSessionState {
   paused?: boolean;
   autoPaused?: boolean;
   confirmationPromptVisible?: boolean;
+  recoveryReviewRequired?: boolean;
   runId?: string | null;
   userId?: string | null;
   startedAt?: string | null;
@@ -77,7 +81,7 @@ const readSessionState = async (): Promise<BackgroundLocationSessionState | null
 };
 
 export const getBackgroundLocationSession = async (): Promise<BackgroundLocationSessionState | null> => {
-  if (await rejectPreBootSession()) return null;
+  await rejectPreBootSession();
   return readSessionState();
 };
 
@@ -87,6 +91,8 @@ const rejectPreBootSession = async (): Promise<boolean> => {
       if (!isBootRestorePending()) return false;
 
       const storedSession = await readSessionState();
+      await flushActiveRunJournal();
+      const journal = await readActiveRunJournal();
       const storedStatus = storedSession?.status ?? (storedSession?.active ? 'active' : 'missing');
       const terminalStatus = new Set(['finalizing', 'completed', 'cancelled', 'pending_sync', 'save_failed']);
       const isTerminalSession = Boolean(storedSession && terminalStatus.has(storedSession.status ?? ''));
@@ -102,18 +108,20 @@ const rejectPreBootSession = async (): Promise<boolean> => {
         runId: storedSession?.runId ?? null,
         status: storedStatus,
       });
-      const eligibleForRestore = Boolean(
+      const eligibleForReview = Boolean(
         storedSession?.active
         && storedSession.runId
         && !terminalStatus.has(storedSession.status ?? '')
+        && journal?.active
+        && journal.runId === storedSession.runId
       );
       console.info('[BootRestore] SESSION_ELIGIBLE_FOR_RESTORE', {
         runId: storedSession?.runId ?? null,
         status: storedStatus,
-        eligible: eligibleForRestore,
-        reason: eligibleForRestore
-          ? 'Session meets the device-restart recovery gate'
-          : 'This app does not restore workouts after device reboot',
+        eligible: eligibleForReview,
+        reason: eligibleForReview
+          ? 'Session checkpoint will be shown for recovery review after device reboot'
+          : 'No active workout checkpoint is available for recovery review',
       });
 
       if (storedSession && (storedSession.status === 'completed' || storedSession.status === 'cancelled' || storedSession.status === 'pending_sync' || storedSession.status === 'save_failed')) {
@@ -122,7 +130,9 @@ const rejectPreBootSession = async (): Promise<boolean> => {
           status: storedSession.status,
         });
       }
-      if (storedSession?.active && storedSession.runId) {
+      if (eligibleForReview && storedSession && journal) {
+        await savePendingWorkoutRecovery(storedSession, journal);
+      } else if (storedSession?.active && storedSession.runId) {
         const isAlreadyTerminal = terminalStatus.has(storedSession.status ?? '');
         await persistBackgroundLocationSession({
           ...storedSession,
@@ -134,9 +144,11 @@ const rejectPreBootSession = async (): Promise<boolean> => {
       console.info('[BootRestore] SESSION_RESTORE_REJECTED', {
         runId: storedSession?.runId ?? null,
         status: storedStatus,
-        reason: isTerminalSession || !eligibleForRestore
-          ? 'Device reboot invalidates the previous workout checkpoint'
-          : 'Device reboot invalidates in-progress workout restoration',
+        reason: eligibleForReview
+          ? 'Automatic tracking restore is paused until the workout recovery choice is made'
+          : isTerminalSession
+            ? 'The stored workout is already terminal'
+            : 'No recoverable active workout checkpoint was found',
       });
       console.info('[NotificationLifecycle] LIVE_NOTIFICATION_RECREATION_BLOCKED', {
         runId: storedSession?.runId ?? null,
@@ -145,7 +157,9 @@ const rejectPreBootSession = async (): Promise<boolean> => {
       });
 
       const serviceStopped = await stopBackgroundLocationTracking();
-      await Promise.all([clearActiveRunJournal(), stopLiveTrackingNotification()]);
+      await stopLiveTrackingNotification();
+      await clearActiveRunJournal();
+      if (eligibleForReview) await clearBackgroundLocationSession();
       console.info('[BootRestore] STALE_NOTIFICATION_CANCELLED', {
         runId: storedSession?.runId ?? null,
         status: storedStatus,
@@ -163,9 +177,11 @@ const rejectPreBootSession = async (): Promise<boolean> => {
       acknowledgeBootRestore();
       console.info('[BootRestore] SESSION_RESTORE_COMPLETED', {
         runId: storedSession?.runId ?? null,
-        status: storedSession?.active
-          ? (terminalStatus.has(storedSession.status ?? '') ? storedSession.status : 'cancelled')
-          : storedStatus,
+        status: eligibleForReview
+          ? 'recovery_review_required'
+          : storedSession?.active
+            ? (terminalStatus.has(storedSession.status ?? '') ? storedSession.status : 'cancelled')
+            : storedStatus,
       });
       bootRestoreCheck = null;
       return true;
@@ -278,6 +294,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, ({ data, error }) => {
         || previous.status === 'completed'
         || previous.status === 'cancelled'
         || previous.status === 'pending_sync'
+        || previous.recoveryReviewRequired
       ) return;
       const paused = Boolean(previous.paused);
       const taskUpdatedAt = Date.now();
@@ -304,9 +321,15 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, ({ data, error }) => {
       if (!paused && (journal?.points.length ?? 0) >= 2) {
         nextState.movementConfirmed = true;
       }
-      const journalDistanceKm = (journal?.points.slice(1).reduce((total, point, index) => (
-        total + calculateDistanceMeters(journal.points[index], point)
-      ), 0) ?? 0) / 1000;
+      const journalDistanceKm = calculateAcceptedRouteDistance(
+        (journal?.points ?? [])
+          .filter(isReliableRoutePoint)
+          .map((point, index) => ({
+            latitude: point.latitude,
+            longitude: point.longitude,
+            timestamp: Number(point.timestamp ?? index),
+          })),
+      ) / 1000;
       if (!paused && journal?.points.length && journal.points.length > 1) {
         nextState.distanceKm = Math.max(previous.distanceKm ?? 0, journalDistanceKm);
       }
@@ -325,19 +348,20 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK_NAME, ({ data, error }) => {
 
       const distanceKm = nextState.distanceKm ?? previous.distanceKm ?? 0;
       const elapsedSeconds = nextState.elapsedSeconds ?? 0;
+      const paceMinutesPerKm = calculateMovingPaceMinutesPerKm(elapsedSeconds, distanceKm);
       const currentSession = await readSessionState();
       if (!currentSession?.active || currentSession.runId !== previous.runId) return;
       updateLiveTrackingNotification({
         runId: previous.runId,
         distanceKm,
         elapsedSeconds,
-        paceMinutesPerKm: previous.paceMinutesPerKm ?? (distanceKm > 0 ? elapsedSeconds / 60 / distanceKm : 0),
+        paceMinutesPerKm,
         status: 'running',
         startedAt: previous.startedAt,
       });
       nextState.distanceKm = distanceKm;
       nextState.elapsedSeconds = elapsedSeconds;
-      nextState.paceMinutesPerKm = previous.paceMinutesPerKm ?? (distanceKm > 0 ? elapsedSeconds / 60 / distanceKm : 0);
+      nextState.paceMinutesPerKm = paceMinutesPerKm;
       await persistBackgroundLocationSession(nextState);
 
       if (typeof globalThis.__ZYRUN_BACKGROUND_LOCATION_LISTENER__ === 'function') {

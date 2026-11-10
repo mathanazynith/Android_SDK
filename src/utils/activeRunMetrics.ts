@@ -6,10 +6,32 @@ export interface ActiveRunTimingState {
   pauseEvents?: { paused_at: string; resumed_at: string | null }[];
 }
 
+/** Average pace in minutes per kilometre using active (moving) time. */
+export const calculateMovingPaceMinutesPerKm = (
+  movingSeconds: number,
+  distanceKm: number,
+): number => (
+  Number.isFinite(movingSeconds)
+  && movingSeconds > 0
+  && Number.isFinite(distanceKm)
+  && distanceKm > 0
+    ? movingSeconds / 60 / distanceKm
+    : 0
+);
+
 export const calculateActiveRunElapsedSeconds = (
   session: ActiveRunTimingState,
   now: number
 ): number => {
+  // Persisted elapsed time is the active-time checkpoint. Advancing from that
+  // checkpoint avoids counting time when the process/device was unavailable.
+  if (Number.isFinite(session.elapsedSeconds) && Number.isFinite(session.updatedAt)) {
+    const checkpoint = Math.max(0, session.elapsedSeconds ?? 0);
+    return checkpoint + (!session.paused
+      ? Math.max(0, (now - (session.updatedAt ?? now)) / 1000)
+      : 0);
+  }
+
   const startedAt = session.startedAt ? Date.parse(session.startedAt) : Number.NaN;
   if (!Number.isFinite(startedAt)) {
     const elapsed = session.elapsedSeconds ?? 0;

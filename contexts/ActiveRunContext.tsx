@@ -1,11 +1,11 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import {
-  type BackgroundLocationSessionState,
-  getBackgroundLocationSession,
-  subscribeToBackgroundLocationSession,
-} from '../src/services/backgroundLocationTask';
-import { flushActiveRunJournal, readActiveRunJournal } from '../src/services/activeRunJournal';
 import { useAuth } from '../service/auth';
+import { flushActiveRunJournal, readActiveRunJournal } from '../src/services/activeRunJournal';
+import {
+    getBackgroundLocationSession,
+    subscribeToBackgroundLocationSession,
+    type BackgroundLocationSessionState,
+} from '../src/services/backgroundLocationTask';
 
 const ActiveRunContext = createContext<BackgroundLocationSessionState | null>(null);
 
@@ -32,7 +32,15 @@ export function ActiveRunProvider({ children }: { children: ReactNode }) {
         || nextSession?.status === 'pending_sync';
       // Auth can briefly be unresolved while the app restores credentials. Hide
       // the banner until then, but never destroy a persisted run from this UI layer.
-      if (isLoading || !nextSession?.active || isTerminal || !nextSession.runId || hasUserMismatch || currentUserId === null) {
+      if (
+        isLoading
+        || !nextSession?.active
+        || isTerminal
+        || nextSession.recoveryReviewRequired
+        || !nextSession.runId
+        || hasUserMismatch
+        || currentUserId === null
+      ) {
         currentRunId = null;
         validatedRunId = null;
         validatingRunId = null;
