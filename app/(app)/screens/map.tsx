@@ -2734,6 +2734,7 @@ export default function MapScreen() {
         };
         payloadForExport = iosStyleActivityPayload;
         activitySubmitted = false;
+        let offlineSubmission = false;
         if (apiClientRef.current) {
           try {
             console.info('[SaveLifecycle] SAVE_API_STARTED', { runId: runIdRef.current });
@@ -2742,7 +2743,10 @@ export default function MapScreen() {
               iosStyleActivityPayload,
               runIdRef.current,
             );
-            activitySubmitted = activitySubmission.success;
+            if (!activitySubmission.success) {
+              throw new Error('The server did not confirm the activity save.');
+            }
+            activitySubmitted = true;
             if (activitySubmitted) {
               console.info('[SaveLifecycle] SAVE_API_SUCCESS', {
                 runId: runIdRef.current,
@@ -2794,15 +2798,23 @@ export default function MapScreen() {
               }
             }
           } catch (submitError: any) {
+            const isNetworkFailure =
+              !submitError?.response &&
+              (submitError?.code === 'ERR_NETWORK' ||
+                submitError?.code === 'ECONNABORTED' ||
+                submitError?.message?.toLowerCase().includes('network'));
+            if (!isNetworkFailure) {
+              throw submitError;
+            }
+            offlineSubmission = true;
             console.warn('[SaveLifecycle] SAVE_API_FAILED', {
               runId: runIdRef.current,
               message: submitError?.message ?? 'Unknown upload error',
             });
-            console.warn('[MapScreen] submitActivity offline/failed, queuing locally:', submitError?.message || submitError);
-            activitySubmitted = false;
+            console.warn('[MapScreen] Network unavailable; queuing workout locally:', submitError?.message || submitError);
           }
 
-          if (!activitySubmitted) {
+          if (offlineSubmission) {
             try {
               await offlineWorkoutQueue.enqueue({
                 runId: runIdRef.current,
