@@ -1,4 +1,4 @@
-export const SPLIT_DISTANCE_METERS = 1_000;
+export const SPLIT_DISTANCE_METERS = 1000;
 
 export interface ActivitySplit {
   split_number: number;
@@ -9,11 +9,13 @@ export interface ActivitySplit {
 
 export interface ActivityLapRecord {
   sequence: number;
+  segment_sequence?: number;
   label: string;
   timestamp?: string;
   distance_m?: number;
   time_s?: number;
   pace_s_per_km?: number;
+  splits?: ActivitySplit[];
 }
 
 export interface ActivitySegmentSplits {

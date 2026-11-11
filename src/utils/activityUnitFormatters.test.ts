@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
-    formatDistanceFromMeters,
-    formatDistanceValueFromMeters,
-    formatElevationFromMeters,
-    formatPaceFromSecondsPerKm,
-    formatPaceValueFromSecondsPerKm,
-    formatSpeedFromKilometersPerHour,
-    formatSpeedFromMetersPerSecond,
-    formatSplitDistance,
-    formatSplitDistanceValue,
+  formatDistanceFromMeters,
+  formatDistanceValueFromMeters,
+  formatElevationFromMeters,
+  formatPaceFromSecondsPerKm,
+  formatPaceValueFromSecondsPerKm,
+  formatSpeedFromKilometersPerHour,
+  formatSpeedFromMetersPerSecond,
+  formatSplitDistance,
+  formatSplitDistanceValue,
 } from './activityUnitFormatters';
 
 describe('activity unit formatters', () => {
@@ -29,11 +29,12 @@ describe('activity unit formatters', () => {
   });
 
   it('formats split intervals in the selected distance unit', () => {
-    expect(formatSplitDistance(1000, 'km')).toBe('1000 m');
-    expect(formatSplitDistance(1000, 'mile')).toBe('0.62 mi');
-    expect(formatSplitDistanceValue(1000, 'km')).toBe('1000');
-    expect(formatSplitDistanceValue(1000, 'mile')).toBe('0.62');
-    expect(formatSplitDistanceValue(500, 'km')).toBe('500.00');
+    expect(formatSplitDistance(1000, 'km')).toBe('1 km');
+    expect(formatSplitDistance(500, 'km')).toBe('0.5 km');
+    expect(formatSplitDistance(500, 'mile')).toBe('0.31 mi');
+    expect(formatSplitDistanceValue(1000, 'km')).toBe('1');
+    expect(formatSplitDistanceValue(500, 'km')).toBe('0.5');
+    expect(formatSplitDistanceValue(500, 'mile')).toBe('0.31');
   });
 
   it('converts speed values in their source units to the selected units', () => {

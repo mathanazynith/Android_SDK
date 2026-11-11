@@ -2,8 +2,22 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { BackHandler, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Animated,
+  BackHandler,
+  LayoutAnimation,
+  Modal,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
 import ThemedCalendarPicker from "../../../components/common/ThemedCalendarPicker";
@@ -249,6 +263,13 @@ function StepCard({
   onRepeat,
   onMoreOptions,
   onDelete,
+  isReordering,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
+  dragHandleProps,
+  onLongPress,
 }: {
   step: WorkoutStep;
   color: string;
@@ -263,9 +284,16 @@ function StepCard({
   number?: number;
   setLabel?: string;
   onSkipLastRest?: (skipLast: boolean) => void;
+  isReordering?: boolean;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
+  dragHandleProps?: any;
+  onLongPress?: () => void;
 }) {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const { user } = useAuth();
   const profileUnit: DistanceUnitType = getDistanceUnitCode(user?.profile?.distance_unit) === "mile" ? "mi" : "km";
 
@@ -350,11 +378,13 @@ function StepCard({
 
   return (
     <TouchableOpacity
-      activeOpacity={editable ? 0.88 : 1}
-      onPress={openStep}
+      activeOpacity={isReordering ? 1 : editable ? 0.88 : 1}
+      onPress={isReordering ? undefined : openStep}
+      onLongPress={onLongPress}
       style={[
         styles.stepCard,
         editable && selected && styles.selectedCard,
+        isReordering && styles.stepCardReordering,
       ]}
     >
       {/* Vertical Rounded Color Bar */}
@@ -406,45 +436,86 @@ function StepCard({
               </Text>
             </View>
 
-            {editable && onRepeat ? (
-              <TouchableOpacity
-                onPress={(e) => {
-                  e.stopPropagation();
-                  onRepeat();
-                }}
-                style={styles.cardRepeatActionBtn}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                accessibilityLabel="Repeat this run step"
-              >
-                <Feather name="repeat" size={15} color="#30D158" />
-              </TouchableOpacity>
-            ) : null}
+            {isReordering ? (
+              <View style={styles.reorderActionsContainer}>
+                {canMoveUp && onMoveUp ? (
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      onMoveUp();
+                    }}
+                    style={styles.reorderArrowBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityLabel="Move step up"
+                  >
+                    <Feather name="chevron-up" size={16} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                ) : null}
+                {canMoveDown && onMoveDown ? (
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      onMoveDown();
+                    }}
+                    style={styles.reorderArrowBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityLabel="Move step down"
+                  >
+                    <Feather name="chevron-down" size={16} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                ) : null}
+                <View
+                  {...(dragHandleProps || {})}
+                  style={styles.reorderDragHandle}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  accessibilityLabel="Drag step to reorder"
+                >
+                  <Feather name="menu" size={18} color="#30D158" />
+                </View>
+              </View>
+            ) : (
+              <>
+                {editable && onRepeat ? (
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      onRepeat();
+                    }}
+                    style={styles.cardRepeatActionBtn}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    accessibilityLabel="Repeat this run step"
+                  >
+                    <Feather name="repeat" size={15} color="#30D158" />
+                  </TouchableOpacity>
+                ) : null}
 
-            {editable && onDelete ? (
-              <TouchableOpacity
-                onPress={(e) => {
-                  e.stopPropagation();
-                  onDelete();
-                }}
-                style={styles.cardDeleteBtn}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                accessibilityLabel="Delete step"
-              >
-                <Feather name="trash-2" size={17} color="#FF453A" />
-              </TouchableOpacity>
-            ) : editable && onMoreOptions ? (
-              <TouchableOpacity
-                onPress={(e) => {
-                  e.stopPropagation();
-                  onMoreOptions();
-                }}
-                style={styles.cardThreeDotsBtn}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                accessibilityLabel="More options"
-              >
-                <Feather name="more-horizontal" size={20} color={colors.iconSecondary} />
-              </TouchableOpacity>
-            ) : null}
+                {editable && onDelete ? (
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      onDelete();
+                    }}
+                    style={styles.cardDeleteBtn}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    accessibilityLabel="Delete step"
+                  >
+                    <Feather name="trash-2" size={17} color="#FF453A" />
+                  </TouchableOpacity>
+                ) : editable && onMoreOptions ? (
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      onMoreOptions();
+                    }}
+                    style={styles.cardThreeDotsBtn}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    accessibilityLabel="More options"
+                  >
+                    <Feather name="more-horizontal" size={20} color={colors.iconSecondary} />
+                  </TouchableOpacity>
+                ) : null}
+              </>
+            )}
           </View>
         </View>
       </View>
@@ -671,6 +742,169 @@ const restPresets = [
   { label: "5:00", value: "00:05:00" },
 ];
 
+interface ItemLayout {
+  y: number;
+  height: number;
+}
+
+function sanitizeRunsGroupIds(runs: WorkoutStep[]): WorkoutStep[] {
+  const seenGroupIds = new Set<string>();
+  let currentGroupActiveId: string | null = null;
+
+  return runs.map((step) => {
+    const isRepeat =
+      Boolean(step.groupId) || (step.repeat != null && step.repeat > 1);
+    if (!isRepeat) {
+      currentGroupActiveId = null;
+      return step;
+    }
+
+    const rawGroupId =
+      step.groupId ||
+      `run-group-${step.id || Math.random().toString(36).substring(2, 7)}`;
+
+    if (currentGroupActiveId === rawGroupId) {
+      return { ...step, groupId: rawGroupId };
+    }
+
+    let resolvedGroupId = rawGroupId;
+    if (seenGroupIds.has(rawGroupId)) {
+      resolvedGroupId = `run-group-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    }
+
+    seenGroupIds.add(resolvedGroupId);
+    currentGroupActiveId = resolvedGroupId;
+    return { ...step, groupId: resolvedGroupId };
+  });
+}
+
+function DraggableCardWrapper({
+  children,
+  index,
+  totalItems,
+  isReordering,
+  itemLayoutsRef,
+  onReorder,
+  setScrollEnabled,
+}: {
+  children: (dragHandleProps: any, isDragging: boolean) => React.ReactNode;
+  index: number;
+  totalItems: number;
+  isReordering: boolean;
+  itemLayoutsRef: React.MutableRefObject<{ [key: number]: ItemLayout }>;
+  onReorder: (from: number, to: number) => void;
+  setScrollEnabled?: (enabled: boolean) => void;
+}) {
+  const panY = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(1)).current;
+  const [isDragging, setIsDragging] = useState(false);
+  const itemHeightRef = useRef<number>(100);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => isReordering,
+        onMoveShouldSetPanResponder: (_, gesture) =>
+          isReordering && Math.abs(gesture.dy) > 3,
+        onPanResponderGrant: () => {
+          setIsDragging(true);
+          setScrollEnabled?.(false);
+          try {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          } catch {}
+          Animated.spring(scale, {
+            toValue: 1.03,
+            useNativeDriver: true,
+          }).start();
+        },
+        onPanResponderMove: (_, gesture) => {
+          panY.setValue(gesture.dy);
+        },
+        onPanResponderRelease: (_, gesture) => {
+          setIsDragging(false);
+          setScrollEnabled?.(true);
+
+          const currentLayout = itemLayoutsRef.current[index];
+          const startCenterY = currentLayout
+            ? currentLayout.y + currentLayout.height / 2
+            : index * 120 + 60;
+          const currentCenterY = startCenterY + gesture.dy;
+
+          let closestIndex = index;
+          let minDistance = Infinity;
+          let fallbackY = 0;
+
+          for (let i = 0; i < totalItems; i++) {
+            const layout = itemLayoutsRef.current[i];
+            const itemCenterY = layout
+              ? layout.y + layout.height / 2
+              : fallbackY + 60;
+            if (layout) {
+              fallbackY = layout.y + layout.height;
+            } else {
+              fallbackY += 120;
+            }
+
+            const distance = Math.abs(currentCenterY - itemCenterY);
+            if (distance < minDistance) {
+              minDistance = distance;
+              closestIndex = i;
+            }
+          }
+
+          const targetIndex = Math.max(0, Math.min(totalItems - 1, closestIndex));
+
+          if (targetIndex !== index) {
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            onReorder(index, targetIndex);
+            try {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            } catch {}
+          }
+
+          Animated.parallel([
+            Animated.spring(panY, { toValue: 0, useNativeDriver: true }),
+            Animated.spring(scale, { toValue: 1, useNativeDriver: true }),
+          ]).start();
+        },
+        onPanResponderTerminate: () => {
+          setIsDragging(false);
+          setScrollEnabled?.(true);
+          Animated.parallel([
+            Animated.spring(panY, { toValue: 0, useNativeDriver: true }),
+            Animated.spring(scale, { toValue: 1, useNativeDriver: true }),
+          ]).start();
+        },
+      }),
+    [index, totalItems, isReordering, itemLayoutsRef, onReorder, setScrollEnabled, panY, scale]
+  );
+
+  return (
+    <Animated.View
+      onLayout={(e) => {
+        const { y, height } = e.nativeEvent.layout;
+        itemHeightRef.current = height;
+        itemLayoutsRef.current[index] = { y, height };
+      }}
+      style={[
+        {
+          transform: [{ translateY: panY }, { scale }],
+          zIndex: isDragging ? 999 : 1,
+        },
+        isDragging && {
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.35,
+          shadowRadius: 10,
+          elevation: 14,
+        },
+      ]}
+    >
+      {children(panResponder.panHandlers, isDragging)}
+    </Animated.View>
+  );
+}
+
 export default function CustomWorkoutOverview() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -690,17 +924,22 @@ export default function CustomWorkoutOverview() {
     convertRunToRepeat,
     removeWarmUp,
     removeRun,
+    removeRunGroup,
     removeCooldown,
     updateRun,
     updateRunRepeat,
     updateRunRest,
     updateRunSkipLastRest,
     updateGroupRepeat,
+    reorderRuns,
     saveWorkout,
   } = useCustomWorkout();
 
   const { mode } = useLocalSearchParams<{ mode?: string }>();
   const [isEditing, setIsEditing] = useState<boolean>(!workout.id || mode === "edit");
+  const [isReordering, setIsReordering] = useState(false);
+  const [scrollEnabled, setScrollEnabled] = useState(true);
+  const itemLayoutsRef = useRef<{ [key: number]: ItemLayout }>({});
   const [prevEditKey, setPrevEditKey] = useState(`${workout.id}-${mode}`);
   const currentEditKey = `${workout.id}-${mode}`;
   if (prevEditKey !== currentEditKey) {
@@ -1047,73 +1286,84 @@ export default function CustomWorkoutOverview() {
 
   const repeatButtonText = useMemo(() => {
     if (workout.runs.length === 0) return "REPEAT RUN";
-    const hasUnrepeated = workout.runs.some(
-      (r) => !r.groupId && (r.repeat || 1) <= 1
-    );
-    if (hasUnrepeated) return "REPEAT RUN";
-    return "ADD REPEAT";
-  }, [workout.runs]);
+    return "ADD REPEAT RUN";
+  }, [workout.runs.length]);
 
   const handleRepeatAction = useCallback(() => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
 
-    // Case 1: No run steps exist yet -> add a repeat run
-    if (workout.runs.length === 0) {
-      addRepeatRun();
-      setSelectedRun(0);
-      return;
-    }
-
-    // Case 2: An unrepeated run step is present -> convert it to a repeat group!
-    const targetIdx =
-      selectedRun !== null &&
-      workout.runs[selectedRun] &&
-      !workout.runs[selectedRun].groupId &&
-      (workout.runs[selectedRun].repeat || 1) <= 1
-        ? selectedRun
-        : workout.runs.findIndex((r) => !r.groupId && (r.repeat || 1) <= 1);
-
-    if (targetIdx !== -1) {
-      convertRunToRepeat(targetIdx);
-      setSelectedRun(targetIdx);
-      return;
-    }
-
-    // Case 3: All runs already in repeat groups -> add a new repeat group
     addRepeatRun();
     setSelectedRun(workout.runs.length);
-  }, [workout.runs, selectedRun, addRepeatRun, convertRunToRepeat]);
+  }, [addRepeatRun, workout.runs.length]);
 
-  const workoutSections = useMemo(() => {
-    type Section =
-      | { type: "single"; item: { step: WorkoutStep; index: number } }
-      | {
-          type: "repeat_block";
-          groups: {
-            isGroup: boolean;
-            groupId?: string;
-            groupRepeat?: number;
-            items: { step: WorkoutStep; index: number }[];
-          }[];
-        };
+  const handleDeleteGroup = useCallback(
+    (groupId?: string, indices?: number[]) => {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch {}
 
-    const sections: Section[] = [];
-    for (const group of runGroups) {
-      if (group.isGroup && group.groupId) {
-        const last = sections[sections.length - 1];
-        if (last && last.type === "repeat_block") {
-          last.groups.push(group);
-        } else {
-          sections.push({ type: "repeat_block", groups: [group] });
-        }
-      } else if (group.items[0]) {
-        sections.push({ type: "single", item: group.items[0] });
+      if (groupId) {
+        removeRunGroup(groupId);
+      } else if (indices && indices.length > 0) {
+        const indexSet = new Set(indices);
+        reorderRuns(workout.runs.filter((_, idx) => !indexSet.has(idx)));
       }
-    }
-    return sections;
-  }, [runGroups]);
+    },
+    [removeRunGroup, workout.runs, reorderRuns]
+  );
+
+  const handleReorderGroups = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      if (
+        fromIndex === toIndex ||
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex >= runGroups.length ||
+        toIndex >= runGroups.length
+      ) {
+        return;
+      }
+
+      const updatedGroups = [...runGroups];
+      const [moved] = updatedGroups.splice(fromIndex, 1);
+      updatedGroups.splice(toIndex, 0, moved);
+
+      const newRuns = updatedGroups.flatMap((g) => g.items.map((it) => it.step));
+      const sanitizedRuns = sanitizeRunsGroupIds(newRuns);
+      reorderRuns(sanitizedRuns);
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch {}
+    },
+    [runGroups, reorderRuns]
+  );
+
+  const handleMoveStepWithinGroup = useCallback(
+    (fromRunIndex: number, toRunIndex: number) => {
+      if (
+        fromRunIndex === toRunIndex ||
+        fromRunIndex < 0 ||
+        toRunIndex < 0 ||
+        fromRunIndex >= workout.runs.length ||
+        toRunIndex >= workout.runs.length
+      ) {
+        return;
+      }
+
+      const updatedRuns = [...workout.runs];
+      const [moved] = updatedRuns.splice(fromRunIndex, 1);
+      updatedRuns.splice(toRunIndex, 0, moved);
+
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      reorderRuns(updatedRuns);
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch {}
+    },
+    [workout.runs, reorderRuns]
+  );
 
   const handleSave = async () => {
     if (!workout.runs.length) {
@@ -1260,6 +1510,7 @@ export default function CustomWorkoutOverview() {
         style={styles.body}
         contentContainerStyle={styles.bodyContent}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={scrollEnabled}
       >
         <MotionEntrance>
         {/* Workout Date Banner */}
@@ -1304,14 +1555,44 @@ export default function CustomWorkoutOverview() {
         {/* Steps Section Header: Steps + Reorder */}
         <View style={styles.stepsSectionHeader}>
           <Text style={styles.stepsTitle}>Steps</Text>
-          <TouchableOpacity
-            onPress={() => {
-              Alert.alert("Reorder Steps", "Drag and drop step reordering will be available in an upcoming update.");
-            }}
-          >
-            <Text style={styles.reorderBtnText}>Reorder</Text>
-          </TouchableOpacity>
+          {isEditing && runGroups.length > 1 ? (
+            <TouchableOpacity
+              onPress={() => {
+                try {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                } catch {}
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setIsReordering((prev) => !prev);
+              }}
+              style={[
+                styles.reorderToggleBtn,
+                isReordering && styles.reorderToggleBtnActive,
+              ]}
+              accessibilityLabel={isReordering ? "Done reordering steps" : "Reorder steps"}
+            >
+              {isReordering ? (
+                <>
+                  <Feather name="check" size={13} color="#000000" style={{ marginRight: 4 }} />
+                  <Text style={styles.reorderDoneBtnText}>Done</Text>
+                </>
+              ) : (
+                <>
+                  <Feather name="move" size={13} color="#30D158" style={{ marginRight: 4 }} />
+                  <Text style={styles.reorderBtnText}>Reorder</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          ) : null}
         </View>
+
+        {isReordering ? (
+          <View style={styles.reorderHintBanner}>
+            <Feather name="info" size={14} color="#30D158" style={{ marginRight: 8 }} />
+            <Text style={styles.reorderHintText}>
+              Drag cards by the handle (≡) or use arrows to reorder steps
+            </Text>
+          </View>
+        ) : null}
 
         {/* UPPER SUGGESTIONS ROW: All unadded step boxes ALWAYS remain in the upper section! */}
         {isEditing && (!workout.warmUp || workout.runs.length === 0 || !workout.cooldown) && (
@@ -1351,28 +1632,41 @@ export default function CustomWorkoutOverview() {
           />
         ) : null}
 
-        {/* 2. Run Steps & Repeat Groups (Option 2: Outer Box wrapping Inner Group Boxes) */}
+        {/* 2. Run Steps & Repeat Groups (Individual Cards/Groups with Drag & Reorder) */}
         {workout.runs.length > 0
-          ? workoutSections.map((section, secIdx) => {
-              if (section.type === "repeat_block") {
-                return (
-                  <View key={`repeat-block-${secIdx}`} style={styles.outerGroupBox}>
-                    {section.groups.map((group, groupIdx) => {
-                      const groupRepeat =
-                        group.items[0]?.step?.groupRepeat ||
-                        group.items[0]?.step?.repeat ||
-                        2;
-                      const firstIndex = group.items[0]?.index ?? 0;
-                      const isLast = groupIdx === section.groups.length - 1;
+          ? runGroups.map((group, groupIdx) => {
+              const canMoveUp = groupIdx > 0;
+              const canMoveDown = groupIdx < runGroups.length - 1;
 
-                      return (
-                        <View
-                          key={group.groupId || `inner-group-${groupIdx}`}
-                          style={[styles.innerGroupBox, isLast && styles.innerGroupBoxLast]}
-                        >
-                          {/* Small set dropdown on the left */}
+              if (group.isGroup && group.groupId) {
+                const groupRepeat =
+                  group.items[0]?.step?.groupRepeat ||
+                  group.items[0]?.step?.repeat ||
+                  2;
+                const firstIndex = group.items[0]?.index ?? 0;
+
+                const groupKey =
+                  group.groupId ||
+                  (group.items[0]?.step?.clientKey
+                    ? `group-${group.items[0].step.clientKey}`
+                    : `group-${groupIdx}`);
+
+                return (
+                  <DraggableCardWrapper
+                    key={groupKey}
+                    index={groupIdx}
+                    totalItems={runGroups.length}
+                    isReordering={isReordering}
+                    itemLayoutsRef={itemLayoutsRef}
+                    onReorder={handleReorderGroups}
+                    setScrollEnabled={setScrollEnabled}
+                  >
+                    {(dragHandleProps) => (
+                      <View style={[styles.groupBox, isReordering && styles.groupBoxReordering]}>
+                        {/* Group Header: Set Count Badge + Group Reorder Controls */}
+                        <View style={styles.groupHeaderRow}>
                           <TouchableOpacity
-                            disabled={!isEditing}
+                            disabled={!isEditing || isReordering}
                             onPress={() => setRepeatRun(firstIndex)}
                             style={styles.cornerSetBadge}
                             activeOpacity={isEditing ? 0.7 : 1}
@@ -1380,12 +1674,63 @@ export default function CustomWorkoutOverview() {
                             <Text style={styles.cornerSetText}>
                               {groupRepeat} {groupRepeat === 1 ? "Set" : "Sets"}
                             </Text>
-                            {isEditing ? (
+                            {isEditing && !isReordering ? (
                               <Feather name="chevron-down" size={12} color="#30D158" style={{ marginLeft: 3 }} />
                             ) : null}
                           </TouchableOpacity>
 
-                          {group.items.map(({ step, index }) => (
+                          {isReordering ? (
+                            <View style={styles.reorderActionsContainer}>
+                              {canMoveUp ? (
+                                <TouchableOpacity
+                                  onPress={() => handleReorderGroups(groupIdx, groupIdx - 1)}
+                                  style={styles.reorderArrowBtn}
+                                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                  accessibilityLabel="Move group up"
+                                >
+                                  <Feather name="chevron-up" size={16} color={colors.textSecondary} />
+                                </TouchableOpacity>
+                              ) : null}
+                              {canMoveDown ? (
+                                <TouchableOpacity
+                                  onPress={() => handleReorderGroups(groupIdx, groupIdx + 1)}
+                                  style={styles.reorderArrowBtn}
+                                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                  accessibilityLabel="Move group down"
+                                >
+                                  <Feather name="chevron-down" size={16} color={colors.textSecondary} />
+                                </TouchableOpacity>
+                              ) : null}
+                              <View
+                                {...dragHandleProps}
+                                style={styles.reorderDragHandle}
+                                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                accessibilityLabel="Drag group to reorder"
+                              >
+                                <Feather name="menu" size={18} color="#30D158" />
+                              </View>
+                            </View>
+                          ) : isEditing ? (
+                            <TouchableOpacity
+                              onPress={() =>
+                                confirmDelete("Repeat Run Group", () =>
+                                  handleDeleteGroup(group.groupId, group.items.map((it) => it.index))
+                                )
+                              }
+                              style={styles.groupDeleteBtn}
+                              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                              accessibilityLabel="Delete repeat run group"
+                            >
+                              <Feather name="trash-2" size={15} color="#FF453A" />
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+
+                        {group.items.map(({ step, index }, itemIdx) => {
+                          const canMoveStepUp = itemIdx > 0;
+                          const canMoveStepDown = itemIdx < group.items.length - 1;
+
+                          return (
                             <View key={`${step.title}-${index}`}>
                               <StepCard
                                 step={step}
@@ -1393,64 +1738,109 @@ export default function CustomWorkoutOverview() {
                                 index={index}
                                 editable={isEditing}
                                 selected={selectedRun === index}
+                                isReordering={isReordering}
+                                canMoveUp={canMoveStepUp}
+                                canMoveDown={canMoveStepDown}
+                                onMoveUp={
+                                  canMoveStepUp
+                                    ? () => handleMoveStepWithinGroup(index, group.items[itemIdx - 1].index)
+                                    : undefined
+                                }
+                                onMoveDown={
+                                  canMoveStepDown
+                                    ? () => handleMoveStepWithinGroup(index, group.items[itemIdx + 1].index)
+                                    : undefined
+                                }
                                 onSelect={() => {
                                   setSelectedRun(index);
                                   router.push(
                                     `/custom-workout/running-declaration?index=${index}`
                                   );
                                 }}
-                                onDelete={() =>
-                                  confirmDelete(step.title || "Run Step", () => removeRun(index))
-                                }
+                                onLongPress={() => {
+                                  if (isEditing && runGroups.length > 1) {
+                                    setIsReordering(true);
+                                    try {
+                                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                    } catch {}
+                                  }
+                                }}
                               />
                               {step.rest && step.rest !== "00:00:00" ? (
                                 <RestCard
                                   duration={step.rest}
                                   skipLastRest={step.skipLastRest ?? true}
                                   repeatCount={step.repeat || 1}
-                                  editable={isEditing}
+                                  editable={isEditing && !isReordering}
                                   onPress={() => openRestModal(index)}
                                   onDelete={() => deleteRestConfig(index)}
                                   onToggleSkipLastRest={(val) => updateRunSkipLastRest(index, val)}
                                 />
-                              ) : isEditing ? (
+                              ) : isEditing && !isReordering ? (
                                 <AddRecoveryCard onPress={() => openRestModal(index)} />
                               ) : null}
                             </View>
-                          ))}
-                        </View>
-                      );
-                    })}
-                  </View>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </DraggableCardWrapper>
                 );
               }
 
-              const singleStep = section.item.step;
-              const singleIndex = section.item.index;
+              const singleStep = group.items[0].step;
+              const singleIndex = group.items[0].index;
+              const stepKey =
+                singleStep.clientKey ||
+                (singleStep.id != null
+                  ? `step-id-${singleStep.id}`
+                  : `step-idx-${singleIndex}`);
 
               return (
-                <View key={`single-run-${singleIndex}`}>
-                  <StepCard
-                    step={singleStep}
-                    color={getStepColor(singleStep)}
-                    index={singleIndex}
-                    editable={isEditing}
-                    selected={selectedRun === singleIndex}
-                    onSelect={() => {
-                      setSelectedRun(singleIndex);
-                      router.push(
-                        `/custom-workout/running-declaration?index=${singleIndex}`
-                      );
-                    }}
-                    onRepeat={() => {
-                      convertRunToRepeat(singleIndex);
-                      setSelectedRun(singleIndex);
-                    }}
-                    onDelete={() =>
-                      confirmDelete(singleStep.title || "Run Step", () => removeRun(singleIndex))
-                    }
-                  />
-                </View>
+                <DraggableCardWrapper
+                  key={stepKey}
+                  index={groupIdx}
+                  totalItems={runGroups.length}
+                  isReordering={isReordering}
+                  itemLayoutsRef={itemLayoutsRef}
+                  onReorder={handleReorderGroups}
+                  setScrollEnabled={setScrollEnabled}
+                >
+                  {(dragHandleProps) => (
+                    <View>
+                      <StepCard
+                        step={singleStep}
+                        color={getStepColor(singleStep)}
+                        index={singleIndex}
+                        editable={isEditing}
+                        selected={selectedRun === singleIndex}
+                        isReordering={isReordering}
+                        canMoveUp={canMoveUp}
+                        canMoveDown={canMoveDown}
+                        onMoveUp={() => handleReorderGroups(groupIdx, groupIdx - 1)}
+                        onMoveDown={() => handleReorderGroups(groupIdx, groupIdx + 1)}
+                        dragHandleProps={dragHandleProps}
+                        onSelect={() => {
+                          setSelectedRun(singleIndex);
+                          router.push(
+                            `/custom-workout/running-declaration?index=${singleIndex}`
+                          );
+                        }}
+                        onLongPress={() => {
+                          if (isEditing && runGroups.length > 1) {
+                            setIsReordering(true);
+                            try {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                            } catch {}
+                          }
+                        }}
+                        onDelete={() =>
+                          confirmDelete(singleStep.title || "Run Step", () => removeRun(singleIndex))
+                        }
+                      />
+                    </View>
+                  )}
+                </DraggableCardWrapper>
               );
             })
           : null}
@@ -2346,6 +2736,14 @@ const createStyles = (colors: ThemeColors, isDark: boolean = false) => StyleShee
     backgroundColor: "rgba(255, 69, 58, 0.12)",
     marginLeft: 6,
   },
+  groupDeleteBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255, 69, 58, 0.12)",
+  },
   groupSetCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -2554,25 +2952,6 @@ const createStyles = (colors: ThemeColors, isDark: boolean = false) => StyleShee
   skipRestLabelActive: {
     color: "#8E8E93",
   },
-  outerGroupBox: {
-    padding: 10,
-    backgroundColor: isDark ? "rgba(48, 209, 88, 0.05)" : "rgba(48, 209, 88, 0.04)",
-    borderRadius: 18,
-    marginBottom: 14,
-    borderWidth: 1.5,
-    borderColor: isDark ? "rgba(48, 209, 88, 0.35)" : "rgba(48, 209, 88, 0.3)",
-  },
-  innerGroupBox: {
-    padding: 10,
-    backgroundColor: colors.surfaceRaised,
-    borderRadius: 14,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  innerGroupBoxLast: {
-    marginBottom: 0,
-  },
   groupBox: {
     padding: 12,
     backgroundColor: colors.surfaceRaised,
@@ -2580,6 +2959,74 @@ const createStyles = (colors: ThemeColors, isDark: boolean = false) => StyleShee
     marginBottom: 14,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  groupBoxReordering: {
+    borderColor: isDark ? "rgba(48, 209, 88, 0.45)" : "rgba(48, 209, 88, 0.4)",
+  },
+  groupHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  reorderActionsContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  reorderArrowBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reorderDragHandle: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: isDark ? "rgba(48, 209, 88, 0.15)" : "rgba(48, 209, 88, 0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 2,
+  },
+  reorderToggleBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: isDark ? "rgba(48, 209, 88, 0.12)" : "rgba(48, 209, 88, 0.1)",
+  },
+  reorderToggleBtnActive: {
+    backgroundColor: "#30D158",
+  },
+  reorderDoneBtnText: {
+    color: "#000000",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  reorderHintBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: isDark ? "rgba(48, 209, 88, 0.08)" : "rgba(48, 209, 88, 0.07)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: isDark ? "rgba(48, 209, 88, 0.25)" : "rgba(48, 209, 88, 0.2)",
+  },
+  reorderHintText: {
+    color: isDark ? "#30D158" : "#248A3D",
+    fontSize: 12,
+    fontWeight: "600",
+    flex: 1,
+  },
+  stepCardReordering: {
+    borderColor: isDark ? "rgba(48, 209, 88, 0.45)" : "rgba(48, 209, 88, 0.4)",
+    backgroundColor: isDark ? "rgba(48, 209, 88, 0.04)" : "rgba(48, 209, 88, 0.02)",
   },
   groupSetHeader: {
     flexDirection: "row",

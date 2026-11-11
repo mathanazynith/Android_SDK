@@ -1,7 +1,7 @@
 import { Alert } from '@/components/ThemedAlert';
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DashboardText from '../../components/common/DashboardText';
@@ -16,6 +16,7 @@ import { useAuth } from '../../service/auth';
 import { getFcmToken } from '../../service/fcmService';
 import { registerNotificationDevice } from '../../service/notificationService';
 import { clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal } from '../../src/services/activeRunJournal';
+import { activityAPI, type BackendActivity } from '../../src/services/activityApi';
 import {
   clearBackgroundLocationSession,
   getBackgroundLocationSession,
@@ -31,10 +32,9 @@ import { isAssessmentProfileComplete } from '../../utils/profileEligibility';
 import { useResponsive } from '../../utils/responsive';
 import DashboardActivePlan from './DashboardActivePlan';
 import DashboardNoPlan from './DashboardNoPlan';
-// import { LocationService } from '../../src/services/locationService';
-// import { getWeatherByLocation, type WeatherData } from '../../service/weather';
 
 const NOTIFICATION_PERMISSION_DELAY_MS = 1_000;
+const WORKOUT_CHECKPOINT_STALE_AFTER_MS = 30_000;
 
 type RecoverableWorkout = {
   id: string;
@@ -53,8 +53,79 @@ const formatRecoveryDuration = (seconds: number) => {
     : `00:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
 };
 
+interface WeekDayStatus {
+  dayName: string;
+  dayNumber: number;
+  isToday: boolean;
+  hasRun: boolean;
+}
+
+interface WeeklyStats {
+  distanceKm: number;
+  runsCount: number;
+  durationMinutes: number;
+  days: WeekDayStatus[];
+}
+
+function calculateWeeklySummary(activities: BackendActivity[]): WeeklyStats {
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  const distanceToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + distanceToMonday);
+  monday.setHours(0, 0, 0, 0);
+
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  sunday.setHours(23, 59, 59, 999);
+
+  const mondayTime = monday.getTime();
+  const sundayTime = sunday.getTime();
+
+  let distanceMeters = 0;
+  let durationSeconds = 0;
+  let runsCount = 0;
+  const runDatesSet = new Set<string>();
+
+  activities.forEach((act) => {
+    if (!act.start_time) return;
+    const actDate = new Date(act.start_time);
+    const actTime = actDate.getTime();
+    if (actTime >= mondayTime && actTime <= sundayTime) {
+      distanceMeters += act.distance || 0;
+      durationSeconds += act.moving_time || act.elapsed_time || 0;
+      runsCount += 1;
+      const dateKey = `${actDate.getFullYear()}-${String(actDate.getMonth() + 1).padStart(2, '0')}-${String(actDate.getDate()).padStart(2, '0')}`;
+      runDatesSet.add(dateKey);
+    }
+  });
+
+  const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  const days: WeekDayStatus[] = [];
+  for (let i = 0; i < 7; i++) {
+    const cur = new Date(monday);
+    cur.setDate(monday.getDate() + i);
+    const curKey = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+    days.push({
+      dayName: dayLabels[i],
+      dayNumber: cur.getDate(),
+      isToday: curKey === todayKey,
+      hasRun: runDatesSet.has(curKey),
+    });
+  }
+
+  return {
+    distanceKm: distanceMeters / 1000,
+    runsCount,
+    durationMinutes: Math.round(durationSeconds / 60),
+    days,
+  };
+}
+
 export default function DashboardScreen() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const { spacing, fontSize } = useResponsive();
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
@@ -71,74 +142,109 @@ export default function DashboardScreen() {
   const [offlinePendingCount, setOfflinePendingCount] = useState(0);
   const [isSyncingOffline, setIsSyncingOffline] = useState(false);
   const [recoverableWorkout, setRecoverableWorkout] = useState<RecoverableWorkout | null>(null);
+  const [activities, setActivities] = useState<BackendActivity[]>([]);
   const permissionRequestStarted = useRef(false);
 
-  useFocusEffect(useCallback(() => {
-    let isActive = true;
-    const findRecoverableWorkout = async () => {
-      try {
-        let recoveries = await listPendingWorkoutRecoveries();
-        if (!isActive) return;
-        let recovery = recoveries.find((item) => (
-          Boolean(item.session.runId)
-          && (!item.session.userId || String(item.session.userId) === String(userId ?? ''))
-        ));
-        if (!recovery) {
-          await flushActiveRunJournal();
-          const [legacySession, legacyJournal, trackingStarted] = await Promise.all([
-            getBackgroundLocationSession(),
-            readActiveRunJournal(),
-            isBackgroundLocationTrackingStarted(),
-          ]);
-          if (
-            legacySession?.active
-            && legacySession.recoveryReviewRequired
-            && legacySession.runId
-            && legacyJournal?.active
-            && legacyJournal.runId === legacySession.runId
-            && !trackingStarted
-            && (!legacySession.userId || String(legacySession.userId) === String(userId ?? ''))
-          ) {
-            await savePendingWorkoutRecovery(legacySession, legacyJournal);
-            await clearActiveRunJournal();
-            await clearBackgroundLocationSession();
-            recoveries = await listPendingWorkoutRecoveries();
-            recovery = recoveries.find((item) => item.id === legacySession.runId);
+  useFocusEffect(
+    useCallback(() => {
+      let isCurrent = true;
+      void (async () => {
+        try {
+          const cachedFirstPage = await activityAPI.getCachedFirstPage();
+          if (cachedFirstPage?.activities && isCurrent) {
+            setActivities(cachedFirstPage.activities);
           }
+          const freshPage = await activityAPI.listPage(null, 30);
+          if (freshPage?.activities && isCurrent) {
+            setActivities(freshPage.activities);
+          }
+        } catch (err) {
+          console.warn('[Dashboard] Could not load activities for weekly widget:', err);
         }
-        if (!recovery) {
-          setRecoverableWorkout(null);
-          return;
-        }
+      })();
+      return () => {
+        isCurrent = false;
+      };
+    }, [])
+  );
 
-        const runId = recovery.session.runId;
-        if (!runId) {
-          setRecoverableWorkout(null);
-          return;
-        }
-        const { session, journal } = recovery;
-        const points = journal.points;
-        const journalDistanceMeters = points.slice(1).reduce((total, point, index) => (
-          total + calculateDistanceMeters(points[index], point)
-        ), 0);
-        const sessionDistanceMeters = Number.isFinite(session.distanceKm)
-          ? Math.max(0, Number(session.distanceKm) * 1000)
-          : journalDistanceMeters;
-        setRecoverableWorkout({
-          id: recovery.id,
-          runId,
-          distanceMeters: Math.max(sessionDistanceMeters, journalDistanceMeters),
-          elapsedSeconds: Math.max(0, session.elapsedSeconds ?? 0),
-        });
-      } catch (error) {
-        console.warn('[Dashboard] Could not inspect unfinished workout checkpoint', error);
-        if (isActive) setRecoverableWorkout(null);
-      }
-    };
+  const weeklyStats = useMemo(() => calculateWeeklySummary(activities), [activities]);
 
-    void findRecoverableWorkout();
-    return () => { isActive = false; };
-  }, [userId]));
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
+      const findRecoverableWorkout = async () => {
+        try {
+          let recoveries = await listPendingWorkoutRecoveries();
+          if (!isActive) return;
+          let recovery = recoveries.find((item) => (
+            Boolean(item.session.runId)
+            && (!item.session.userId || String(item.session.userId) === String(userId ?? ''))
+          ));
+
+          if (!recovery) {
+            await flushActiveRunJournal();
+            const [legacySession, legacyJournal, trackingStarted] = await Promise.all([
+              getBackgroundLocationSession(),
+              readActiveRunJournal(),
+              isBackgroundLocationTrackingStarted(),
+            ]);
+            if (!isActive) return;
+            const isStaleCheckpoint = legacySession?.updatedAt != null
+              && Date.now() - legacySession.updatedAt >= WORKOUT_CHECKPOINT_STALE_AFTER_MS;
+            if (
+              legacySession?.active
+              && legacySession.runId
+              && legacyJournal?.active
+              && legacyJournal.runId === legacySession.runId
+              && !trackingStarted
+              && (legacySession.recoveryReviewRequired || isStaleCheckpoint)
+              && (!legacySession.userId || String(legacySession.userId) === String(userId ?? ''))
+            ) {
+              await savePendingWorkoutRecovery(legacySession, legacyJournal);
+              await clearActiveRunJournal();
+              await clearBackgroundLocationSession();
+              recoveries = await listPendingWorkoutRecoveries();
+              recovery = recoveries.find((item) => item.id === legacySession.runId);
+            }
+          }
+
+          if (!isActive) return;
+          if (!recovery) {
+            setRecoverableWorkout(null);
+            return;
+          }
+          const runId = recovery.session.runId;
+          if (!runId) {
+            setRecoverableWorkout(null);
+            return;
+          }
+          const { session, journal } = recovery;
+          const points = journal.points;
+          const journalDistanceMeters = points.slice(1).reduce((total, point, index) => (
+            total + calculateDistanceMeters(points[index], point)
+          ), 0);
+          const sessionDistanceMeters = Number.isFinite(session.distanceKm)
+            ? Math.max(0, Number(session.distanceKm) * 1000)
+            : journalDistanceMeters;
+          setRecoverableWorkout({
+            id: recovery.id,
+            runId,
+            distanceMeters: Math.max(sessionDistanceMeters, journalDistanceMeters),
+            elapsedSeconds: Math.max(0, session.elapsedSeconds ?? 0),
+          });
+        } catch (error) {
+          console.warn('[Dashboard] Could not inspect unfinished workout checkpoint', error);
+          if (isActive) setRecoverableWorkout(null);
+        }
+      };
+
+      void findRecoverableWorkout();
+      return () => {
+        isActive = false;
+      };
+    }, [userId])
+  );
 
   useEffect(() => {
     const unsubscribe = offlineWorkoutQueue.subscribe((count) => {
@@ -157,9 +263,6 @@ export default function DashboardScreen() {
       appStateSub.remove();
     };
   }, []);
-  // const [weather, setWeather] = useState<WeatherData | null>(null);
-  // const [loadingWeather, setLoadingWeather] = useState(true);
-  // const [weatherError, setWeatherError] = useState<string | null>(null);
 
   useEffect(() => {
     void fetchWorkoutPlan();
@@ -194,68 +297,37 @@ export default function DashboardScreen() {
         isActive = false;
         clearTimeout(permissionTimer);
       };
-    }, [isWorkoutPlanLoaded, isWorkoutPlanLoading, user]),
+    }, [isWorkoutPlanLoaded, isWorkoutPlanLoading, user])
   );
-
-  // useEffect(() => {
-  //   let isActive = true;
-
-  //   const fetchWeatherData = async () => {
-  //     try {
-  //       setLoadingWeather(true);
-  //       setWeatherError(null);
-
-  //       const hasPermission = await LocationService.requestForegroundPermissions();
-  //       if (!hasPermission) {
-  //         throw new Error('Location permission is required for weather');
-  //       }
-
-  //       const location = await LocationService.getCurrentLocation();
-  //       const weatherData = await getWeatherByLocation(location.latitude, location.longitude);
-
-  //       if (isActive) setWeather(weatherData);
-  //     } catch (error) {
-  //       console.error('Failed to fetch weather:', error);
-  //       if (isActive) setWeatherError('Weather unavailable');
-  //     } finally {
-  //       if (isActive) setLoadingWeather(false);
-  //     }
-  //   };
-
-  //   void fetchWeatherData();
-  //   return () => {
-  //     isActive = false;
-  //   };
-  // }, []);
 
   const canStartAssessment = isAssessmentProfileComplete(user);
   const firstName = user?.first_name?.trim();
   const fallbackName = user?.username?.trim() || user?.email?.split('@')[0]?.trim() || 'Runner';
   const userName = firstName || fallbackName.charAt(0).toUpperCase() + fallbackName.slice(1);
-  // const parsedTemperature = weather?.temperature == null ? null : Number(weather.temperature);
-  // const weatherTemperature = parsedTemperature != null && Number.isFinite(parsedTemperature)
-  //   ? `${Math.round(parsedTemperature)}°C`
-  //   : '--';
-  // const humidityValue = weather?.humidity ?? weather?.relativeHumidity;
-  // const parsedHumidity = humidityValue == null ? null : Number(humidityValue);
-  // const weatherHumidity = parsedHumidity != null && Number.isFinite(parsedHumidity)
-  //   ? `${Math.round(parsedHumidity)}%%`
-  //   : '--';
-  // const weatherCondition = weather?.condition?.toLowerCase() ?? '';
-  // const weatherIcon = weatherCondition.includes('rain') || weatherCondition.includes('drizzle')
-  //   ? 'cloud-rain'
-  //   : weatherCondition.includes('storm') || weatherCondition.includes('thunder')
-  //     ? 'cloud-lightning'
-  //     : weatherCondition.includes('cloud') || weatherCondition.includes('overcast')
-  //       ? 'cloud'
-  //       : 'sun';
+
+  const greetingTime = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return 'Good morning';
+    if (hour >= 12 && hour < 17) return 'Good afternoon';
+    if (hour >= 17 && hour < 22) return 'Good evening';
+    return 'Good night';
+  }, []);
+
+  const formattedToday = useMemo(() => {
+    const now = new Date();
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${days[now.getDay()]}, ${months[now.getMonth()]} ${now.getDate()}`;
+  }, []);
+
   const today = new Date();
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const workouts = workoutPlan?.weeks.flatMap((week) => week.workouts) ?? [];
   const todayWorkout = workouts.find((workout) => workout.workout_date?.slice(0, 10) === todayKey) ?? null;
-  const nextWorkout = workouts
-    .filter((workout) => workout.workout_date.slice(0, 10) > todayKey)
-    .sort((a, b) => a.workout_date.slice(0, 10).localeCompare(b.workout_date.slice(0, 10)))[0] ?? null;
+  const nextWorkout =
+    workouts
+      .filter((workout) => workout.workout_date.slice(0, 10) > todayKey)
+      .sort((a, b) => a.workout_date.slice(0, 10).localeCompare(b.workout_date.slice(0, 10)))[0] ?? null;
 
   const startAssessment = () => {
     if (!canStartAssessment) {
@@ -278,11 +350,17 @@ export default function DashboardScreen() {
     if (option === 'Logout') {
       Alert.alert('Logout', 'Are you sure you want to logout?', [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Logout', style: 'destructive', onPress: async () => { await logout(); router.replace('/(auth)/welcome' as any); } },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            await logout();
+            router.replace('/(auth)/welcome' as any);
+          },
+        },
       ]);
     }
   };
-
 
   if (workoutPlanError && !workoutPlan) {
     return (
@@ -309,17 +387,62 @@ export default function DashboardScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.topBar, { borderBottomColor: colors.border, minHeight: spacing(82) + insets.top, paddingHorizontal: spacing(28), paddingTop: insets.top + spacing(8) }]}>
-        <DashboardText style={[styles.pageTitle, { color: colors.text, fontSize: fontSize(28, 24, 30) }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={1.2}>Dashboard</DashboardText>
+      {/* Top Bar with Branding & Actions */}
+      <View
+        style={[
+          styles.topBar,
+          {
+            borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+            minHeight: spacing(76) + insets.top,
+            paddingHorizontal: spacing(20),
+            paddingTop: insets.top + spacing(6),
+          },
+        ]}
+      >
+        <View style={styles.brandingGroup}>
+          <View style={[styles.brandLogoBadge, { backgroundColor: `${BRAND_GREEN}22` }]}>
+            <MaterialCommunityIcons name="run-fast" size={20} color={BRAND_GREEN} />
+          </View>
+          <View>
+            <DashboardText style={[styles.brandTitle, { color: colors.text }]}>ZY-RUN</DashboardText>
+            <DashboardText style={[styles.brandSubtitle, { color: colors.textSecondary }]}>
+              Running Companion
+            </DashboardText>
+          </View>
+        </View>
+
         <View style={styles.headerActions}>
           <NotificationBell
             onPress={() => router.push('/(app)/screens/notifications')}
             badgeCount={unreadCount ?? 0}
           />
-          <TouchableOpacity style={[styles.headerButton, { width: spacing(46), height: spacing(46), borderRadius: spacing(23), backgroundColor: colors.surfaceRaised, borderColor: colors.border }]} onPress={() => setSettingsVisible(true)}><Feather name="settings" size={spacing(23)} color={colors.textSecondary} /></TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.headerButton,
+              {
+                width: spacing(42),
+                height: spacing(42),
+                borderRadius: spacing(21),
+                backgroundColor: colors.surfaceRaised,
+                borderColor: colors.border,
+              },
+            ]}
+            onPress={() => setSettingsVisible(true)}
+            accessibilityLabel="Open settings"
+          >
+            <Feather name="settings" size={spacing(20)} color={colors.textSecondary} />
+          </TouchableOpacity>
         </View>
       </View>
-      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: spacing(20), paddingBottom: spacing(118) }]} showsVerticalScrollIndicator={false}>
+
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingHorizontal: spacing(18), paddingBottom: spacing(118) },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Unfinished Workout Recovery Banner */}
         {recoverableWorkout ? (
           <TouchableOpacity
             accessibilityRole="button"
@@ -349,37 +472,136 @@ export default function DashboardScreen() {
           >
             <Feather name="corner-up-left" size={24} color={colors.text} />
             <View style={{ flex: 1 }}>
-              <DashboardText style={{ color: colors.text, fontSize: 16, fontWeight: '800' }}>Unfinished workout found</DashboardText>
+              <DashboardText style={{ color: colors.text, fontSize: 16, fontWeight: '800' }}>
+                Unfinished workout found
+              </DashboardText>
               <DashboardText style={{ color: colors.textSecondary, fontSize: 13, marginTop: 3 }}>
-                {(recoverableWorkout.distanceMeters / 1000).toFixed(2)} km · {formatRecoveryDuration(recoverableWorkout.elapsedSeconds)}
+                {(recoverableWorkout.distanceMeters / 1000).toFixed(2)} km ·{' '}
+                {formatRecoveryDuration(recoverableWorkout.elapsedSeconds)}
               </DashboardText>
             </View>
             <DashboardText style={{ color: colors.text, fontSize: 15, fontWeight: '800' }}>Review</DashboardText>
           </TouchableOpacity>
         ) : null}
+
+        {/* 1. Welcoming Dynamic Greeting Card */}
         <MotionEntrance>
-          <View style={[styles.greeting, { minHeight: spacing(82), paddingHorizontal: spacing(18), paddingVertical: spacing(14), marginBottom: spacing(14), backgroundColor: colors.surface }]}>
-            <DashboardText style={[styles.greetingText, { color: colors.text, fontSize: fontSize(24, 20, 26) }]} numberOfLines={2}><DashboardText>Hi </DashboardText><DashboardText style={[styles.name, { color: BRAND_GREEN }]}>{userName}</DashboardText></DashboardText>
-              {/*
-              <TouchableOpacity
-                accessibilityLabel="Open current weather details"
-                style={[styles.weather, { backgroundColor: colors.surface, borderColor: BRAND_GREEN }]}
-                onPress={() => router.push('./screens/weather-details')}
-              >
-                {loadingWeather ? <RunningLoader size={22} fillColor={BRAND_GREEN} /> : weather?.iconUrl ? <Image source={{ uri: weather.iconUrl }} style={{ width: spacing(24), height: spacing(24) }} /> : <Feather name={weatherIcon} size={spacing(24)} color={BRAND_GREEN} />}
-                <View>
-                  <DashboardText style={[styles.weatherValue, { color: colors.text }]} numberOfLines={1}>{weather?.city || weather?.locationName || 'Current location'}</DashboardText>
-                  <DashboardText style={[styles.weatherValue, { color: colors.textSecondary }]}>{weatherTemperature}</DashboardText>
-                  <View style={styles.weatherHumidity}>
-                    <Feather name="droplet" size={spacing(11)} color={colors.textSecondary} />
-                    <DashboardText style={[styles.weatherValue, { color: colors.textSecondary }]}>{weatherHumidity}</DashboardText>
-                  </View>
-                  {weatherError ? <DashboardText style={[styles.weatherStatus, { color: colors.textTertiary }]}>{weatherError}</DashboardText> : null}
-                </View>
-              </TouchableOpacity>
-              */}
+          <View
+            style={[
+              styles.greetingCard,
+              {
+                backgroundColor: colors.surface,
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+              },
+            ]}
+          >
+            <View style={styles.greetingHeader}>
+              <View style={styles.greetingTextColumn}>
+                <DashboardText style={[styles.greetingTimeText, { color: colors.textSecondary }]}>
+                  {greetingTime} 👋
+                </DashboardText>
+                <DashboardText
+                  style={[styles.greetingNameText, { color: colors.text }]}
+                  numberOfLines={1}
+                >
+                  {userName}
+                </DashboardText>
+              </View>
+              <View style={[styles.dayBadge, { backgroundColor: `${BRAND_GREEN}14` }]}>
+                <Feather name="calendar" size={12} color={BRAND_GREEN} style={{ marginRight: 4 }} />
+                <DashboardText style={[styles.dayBadgeText, { color: BRAND_GREEN }]}>
+                  {formattedToday}
+                </DashboardText>
+              </View>
+            </View>
+            <DashboardText style={[styles.motivationText, { color: colors.textSecondary }]}>
+              Every kilometer counts toward your goals. Let&apos;s get moving today! 👟
+            </DashboardText>
           </View>
         </MotionEntrance>
+
+        {/* 3. Quick Action Shortcuts Bar */}
+        <MotionEntrance delay={45}>
+          <View style={styles.quickShortcutsRow}>
+            <TouchableOpacity
+              style={[
+                styles.quickShortcutPill,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+                },
+              ]}
+              onPress={() => router.push('/(app)/screens/map')}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.quickShortcutIcon, { backgroundColor: `${BRAND_GREEN}18` }]}>
+                <Feather name="play" size={13} color={BRAND_GREEN} />
+              </View>
+              <DashboardText style={[styles.quickShortcutLabel, { color: colors.text }]}>
+                Quick Run
+              </DashboardText>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.quickShortcutPill,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+                },
+              ]}
+              onPress={() => router.push('/(app)/custom-workout')}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(255, 149, 0, 0.18)' }]}>
+                <Feather name="sliders" size={13} color="#FF9500" />
+              </View>
+              <DashboardText style={[styles.quickShortcutLabel, { color: colors.text }]}>
+                Custom
+              </DashboardText>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.quickShortcutPill,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+                },
+              ]}
+              onPress={() => router.push('/(app)/training-plan')}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(10, 132, 255, 0.18)' }]}>
+                <Feather name="calendar" size={13} color="#0A84FF" />
+              </View>
+              <DashboardText style={[styles.quickShortcutLabel, { color: colors.text }]}>
+                Plan
+              </DashboardText>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.quickShortcutPill,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+                },
+              ]}
+              onPress={() => router.push('/(app)/stats')}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(175, 82, 222, 0.18)' }]}>
+                <Feather name="bar-chart-2" size={13} color="#AF52DE" />
+              </View>
+              <DashboardText style={[styles.quickShortcutLabel, { color: colors.text }]}>
+                Stats
+              </DashboardText>
+            </TouchableOpacity>
+          </View>
+        </MotionEntrance>
+
+        {/* Offline Workouts Pending Sync Banner */}
         {offlinePendingCount > 0 && (
           <TouchableOpacity
             activeOpacity={0.8}
@@ -419,7 +641,9 @@ export default function DashboardScreen() {
             )}
           </TouchableOpacity>
         )}
-        <MotionEntrance delay={55}>
+
+        {/* 4. Active Plan vs No Plan vs Error State */}
+        <MotionEntrance delay={60}>
           {workoutPlan ? (
             <DashboardActivePlan plan={workoutPlan} todayWorkout={todayWorkout} nextWorkout={nextWorkout} />
           ) : workoutPlanError ? (
@@ -430,10 +654,22 @@ export default function DashboardScreen() {
                 activeOpacity={0.85}
               >
                 <Feather name="play" size={24} color="#081009" />
-                <DashboardText style={styles.recordText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>Record Workout</DashboardText>
+                <DashboardText
+                  style={styles.recordText}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.85}
+                >
+                  Record Workout
+                </DashboardText>
               </TouchableOpacity>
 
-              <View style={[styles.offlineCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View
+                style={[
+                  styles.offlineCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}
+              >
                 <Feather name="wifi-off" size={28} color="#FFB020" style={{ marginBottom: 8 }} />
                 <DashboardText style={[styles.offlineTitle, { color: colors.text }]}>
                   Network connection error
@@ -459,9 +695,21 @@ export default function DashboardScreen() {
                 activeOpacity={0.85}
               >
                 <Feather name="play" size={24} color="#081009" />
-                <DashboardText style={styles.recordText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>Record Workout</DashboardText>
+                <DashboardText
+                  style={styles.recordText}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.85}
+                >
+                  Record Workout
+                </DashboardText>
               </TouchableOpacity>
-              <View style={[styles.offlineCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View
+                style={[
+                  styles.offlineCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}
+              >
                 <RunningLoader size={36} label="Loading your dashboard..." />
               </View>
             </View>
@@ -470,6 +718,7 @@ export default function DashboardScreen() {
           )}
         </MotionEntrance>
       </ScrollView>
+
       <SettingsMenu
         visible={settingsVisible}
         onClose={() => setSettingsVisible(false)}
@@ -482,19 +731,200 @@ export default function DashboardScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0B0E0F' },
-  topBar: { minHeight: 82, paddingHorizontal: 28, paddingTop: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#282B2D' },
-  pageTitle: { color: '#F7F7F7', fontSize: 28, fontWeight: '700', fontStyle: 'italic', flex: 1, flexShrink: 1, minWidth: 0 },
-  headerButton: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: '#25282A', borderWidth: 1, borderColor: '#55595B' },
+  topBar: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  brandingGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  brandLogoBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  brandSubtitle: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  headerButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0 },
-  content: { paddingHorizontal: 20, paddingBottom: 118 },
-  greeting: { minHeight: 82, paddingHorizontal: 18, paddingVertical: 14, marginBottom: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#050607', borderRadius: 22 },
-  greetingText: { color: '#F7F7F7', fontSize: 24, fontWeight: '700', flex: 1, marginRight: 10 },
-  name: { color: '#88C99A' },
-  weather: { minHeight: 64, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, borderWidth: 1.5, flexShrink: 0 },
-  weatherLabel: { color: '#DDE2DE', fontSize: 12, fontWeight: '700' },
-  weatherValue: { color: '#DDE2DE', fontSize: 11, lineHeight: 14 },
-  // weatherHumidity: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  // weatherStatus: { fontSize: 9, lineHeight: 12 },
+  content: { paddingHorizontal: 18, paddingBottom: 118 },
+  greetingCard: {
+    padding: 16,
+    marginBottom: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 6,
+  },
+  greetingHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  greetingTextColumn: {
+    flex: 1,
+    marginRight: 10,
+  },
+  greetingTimeText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  greetingNameText: {
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+    marginTop: 1,
+  },
+  dayBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  dayBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  motivationText: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  weeklyCard: {
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1.25,
+    marginBottom: 14,
+    gap: 12,
+  },
+  weeklyHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  weeklyTitleBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  weeklyIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weeklyLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  weeklyRunsSubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  weeklyDistanceBox: {
+    alignItems: 'flex-end',
+  },
+  weeklyDistanceNum: {
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: -0.5,
+  },
+  weeklyDistanceUnit: {
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: -2,
+  },
+  streakRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingTop: 4,
+  },
+  streakPill: {
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    borderRadius: 14,
+    minWidth: 40,
+    gap: 4,
+  },
+  streakPillToday: {
+    borderWidth: 1,
+    borderColor: BRAND_GREEN,
+  },
+  streakPillHasRun: {
+    backgroundColor: 'rgba(48, 209, 88, 0.12)',
+  },
+  streakDayName: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  streakDotCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  streakDotHasRun: {
+    backgroundColor: BRAND_GREEN,
+  },
+  streakDotToday: {
+    backgroundColor: 'rgba(48, 209, 88, 0.25)',
+  },
+  streakDayNum: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  quickShortcutsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  quickShortcutPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  quickShortcutIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickShortcutLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#0B0E0F' },
   centerText: { color: '#F7F7F7', textAlign: 'center', marginTop: 14 },
   retry: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 12 },

@@ -22,6 +22,7 @@ import {
 
 export type WorkoutStep = {
   id?: number;
+  clientKey?: string;
   title: string;
   stepType?: CustomSegmentType;
   inputType?: SegmentInputType;
@@ -58,6 +59,9 @@ const getTodayDateString = () => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
+export const createStepKey = () =>
+  `step-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
 const createDefaultWorkout = (): WorkoutState => ({
   id: null,
   title: "",
@@ -92,9 +96,11 @@ interface CustomWorkoutContextType {
   updateRunSkipLastRest: (index: number, skipLastRest: boolean) => void;
   updateGroupRepeat: (groupId: string, repeat: number) => void;
   updateGroupSkipLastRest: (groupId: string, skipLastRest: boolean) => void;
+  reorderRuns: (runs: WorkoutStep[]) => void;
   setCooldown: (step: WorkoutStep) => void;
   removeWarmUp: () => void;
   removeRun: (index: number) => void;
+  removeRunGroup: (groupId: string) => void;
   removeCooldown: () => void;
   reset: () => void;
   setIsBenchmark: (isBenchmark: boolean) => void;
@@ -152,6 +158,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         ...current.runs,
         {
           ...step,
+          clientKey: step.clientKey || (step.id ? String(step.id) : createStepKey()),
           stepType: "Run",
           title: step.title || "Run",
         },
@@ -162,6 +169,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
   const addEmptyRun = useCallback(() => {
     setWorkout((current) => {
       const newStep: WorkoutStep = {
+        clientKey: createStepKey(),
         title: "Run",
         stepType: "Run",
         inputType: "DURATION",
@@ -197,6 +205,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           idx === index
             ? {
                 ...step,
+                clientKey: step.clientKey || createStepKey(),
                 groupId: newGroupId,
                 repeat: 2,
                 groupRepeat: 2,
@@ -214,6 +223,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
     setWorkout((current) => {
       const newGroupId = `run-group-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       const newStep: WorkoutStep = {
+        clientKey: createStepKey(),
         title: "Run",
         stepType: "Run",
         inputType: "DISTANCE",
@@ -230,38 +240,6 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         notes: "",
       };
 
-      // 1. If no run exists, create a new repeat group directly
-      if (current.runs.length === 0) {
-        return {
-          ...current,
-          runs: [newStep],
-        };
-      }
-
-      // 2. If an unrepeated run card is already present, convert it into the repeat group!
-      const unrepeatedIdx = current.runs.findIndex(
-        (r) => !r.groupId && (r.repeat || 1) <= 1
-      );
-      if (unrepeatedIdx !== -1) {
-        return {
-          ...current,
-          runs: current.runs.map((step, idx) =>
-            idx === unrepeatedIdx
-              ? {
-                  ...step,
-                  groupId: newGroupId,
-                  repeat: 2,
-                  groupRepeat: 2,
-                  rest: step.rest && step.rest !== "00:00:00" ? step.rest : "00:01:00",
-                  skipLastRest: step.skipLastRest ?? true,
-                  skipRest: false,
-                }
-              : step
-          ),
-        };
-      }
-
-      // 3. If all existing runs are already repeated, add another repeat group into the outer box
       return {
         ...current,
         runs: [...current.runs, newStep],
@@ -274,7 +252,12 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
       ...current,
       runs: current.runs.map((existing, runIndex) =>
         runIndex === index
-          ? { ...step, stepType: "Run", title: step.title || "Run" }
+          ? {
+              ...step,
+              clientKey: existing.clientKey || step.clientKey || createStepKey(),
+              stepType: "Run",
+              title: step.title || "Run",
+            }
           : existing
       ),
     }));
@@ -285,7 +268,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
       const source = current.runs[index];
       if (!source) return current;
       const runs = [...current.runs];
-      runs.splice(index + 1, 0, { ...source });
+      runs.splice(index + 1, 0, { ...source, clientKey: createStepKey() });
       return { ...current, runs };
     });
   }, []);
@@ -300,7 +283,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         groupId,
         groupRepeat: source.groupRepeat || 1,
       };
-      const duplicate = { ...groupedSource };
+      const duplicate = { ...groupedSource, clientKey: createStepKey() };
       const runs = current.runs.map((step, runIndex) =>
         runIndex === index ? groupedSource : step
       );
@@ -373,6 +356,13 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  const reorderRuns = useCallback((newRuns: WorkoutStep[]) => {
+    setWorkout((current) => ({
+      ...current,
+      runs: newRuns,
+    }));
+  }, []);
+
   const setCooldown = useCallback((step: WorkoutStep) => {
     setWorkout((current) => ({
       ...current,
@@ -392,6 +382,13 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
     setWorkout((current) => ({
       ...current,
       runs: current.runs.filter((_, runIndex) => runIndex !== index),
+    }));
+  }, []);
+
+  const removeRunGroup = useCallback((groupId: string) => {
+    setWorkout((current) => ({
+      ...current,
+      runs: current.runs.filter((step) => step.groupId !== groupId),
     }));
   }, []);
 
@@ -619,6 +616,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
 
         const step: WorkoutStep = {
           id: seg.id,
+          clientKey: seg.id ? `seg-${seg.id}` : createStepKey(),
           title: isWarmup ? "Warm Up" : isCooldown ? "Cool Down" : "Run",
           stepType: resolvedType,
           inputType: seg.input_type || "DURATION",
@@ -703,9 +701,11 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         updateRunSkipLastRest,
         updateGroupRepeat,
         updateGroupSkipLastRest,
+        reorderRuns,
         setCooldown,
         removeWarmUp,
         removeRun,
+        removeRunGroup,
         removeCooldown,
         reset,
         setIsBenchmark,

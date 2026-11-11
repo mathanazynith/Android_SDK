@@ -68,7 +68,7 @@ export const formatSplitDistance = (
 ): string => {
   const value = formatSplitDistanceValue(meters, unit);
   if (value === '--') return value;
-  return `${value} ${getDistanceUnitCode(unit) === 'mile' ? 'mi' : 'm'}`;
+  return `${value} ${getDistanceUnitCode(unit) === 'mile' ? 'mi' : 'km'}`;
 };
 
 export const formatSplitDistanceValue = (
@@ -79,7 +79,11 @@ export const formatSplitDistanceValue = (
   if (getDistanceUnitCode(unit) === 'mile') {
     return (meters / METERS_PER_MILE).toFixed(2);
   }
-  return meters === SPLIT_DISTANCE_METERS ? String(SPLIT_DISTANCE_METERS) : meters.toFixed(2);
+  const km = meters / 1000;
+  if (km >= 1 && km % 1 === 0) {
+    return km.toFixed(0);
+  }
+  return Number(km.toFixed(2)).toString();
 };
 
 export const formatSpeedFromMetersPerSecond = (
