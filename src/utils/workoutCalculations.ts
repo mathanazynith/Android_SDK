@@ -1,3 +1,5 @@
+import type { UserWorkoutResponse } from "../../service/customWorkout";
+
 export type DistanceUnitType = "km" | "m" | "mi";
 
 export const MAX_DISTANCE_KM = 100;
@@ -278,3 +280,222 @@ export const calculateTwoFields = ({
     calculatedPace: "",
   };
 };
+
+export const cleanPaceString = (paceStr?: string | null): string | null => {
+  if (!paceStr) return null;
+  const matches = [...paceStr.matchAll(/(\d+)\s*:\s*(\d+(?:\.\d+)?)/g)];
+  if (!matches || matches.length === 0) return null;
+  if (matches.length >= 2) {
+    const min1 = parseInt(matches[0][1], 10);
+    const sec1 = matches[0][2].padStart(2, "0");
+    const min2 = parseInt(matches[1][1], 10);
+    const sec2 = matches[1][2].padStart(2, "0");
+    return `${min1}:${sec1} - ${min2}:${sec2}`;
+  }
+  const min = parseInt(matches[0][1], 10);
+  const sec = matches[0][2].padStart(2, "0");
+  return `${min}:${sec}`;
+};
+
+/**
+ * Safely parses a "YYYY-MM-DD" string into a local Date object without UTC timezone shifting.
+ */
+export const parseLocalDate = (dateStr?: string | null): Date => {
+  if (!dateStr) return new Date();
+  const parts = dateStr.trim().split("-").map(Number);
+  if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+  }
+  const fallback = new Date(dateStr);
+  return isNaN(fallback.getTime()) ? new Date() : fallback;
+};
+
+/**
+ * Returns date status: 'past' | 'today' | 'future' | 'none'
+ */
+export const getDateStatus = (dateStr?: string | null): 'past' | 'today' | 'future' | 'none' => {
+  if (!dateStr) return 'none';
+  const parts = dateStr.trim().split("-").map(Number);
+  if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) return 'none';
+  const target = new Date(parts[0], parts[1] - 1, parts[2]);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (target.getTime() === today.getTime()) return 'today';
+  if (target.getTime() < today.getTime()) return 'past';
+  return 'future';
+};
+
+/**
+ * Formats a "YYYY-MM-DD" string to human-readable display date like "Thu, Nov 12, 2026"
+ */
+export const formatDisplayDate = (dateStr?: string | null): string => {
+  if (!dateStr) return "Unscheduled";
+  const parts = dateStr.trim().split("-").map(Number);
+  if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
+    const d = new Date(parts[0], parts[1] - 1, parts[2]);
+    return d.toLocaleDateString(undefined, {
+      weekday: "short",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  }
+  return dateStr;
+};
+
+export const formatDuration = (seconds?: number | null): string => {
+  if (!seconds || seconds <= 0) return "--";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.round(seconds % 60);
+  if (h > 0 && m > 0) return `${h}h ${m}min`;
+  if (h > 0) return `${h}h`;
+  if (m > 0 && s > 0) return `${m}min ${s}s`;
+  if (m > 0) return `${m}min`;
+  return `${s}s`;
+};
+
+export const formatWorkoutDistance = (
+  item: UserWorkoutResponse,
+  targetUnit: DistanceUnitType = "km"
+): string => {
+  if (item.segments && item.segments.length > 0) {
+    let totalInTargetUnit = 0;
+    for (const seg of item.segments) {
+      const segUnit = normalizeUnit(seg.distance_unit);
+      const reps = Math.max(1, seg.repeats || 1);
+      let distInKm = 0;
+
+      if (seg.display_distance != null && Number(seg.display_distance) > 0) {
+        const val = Number(seg.display_distance);
+        if (segUnit === "mi") distInKm = val * 1.609344;
+        else if (segUnit === "m") distInKm = val / 1000;
+        else distInKm = val;
+      } else if (seg.rep_distance != null && seg.rep_distance > 0) {
+        distInKm = seg.rep_distance / 1000;
+      } else if (seg.distance != null && seg.distance > 0) {
+        if (segUnit === "m") distInKm = seg.distance / 1000;
+        else if (segUnit === "mi") distInKm = seg.distance > 100 ? seg.distance / 1000 : seg.distance * 1.609344;
+        else distInKm = seg.distance > 100 ? seg.distance / 1000 : seg.distance;
+      } else if (seg.duration != null && seg.duration > 0) {
+        const paceSec = parsePaceToSeconds(seg.target_pace || seg.pace) || (seg.segment_type === "Warmup" ? 400 : seg.segment_type === "Cooldown" ? 500 : 300);
+        if (segUnit === "mi") {
+          distInKm = (seg.duration / paceSec) * 1.609344;
+        } else {
+          distInKm = seg.duration / paceSec;
+        }
+      }
+
+      if (targetUnit === "mi") {
+        totalInTargetUnit += (distInKm / 1.609344) * reps;
+      } else if (targetUnit === "m") {
+        totalInTargetUnit += (distInKm * 1000) * reps;
+      } else {
+        totalInTargetUnit += distInKm * reps;
+      }
+    }
+
+    if (totalInTargetUnit > 0) {
+      if (targetUnit === "m") return `${Math.round(totalInTargetUnit)} m`;
+      return `${totalInTargetUnit.toFixed(2)} ${targetUnit}`;
+    }
+  }
+
+  // Fallback if no segments: convert item.distance
+  if (item.distance != null && item.distance > 0) {
+    const rawUnit = normalizeUnit(item.distance_unit);
+    let distInKm = 0;
+    if (item.distance > 100) {
+      distInKm = item.distance / 1000;
+    } else {
+      distInKm = rawUnit === "mi" ? item.distance * 1.609344 : item.distance;
+    }
+    const converted = targetUnit === "mi" ? distInKm / 1.609344 : targetUnit === "m" ? distInKm * 1000 : distInKm;
+    return `${converted.toFixed(2)} ${targetUnit}`;
+  }
+
+  if (item.display_distance != null && item.display_distance > 0) {
+    const rawUnit = normalizeUnit(item.distance_unit);
+    const converted = convertDistance(item.display_distance, rawUnit, targetUnit);
+    return `${converted.toFixed(2)} ${targetUnit}`;
+  }
+
+  return "--";
+};
+
+export const formatWorkoutDuration = (item: UserWorkoutResponse): string => {
+  if (item.segments && item.segments.length > 0) {
+    let totalSec = 0;
+    for (const seg of item.segments) {
+      const reps = Math.max(1, seg.repeats || 1);
+      const restSec = seg.rest_duration || 0;
+      const skipLastRest = seg.skip_last_rest ?? true;
+      const isRepeated = reps > 1;
+      const restCount = isRepeated ? (skipLastRest ? Math.max(reps - 1, 0) : reps) : 0;
+
+      let segSec = 0;
+      if (seg.duration != null && seg.duration > 0) {
+        segSec = seg.duration;
+      } else {
+        const paceSec = parsePaceToSeconds(seg.target_pace || seg.pace) || (seg.segment_type === "Warmup" ? 400 : seg.segment_type === "Cooldown" ? 500 : 300);
+        const segUnit = normalizeUnit(seg.distance_unit);
+        let dist = Number(seg.display_distance) || 0;
+        if (dist <= 0) {
+          if (seg.rep_distance) {
+            dist = segUnit === "mi" ? seg.rep_distance / 1609.344 : segUnit === "m" ? seg.rep_distance : seg.rep_distance / 1000;
+          } else if (seg.distance) {
+            dist = segUnit === "mi" ? (seg.distance > 100 ? seg.distance / 1609.344 : seg.distance) : segUnit === "m" ? seg.distance : (seg.distance > 100 ? seg.distance / 1000 : seg.distance);
+          }
+        }
+        if (dist > 0 && paceSec > 0) {
+          segSec = segUnit === "m" ? Math.round((dist / 1000) * paceSec) : Math.round(dist * paceSec);
+        }
+      }
+
+      totalSec += segSec * reps + restSec * restCount;
+    }
+
+    if (totalSec > 0) {
+      return formatDuration(totalSec);
+    }
+  }
+
+  return formatDuration(item.duration);
+};
+
+export const getTargetPace = (
+  item: UserWorkoutResponse,
+  targetUnit: DistanceUnitType = "km",
+  includeUnit: boolean = true
+): string => {
+  const directPace = item.target_pace || item.pace;
+  if (directPace && directPace !== "--:--") {
+    const rawUnit = normalizeUnit(item.distance_unit || "km");
+    return convertPace(directPace, rawUnit, targetUnit, includeUnit);
+  }
+
+  const runSeg = item.segments?.find(
+    (s) => s.segment_type === "Run" && (s.pace || s.target_pace)
+  );
+  if (runSeg) {
+    const p = runSeg.target_pace || runSeg.pace;
+    if (p) {
+      const segUnit = normalizeUnit(runSeg.distance_unit || item.distance_unit || "km");
+      return convertPace(p, segUnit, targetUnit, includeUnit);
+    }
+  }
+
+  const anySeg = item.segments?.find((s) => s.pace || s.target_pace);
+  if (anySeg) {
+    const p = anySeg.target_pace || anySeg.pace;
+    if (p) {
+      const segUnit = normalizeUnit(anySeg.distance_unit || item.distance_unit || "km");
+      return convertPace(p, segUnit, targetUnit, includeUnit);
+    }
+  }
+
+  return "--:--";
+};
+
+
+

@@ -1,12 +1,25 @@
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
-import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import DashboardText from '../../components/common/DashboardText';
+import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../service/auth';
+import type { UserWorkoutResponse } from '../../service/customWorkout';
+import {
+  DistanceUnitType,
+  formatWorkoutDistance,
+  formatWorkoutDuration,
+  getPaceUnitLabel,
+  getTargetPace,
+} from '../../src/utils/workoutCalculations';
+import { buildWorkoutExecutionPlan } from '../../src/utils/workoutPlanBuilder';
+import { getDistanceUnitCode } from '../../utils/distanceUnit';
 
 type DashboardNoPlanProps = {
   canStartAssessment: boolean;
   onStartAssessment: () => void;
+  scheduledCustomWorkout?: UserWorkoutResponse | null;
+  scheduledCustomWorkouts?: UserWorkoutResponse[];
 };
 
 const popularWorkouts = [
@@ -16,8 +29,48 @@ const popularWorkouts = [
   { title: '20 MIN', subtitle: 'Tempo Run', tag: 'THRESHOLD', color: '#AF52DE', icon: 'trending-up' as const },
 ];
 
-export default function DashboardNoPlan({ canStartAssessment, onStartAssessment }: DashboardNoPlanProps) {
+export default function DashboardNoPlan({
+  canStartAssessment,
+  onStartAssessment,
+  scheduledCustomWorkout,
+  scheduledCustomWorkouts,
+}: DashboardNoPlanProps) {
   const { colors, isDark } = useTheme();
+  const { user } = useAuth();
+  const profileUnit: DistanceUnitType =
+    getDistanceUnitCode(user?.profile?.distance_unit) === 'mile' ? 'mi' : 'km';
+  const paceUnitLabel = getPaceUnitLabel(profileUnit);
+
+  const customDistance = scheduledCustomWorkout
+    ? formatWorkoutDistance(scheduledCustomWorkout, profileUnit)
+    : '--';
+  const customDuration = scheduledCustomWorkout
+    ? formatWorkoutDuration(scheduledCustomWorkout)
+    : '--';
+  const customPace = scheduledCustomWorkout
+    ? getTargetPace(scheduledCustomWorkout, profileUnit)
+    : '--:--';
+
+  const handleStartCustomWorkout = (workout: UserWorkoutResponse) => {
+    const plan = buildWorkoutExecutionPlan(workout);
+    router.push({
+      pathname: '/(app)/screens/map',
+      params: {
+        workoutTitle: workout.title || 'Custom Workout',
+        workoutPlan: JSON.stringify(plan),
+        assignedRoute: workout.assigned_route
+          ? JSON.stringify(workout.assigned_route)
+          : undefined,
+      },
+    });
+  };
+
+  const handleEditCustomWorkout = (workout: UserWorkoutResponse) => {
+    router.push({
+      pathname: '/(app)/custom-workout/overview',
+      params: { workoutId: String(workout.id) },
+    });
+  };
 
   const openWorkoutSetup = (workout: (typeof popularWorkouts)[0]) => {
     let presetId = 'preset-easy-run-30';
@@ -37,7 +90,128 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
 
   return (
     <>
-      {/* 1. Quick Start Hero Card */}
+      {/* 1. Today's Scheduled Custom Workout Hero Card (if user has scheduled workout for today) */}
+      {scheduledCustomWorkout ? (
+        <TouchableOpacity
+          activeOpacity={0.92}
+          onPress={() => handleStartCustomWorkout(scheduledCustomWorkout)}
+          style={[
+            styles.heroCard,
+            {
+              backgroundColor: isDark ? '#111713' : '#F2FAF4',
+              borderColor: isDark ? 'rgba(48, 209, 88, 0.45)' : 'rgba(48, 209, 88, 0.5)',
+            },
+          ]}
+        >
+          <View style={styles.heroContent}>
+            <View style={styles.heroBadgeRow}>
+              <View style={[styles.heroPill, { backgroundColor: `${BRAND_GREEN}22` }]}>
+                <Feather name="calendar" size={13} color={BRAND_GREEN} />
+                <DashboardText style={[styles.heroPillText, { color: BRAND_GREEN }]}>
+                  TODAY&apos;S SCHEDULED WORKOUT
+                </DashboardText>
+              </View>
+              <TouchableOpacity
+                onPress={() => handleEditCustomWorkout(scheduledCustomWorkout)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={styles.customEditBtn}
+              >
+                <DashboardText style={[styles.customEditText, { color: BRAND_GREEN }]}>
+                  View / Edit
+                </DashboardText>
+                <Feather name="chevron-right" size={13} color={BRAND_GREEN} />
+              </TouchableOpacity>
+            </View>
+
+            <DashboardText style={[styles.heroTitle, { color: colors.text }]}>
+              {scheduledCustomWorkout.title || 'Custom Workout'}
+            </DashboardText>
+
+            {scheduledCustomWorkout.notes ? (
+              <DashboardText style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
+                {scheduledCustomWorkout.notes}
+              </DashboardText>
+            ) : null}
+
+            {/* Chips row: distance, duration, pace */}
+            <View style={styles.todayChipsRow}>
+              {customDistance !== '--' && (
+                <View style={[styles.todayChip, { backgroundColor: colors.surface }]}>
+                  <Feather name="map-pin" size={12} color={BRAND_GREEN} />
+                  <DashboardText style={[styles.todayChipText, { color: colors.text }]}>
+                    {customDistance}
+                  </DashboardText>
+                </View>
+              )}
+              {customDuration !== '--' && (
+                <View style={[styles.todayChip, { backgroundColor: colors.surface }]}>
+                  <Feather name="clock" size={12} color={BRAND_GREEN} />
+                  <DashboardText style={[styles.todayChipText, { color: colors.text }]}>
+                    {customDuration}
+                  </DashboardText>
+                </View>
+              )}
+              {customPace !== '--:--' && (
+                <View style={[styles.todayChip, { backgroundColor: colors.surface }]}>
+                  <Feather name="zap" size={12} color={BRAND_GREEN} />
+                  <DashboardText style={[styles.todayChipText, { color: colors.text }]}>
+                    {customPace}
+                  </DashboardText>
+                </View>
+              )}
+            </View>
+
+            <View style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]}>
+              <Feather name="play" size={19} color="#081009" />
+              <DashboardText style={styles.recordText}>START WORKOUT</DashboardText>
+            </View>
+          </View>
+        </TouchableOpacity>
+      ) : null}
+
+      {/* Additional scheduled workouts for today if multiple */}
+      {scheduledCustomWorkouts && scheduledCustomWorkouts.length > 1 && (
+        <View style={styles.additionalWorkoutsContainer}>
+          {scheduledCustomWorkouts.slice(1).map((w) => (
+            <TouchableOpacity
+              key={w.id}
+              activeOpacity={0.88}
+              onPress={() => handleStartCustomWorkout(w)}
+              style={[
+                styles.additionalWorkoutCard,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}
+            >
+              <View style={{ flex: 1 }}>
+                <View style={[styles.miniBadge, { backgroundColor: `${BRAND_GREEN}18` }]}>
+                  <DashboardText style={[styles.miniBadgeText, { color: BRAND_GREEN }]}>
+                    SCHEDULED TODAY
+                  </DashboardText>
+                </View>
+                <DashboardText style={[styles.additionalWorkoutTitle, { color: colors.text }]}>
+                  {w.title || 'Custom Workout'}
+                </DashboardText>
+                <DashboardText style={[styles.additionalWorkoutDetails, { color: colors.textSecondary }]}>
+                  {[
+                    formatWorkoutDistance(w, profileUnit),
+                    formatWorkoutDuration(w),
+                    getTargetPace(w, profileUnit) !== '--:--'
+                      ? getTargetPace(w, profileUnit)
+                      : '',
+                  ]
+                    .filter((s) => s && s !== '--')
+                    .join(' · ')}
+                </DashboardText>
+              </View>
+              <View style={[styles.miniPlayCircle, { backgroundColor: BRAND_GREEN }]}>
+                <Feather name="play" size={14} color="#081009" />
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {/* 2. Quick Start Hero Card (Free run) */}
       <TouchableOpacity
         activeOpacity={0.9}
         onPress={() => router.push('/(app)/screens/map')}
@@ -53,11 +227,15 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
           <View style={styles.heroBadgeRow}>
             <View style={[styles.heroPill, { backgroundColor: `${BRAND_GREEN}22` }]}>
               <MaterialCommunityIcons name="run-fast" size={14} color={BRAND_GREEN} />
-              <DashboardText style={[styles.heroPillText, { color: BRAND_GREEN }]}>QUICK START</DashboardText>
+              <DashboardText style={[styles.heroPillText, { color: BRAND_GREEN }]}>
+                {scheduledCustomWorkout ? 'FREE RUN / QUICK START' : 'QUICK START'}
+              </DashboardText>
             </View>
             <View style={styles.gpsIndicator}>
               <View style={[styles.gpsDot, { backgroundColor: BRAND_GREEN }]} />
-              <DashboardText style={[styles.gpsText, { color: colors.textSecondary }]}>GPS Ready</DashboardText>
+              <DashboardText style={[styles.gpsText, { color: colors.textSecondary }]}>
+                GPS Ready
+              </DashboardText>
             </View>
           </View>
 
@@ -75,7 +253,7 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
         </View>
       </TouchableOpacity>
 
-      {/* 2. Custom Workout & Plan Assessment Action Cards (Side-by-Side) */}
+      {/* 3. Custom Workout & Plan Assessment Action Cards (Side-by-Side) */}
       <View style={styles.actionCardsRow}>
         {/* Custom Workout Card */}
         <TouchableOpacity
@@ -125,7 +303,7 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
             Adaptive Plan
           </DashboardText>
           <DashboardText style={[styles.actionCardDesc, { color: colors.textSecondary }]}>
-            Get an AI training plan personalized to your race goals.
+            Get an training plan personalized to your race goals.
           </DashboardText>
           <View style={styles.actionCardFooter}>
             <DashboardText style={[styles.actionCardLink, { color: BRAND_GREEN }]}>
@@ -136,7 +314,7 @@ export default function DashboardNoPlan({ canStartAssessment, onStartAssessment 
         </TouchableOpacity>
       </View>
 
-      {/* 3. Popular Workouts Section */}
+      {/* 4. Popular Workouts Section */}
       <View style={styles.sectionHeaderRow}>
         <DashboardText style={[styles.sectionTitle, { color: colors.text }]}>
           POPULAR WORKOUTS
@@ -217,6 +395,15 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.6,
   },
+  customEditBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  customEditText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
   gpsIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -240,6 +427,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
+  todayChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginVertical: 2,
+  },
+  todayChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  todayChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
   recordButton: {
     width: '100%',
     minHeight: 50,
@@ -255,6 +460,83 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     letterSpacing: 0.4,
+  },
+  additionalWorkoutsContainer: {
+    gap: 10,
+    marginBottom: 16,
+  },
+  additionalWorkoutCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 12,
+  },
+  miniBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginBottom: 4,
+  },
+  miniBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  additionalWorkoutTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  additionalWorkoutDetails: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  miniPlayCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  upcomingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  upcomingBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  upcomingIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  upcomingLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  upcomingTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: 1,
+  },
+  upcomingDate: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 2,
   },
   actionCardsRow: {
     flexDirection: 'row',

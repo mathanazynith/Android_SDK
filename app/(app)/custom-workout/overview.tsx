@@ -38,6 +38,7 @@ import {
     getPaceUnitLabel,
     getUnitFullLabel,
     normalizeUnit,
+    parseLocalDate,
     parsePaceToSeconds,
 } from "../../../src/utils/workoutCalculations";
 import { buildWorkoutExecutionPlan } from "../../../src/utils/workoutPlanBuilder";
@@ -102,7 +103,7 @@ const estimatedRestSeconds = (step: WorkoutStep) => {
   const isRepeated = (step.repeat || 1) > 1 || Boolean(step.groupId);
   if (!isRepeated) return 0;
   const restSec = seconds(step.rest || "00:01:00");
-  const repeatCount = step.repeat || 1;
+  const repeatCount = step.groupId ? (step.groupRepeat || step.repeat || 1) : (step.repeat || 1);
   const restCount = (step.skipLastRest ?? true) ? Math.max(repeatCount - 1, 0) : repeatCount;
   return restSec * restCount;
 };
@@ -298,7 +299,6 @@ function StepCard({
   const profileUnit: DistanceUnitType = getDistanceUnitCode(user?.profile?.distance_unit) === "mile" ? "mi" : "km";
 
   const openStep = () => {
-    if (!editable) return;
     if (onSelect) {
       onSelect();
     } else {
@@ -933,9 +933,17 @@ export default function CustomWorkoutOverview() {
     updateGroupRepeat,
     reorderRuns,
     saveWorkout,
+    loadWorkout,
   } = useCustomWorkout();
 
-  const { mode } = useLocalSearchParams<{ mode?: string }>();
+  const { mode, workoutId } = useLocalSearchParams<{ mode?: string; workoutId?: string }>();
+
+  useEffect(() => {
+    if (workoutId && Number(workoutId) > 0 && workout.id !== Number(workoutId)) {
+      void loadWorkout(Number(workoutId));
+    }
+  }, [workoutId, workout.id, loadWorkout]);
+
   const [isEditing, setIsEditing] = useState<boolean>(!workout.id || mode === "edit");
   const [isReordering, setIsReordering] = useState(false);
   const [scrollEnabled, setScrollEnabled] = useState(true);
@@ -1169,11 +1177,17 @@ export default function CustomWorkoutOverview() {
 
   const handleUnschedule = async () => {
     setShowActionMenu(false);
-    if (workout.id) {
+    const workoutId = workout.id;
+    if (workoutId) {
       try {
-        await customWorkoutAPI.unschedule(workout.id);
+        await customWorkoutAPI.unschedule(workoutId);
       } catch (err: any) {
-        console.warn("Unschedule API error:", err);
+        console.warn("Unschedule API error, falling back to patch:", err);
+        try {
+          await customWorkoutAPI.patch(workoutId, { workout_date: null });
+        } catch (patchErr) {
+          console.warn("Patch API unschedule error:", patchErr);
+        }
       }
     }
     setWorkoutDate(null);
@@ -1186,12 +1200,18 @@ export default function CustomWorkoutOverview() {
     const month = String(selectedDate.getMonth() + 1).padStart(2, "0");
     const day = String(selectedDate.getDate()).padStart(2, "0");
     const dateStr = `${year}-${month}-${day}`;
+    const workoutId = workout.id;
 
-    if (workout.id) {
+    if (workoutId) {
       try {
-        await customWorkoutAPI.schedule(workout.id, dateStr);
+        await customWorkoutAPI.schedule(workoutId, dateStr);
       } catch (err: any) {
-        console.warn("Schedule API error:", err);
+        console.warn("Schedule API error, falling back to patch:", err);
+        try {
+          await customWorkoutAPI.patch(workoutId, { workout_date: dateStr });
+        } catch (patchErr) {
+          console.warn("Patch API schedule error:", patchErr);
+        }
       }
     }
     setWorkoutDate(dateStr);
@@ -1230,19 +1250,19 @@ export default function CustomWorkoutOverview() {
 
   const totalSeconds = useMemo(() => {
     return steps.reduce((total, step) => {
+      const reps = Math.max(1, step.groupId ? (step.groupRepeat || step.repeat || 1) : (step.repeat || 1));
       return (
         total +
-        (estimatedStepSeconds(step) * (step.repeat || 1) + estimatedRestSeconds(step))
+        (estimatedStepSeconds(step) * reps + estimatedRestSeconds(step))
       );
     }, 0);
   }, [steps]);
 
   const totalDistance = useMemo(() => {
-    return steps.reduce(
-      (total, step) =>
-        total + stepDistanceInUnit(step, profileUnit) * (step.repeat || 1),
-      0,
-    );
+    return steps.reduce((total, step) => {
+      const reps = Math.max(1, step.groupId ? (step.groupRepeat || step.repeat || 1) : (step.repeat || 1));
+      return total + stepDistanceInUnit(step, profileUnit) * reps;
+    }, 0);
   }, [steps, profileUnit]);
 
   const runGroups = useMemo(() => {
@@ -1514,25 +1534,61 @@ export default function CustomWorkoutOverview() {
       >
         <MotionEntrance>
         {/* Workout Date Banner */}
-        <View style={styles.dateBanner}>
-          <Feather name="calendar" size={16} color={colors.primary} />
-          <Text style={styles.dateText}>
-            Date: {workout.workoutDate || "Unscheduled"}
-          </Text>
-          {isEditing && (
-            <TouchableOpacity
-              style={styles.dateChangeBtn}
-              onPress={() => {
-                const today = new Date().toISOString().split("T")[0];
-                setWorkoutDate(workout.workoutDate ? null : today);
-              }}
-            >
-              <Text style={styles.dateChangeText}>
-                {workout.workoutDate ? "Clear Date" : "Schedule Today"}
+        {isEditing ? (
+          <TouchableOpacity
+            style={[
+              styles.dateBanner,
+              !workout.workoutDate && styles.dateBannerUnscheduled,
+            ]}
+            activeOpacity={0.78}
+            onPress={() => setShowDatePicker(true)}
+            accessibilityRole="button"
+            accessibilityLabel={workout.workoutDate ? `Scheduled: ${workout.workoutDate}. Tap to change.` : "Schedule"}
+          >
+            <View style={styles.dateBannerLeft}>
+              <Feather
+                name="calendar"
+                size={16}
+                color={workout.workoutDate ? colors.primary : colors.textSecondary}
+              />
+              <Text
+                style={[
+                  styles.dateText,
+                  !workout.workoutDate && { color: colors.textSecondary },
+                ]}
+              >
+                {workout.workoutDate ? `Scheduled: ${workout.workoutDate}` : "Schedule"}
               </Text>
-            </TouchableOpacity>
-          )}
-        </View>
+            </View>
+
+            {workout.workoutDate ? (
+              <TouchableOpacity
+                style={styles.dateClearBtn}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  void handleUnschedule();
+                }}
+                activeOpacity={0.7}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityRole="button"
+                accessibilityLabel="Remove date"
+              >
+                <Feather name="x" size={14} color="#FF453A" />
+              </TouchableOpacity>
+            ) : (
+              <Feather name="chevron-right" size={16} color={colors.iconSecondary} />
+            )}
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.dateBanner}>
+            <View style={styles.dateBannerLeft}>
+              <Feather name="calendar" size={16} color={colors.iconSecondary} />
+              <Text style={[styles.dateText, { color: colors.textSecondary }]}>
+                {workout.workoutDate ? `Scheduled: ${workout.workoutDate}` : "Not scheduled"}
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* Stats Overview */}
         <View style={styles.statsCard}>
@@ -2390,9 +2446,14 @@ export default function CustomWorkoutOverview() {
 
       {showDatePicker && (
         <ThemedCalendarPicker
-          value={workout.workoutDate ? new Date(workout.workoutDate) : new Date()}
+          value={parseLocalDate(workout.workoutDate)}
           title="Schedule workout"
           onCancel={() => setShowDatePicker(false)}
+          onClear={workout.workoutDate ? () => {
+            setShowDatePicker(false);
+            void handleUnschedule();
+          } : undefined}
+          clearLabel="Remove date"
           onConfirm={(selectedDate) => { void onDateChange(selectedDate); }}
         />
       )}
@@ -2506,14 +2567,25 @@ const createStyles = (colors: ThemeColors, isDark: boolean = false) => StyleShee
     borderWidth: 1,
     borderColor: colors.border,
   },
-  dateText: { color: colors.textPrimary, fontSize: 14, fontWeight: "600", flex: 1, marginLeft: 8 },
-  dateChangeBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+  dateBannerUnscheduled: {
+    borderColor: colors.border,
     backgroundColor: colors.surfaceRaised,
-    borderRadius: 8,
   },
-  dateChangeText: { color: colors.primary, fontSize: 12, fontWeight: "700" },
+  dateBannerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+  },
+  dateText: { color: colors.textPrimary, fontSize: 14, fontWeight: "600" },
+  dateClearBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(255, 69, 58, 0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   statsCard: {
     flexDirection: "row",
     alignItems: "center",

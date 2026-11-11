@@ -2,7 +2,7 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, AppState, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DashboardText from '../../components/common/DashboardText';
 import { RunningLoader } from '../../components/common/RunningLoader';
@@ -13,6 +13,7 @@ import { useNotifications } from '../../contexts/NotificationContext';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../service/auth';
+import { customWorkoutAPI, type UserWorkoutResponse } from '../../service/customWorkout';
 import { getFcmToken } from '../../service/fcmService';
 import { registerNotificationDevice } from '../../service/notificationService';
 import { flushActiveRunJournal, readActiveRunJournal } from '../../src/services/activeRunJournal';
@@ -135,7 +136,46 @@ export default function DashboardScreen() {
   const [isSyncingOffline, setIsSyncingOffline] = useState(false);
   const [recoverableWorkout, setRecoverableWorkout] = useState<RecoverableWorkout | null>(null);
   const [activities, setActivities] = useState<BackendActivity[]>([]);
+  const [customWorkouts, setCustomWorkouts] = useState<UserWorkoutResponse[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const permissionRequestStarted = useRef(false);
+
+  const fetchCustomWorkouts = useCallback(async () => {
+    try {
+      const response = await customWorkoutAPI.list();
+      const list: UserWorkoutResponse[] = Array.isArray(response.data)
+        ? response.data
+        : ((response.data as any)?.results || []);
+      setCustomWorkouts(list.filter((w) => w.is_custom !== false && w.plan == null));
+    } catch (err) {
+      console.warn('[Dashboard] Could not load custom workouts:', err);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void fetchCustomWorkouts();
+    }, [fetchCustomWorkouts])
+  );
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.allSettled([
+        fetchWorkoutPlan(true),
+        fetchCustomWorkouts(),
+        offlineWorkoutQueue.syncPending(),
+        (async () => {
+          const freshPage = await activityAPI.listPage(null, 30);
+          if (freshPage?.activities) {
+            setActivities(freshPage.activities);
+          }
+        })(),
+      ]);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [fetchWorkoutPlan, fetchCustomWorkouts]);
 
   useFocusEffect(
     useCallback(() => {
@@ -293,6 +333,16 @@ export default function DashboardScreen() {
       .filter((workout) => workout.workout_date.slice(0, 10) > todayKey)
       .sort((a, b) => a.workout_date.slice(0, 10).localeCompare(b.workout_date.slice(0, 10)))[0] ?? null;
 
+  const todayCustomWorkouts = useMemo(() => {
+    return customWorkouts.filter((w) => {
+      if (!w.workout_date) return false;
+      const cleanDate = w.workout_date.trim().slice(0, 10);
+      return cleanDate === todayKey;
+    });
+  }, [customWorkouts, todayKey]);
+
+  const todayCustomWorkout = todayCustomWorkouts[0] ?? null;
+
   const startAssessment = () => {
     if (!canStartAssessment) {
       Alert.alert('Complete Your Profile', 'Please complete your profile before starting the assessment.', [
@@ -325,29 +375,6 @@ export default function DashboardScreen() {
       ]);
     }
   };
-
-  if (workoutPlanError && !workoutPlan) {
-    return (
-      <View style={[styles.center, { backgroundColor: colors.background }]}>
-        <Feather name="alert-circle" size={32} color="#FFB020" />
-        <DashboardText style={[styles.centerText, { color: colors.text }]}>{workoutPlanError}</DashboardText>
-        <TouchableOpacity
-          style={[styles.retry, { backgroundColor: BRAND_GREEN }]}
-          onPress={() => void fetchWorkoutPlan(true)}
-        >
-          <DashboardText style={[styles.retryText, { color: colors.background }]}>Try again</DashboardText>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]}
-          onPress={() => router.push('/(app)/screens/map')}
-          activeOpacity={0.85}
-        >
-          <Feather name="play" size={24} color="#081009" />
-          <DashboardText style={styles.recordText}>Record Workout</DashboardText>
-        </TouchableOpacity>
-      </View>
-    );
-  }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -405,6 +432,14 @@ export default function DashboardScreen() {
           { paddingHorizontal: spacing(18), paddingBottom: spacing(118) },
         ]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={BRAND_GREEN}
+            colors={[BRAND_GREEN]}
+          />
+        }
       >
         {/* Unfinished Workout Recovery Banner */}
         {recoverableWorkout ? (
@@ -569,8 +604,39 @@ export default function DashboardScreen() {
             activeOpacity={0.8}
             onPress={async () => {
               setIsSyncingOffline(true);
-              await offlineWorkoutQueue.syncPending();
+              const result = await offlineWorkoutQueue.syncPending();
               setIsSyncingOffline(false);
+              if (result.synced > 0 && result.failed === 0) {
+                Alert.alert('Sync Successful', `Successfully synced ${result.synced} workout(s) to your account.`);
+              } else if (result.synced > 0 && result.failed > 0) {
+                Alert.alert('Partial Sync', `Synced ${result.synced} workout(s), but ${result.failed} failed:\n\n${result.lastError}`);
+              } else if (result.failed > 0) {
+                Alert.alert(
+                  'Sync Incomplete',
+                  result.lastError || 'Could not connect to the server. Please check your internet connection and try again.',
+                  [
+                    { text: 'Retry Later', style: 'cancel' },
+                    {
+                      text: 'Discard Pending',
+                      style: 'destructive',
+                      onPress: () => {
+                        Alert.alert(
+                          'Discard Offline Workouts?',
+                          'Are you sure you want to discard these unsynced test workouts? This cannot be undone.',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                              text: 'Discard',
+                              style: 'destructive',
+                              onPress: () => void offlineWorkoutQueue.clear(),
+                            },
+                          ]
+                        );
+                      },
+                    },
+                  ]
+                );
+              }
             }}
             style={{
               flexDirection: 'row',
@@ -604,79 +670,76 @@ export default function DashboardScreen() {
           </TouchableOpacity>
         )}
 
-        {/* 4. Active Plan vs No Plan vs Error State */}
+        {/* Offline Network Mode Notice Banner */}
+        {Boolean(workoutPlanError) && (
+          <View
+            style={[
+              styles.offlineModeBanner,
+              {
+                backgroundColor: isDark ? 'rgba(245, 158, 11, 0.12)' : '#FFFBEB',
+                borderColor: isDark ? 'rgba(245, 158, 11, 0.32)' : '#FDE68A',
+              },
+            ]}
+          >
+            <View style={styles.offlineModeLeft}>
+              <View style={[styles.offlineModeIconWrap, { backgroundColor: 'rgba(245, 158, 11, 0.18)' }]}>
+                <Feather name="wifi-off" size={15} color="#F59E0B" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <DashboardText style={[styles.offlineModeTitle, { color: isDark ? '#FDE68A' : '#92400E' }]}>
+                  Offline Mode · GPS Tracking Active
+                </DashboardText>
+                <DashboardText style={[styles.offlineModeDesc, { color: isDark ? '#D6D3D1' : '#B45309' }]}>
+                  You can record runs offline. All workouts save securely on device and sync when back online.
+                </DashboardText>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={[
+                styles.offlineModeRetryBtn,
+                { backgroundColor: isDark ? 'rgba(245, 158, 11, 0.22)' : 'rgba(245, 158, 11, 0.15)' },
+              ]}
+              onPress={() => {
+                void fetchWorkoutPlan(true);
+                void fetchCustomWorkouts();
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.75}
+            >
+              <Feather name="refresh-cw" size={12} color="#D97706" />
+              <DashboardText style={[styles.offlineModeRetryText, { color: '#D97706' }]}>
+                Retry
+              </DashboardText>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* 4. Active Plan vs No Plan vs Loading State */}
         <MotionEntrance delay={60}>
           {workoutPlan ? (
-            <DashboardActivePlan plan={workoutPlan} todayWorkout={todayWorkout} nextWorkout={nextWorkout} />
-          ) : workoutPlanError ? (
-            <View style={styles.offlineContainer}>
-              <TouchableOpacity
-                style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]}
-                onPress={() => router.push('/(app)/screens/map')}
-                activeOpacity={0.85}
-              >
-                <Feather name="play" size={24} color="#081009" />
-                <DashboardText
-                  style={styles.recordText}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.85}
-                >
-                  Record Workout
-                </DashboardText>
-              </TouchableOpacity>
-
-              <View
-                style={[
-                  styles.offlineCard,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
-                ]}
-              >
-                <Feather name="wifi-off" size={28} color="#FFB020" style={{ marginBottom: 8 }} />
-                <DashboardText style={[styles.offlineTitle, { color: colors.text }]}>
-                  Network connection error
-                </DashboardText>
-                <DashboardText style={[styles.offlineSubtext, { color: colors.textSecondary }]}>
-                  {workoutPlanError || 'Could not connect to the internet. You can still record workouts offline.'}
-                </DashboardText>
-                <TouchableOpacity
-                  style={[styles.retryBtn, { backgroundColor: BRAND_GREEN }]}
-                  onPress={() => void fetchWorkoutPlan(true)}
-                  activeOpacity={0.85}
-                >
-                  <Feather name="refresh-cw" size={16} color="#081009" />
-                  <DashboardText style={styles.retryBtnText}>Try again</DashboardText>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ) : isWorkoutPlanLoading ? (
-            <View style={styles.offlineContainer}>
-              <TouchableOpacity
-                style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]}
-                onPress={() => router.push('/(app)/screens/map')}
-                activeOpacity={0.85}
-              >
-                <Feather name="play" size={24} color="#081009" />
-                <DashboardText
-                  style={styles.recordText}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.85}
-                >
-                  Record Workout
-                </DashboardText>
-              </TouchableOpacity>
-              <View
-                style={[
-                  styles.offlineCard,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
-                ]}
-              >
-                <RunningLoader size={36} label="Loading your dashboard..." />
-              </View>
+            <DashboardActivePlan
+              plan={workoutPlan}
+              todayWorkout={todayWorkout}
+              nextWorkout={nextWorkout}
+              scheduledCustomWorkout={todayCustomWorkout}
+              scheduledCustomWorkouts={todayCustomWorkouts}
+            />
+          ) : isWorkoutPlanLoading && !workoutPlanError ? (
+            <View
+              style={[
+                styles.loadingCard,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}
+            >
+              <RunningLoader size={36} label="Loading your dashboard..." />
             </View>
           ) : (
-            <DashboardNoPlan canStartAssessment={canStartAssessment} onStartAssessment={startAssessment} />
+            <DashboardNoPlan
+              canStartAssessment={canStartAssessment}
+              onStartAssessment={startAssessment}
+              scheduledCustomWorkout={todayCustomWorkout}
+              scheduledCustomWorkouts={todayCustomWorkouts}
+            />
           )}
         </MotionEntrance>
       </ScrollView>
@@ -913,36 +976,56 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.3,
   },
-  offlineCard: {
-    borderRadius: 22,
-    borderWidth: 1.25,
-    padding: 22,
-    alignItems: 'center',
-  },
-  offlineTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 6,
-  },
-  offlineSubtext: {
-    fontSize: 13,
-    lineHeight: 18,
-    textAlign: 'center',
-    marginBottom: 16,
-    paddingHorizontal: 8,
-  },
-  retryBtn: {
+  offlineModeBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 22,
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
     paddingVertical: 12,
     borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 16,
+    gap: 10,
   },
-  retryBtnText: {
-    color: '#081009',
-    fontSize: 14,
+  offlineModeLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  offlineModeIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  offlineModeTitle: {
+    fontSize: 13,
     fontWeight: '700',
+    marginBottom: 2,
+  },
+  offlineModeDesc: {
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  offlineModeRetryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  offlineModeRetryText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  loadingCard: {
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

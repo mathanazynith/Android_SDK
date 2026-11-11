@@ -20,6 +20,12 @@ export interface QueuedOfflineWorkout {
   lastError?: string;
 }
 
+export interface SyncPendingResult {
+  synced: number;
+  failed: number;
+  lastError?: string;
+}
+
 const QUEUE_FILE_URI = `${FileSystem.documentDirectory ?? ''}zyrun-offline-workouts.json`;
 let queueWriteChain: Promise<void> = Promise.resolve();
 const queueListeners = new Set<(count: number) => void>();
@@ -100,9 +106,20 @@ export const offlineWorkoutQueue = {
     await queueWriteChain;
   },
 
+  async clear(): Promise<void> {
+    queueWriteChain = queueWriteChain.then(async () => {
+      if (QUEUE_FILE_URI) {
+        await FileSystem.writeAsStringAsync(QUEUE_FILE_URI, JSON.stringify([]));
+      }
+      notifyListeners(0);
+    });
+    await queueWriteChain;
+    console.log('[OfflineWorkoutQueue] Cleared all offline workouts.');
+  },
+
   async syncPending(
     client?: RunningApiClient
-  ): Promise<{ synced: number; failed: number }> {
+  ): Promise<SyncPendingResult> {
     if (isSyncing) {
       return { synced: 0, failed: 0 };
     }
@@ -116,6 +133,7 @@ export const offlineWorkoutQueue = {
     const apiClient = client ?? new RunningApiClient();
     let synced = 0;
     let failed = 0;
+    let lastError: string | undefined;
 
     console.log(`[OfflineWorkoutQueue] Attempting to sync ${items.length} offline workouts...`);
 
@@ -157,10 +175,25 @@ export const offlineWorkoutQueue = {
           console.log(`[OfflineWorkoutQueue] Workout ${item.id} successfully synced to server!`);
         } else {
           failed += 1;
+          lastError = 'Server rejected workout submission';
         }
       } catch (error: any) {
         failed += 1;
-        console.warn(`[OfflineWorkoutQueue] Sync failed for workout ${item.id}:`, error?.message || error);
+        const responseData = error?.response?.data;
+        let errorMsg: string;
+        if (typeof responseData === 'string' && (responseData.includes('<html') || responseData.includes('Server Error'))) {
+          errorMsg = `Server Error (${error?.response?.status || 500}): Backend failed while processing this workout (e.g. insufficient GPS points or 0-distance test run).`;
+        } else {
+          errorMsg =
+            responseData?.message ||
+            responseData?.detail ||
+            responseData?.error ||
+            (typeof responseData === 'string' ? responseData : null) ||
+            error?.message ||
+            'Network connection error';
+        }
+        lastError = errorMsg;
+        console.warn(`[OfflineWorkoutQueue] Sync failed for workout ${item.id}:`, errorMsg);
         // If it's a network error, stop trying further items right now
         const isNetwork =
           !error?.response ||
@@ -173,7 +206,7 @@ export const offlineWorkoutQueue = {
     }
 
     isSyncing = false;
-    return { synced, failed };
+    return { synced, failed, lastError };
   },
 };
 

@@ -20,6 +20,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import BenchmarkBadgeIcon from "../../../components/BenchmarkBadgeIcon";
+import ThemedCalendarPicker from "../../../components/common/ThemedCalendarPicker";
 import { RunningLoader } from "../../../components/common/RunningLoader";
 import { useTheme, type ThemeColors } from "../../../contexts/ThemeContext";
 import { getBackendErrorMessage } from "../../../service/api";
@@ -35,162 +36,17 @@ import {
     convertDistance,
     convertPace,
     DistanceUnitType,
+    formatDuration,
+    formatWorkoutDistance,
+    formatWorkoutDuration,
     getPaceUnitLabel,
+    getTargetPace,
     normalizeUnit,
+    parseLocalDate,
     parsePaceToSeconds,
 } from "../../../src/utils/workoutCalculations";
 import { buildWorkoutExecutionPlan } from "../../../src/utils/workoutPlanBuilder";
 import { useCustomWorkout } from "./workout-context";
-
-const formatDuration = (seconds?: number | null) => {
-  if (!seconds || seconds <= 0) return "--";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.round(seconds % 60);
-  if (h > 0 && m > 0) return `${h}h ${m}min`;
-  if (h > 0) return `${h}h`;
-  if (m > 0 && s > 0) return `${m}min ${s}s`;
-  if (m > 0) return `${m} min`;
-  return `${s}s`;
-};
-
-const formatWorkoutDistance = (item: UserWorkoutResponse, targetUnit: DistanceUnitType = "km"): string => {
-  if (item.segments && item.segments.length > 0) {
-    let totalInTargetUnit = 0;
-    for (const seg of item.segments) {
-      const segUnit = normalizeUnit(seg.distance_unit);
-      const reps = Math.max(1, seg.repeats || 1);
-      let distInKm = 0;
-
-      if (seg.display_distance != null && Number(seg.display_distance) > 0) {
-        const val = Number(seg.display_distance);
-        if (segUnit === "mi") distInKm = val * 1.609344;
-        else if (segUnit === "m") distInKm = val / 1000;
-        else distInKm = val;
-      } else if (seg.rep_distance != null && seg.rep_distance > 0) {
-        distInKm = seg.rep_distance / 1000;
-      } else if (seg.distance != null && seg.distance > 0) {
-        if (segUnit === "m") distInKm = seg.distance / 1000;
-        else if (segUnit === "mi") distInKm = seg.distance > 100 ? seg.distance / 1000 : seg.distance * 1.609344;
-        else distInKm = seg.distance > 100 ? seg.distance / 1000 : seg.distance;
-      } else if (seg.duration != null && seg.duration > 0) {
-        const paceSec = parsePaceToSeconds(seg.target_pace || seg.pace) || (seg.segment_type === "Warmup" ? 400 : seg.segment_type === "Cooldown" ? 500 : 300);
-        if (segUnit === "mi") {
-          distInKm = (seg.duration / paceSec) * 1.609344;
-        } else {
-          distInKm = seg.duration / paceSec;
-        }
-      }
-
-      if (targetUnit === "mi") {
-        totalInTargetUnit += (distInKm / 1.609344) * reps;
-      } else if (targetUnit === "m") {
-        totalInTargetUnit += (distInKm * 1000) * reps;
-      } else {
-        totalInTargetUnit += distInKm * reps;
-      }
-    }
-
-    if (totalInTargetUnit > 0) {
-      if (targetUnit === "m") return `${Math.round(totalInTargetUnit)} m`;
-      return `${totalInTargetUnit.toFixed(2)} ${targetUnit}`;
-    }
-  }
-
-  // Fallback if no segments: convert item.distance
-  if (item.distance != null && item.distance > 0) {
-    const rawUnit = normalizeUnit(item.distance_unit);
-    let distInKm = 0;
-    if (item.distance > 100) {
-      // Backend distance in meters
-      distInKm = item.distance / 1000;
-    } else {
-      // Backend distance already in km or mi
-      distInKm = rawUnit === "mi" ? item.distance * 1.609344 : item.distance;
-    }
-    const converted = targetUnit === "mi" ? distInKm / 1.609344 : targetUnit === "m" ? distInKm * 1000 : distInKm;
-    return `${converted.toFixed(2)} ${targetUnit}`;
-  }
-
-  if (item.display_distance != null && item.display_distance > 0) {
-    const rawUnit = normalizeUnit(item.distance_unit);
-    const converted = convertDistance(item.display_distance, rawUnit, targetUnit);
-    return `${converted.toFixed(2)} ${targetUnit}`;
-  }
-
-  return "--";
-};
-
-const formatWorkoutDuration = (item: UserWorkoutResponse) => {
-  if (item.segments && item.segments.length > 0) {
-    let totalSec = 0;
-    for (const seg of item.segments) {
-      const reps = Math.max(1, seg.repeats || 1);
-      const restSec = seg.rest_duration || 0;
-      const skipLastRest = seg.skip_last_rest ?? true;
-      const restCount = skipLastRest ? Math.max(reps - 1, 0) : reps;
-
-      let segSec = 0;
-      const paceSec = parsePaceToSeconds(seg.target_pace || seg.pace) || (seg.segment_type === "Warmup" ? 400 : seg.segment_type === "Cooldown" ? 500 : 300);
-
-      if (seg.input_type === "DISTANCE" || (!seg.duration && (seg.display_distance || seg.distance || seg.rep_distance))) {
-        const segUnit = normalizeUnit(seg.distance_unit);
-        let dist = Number(seg.display_distance) || 0;
-        if (dist <= 0) {
-          if (seg.rep_distance) {
-            dist = segUnit === "mi" ? seg.rep_distance / 1609.344 : segUnit === "m" ? seg.rep_distance : seg.rep_distance / 1000;
-          } else if (seg.distance) {
-            dist = segUnit === "mi" ? (seg.distance > 100 ? seg.distance / 1609.344 : seg.distance) : segUnit === "m" ? seg.distance : (seg.distance > 100 ? seg.distance / 1000 : seg.distance);
-          }
-        }
-        if (dist > 0 && paceSec > 0) {
-          segSec = segUnit === "m" ? Math.round((dist / 1000) * paceSec) : Math.round(dist * paceSec);
-        }
-      } else if (seg.duration != null && seg.duration > 0) {
-        segSec = seg.duration;
-      }
-
-      totalSec += segSec * reps + restSec * restCount;
-    }
-
-    if (totalSec > 0) {
-      return formatDuration(totalSec);
-    }
-  }
-
-  return formatDuration(item.duration);
-};
-
-const getTargetPace = (item: UserWorkoutResponse, targetUnit: DistanceUnitType = "km") => {
-  const directPace = item.target_pace || item.pace;
-  if (directPace && directPace !== "--:--") {
-    const rawUnit = normalizeUnit(item.distance_unit || "km");
-    return convertPace(directPace, rawUnit, targetUnit, true);
-  }
-
-  // Search run segments
-  const runSeg = item.segments?.find(
-    (s) => s.segment_type === "Run" && (s.pace || s.target_pace)
-  );
-  if (runSeg) {
-    const p = runSeg.target_pace || runSeg.pace;
-    if (p) {
-      const segUnit = normalizeUnit(runSeg.distance_unit || item.distance_unit || "km");
-      return convertPace(p, segUnit, targetUnit, true);
-    }
-  }
-
-  const anySeg = item.segments?.find((s) => s.pace || s.target_pace);
-  if (anySeg) {
-    const p = anySeg.target_pace || anySeg.pace;
-    if (p) {
-      const segUnit = normalizeUnit(anySeg.distance_unit || item.distance_unit || "km");
-      return convertPace(p, segUnit, targetUnit, true);
-    }
-  }
-
-  return "--:--";
-};
 
 export default function CustomWorkoutCards() {
   const { loadWorkout, reset } = useCustomWorkout();
@@ -261,6 +117,7 @@ export default function CustomWorkoutCards() {
     action: "edit" | "start";
   } | null>(null);
   const [benchmarkIds, setBenchmarkIds] = useState<number[]>([]);
+  const [schedulingWorkout, setSchedulingWorkout] = useState<UserWorkoutResponse | null>(null);
 
   // Selection & Bulk Delete state
   const [selectionMode, setSelectionMode] = useState(false);
@@ -524,7 +381,10 @@ export default function CustomWorkoutCards() {
 
   const handleCreateNew = () => {
     reset();
-    router.push("/custom-workout/overview");
+    router.push({
+      pathname: "/(app)/custom-workout/overview",
+      params: { mode: "edit" },
+    });
   };
 
   const deleteSelectedWorkouts = useCallback(
@@ -733,12 +593,34 @@ export default function CustomWorkoutCards() {
                   <Text style={[styles.benchmarkBadgeText, isPlan && { color: "#F59E0B" }]}>BENCHMARK</Text>
                 </View>
               ) : null}
-              {item.workout_date ? (
-                <View style={styles.dateBadge}>
-                  <Feather name="calendar" size={11} color={colors.primary} />
-                  <Text style={styles.dateBadgeText}>{item.workout_date}</Text>
-                </View>
-              ) : null}
+              {!isPreset && (
+                <TouchableOpacity
+                  style={[styles.dateBadge, !item.workout_date && styles.dateBadgeUnscheduled]}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    if (!selectionMode) {
+                      setSchedulingWorkout(item);
+                    }
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={item.workout_date ? `Scheduled: ${item.workout_date}` : "Schedule"}
+                >
+                  <Feather
+                    name="calendar"
+                    size={11}
+                    color={item.workout_date ? colors.primary : colors.textTertiary}
+                  />
+                  <Text
+                    style={[
+                      styles.dateBadgeText,
+                      !item.workout_date && { color: colors.textTertiary },
+                    ]}
+                  >
+                    {item.workout_date || "Schedule"}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
             <Text style={styles.cardTitle} numberOfLines={1}>
               {item.title || "Custom Workout"}
@@ -809,8 +691,14 @@ export default function CustomWorkoutCards() {
           </View>
           <View style={styles.metricDivider} />
           <View style={styles.metricItem}>
-            <Text style={styles.metricLabel}>TARGET PACE</Text>
-            <Text style={styles.metricValue}>{getTargetPace(item, profileUnit)}</Text>
+            <Text style={styles.metricLabel}>
+              {item.is_custom !== false && item.segments && item.segments.length > 0 ? "TOTAL STEPS" : "TARGET PACE"}
+            </Text>
+            <Text style={styles.metricValue}>
+              {item.is_custom !== false && item.segments && item.segments.length > 0
+                ? `${item.segments.length}`
+                : getTargetPace(item, profileUnit)}
+            </Text>
           </View>
         </View>
 
@@ -1093,6 +981,53 @@ export default function CustomWorkoutCards() {
           <Text style={styles.toastText}>{selectionToast}</Text>
         </View>
       )}
+
+      {schedulingWorkout && (
+        <ThemedCalendarPicker
+          value={parseLocalDate(schedulingWorkout.workout_date)}
+          title={`Schedule "${schedulingWorkout.title || "Custom Workout"}"`}
+          onCancel={() => setSchedulingWorkout(null)}
+          onClear={schedulingWorkout.workout_date ? async () => {
+            const targetId = schedulingWorkout.id;
+            setSchedulingWorkout(null);
+            setRawWorkouts((prev) =>
+              prev.map((w) => (w.id === targetId ? { ...w, workout_date: null } : w))
+            );
+            try {
+              await customWorkoutAPI.unschedule(targetId);
+            } catch (err) {
+              try {
+                await customWorkoutAPI.patch(targetId, { workout_date: null });
+              } catch (patchErr) {
+                console.warn("Failed to unschedule workout:", patchErr);
+              }
+            }
+          } : undefined}
+          clearLabel="Remove date"
+          onConfirm={async (selectedDate) => {
+            const year = selectedDate.getFullYear();
+            const month = String(selectedDate.getMonth() + 1).padStart(2, "0");
+            const day = String(selectedDate.getDate()).padStart(2, "0");
+            const dateStr = `${year}-${month}-${day}`;
+            const targetId = schedulingWorkout.id;
+            setSchedulingWorkout(null);
+
+            // Optimistically update
+            setRawWorkouts((prev) =>
+              prev.map((w) => (w.id === targetId ? { ...w, workout_date: dateStr } : w))
+            );
+            try {
+              await customWorkoutAPI.schedule(targetId, dateStr);
+            } catch (err) {
+              try {
+                await customWorkoutAPI.patch(targetId, { workout_date: dateStr });
+              } catch (patchErr) {
+                console.warn("Failed to schedule workout:", patchErr);
+              }
+            }
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -1321,6 +1256,11 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       borderRadius: 6,
       borderWidth: 1,
       borderColor: colors.border,
+    },
+    dateBadgeUnscheduled: {
+      borderStyle: "dashed",
+      borderColor: colors.border,
+      backgroundColor: "transparent",
     },
     dateBadgeText: { color: colors.textSecondary, fontSize: 11, fontWeight: "600" },
     cardTitle: { color: colors.textPrimary, fontSize: 19, fontWeight: "700" },

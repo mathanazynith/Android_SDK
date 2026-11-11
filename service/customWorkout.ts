@@ -162,12 +162,8 @@ export const secondsToTimeString = (sec?: number | null): string => {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 };
 
-export const cleanPaceString = (paceStr?: string | null): string | null => {
-  if (!paceStr) return null;
-  const match = paceStr.match(/(\d+)\s*:\s*(\d+(?:\.\d+)?)/);
-  if (!match) return null;
-  return `${match[1]}:${match[2].padStart(2, "0")}`;
-};
+import { cleanPaceString } from "../src/utils/workoutCalculations";
+export { cleanPaceString };
 
 export const canonicalDistanceUnit = (
   unitStr?: string | null,

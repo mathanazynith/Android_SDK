@@ -18,6 +18,7 @@ import {
     getMaxDistanceForUnit,
     getUnitFullLabel,
     normalizeUnit,
+    parsePaceToSeconds,
 } from "../../../src/utils/workoutCalculations";
 
 export type WorkoutStep = {
@@ -521,11 +522,43 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         });
       }
 
+      const allSteps = [workout.warmUp, ...workout.runs, workout.cooldown].filter(Boolean) as WorkoutStep[];
+      let totalSec = 0;
+      let totalDistKm = 0;
+      for (const step of allSteps) {
+        const declared = timeStringToSeconds(step.duration) || 0;
+        let stepSec = declared;
+        const normUnit = normalizeUnit(step.unit);
+        const d = parseFloat(step.distance?.replace(",", ".") || "0") || 0;
+        let distKm = 0;
+        if (d > 0) {
+          distKm = normUnit === "m" ? d / 1000 : normUnit === "mi" ? d * 1.609344 : d;
+        }
+
+        const defP = step.stepType === "Warmup" ? 400 : step.stepType === "Cooldown" ? 500 : 300;
+        const p = parsePaceToSeconds(step.pace) || defP;
+
+        if (stepSec <= 0 && distKm > 0) {
+          stepSec = normUnit === "m" ? Math.round((d / 1000) * p) : Math.round(d * p);
+        } else if (distKm <= 0 && stepSec > 0) {
+          distKm = normUnit === "mi" ? (stepSec / p) * 1.609344 : stepSec / p;
+        }
+
+        const rep = Math.max(1, step.groupId ? (step.groupRepeat || step.repeat || 1) : (step.repeat || 1));
+        const rest = timeStringToSeconds(step.rest) || 0;
+        const isRepeated = rep > 1 || Boolean(step.groupId);
+        const restCount = isRepeated ? ((step.skipLastRest ?? true) ? Math.max(rep - 1, 0) : rep) : 0;
+        totalSec += stepSec * rep + rest * restCount;
+        totalDistKm += distKm * rep;
+      }
+
       const payload: CustomWorkoutWritePayload = {
         title: workout.title?.trim() || "Custom Workout",
         workout_date: workout.workoutDate || null,
         notes: workout.notes || "",
         is_benchmark: workout.isBenchmark ?? false,
+        duration: totalSec > 0 ? totalSec : null,
+        distance: totalDistKm > 0 ? (profileUnit === "mi" ? parseFloat((totalDistKm / 1.609344).toFixed(2)) : parseFloat(totalDistKm.toFixed(2))) : null,
         distance_unit: profileUnit,
         segments,
       };
