@@ -10,19 +10,19 @@ import { calculateActiveRunElapsedSeconds, calculateMovingPaceMinutesPerKm } fro
 import { isReliableRoutePoint } from '../utils/activityRouteGroups';
 import { calculateAcceptedRouteDistance } from '../utils/routeDistance';
 import {
-  appendActiveRunPoints,
-  appendPausedRunPoints,
-  clearActiveRunJournal,
-  flushActiveRunJournal,
-  readActiveRunJournal,
+    appendActiveRunPoints,
+    appendPausedRunPoints,
+    clearActiveRunJournal,
+    flushActiveRunJournal,
+    readActiveRunJournal,
 } from './activeRunJournal';
+import { getGpsOptimizationConfig } from './gpsOptimizationConfig';
 import {
-  stopLiveTrackingNotification,
-  updateLiveTrackingNotification,
-  WORKOUT_FOREGROUND_NOTIFICATION_ID,
+    stopLiveTrackingNotification,
+    updateLiveTrackingNotification,
+    WORKOUT_FOREGROUND_NOTIFICATION_ID,
 } from './liveTrackingNotification';
 import { savePendingWorkoutRecovery } from './pendingWorkoutRecoveries';
-import { getGpsOptimizationConfig } from './gpsOptimizationConfig';
 
 export const BACKGROUND_LOCATION_TASK_NAME = 'zyrun-background-location-task';
 export const BACKGROUND_LOCATION_SESSION_KEY = 'zyrun:background-location-session';
@@ -43,6 +43,7 @@ export interface BackgroundLocationSessionState {
   autoPaused?: boolean;
   confirmationPromptVisible?: boolean;
   recoveryReviewRequired?: boolean;
+  activityType?: 'RUN' | 'WALK';
   runId?: string | null;
   userId?: string | null;
   startedAt?: string | null;

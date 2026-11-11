@@ -173,6 +173,14 @@ interface LocationState {
 }
 
 type MovementState = 'STATIONARY' | 'STARTING' | 'MOVING' | 'STOPPING';
+type WorkoutActivityType = ActivitySubmissionPayload['activity_type'];
+
+const normalizeWorkoutActivityType = (value?: string): WorkoutActivityType | null => {
+  const normalized = value?.trim().toUpperCase();
+  if (normalized?.includes('WALK')) return 'WALK';
+  if (normalized?.includes('RUN')) return 'RUN';
+  return null;
+};
 
 const MOVEMENT_CONFIRMATION_SAMPLES = 3;
 const STATIONARY_CONFIRMATION_SAMPLES = 3;
@@ -233,6 +241,8 @@ export default function MapScreen() {
   const params = useLocalSearchParams<{
     workoutTitle?: string;
     workoutPlan?: string;
+    workoutType?: string;
+    activityType?: string;
     assignedRoute?: string;
     runId?: string;
     resumeRun?: string;
@@ -349,6 +359,8 @@ export default function MapScreen() {
   const recoveredResumeAtRef = useRef<number | null>(null);
   const recoveredPausedBaselineRef = useRef(0);
   const recoveryReviewRequiredRef = useRef(false);
+  const selectedActivityTypeRef = useRef<WorkoutActivityType | null>(null);
+  const activityTypePromptOpenRef = useRef(false);
   const previousLocationRef = useRef<RawGpsPayload | null>(null);
   const processedLocationKeysRef = useRef<Set<string>>(new Set());
   const runIdRef = useRef<string | null>(null);
@@ -434,6 +446,7 @@ export default function MapScreen() {
         elapsedSeconds,
         paceMinutesPerKm: calculateMovingPaceMinutesPerKm(elapsedSeconds, recordedDistanceRef.current / 1000),
         movementConfirmed: movementConfirmedRef.current,
+        activityType: selectedActivityTypeRef.current ?? undefined,
         pauseEvents: pauseEventsRef.current,
       });
     }
@@ -1269,6 +1282,7 @@ export default function MapScreen() {
       movementConfirmed: movementConfirmedRef.current,
       confirmationPromptVisible: completionPromptVisible,
       recoveryReviewRequired: recoveryReviewRequiredRef.current,
+      activityType: selectedActivityTypeRef.current ?? undefined,
       pauseEvents: pauseEventsRef.current,
     });
     updateLiveTrackingNotification({
@@ -1466,6 +1480,7 @@ export default function MapScreen() {
         return;
       }
       recoveryReviewRequiredRef.current = Boolean(session.recoveryReviewRequired);
+      selectedActivityTypeRef.current = session.activityType ?? null;
       if (pendingRecovery) {
         isRunningRef.current = false;
         setIsRunning(false);
@@ -1646,12 +1661,49 @@ export default function MapScreen() {
     user?.id,
   ]));
 
-  const startRun = async () => {
+  const startRun = async (requestedActivityType?: WorkoutActivityType) => {
     if (isStartingRef.current || isRunningRef.current) {
       return;
     }
 
+    const routeActivityType = normalizeWorkoutActivityType(params.activityType)
+      ?? normalizeWorkoutActivityType(params.workoutType);
+    const chosenActivityType = requestedActivityType ?? routeActivityType;
+    const isFreeWorkout = !params.workoutPlan && !params.workoutTitle && executionPlan.length === 0;
+    if (isFreeWorkout && !chosenActivityType) {
+      if (activityTypePromptOpenRef.current) return;
+      activityTypePromptOpenRef.current = true;
+      Alert.alert(
+        'Choose activity type',
+        'What type of workout are you recording?',
+        [
+          {
+            text: 'Run',
+            onPress: () => {
+              activityTypePromptOpenRef.current = false;
+              void startRun('RUN');
+            },
+          },
+          {
+            text: 'Walk',
+            onPress: () => {
+              activityTypePromptOpenRef.current = false;
+              void startRun('WALK');
+            },
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => { activityTypePromptOpenRef.current = false; },
+          },
+        ],
+        { cancelable: false },
+      );
+      return;
+    }
+
     isStartingRef.current = true;
+    selectedActivityTypeRef.current = chosenActivityType;
     let backgroundServiceStartedForAttempt = false;
     try {
       if (!user?.id) {
@@ -1734,6 +1786,7 @@ export default function MapScreen() {
       const startedAt = new Date().toISOString();
       startTimeRef.current = new Date(startedAt).getTime();
       recoveryReviewRequiredRef.current = false;
+      selectedActivityTypeRef.current = chosenActivityType;
       recoveredElapsedBaseRef.current = null;
       recoveredResumeAtRef.current = null;
       recoveredPausedBaselineRef.current = 0;
@@ -1761,6 +1814,7 @@ export default function MapScreen() {
         userId,
         startedAt,
         updatedAt: new Date(startedAt).getTime(),
+        activityType: selectedActivityTypeRef.current ?? undefined,
         pauseEvents: pauseEventsRef.current,
       });
       console.info('[WorkoutLifecycle] SESSION_STARTED', { runId, status: 'active' });
@@ -2030,6 +2084,7 @@ export default function MapScreen() {
         userId: user?.id ? String(user.id) : null,
         startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
         updatedAt: pauseStartTimeRef.current,
+        activityType: selectedActivityTypeRef.current ?? undefined,
         movementConfirmed: movementConfirmedRef.current,
         pauseEvents: pauseEventsRef.current,
       });
@@ -2100,6 +2155,7 @@ export default function MapScreen() {
         userId: user?.id ? String(user.id) : null,
         startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
         updatedAt: resumedAt,
+        activityType: selectedActivityTypeRef.current ?? undefined,
         distanceKm: recordedDistanceRef.current / 1000,
         elapsedSeconds,
         paceMinutesPerKm: calculateMovingPaceMinutesPerKm(elapsedSeconds, recordedDistanceRef.current / 1000),
@@ -2278,10 +2334,8 @@ export default function MapScreen() {
       // submitted when Android activity recognition explicitly reports it,
       // except a reboot-recovered run whose original activity detector is gone.
       const activityType = fromRecoveryReview
-        ? 'RUN'
-        : detectedActivity === 'running'
-          ? 'RUN'
-          : 'WALK';
+        ? pendingRecovery?.session.activityType ?? selectedActivityTypeRef.current ?? 'RUN'
+        : selectedActivityTypeRef.current ?? (detectedActivity === 'running' ? 'RUN' : 'WALK');
       const elapsedTimeSeconds = recoveredElapsedBaseRef.current !== null
         ? Math.max(0, recoveredElapsedBaseRef.current
           + (recoveredResumeAtRef.current === null ? 0 : (stoppedAt.getTime() - recoveredResumeAtRef.current) / 1000)
@@ -2971,6 +3025,7 @@ export default function MapScreen() {
             userId: user?.id ? String(user.id) : null,
             startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
             updatedAt: Date.now(),
+            activityType: selectedActivityTypeRef.current ?? undefined,
             distanceKm: recordedDistanceRef.current / 1000,
             elapsedSeconds,
             paceMinutesPerKm: pace,
