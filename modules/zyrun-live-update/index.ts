@@ -15,6 +15,8 @@ interface NativeRunNotification {
 interface NativeLiveUpdateModule {
   updateNotification: (data: NativeRunNotification) => boolean;
   dismissNotification: () => boolean;
+  isBootRestorePending: () => boolean;
+  acknowledgeBootRestore: () => void;
 }
 
 let nativeModule: NativeLiveUpdateModule | null | undefined;
@@ -54,5 +56,23 @@ export const dismissNativeRunNotification = (): boolean => {
   } catch (error) {
     console.warn('[LiveUpdate] Native notification dismissal failed', error);
     return false;
+  }
+};
+
+/** True until JavaScript has invalidated the pre-reboot workout checkpoint. */
+export const isBootRestorePending = (): boolean => {
+  try {
+    return getNativeModule()?.isBootRestorePending() ?? false;
+  } catch (error) {
+    console.warn('[BootRestore] Could not read the Android boot marker', error);
+    return false;
+  }
+};
+
+export const acknowledgeBootRestore = (): void => {
+  try {
+    getNativeModule()?.acknowledgeBootRestore();
+  } catch (error) {
+    console.warn('[BootRestore] Could not clear the Android boot marker', error);
   }
 };

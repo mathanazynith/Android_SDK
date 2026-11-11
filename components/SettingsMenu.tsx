@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useActiveRun } from '../contexts/ActiveRunContext';
 import { usePauseSettings } from '../contexts/PauseSettingsContext';
 import { useTheme, type ThemePreference } from '../contexts/ThemeContext';
+import type { BackgroundLocationSessionState } from '../src/services/backgroundLocationTask';
 import ActiveRunBanner from './navigation/ActiveRunBanner';
 import { useResponsive } from '../utils/responsive';
 
@@ -33,6 +34,7 @@ export default function SettingsMenu({ visible, onClose, onSelect, hasPassword }
   const { colors, isDark, preference, setPreference } = useTheme();
   const activeRun = useActiveRun();
   const [navigateToRunAfterDismiss, setNavigateToRunAfterDismiss] = useState(false);
+  const [runToNavigateTo, setRunToNavigateTo] = useState<BackgroundLocationSessionState | null>(null);
   const {
     autoPauseEnabled,
     isLoaded: pauseSettingsLoaded,
@@ -128,9 +130,14 @@ export default function SettingsMenu({ visible, onClose, onSelect, hasPassword }
       onDismiss={() => {
         if (!navigateToRunAfterDismiss) return;
         setNavigateToRunAfterDismiss(false);
+        const run = runToNavigateTo ?? activeRun;
+        setRunToNavigateTo(null);
         router.navigate({
           pathname: '/(app)/screens/map',
-          params: activeRun?.runId ? { runId: activeRun.runId } : undefined,
+          params: {
+            resumeRun: '1',
+            ...(run?.runId ? { runId: run.runId } : {}),
+          },
         });
       }}
     >
@@ -296,7 +303,8 @@ export default function SettingsMenu({ visible, onClose, onSelect, hasPassword }
         </ScrollView>
         <ActiveRunBanner
           bottomOffset={insets.bottom + 16}
-          onNavigateToRun={() => {
+          onNavigateToRun={(run) => {
+            setRunToNavigateTo(run);
             setNavigateToRunAfterDismiss(true);
             onClose();
           }}

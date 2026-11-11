@@ -90,11 +90,21 @@ export interface ActivitySubmissionPayload {
   avg_pace: number;
   pace_seconds_per_km: number;
   laps?: ActivityLapPayload[];
+  lap_events?: ActivityLapEventPayload[];
   segments?: ActivitySegmentPayload[];
   extra?: ActivityExtraPayload | null;
   pause_events?: ActivityPauseEventPayload[];
   pause_count?: number;
   paused_time_s?: number;
+}
+
+export interface ActivityLapEventPayload {
+  event_number: number;
+  timestamp: string;
+  split_number?: number;
+  distance_m?: number;
+  time_s?: number;
+  pace_s_per_km?: number;
 }
 
 export interface ActivityPauseEventPayload {
@@ -116,6 +126,12 @@ export interface ActivitySegmentPayload {
   actual_time_s: number;
   actual_pace_s_per_km: number;
   gps_points: ActivityGpsPointPayload[];
+  splits?: {
+    split_number: number;
+    distance_m: number;
+    time_s: number;
+    pace_s_per_km: number;
+  }[];
   recovery?: ActivityRecoveryPayload | null;
 }
 

@@ -1,7 +1,6 @@
-import { getToken, onTokenRefresh } from '@react-native-firebase/messaging';
+import { getMessaging, getToken, onTokenRefresh } from '@react-native-firebase/messaging';
 import * as Notifications from 'expo-notifications';
 import { PermissionsAndroid, Platform } from 'react-native';
-import { getSafeMessaging } from './firebase';
 
 export async function requestFcmPermission() {
   if (Platform.OS !== 'android') {
@@ -32,10 +31,6 @@ export async function requestFcmPermission() {
 }
 
 export async function getFcmToken() {
-  if (Platform.OS !== 'android') {
-    return null;
-  }
-
   try {
     const permissionGranted = await requestFcmPermission();
 
@@ -43,15 +38,10 @@ export async function getFcmToken() {
       return null;
     }
 
-    const messaging = getSafeMessaging();
-    if (!messaging) {
-      return null;
-    }
-
-    const token = await getToken(messaging);
+    const token = await getToken(getMessaging());
     return token;
   } catch (error) {
-    console.warn('[FCM] Failed to get FCM token:', error);
+    console.error('[FCM] Failed to get FCM token:', error);
     return null;
   }
 }
@@ -61,15 +51,5 @@ export function subscribeToFcmTokenRefresh(listener) {
     return () => {};
   }
 
-  try {
-    const messaging = getSafeMessaging();
-    if (!messaging) {
-      return () => {};
-    }
-
-    return onTokenRefresh(messaging, listener);
-  } catch (error) {
-    console.warn('[FCM] Failed to subscribe to token refresh:', error);
-    return () => {};
-  }
+  return onTokenRefresh(getMessaging(), listener);
 }

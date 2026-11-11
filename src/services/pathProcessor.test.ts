@@ -24,6 +24,19 @@ describe('PathProcessor live route geometry', () => {
     expect(processor.getDisplayPoints()[1]?.longitude).toBeCloseTo(1.6 / 111_320);
   });
 
+  it('keeps a 10m route when 15m-accuracy fixes meet the live movement threshold', () => {
+    const processor = new PathProcessor('short-walk-run');
+    const startedAt = Date.now() - 2_000;
+
+    processor.ingestRaw({ ...pointAt(0, 0), accuracy: 15, speed: 1, timestamp: startedAt });
+    processor.ingestRaw({ ...pointAt(10, 0), accuracy: 15, speed: 1, timestamp: startedAt + 1_000 });
+
+    const savedPoints = processor.filterRawPoints();
+
+    expect(savedPoints).toHaveLength(2);
+    expect(savedPoints[1]?.longitude).toBeCloseTo(10 / 111_320);
+  });
+
   it('removes sub-meter cross-track jitter without mutating source coordinates', () => {
     const processor = new PathProcessor('test-run');
     const route = [
@@ -117,6 +130,24 @@ describe('PathProcessor live route geometry', () => {
     }
 
     expect(processor.filterRawPoints()).toHaveLength(1);
+  });
+
+  it('preserves a compact route when independent movement has been confirmed', () => {
+    const processor = new PathProcessor('confirmed-short-loop-run');
+    const startedAt = Date.now() - 40_000;
+    const pointCount = 24;
+
+    for (let index = 0; index <= pointCount; index += 1) {
+      const angle = (index / pointCount) * Math.PI * 2;
+      processor.ingestRaw({
+        ...pointAt(Math.cos(angle) * 8, Math.sin(angle) * 8),
+        accuracy: 12,
+        speed: 1,
+        timestamp: startedAt + index * (40_000 / pointCount),
+      });
+    }
+
+    expect(processor.filterRawPoints([], true).length).toBeGreaterThan(1);
   });
 
   it('preserves a short loop supported by precise GPS fixes', () => {

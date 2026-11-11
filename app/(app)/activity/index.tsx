@@ -43,7 +43,7 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage, resolveApiUrl } from '../../../service/api';
 import { useAuth } from '../../../service/auth';
 import { activityAPI, BackendActivity, runRouteAPI } from '../../../src/services/activityApi';
-import { shareActivityAsGpx } from '../../../src/services/gpxFileExport';
+import { shareActivityAsGpx, shareActivityAsJson } from '../../../src/services/gpxFileExport';
 import { parseGpxWorkout, type GpxWorkoutPreview } from '../../../src/services/gpxService';
 import {
   formatDistanceFromMeters,
@@ -77,7 +77,7 @@ type ActivityDistanceFilter = 'all' | 'under1' | 'under2' | 'short' | 'medium' |
 type DatePickerTarget = 'start' | 'end';
 type ActivityGroupMode = 'month' | 'week';
 type FilterPopover = 'type' | 'date' | 'distance';
-type FilterPopoverPosition = { left: number; top: number; width: number; maxHeight: number; placement: 'above' | 'below' | 'center'; caretLeft: number };
+type FilterPopoverPosition = { left: number; top: number; width: number; maxHeight: number; placement: 'above' | 'below' | 'center'; caretLeft: number; originXPercent: number; originYPercent: number };
 
 type ActivityListRow =
   | { type: 'section'; key: string; title: string; activities: BackendActivity[] }
@@ -682,7 +682,7 @@ const ActivityCard = memo(function ActivityCard({
         <TouchableOpacity
           accessibilityRole="button"
           accessibilityLabel={`More actions for ${activityName.toLowerCase()} activity`}
-          accessibilityHint="Export this activity as GPX or manage its saved route."
+          accessibilityHint="Export this activity as GPX or JSON, or manage its saved route."
           disabled={busy}
           onPress={(event) => {
             event.stopPropagation();
@@ -832,8 +832,8 @@ export default function ActivityScreen() {
   const [selectionFiltersProgress] = useState(() => new Animated.Value(1));
   const [activeFilterPopover, setActiveFilterPopover] = useState<FilterPopover | null>(null);
   const [activeLongPress, setActiveLongPress] = useState<FilterPopover | null>(null);
-  const [filterPopoverPosition, setFilterPopoverPosition] = useState<FilterPopoverPosition>({ left: 12, top: 72, width: 280, maxHeight: 420, placement: 'below', caretLeft: 24 });
-  const filterPopoverScale = useRef(new Animated.Value(0.88)).current;
+  const [filterPopoverPosition, setFilterPopoverPosition] = useState<FilterPopoverPosition>({ left: 12, top: 72, width: 280, maxHeight: 420, placement: 'below', caretLeft: 24, originXPercent: 50, originYPercent: 50 });
+  const filterPopoverScale = useRef(new Animated.Value(0.78)).current;
   const filterPopoverOffset = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const typeFilterAnchorRef = useRef<View>(null);
   const dateFilterAnchorRef = useRef<View>(null);
@@ -912,30 +912,32 @@ export default function ActivityScreen() {
       const anchorCenterY = y + anchorHeight / 2;
       const modalCenterX = left + width / 2;
       const modalCenterY = top + maxHeight / 2;
-      const startTranslateX = (anchorCenterX - modalCenterX) * 0.9;
-      const startTranslateY = (anchorCenterY - modalCenterY) * 0.9;
+      const startTranslateX = (anchorCenterX - modalCenterX) * 1.08;
+      const startTranslateY = (anchorCenterY - modalCenterY) * 1.08;
+      const originXPercent = Math.min(88, Math.max(12, ((anchorCenterX - left) / width) * 100));
+      const originYPercent = Math.min(88, Math.max(12, ((anchorCenterY - top) / maxHeight) * 100));
       const caretLeft = Math.max(12, Math.min(anchorCenterX - left - 8, width - 12));
 
-      filterPopoverScale.setValue(0.88);
+      filterPopoverScale.setValue(0.78);
       filterPopoverOffset.setValue({ x: startTranslateX, y: startTranslateY });
 
       Animated.parallel([
-        Animated.timing(filterPopoverScale, {
+        Animated.spring(filterPopoverScale, {
           toValue: 1,
-          duration: 240,
-          easing: Easing.out(Easing.cubic),
+          tension: 210,
+          friction: 16,
           useNativeDriver: true,
         }),
         Animated.spring(filterPopoverOffset.x, {
           toValue: 0,
-          tension: 140,
-          friction: 12,
+          tension: 180,
+          friction: 14,
           useNativeDriver: true,
         }),
         Animated.spring(filterPopoverOffset.y, {
           toValue: 0,
-          tension: 140,
-          friction: 12,
+          tension: 180,
+          friction: 14,
           useNativeDriver: true,
         }),
       ]).start();
@@ -947,6 +949,8 @@ export default function ActivityScreen() {
         maxHeight,
         placement,
         caretLeft,
+        originXPercent,
+        originYPercent,
       });
       setActiveFilterPopover(filter);
     });
@@ -954,7 +958,7 @@ export default function ActivityScreen() {
 
   useEffect(() => {
     if (!activeFilterPopover) {
-      filterPopoverScale.setValue(0.88);
+      filterPopoverScale.setValue(0.78);
       filterPopoverOffset.setValue({ x: 0, y: 0 });
     }
   }, [activeFilterPopover, filterPopoverOffset, filterPopoverScale]);
@@ -1475,10 +1479,35 @@ export default function ActivityScreen() {
     }
   }, [exportingActivityIds]);
 
+  const exportActivityJson = useCallback(async (activity: BackendActivity) => {
+    const activityKey = String(activity.id);
+    if (exportingActivityIds.has(activityKey)) return;
+    setExportingActivityIds((current) => new Set(current).add(activityKey));
+    try {
+      const detail = await activityAPI.get(activity.id);
+      await shareActivityAsJson(detail);
+    } catch (exportError) {
+      const message = exportError instanceof Error
+        ? exportError.message
+        : 'Could not export this activity as JSON.';
+      Alert.alert('Could not export JSON', message);
+    } finally {
+      setExportingActivityIds((current) => {
+        const next = new Set(current);
+        next.delete(activityKey);
+        return next;
+      });
+    }
+  }, [exportingActivityIds]);
+
   const openActivityRouteMenu = useCallback((activity: BackendActivity) => {
-    const exportOption = {
+    const exportGpxOption = {
       text: 'Export GPX',
       onPress: () => { void exportActivityGpx(activity); },
+    };
+    const exportJsonOption = {
+      text: 'Export JSON',
+      onPress: () => { void exportActivityJson(activity); },
     };
     const deleteOption = {
       text: 'Delete workout',
@@ -1490,7 +1519,8 @@ export default function ActivityScreen() {
       const routeId = Number(activity.saved_route_id);
       if (!Number.isInteger(routeId) || routeId <= 0) {
         Alert.alert('Activity options', 'This route is saved, but its route ID is missing from the History response.', [
-          exportOption,
+          exportGpxOption,
+          exportJsonOption,
           deleteOption,
           { text: 'Cancel', style: 'cancel' },
         ]);
@@ -1498,7 +1528,8 @@ export default function ActivityScreen() {
       }
 
       Alert.alert('Activity options', undefined, [
-        exportOption,
+        exportGpxOption,
+        exportJsonOption,
         deleteOption,
         {
           text: 'Change route visibility',
@@ -1530,7 +1561,8 @@ export default function ActivityScreen() {
     }
 
     Alert.alert('Activity options', undefined, [
-      exportOption,
+      exportGpxOption,
+      exportJsonOption,
       deleteOption,
       { text: 'Cancel', style: 'cancel' },
       {
@@ -1546,7 +1578,7 @@ export default function ActivityScreen() {
         },
       },
     ]);
-  }, [exportActivityGpx, updateActivityRouteVisibility]);
+  }, [exportActivityGpx, exportActivityJson, updateActivityRouteVisibility]);
 
   const deleteActivities = useCallback(async (targets: BackendActivity[]) => {
     if (targets.length === 0 || isDeletingActivities) return;
@@ -2008,10 +2040,15 @@ export default function ActivityScreen() {
             transform: [
               { translateX: filterPopoverOffset.x },
               { translateY: filterPopoverOffset.y },
-              { scale: filterPopoverScale },
             ],
           }}>
-            <View style={[styles.filterPopoverCard, { width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Animated.View style={{
+              width: filterPopoverPosition.width,
+              maxHeight: filterPopoverPosition.maxHeight,
+              transform: [{ scale: filterPopoverScale }],
+              transformOrigin: `${filterPopoverPosition.originXPercent}% ${filterPopoverPosition.originYPercent}%`,
+            }}>
+              <View style={[styles.filterPopoverCard, { width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.modalHeaderRow}>
                 <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
                   <Feather name="activity" size={14} color={colors.primary} />
@@ -2053,7 +2090,8 @@ export default function ActivityScreen() {
               {filterPopoverPosition.placement !== 'center' ? (
                 <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
               ) : null}
-            </View>
+              </View>
+            </Animated.View>
           </Animated.View>
         </View>
       </Modal>
@@ -2070,10 +2108,15 @@ export default function ActivityScreen() {
             transform: [
               { translateX: filterPopoverOffset.x },
               { translateY: filterPopoverOffset.y },
-              { scale: filterPopoverScale },
             ],
           }}>
-            <View style={[styles.filterPopoverCard, { width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Animated.View style={{
+              width: filterPopoverPosition.width,
+              maxHeight: filterPopoverPosition.maxHeight,
+              transform: [{ scale: filterPopoverScale }],
+              transformOrigin: `${filterPopoverPosition.originXPercent}% ${filterPopoverPosition.originYPercent}%`,
+            }}>
+              <View style={[styles.filterPopoverCard, { width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.modalHeaderRow}>
                 <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
                   <Feather name="calendar" size={14} color={colors.primary} />
@@ -2263,7 +2306,8 @@ export default function ActivityScreen() {
               {filterPopoverPosition.placement !== 'center' ? (
                 <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
               ) : null}
-            </View>
+              </View>
+            </Animated.View>
           </Animated.View>
         </View>
       </Modal>
@@ -2280,10 +2324,15 @@ export default function ActivityScreen() {
             transform: [
               { translateX: filterPopoverOffset.x },
               { translateY: filterPopoverOffset.y },
-              { scale: filterPopoverScale },
             ],
           }}>
-            <View style={[styles.filterPopoverCard, { width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Animated.View style={{
+              width: filterPopoverPosition.width,
+              maxHeight: filterPopoverPosition.maxHeight,
+              transform: [{ scale: filterPopoverScale }],
+              transformOrigin: `${filterPopoverPosition.originXPercent}% ${filterPopoverPosition.originYPercent}%`,
+            }}>
+              <View style={[styles.filterPopoverCard, { width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.modalHeaderRow}>
                 <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
                   <Feather name="map-pin" size={14} color={colors.primary} />
@@ -2324,7 +2373,8 @@ export default function ActivityScreen() {
               {filterPopoverPosition.placement !== 'center' ? (
                 <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
               ) : null}
-            </View>
+              </View>
+            </Animated.View>
           </Animated.View>
         </View>
       </Modal>

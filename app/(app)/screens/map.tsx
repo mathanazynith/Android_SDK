@@ -2,16 +2,16 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Device from 'expo-device';
 import * as Location from 'expo-location';
-import { useLocalSearchParams, usePathname, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, usePathname, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, BackHandler, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, BackHandler, Linking, Modal, NativeEventEmitter, NativeModules, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import { usePauseSettings } from '../../../contexts/PauseSettingsContext';
-import { BRAND_GREEN, useTheme } from '../../../contexts/ThemeContext';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { useAuth } from '../../../service/auth';
 import { workoutPlanService } from '../../../service/workoutPlan';
-import { beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal } from '../../../src/services/activeRunJournal';
+import { beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal, restoreActiveRunJournal } from '../../../src/services/activeRunJournal';
 import { ActivityDetectionService } from '../../../src/services/activityDetectionService';
 import { activityDistanceOverrides } from '../../../src/services/activityDistanceOverrides';
 import { activityTimingOverrides } from '../../../src/services/activityTimingOverrides';
@@ -19,11 +19,13 @@ import {
   clearBackgroundLocationSession,
   flushBackgroundLocationTask,
   getBackgroundLocationSession,
+  isBackgroundLocationTrackingStarted,
   persistBackgroundLocationSession,
   setBackgroundLocationListener,
   startBackgroundLocationTracking,
   stopBackgroundLocationTracking,
 } from '../../../src/services/backgroundLocationTask';
+import { shareActivityPayloadAsJson } from '../../../src/services/gpxFileExport';
 import {
   LIVE_TRACKING_PAUSE_ACTION,
   LIVE_TRACKING_RESUME_ACTION,
@@ -31,29 +33,34 @@ import {
   publishWorkoutSummaryNotification,
   startLiveTrackingNotification,
   stopLiveTrackingNotification,
-  updateLiveTrackingNotificationMessage,
   updateLiveTrackingNotification,
+  updateLiveTrackingNotificationMessage,
 } from '../../../src/services/liveTrackingNotification';
 import { LocationQueue } from '../../../src/services/locationQueue';
 import { LocationService } from '../../../src/services/locationService';
+import { offlineWorkoutQueue } from '../../../src/services/offlineWorkoutQueue';
 import { PathProcessor } from '../../../src/services/pathProcessor';
+import {
+  getPendingWorkoutRecovery,
+  removePendingWorkoutRecovery,
+} from '../../../src/services/pendingWorkoutRecoveries';
 import { RunningApiClient } from '../../../src/services/runningApi';
-import { shareActivityPayloadAsJson } from '../../../src/services/gpxFileExport';
-import { DistanceSplitEngine } from '../../../src/services/splitEngine';
+import { DistanceSplitEngine, type CompletedLiveSplit } from '../../../src/services/splitEngine';
 import { StepDetectionService } from '../../../src/services/stepDetectionService';
 import voiceCoach from '../../../src/services/voiceCoach';
 import { WorkoutEngine } from '../../../src/services/workoutEngine';
 import { WorkoutVoiceService } from '../../../src/services/workoutVoiceService';
 import { SPLIT_DISTANCE_METERS } from '../../../src/types/activity';
-import { ActivityExtraPayload, ActivityGpsPointPayload, ActivityLapPayload, ActivityPauseEventPayload, ActivityRecoveryPayload, ActivitySegmentPayload, ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
+import { ActivityExtraPayload, ActivityGpsPointPayload, ActivityLapEventPayload, ActivityLapPayload, ActivityPauseEventPayload, ActivityRecoveryPayload, ActivitySegmentPayload, ActivitySubmissionPayload, RawGpsPayload, RunningGpsPoint, RunningPathPoint } from '../../../src/types/running';
 import { BackendWorkout, WorkoutEngineSnapshot } from '../../../src/types/workout';
+import { calculateMovingPaceMinutesPerKm } from '../../../src/utils/activeRunMetrics';
 import { isReliableRoutePoint } from '../../../src/utils/activityRouteGroups';
-import { offlineWorkoutQueue } from '../../../src/services/offlineWorkoutQueue';
-import { calculateDistanceMeters } from '../../../src/utils/distance';
 import {
   formatDistanceFromMeters,
   formatPaceFromSecondsPerKm,
 } from '../../../src/utils/activityUnitFormatters';
+import { createCatmullRomPolyline } from '../../../src/utils/catmullRom';
+import { calculateDistanceMeters } from '../../../src/utils/distance';
 import { decodePolyline } from '../../../src/utils/polylineDecoder';
 import {
   calculateAcceptedRouteDistance,
@@ -173,10 +180,21 @@ interface LocationState {
 }
 
 type MovementState = 'STATIONARY' | 'STARTING' | 'MOVING' | 'STOPPING';
+type WorkoutActivityType = ActivitySubmissionPayload['activity_type'];
+
+const normalizeWorkoutActivityType = (value?: string): WorkoutActivityType | null => {
+  const normalized = value?.trim().toUpperCase();
+  if (normalized?.includes('WALK')) return 'WALK';
+  if (normalized?.includes('RUN')) return 'RUN';
+  return null;
+};
 
 const MOVEMENT_CONFIRMATION_SAMPLES = 3;
 const STATIONARY_CONFIRMATION_SAMPLES = 3;
+const STATIONARY_CONFIRMATION_DURATION_MS = 8_000;
 const AUTO_PAUSE_STATIONARY_DURATION_MS = 5_000;
+const AUTO_PAUSE_GRACE_DURATION_MS = 8_000;
+const STEP_MOVEMENT_EVIDENCE_WINDOW_MS = 5_000;
 const WORKOUT_CHECKPOINT_STALE_AFTER_MS = 30_000;
 // A 30m GPS radius is too large for indoor distance: the displayed point can
 // be several rooms away from the user. Reject low-confidence fixes before
@@ -186,7 +204,7 @@ const MAX_MOVEMENT_ACCURACY_METERS = 15;
 // Require a displacement outside the fix's uncertainty, and meaningful speed,
 // before a live sample can confirm movement.
 const MIN_MOVEMENT_DISTANCE_METERS = 3;
-const MIN_MOVEMENT_SPEED_METERS_PER_SECOND = 0.8;
+const MIN_MOVEMENT_SPEED_METERS_PER_SECOND = 0.6;
 const ROUTE_ON_DISTANCE_METERS = 20;
 const ROUTE_WARNING_DISTANCE_METERS = 75;
 
@@ -234,10 +252,17 @@ export default function MapScreen() {
     activityType?: string;
     assignedRoute?: string;
     runId?: string;
+    resumeRun?: string;
     notificationAction?: string;
     actionNonce?: string;
     recoveryReview?: string;
+    recoveryId?: string;
   }>();
+  const recoveryRouteId = typeof params.recoveryId === 'string'
+    ? params.recoveryId
+    : params.recoveryReview === '1' && typeof params.runId === 'string'
+      ? params.runId
+      : null;
 
   const assignedRoute = useMemo(() => {
     if (!params.assignedRoute) return null;
@@ -317,6 +342,7 @@ export default function MapScreen() {
   const [routeSegments, setRouteSegments] = useState<RouteSegment[]>([]);
   const [distance, setDistance] = useState(0);
   const [workoutDistance, setWorkoutDistance] = useState(0);
+  const [lastManualSplit, setLastManualSplit] = useState<CompletedLiveSplit | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [accuracy, setAccuracy] = useState<number | null>(null);
   const [isPaused, setIsPaused] = useState(false);
@@ -365,6 +391,8 @@ export default function MapScreen() {
   const recoveredElapsedBaseRef = useRef<number | null>(null);
   const recoveredResumeAtRef = useRef<number | null>(null);
   const recoveredPausedBaselineRef = useRef(0);
+  const recoveryReviewRequiredRef = useRef(false);
+  const activityTypePromptOpenRef = useRef(false);
   const previousLocationRef = useRef<RawGpsPayload | null>(null);
   const processedLocationKeysRef = useRef<Set<string>>(new Set());
   const runIdRef = useRef<string | null>(null);
@@ -391,6 +419,7 @@ export default function MapScreen() {
   const autoPauseEnabledRef = useRef(false);
   const voiceAlertsEnabledRef = useRef(false);
   const lastMovementTimestampRef = useRef<number | null>(null);
+  const autoPauseGraceUntilRef = useRef(0);
   const autoPauseActionRef = useRef<() => void>(() => {});
   const autoResumeActionRef = useRef<() => void>(() => {});
   const stepCountRef = useRef(0);
@@ -399,10 +428,12 @@ export default function MapScreen() {
   const movementStateRef = useRef<MovementState>('STATIONARY');
   const consecutiveMovementRef = useRef(0);
   const consecutiveStationaryRef = useRef(0);
+  const stationaryCandidateStartedAtRef = useRef<number | null>(null);
   const resumeMovementPendingRef = useRef(false);
   const workoutEngineRef = useRef<WorkoutEngine | null>(null);
   const workoutVoiceRef = useRef<WorkoutVoiceService | null>(null);
   const splitEngineRef = useRef(new DistanceSplitEngine());
+  const lapEventsRef = useRef<ActivityLapEventPayload[]>([]);
   const previousWorkoutPointRef = useRef<RunningGpsPoint | null>(null);
   const routeSegmentsRef = useRef<RouteSegment[]>([]);
   const pauseEventsRef = useRef<PauseEvent[]>([]);
@@ -432,16 +463,22 @@ export default function MapScreen() {
       movementStateRef.current = 'STATIONARY';
       consecutiveMovementRef.current = 0;
       consecutiveStationaryRef.current = 0;
+      stationaryCandidateStartedAtRef.current = null;
       resumeMovementPendingRef.current = true;
       void persistBackgroundLocationSession({
         active: true,
+        status: 'paused',
         paused: true,
         autoPaused: true,
         runId: runIdRef.current,
         userId: user?.id ? String(user.id) : null,
         startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
         updatedAt: pauseStartTimeRef.current,
+        distanceKm: recordedDistanceRef.current / 1000,
+        elapsedSeconds,
+        paceMinutesPerKm: calculateMovingPaceMinutesPerKm(elapsedSeconds, recordedDistanceRef.current / 1000),
         movementConfirmed: movementConfirmedRef.current,
+        activityType: selectedActivityTypeRef.current ?? undefined,
         pauseEvents: pauseEventsRef.current,
       });
     }
@@ -702,12 +739,16 @@ export default function MapScreen() {
         setPermissionGranted(true);
         return;
       }
+      if (params.runId) return;
       void requestLocation();
     });
-  }, [params.notificationAction, requestLocation]);
+  }, [params.notificationAction, params.runId, requestLocation]);
 
   useEffect(() => {
     return () => {
+      if (Platform.OS === 'android') {
+        void NativeModules.WorkoutVolumeSplit?.setEnabled(false);
+      }
       isRunningRef.current = false;
       if (locationSubscription.current) {
         locationSubscription.current.remove();
@@ -773,11 +814,7 @@ export default function MapScreen() {
         const totalAcceptedDistance = recordedDistanceRef.current;
         if (totalAcceptedDistance > 0) {
           const distanceInKm = totalAcceptedDistance / 1000;
-          const elapsedMinutes = elapsed / 60;
-          if (elapsedMinutes > 0) {
-            const paceValue = elapsedMinutes / distanceInKm;
-            setPace(paceValue);
-          }
+          setPace(calculateMovingPaceMinutesPerKm(elapsed, distanceInKm));
         }
 
         // Custom Workout Step Completion Check
@@ -904,12 +941,12 @@ export default function MapScreen() {
       const detectedActivity = activityDetection?.getCurrentActivity() ?? 'unknown';
       const hasDetectedMovement = detectedActivity === 'walking' || detectedActivity === 'running';
       const hasRecentStepEvidence = lastStepTimestampRef.current !== null
-        && timestamp - lastStepTimestampRef.current <= 5_000;
+        && timestamp - lastStepTimestampRef.current <= STEP_MOVEMENT_EVIDENCE_WINDOW_MS;
       const previousPointDistance = previousLocationRef.current
         ? calculateDistanceMeters(previousLocationRef.current, effectiveGps)
         : 0;
       const accuracy = effectiveAccuracy;
-      const hasGoodAccuracy = isSimulator ? true : (Number.isFinite(accuracy) && accuracy <= MAX_MOVEMENT_ACCURACY_METERS);
+      const hasGoodAccuracy = isSimulator || isReliableRoutePoint({ accuracy });
       const speed = rawGps.speed ?? 0;
       const previousTimestampValue = previousLocationRef.current?.timestamp;
       const previousTimestamp = typeof previousTimestampValue === 'number'
@@ -940,6 +977,7 @@ export default function MapScreen() {
         && (fromDurableJournal || hasMotionEvidence || hasExplicitResumeMovement);
       const isLiveMovementSample = !fromDurableJournal || fromBackgroundTask;
       if (hasMovementObservation) {
+        stationaryCandidateStartedAtRef.current = null;
         if (isLiveMovementSample && capturedPaused !== true) {
           lastMovementTimestampRef.current = timestamp;
         }
@@ -963,6 +1001,9 @@ export default function MapScreen() {
         }
       } else {
         if (!resumeMovementPendingRef.current) consecutiveMovementRef.current = 0;
+        if (stationaryCandidateStartedAtRef.current === null) {
+          stationaryCandidateStartedAtRef.current = timestamp;
+        }
         consecutiveStationaryRef.current += 1;
         if (movementStateRef.current === 'MOVING') {
           movementStateRef.current = 'STOPPING';
@@ -970,6 +1011,7 @@ export default function MapScreen() {
         if (
           (movementStateRef.current === 'STARTING' || movementStateRef.current === 'STOPPING')
           && consecutiveStationaryRef.current >= STATIONARY_CONFIRMATION_SAMPLES
+          && timestamp - stationaryCandidateStartedAtRef.current >= STATIONARY_CONFIRMATION_DURATION_MS
         ) {
           movementStateRef.current = 'STATIONARY';
           if (!movementConfirmedRef.current) movementConfirmedRef.current = false;
@@ -987,7 +1029,7 @@ export default function MapScreen() {
       previousLocationRef.current = effectiveGps;
       // Keep the blue location dot anchored during GPS wander. The same
       // movement state gates route and distance below.
-      if (movementState === 'MOVING') publishLocation();
+      if (movementState === 'MOVING' && hasGoodAccuracy) publishLocation();
       if (isLiveMovementSample && autoPauseEnabledRef.current) {
         if (
           isAutoPausedRef.current
@@ -1005,6 +1047,7 @@ export default function MapScreen() {
           && movementState === 'STATIONARY'
           && hasGoodAccuracy
           && speed < MIN_MOVEMENT_SPEED_METERS_PER_SECOND
+          && timestamp >= autoPauseGraceUntilRef.current
           && lastMovementTimestampRef.current !== null
           && timestamp - lastMovementTimestampRef.current >= AUTO_PAUSE_STATIONARY_DURATION_MS
         ) {
@@ -1012,7 +1055,7 @@ export default function MapScreen() {
         }
       }
 
-      const shouldProcessRoute = movementState === 'MOVING'
+      const shouldProcessRoute = (movementState === 'MOVING' && hasGoodAccuracy)
         || (fromDurableJournal && capturedPaused !== true && hasGoodAccuracy);
       previousLocationRef.current = rawGps;
       if (!shouldProcessRoute) {
@@ -1112,7 +1155,7 @@ export default function MapScreen() {
         ].filter((boundary): boundary is number => (
           typeof boundary === 'number' && Number.isFinite(boundary)
         ));
-        const filteredPoints = processor.filterRawPoints(routeBoundaries);
+        const filteredPoints = processor.filterRawPoints(routeBoundaries, movementConfirmedRef.current);
         const reliableRoutePoints: RunningGpsPoint[] = Device.isDevice
           ? filteredPoints.filter(isReliableRoutePoint)
           : filteredPoints;
@@ -1184,12 +1227,15 @@ export default function MapScreen() {
   }, [handleLocationUpdate]);
 
   const startLiveGPS = useCallback(async () => {
+    autoPauseGraceUntilRef.current = Date.now() + AUTO_PAUSE_GRACE_DURATION_MS;
+    stationaryCandidateStartedAtRef.current = null;
     if (locationSubscription.current) {
       locationSubscription.current.remove();
       locationSubscription.current = null;
     }
 
     locationSubscription.current = await LocationService.watchLocation(handleLocationUpdate);
+    console.info('[BackgroundLifecycle] LOCATION_WATCHER_STARTED', { runId: runIdRef.current });
     // This supplements the untouched watcher only after the workout starts.
     setBackgroundLocationListener((point, paused, fromDurableJournal) => (
       handleLocationUpdate(point, paused, fromDurableJournal, true)
@@ -1209,10 +1255,107 @@ export default function MapScreen() {
     addLog('?? Live GPS tracking started');
   }, [addLog, handleLocationUpdate, reconcileJournaledPoints]);
 
+  const handleVolumeSplitPress = useCallback(() => {
+    if (!isRunningRef.current || isPausedRef.current) return;
+    const pressedAt = Date.now();
+    const split = splitEngineRef.current.markSplit(pressedAt);
+    if (!split) {
+      addLog('Volume split ignored: no accepted distance since the last split');
+      Alert.alert(
+        'Split not recorded',
+        'Move far enough for GPS to record distance before marking a manual split.',
+      );
+      return;
+    }
+    setLastManualSplit(split);
+    lapEventsRef.current.push({
+      event_number: lapEventsRef.current.length + 1,
+      timestamp: new Date(pressedAt).toISOString(),
+      split_number: split.splitNumber,
+      distance_m: split.distanceMeters,
+      time_s: split.timeSeconds,
+      pace_s_per_km: split.paceSecondsPerKm,
+    });
+    void workoutVoiceRef.current?.splitCompleted(split.distanceMeters);
+    addLog(`Manual split ${split.splitNumber}: ${split.distanceMeters.toFixed(1)}m`);
+  }, [addLog]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const nativeModule = NativeModules.WorkoutVolumeSplit;
+    if (!nativeModule) return;
+
+    const emitter = new NativeEventEmitter(nativeModule);
+    const subscription = emitter.addListener('workoutVolumeSplitPressed', handleVolumeSplitPress);
+    return () => subscription.remove();
+  }, [handleVolumeSplitPress]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const nativeModule = NativeModules.WorkoutVolumeSplit;
+    if (!nativeModule) return;
+    void nativeModule.setEnabled(Boolean(isRunning && !isPaused));
+  }, [isPaused, isRunning]);
+  useEffect(() => {
+    if (!isRunning) return;
+    const startedAt = startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null;
+    void persistBackgroundLocationSession({
+      active: true,
+      status: isPaused ? 'paused' : 'active',
+      paused: isPaused,
+      autoPaused: isAutoPausedRef.current,
+      runId: runIdRef.current,
+      userId: user?.id ? String(user.id) : null,
+      startedAt,
+      updatedAt: Date.now(),
+      distanceKm: distance / 1000,
+      elapsedSeconds,
+      paceMinutesPerKm: pace,
+      movementConfirmed: movementConfirmedRef.current,
+      confirmationPromptVisible: completionPromptVisible,
+      recoveryReviewRequired: recoveryReviewRequiredRef.current,
+      activityType: selectedActivityTypeRef.current ?? undefined,
+      pauseEvents: pauseEventsRef.current,
+    });
+    updateLiveTrackingNotification({
+      runId: runIdRef.current,
+      distanceKm: distance / 1000,
+      elapsedSeconds,
+      paceMinutesPerKm: pace,
+      status: isPaused ? 'paused' : 'running',
+      startedAt,
+    });
+  }, [completionPromptVisible, distance, elapsedSeconds, isPaused, isRunning, pace, user?.id]);
+
   const continueRecoveredWorkout = async () => {
-    if (!runIdRef.current || isRunningRef.current || isStartingRef.current) return;
+    const recoveryId = recoveryRouteId;
+    if (!recoveryId || !runIdRef.current || isRunningRef.current || isStartingRef.current) return;
     isStartingRef.current = true;
     try {
+      const recovery = await getPendingWorkoutRecovery(recoveryId);
+      if (!recovery || recovery.session.runId !== runIdRef.current) {
+        throw new Error('This saved workout recovery is no longer available.');
+      }
+      const activeSession = await getBackgroundLocationSession();
+      if (activeSession?.active && activeSession.runId !== recoveryId) {
+        throw new Error('Finish or save your current workout before continuing this recovery.');
+      }
+
+      await restoreActiveRunJournal(recovery.journal);
+      const resumedAt = Date.now();
+      const resumedSession = {
+        ...recovery.session,
+        active: true,
+        status: isPausedRef.current ? 'paused' as const : 'active' as const,
+        recoveryReviewRequired: false,
+        updatedAt: resumedAt,
+        distanceKm: recordedDistanceRef.current / 1000,
+        elapsedSeconds,
+        paceMinutesPerKm: calculateMovingPaceMinutesPerKm(elapsedSeconds, recordedDistanceRef.current / 1000),
+      };
+      await persistBackgroundLocationSession(resumedSession);
+      recoveryReviewRequiredRef.current = false;
+
       const activityDetection = new ActivityDetectionService();
       activityDetectionRef.current = activityDetection;
       void activityDetection.start().catch((error) => {
@@ -1229,66 +1372,46 @@ export default function MapScreen() {
 
       isRunningRef.current = true;
       setIsRunning(true);
-      lastMovementTimestampRef.current = isPausedRef.current ? null : Date.now();
+      lastMovementTimestampRef.current = isPausedRef.current ? null : resumedAt;
       await startLiveGPS();
-      recoveredResumeAtRef.current = isPausedRef.current ? null : Date.now();
+      recoveredResumeAtRef.current = isPausedRef.current ? null : resumedAt;
       recoveredPausedBaselineRef.current = pausedTimeRef.current ?? 0;
-      await startLiveTrackingNotification({
-        runId: runIdRef.current,
-        distanceKm: distanceRef.current / 1000,
-        elapsedSeconds,
-        paceMinutesPerKm: pace,
-        status: isPausedRef.current ? 'paused' : 'running',
-        startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
-      });
+      await removePendingWorkoutRecovery(recoveryId);
       setRecoveryPromptVisible(false);
+      await startLiveTrackingNotification({
+        runId: recoveryId,
+        distanceKm: recordedDistanceRef.current / 1000,
+        elapsedSeconds,
+        paceMinutesPerKm: calculateMovingPaceMinutesPerKm(elapsedSeconds, recordedDistanceRef.current / 1000),
+        status: isPausedRef.current ? 'paused' : 'running',
+        startedAt: resumedSession.startedAt,
+      });
     } catch (error) {
       isRunningRef.current = false;
       setIsRunning(false);
+      recoveryReviewRequiredRef.current = true;
       setBackgroundLocationListener(undefined);
       locationSubscription.current?.remove();
       locationSubscription.current = null;
-      void stopBackgroundLocationTracking().catch((stopError) => {
-        console.warn('[BackgroundLocationTask] Could not stop after resume failure', stopError);
+      await stopBackgroundLocationTracking().catch((stopError) => {
+        console.warn('[BackgroundLocationTask] Could not stop after recovery continuation failure', stopError);
       });
+      await flushBackgroundLocationTask();
+      await clearBackgroundLocationSession();
+      await clearActiveRunJournal();
       activityDetectionRef.current?.stop();
       activityDetectionRef.current = null;
       stepDetectionRef.current?.stop();
       stepDetectionRef.current = null;
       console.warn('[MapScreen] Could not continue recovered workout', error);
-      Alert.alert('Could not resume workout', 'Your checkpoint is still saved. Check location access and try again.');
+      Alert.alert(
+        'Could not resume workout',
+        error instanceof Error ? error.message : 'Your checkpoint is still saved. Check location access and try again.',
+      );
     } finally {
       isStartingRef.current = false;
     }
   };
-
-  useEffect(() => {
-    if (!isRunning) return;
-    const startedAt = startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null;
-    void persistBackgroundLocationSession({
-      active: true,
-      paused: isPaused,
-      autoPaused: isAutoPausedRef.current,
-      runId: runIdRef.current,
-      userId: user?.id ? String(user.id) : null,
-      startedAt,
-      updatedAt: Date.now(),
-      distanceKm: distance / 1000,
-      elapsedSeconds,
-      paceMinutesPerKm: pace,
-      movementConfirmed: movementConfirmedRef.current,
-      confirmationPromptVisible: completionPromptVisible,
-      pauseEvents: pauseEventsRef.current,
-    });
-    updateLiveTrackingNotification({
-      runId: runIdRef.current,
-      distanceKm: distance / 1000,
-      elapsedSeconds,
-      paceMinutesPerKm: pace,
-      status: isPaused ? 'paused' : 'running',
-      startedAt,
-    });
-  }, [completionPromptVisible, distance, elapsedSeconds, isPaused, isRunning, pace, user?.id]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
@@ -1307,25 +1430,95 @@ export default function MapScreen() {
     return () => subscription.remove();
   }, [reconcileJournaledPoints, startLiveGPS]);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     let cancelled = false;
     const restoreActiveRun = async () => {
       await flushActiveRunJournal();
-      const [session, journal] = await Promise.all([
+      const recoveryId = recoveryRouteId;
+      const [storedSession, loadedJournal, trackingStarted, pendingRecovery] = await Promise.all([
         getBackgroundLocationSession(),
         readActiveRunJournal(),
+        isBackgroundLocationTrackingStarted(),
+        recoveryId ? getPendingWorkoutRecovery(recoveryId) : Promise.resolve(null),
       ]);
+      if (recoveryId && !pendingRecovery) {
+        Alert.alert('Recovery unavailable', 'This saved workout recovery is no longer available.');
+        router.replace('/(app)/dashboard');
+        return;
+      }
+      if (
+        pendingRecovery
+        && storedSession?.active
+        && storedSession.runId !== pendingRecovery.session.runId
+      ) {
+        Alert.alert('Workout in progress', 'Finish or save your current workout before recovering this earlier workout.');
+        router.replace('/(app)/dashboard');
+        return;
+      }
+      if (params.runId) {
+        console.info('[NotificationLifecycle] NOTIFICATION_SESSION_STATUS', {
+          runId: params.runId,
+          storedRunId: storedSession?.runId ?? null,
+          status: storedSession?.status ?? (storedSession?.active ? 'active' : 'missing'),
+          active: Boolean(storedSession?.active),
+          locationTaskStarted: trackingStarted,
+        });
+      }
+      // Notification/banner parameters identify which run was requested; they
+      // are not proof that it is still active. Only persisted active state may
+      // resume a run, so a stale notification cannot recreate a finished one.
+      const session = pendingRecovery?.session ?? storedSession;
       if (
         cancelled
-        || !session?.active
+        || !session
         || !session.runId
-        || !journal?.active
-        || journal.runId !== session.runId
+        || (!pendingRecovery && (
+          !session.active
+          || session.status === 'finalizing'
+          || session.status === 'completed'
+          || session.status === 'cancelled'
+          || session.status === 'pending_sync'
+        ))
         || (session.userId && String(session.userId) !== String(user?.id ?? ''))
-      ) return;
-      if (params.runId && params.runId !== session.runId) return;
-      if (isRunningRef.current || isStartingRef.current) return;
-      if (restoredRunIdRef.current === session.runId) return;
+      ) {
+        if (!cancelled && (params.runId || recoveryId || params.recoveryReview === '1')) {
+          console.info('[NotificationLifecycle] Ignoring navigation for a non-active run', {
+            runId: params.runId,
+            storedStatus: session?.status ?? null,
+          });
+          router.replace('/(app)/dashboard');
+        }
+        return;
+      }
+      const explicitResume = !pendingRecovery && (params.resumeRun === '1' || params.runId === session.runId);
+      if (!pendingRecovery && params.runId && params.runId !== session.runId) {
+        console.info('[NotificationLifecycle] Run ID does not match the active session', {
+          requestedRunId: params.runId,
+          activeRunId: session.runId,
+        });
+        router.replace('/(app)/dashboard');
+        return;
+      }
+      const journal = pendingRecovery?.journal ?? loadedJournal;
+      if (!journal || (!pendingRecovery && !journal.active) || journal.runId !== session.runId) {
+        console.warn('[WorkoutLifecycle] SESSION_RESTORE_REJECTED', {
+          runId: session.runId,
+          status: session.status ?? 'active',
+          reason: 'No matching route journal',
+        });
+        if (params.runId || recoveryId || params.recoveryReview === '1') {
+          router.replace('/(app)/dashboard');
+        }
+        return;
+      }
+      recoveryReviewRequiredRef.current = Boolean(session.recoveryReviewRequired);
+      if (pendingRecovery) {
+        isRunningRef.current = false;
+        setIsRunning(false);
+      }
+      if (isStartingRef.current) return;
+      if (isRunningRef.current && runIdRef.current === session.runId) return;
+      if (restoredRunIdRef.current === session.runId && isRunningRef.current) return;
       restoredRunIdRef.current = session.runId;
 
       const processor = new PathProcessor(session.runId);
@@ -1427,14 +1620,18 @@ export default function MapScreen() {
       recoveredElapsedBaseRef.current = restoredElapsed;
       recoveredResumeAtRef.current = null;
       recoveredPausedBaselineRef.current = pausedTimeRef.current ?? 0;
-      setPace(session.paceMinutesPerKm ?? (distanceRef.current > 0 ? restoredElapsed / 60 / (distanceRef.current / 1000) : 0));
+      setPace(calculateMovingPaceMinutesPerKm(restoredElapsed, distanceRef.current / 1000));
       setCompletionPromptVisible(
         Boolean(session.confirmationPromptVisible)
           || params.notificationAction === LIVE_TRACKING_STOP_ACTION,
       );
-      const shouldWaitForRecoveryChoice = params.recoveryReview === '1'
-        || session.updatedAt == null
-        || Date.now() - session.updatedAt >= WORKOUT_CHECKPOINT_STALE_AFTER_MS;
+      const returnedToRunFromBanner = explicitResume;
+      const shouldWaitForRecoveryChoice = Boolean(pendingRecovery || session.recoveryReviewRequired)
+        || params.recoveryReview === '1'
+        || (!returnedToRunFromBanner && !trackingStarted && (
+          session.updatedAt == null
+          || Date.now() - session.updatedAt >= WORKOUT_CHECKPOINT_STALE_AFTER_MS
+        ));
       if (shouldWaitForRecoveryChoice) {
         setRecoveryCheckpointAt(session.updatedAt ?? null);
         setRecoveryPromptVisible(true);
@@ -1471,7 +1668,7 @@ export default function MapScreen() {
           runId: session.runId,
           distanceKm: distanceRef.current / 1000,
           elapsedSeconds: restoredElapsed,
-          paceMinutesPerKm: session.paceMinutesPerKm ?? 0,
+          paceMinutesPerKm: calculateMovingPaceMinutesPerKm(restoredElapsed, distanceRef.current / 1000),
           status: session.paused ? 'paused' : 'running',
           startedAt: session.startedAt,
         });
@@ -1479,10 +1676,25 @@ export default function MapScreen() {
         console.warn('[MapScreen] Active run restored without background service', error);
       }
       addLog('Active run restored after process restart');
+      console.info('[WorkoutLifecycle] SESSION_RESTORED', {
+        runId: session.runId,
+        status: session.status ?? (session.paused ? 'paused' : 'active'),
+      });
     };
     void restoreActiveRun();
     return () => { cancelled = true; };
-  }, [addLog, handleLocationUpdate, params.notificationAction, params.recoveryReview, params.runId, startLiveGPS, user?.id]);
+  }, [
+    addLog,
+    handleLocationUpdate,
+    params.notificationAction,
+    params.recoveryReview,
+    recoveryRouteId,
+    params.resumeRun,
+    params.runId,
+    router,
+    startLiveGPS,
+    user?.id,
+  ]));
 
   const startRun = async (overrideType?: 'RUN' | 'WALK') => {
     if (isStartingRef.current || isRunningRef.current) {
@@ -1494,6 +1706,7 @@ export default function MapScreen() {
     setSelectedActivityType(activityTypeToUse);
 
     isStartingRef.current = true;
+  selectedActivityTypeRef.current = activityTypeToUse;
     let backgroundServiceStartedForAttempt = false;
     try {
       if (!user?.id) {
@@ -1506,11 +1719,35 @@ export default function MapScreen() {
         if (!foregroundLocationGranted) return;
       }
 
+      // Android needs the separate background permission for reliable tracking
+      // when the runner leaves the app. Ask only after an explicit Start Run tap.
+      if (Platform.OS === 'android') {
+        try {
+          const backgroundPermission = await Location.getBackgroundPermissionsAsync();
+          if (!backgroundPermission.granted) {
+            const requestedPermission = await Location.requestBackgroundPermissionsAsync();
+            if (!requestedPermission.granted) {
+              Alert.alert(
+                'Background location is off',
+                'Zy-Run can record while open, but Android may pause tracking when you leave the app. You can allow “All the time” location access in Settings.',
+                [
+                  { text: 'Continue', style: 'default' },
+                  { text: 'Open Settings', onPress: () => { void Linking.openSettings(); } },
+                ],
+              );
+            }
+          }
+        } catch (error) {
+          console.warn('[LocationManager] Could not request Android background location permission', error);
+        }
+      }
+
       let selectedWorkout: BackendWorkout | null = null;
 
       routeSegmentsRef.current = [];
       pauseEventsRef.current = [];
       restoredRunIdRef.current = null;
+      setLastManualSplit(null);
       processedLocationKeysRef.current = new Set();
       setRouteSegments([]);
       setPauseMarkers([]);
@@ -1519,6 +1756,7 @@ export default function MapScreen() {
       recordedDistanceRef.current = 0;
       splitEngineRef.current.reset();
       setWorkoutDistance(0);
+      lapEventsRef.current = [];
       setDistance(0);
       setElapsedSeconds(0);
       stepCountRef.current = 0;
@@ -1550,6 +1788,8 @@ export default function MapScreen() {
 
       const startedAt = new Date().toISOString();
       startTimeRef.current = new Date(startedAt).getTime();
+      recoveryReviewRequiredRef.current = false;
+      selectedActivityTypeRef.current = activityTypeToUse;
       recoveredElapsedBaseRef.current = null;
       recoveredResumeAtRef.current = null;
       recoveredPausedBaselineRef.current = 0;
@@ -1567,8 +1807,10 @@ export default function MapScreen() {
       runIdRef.current = runId;
       runIdRef.current = runId;
       await beginActiveRunJournal(runId, startedAt);
+      console.info('[WorkoutLifecycle] SESSION_CREATED', { runId, status: 'active' });
       await persistBackgroundLocationSession({
         active: true,
+        status: 'active',
         paused: false,
         autoPaused: false,
         runId,
@@ -1578,6 +1820,7 @@ export default function MapScreen() {
         pauseEvents: pauseEventsRef.current,
         activityType: activityTypeToUse,
       });
+      console.info('[WorkoutLifecycle] SESSION_STARTED', { runId, status: 'active' });
 
       // Start the location foreground service while the app is visible. This
       // supports an active run with foreground permission without requiring
@@ -1756,6 +1999,7 @@ export default function MapScreen() {
       if (runIdRef.current) {
         await persistBackgroundLocationSession({
           active: false,
+          status: 'cancelled',
           runId: runIdRef.current,
           userId: user?.id ? String(user.id) : null,
           startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
@@ -1843,15 +2087,18 @@ export default function MapScreen() {
       setIsPaused(true);
       await persistBackgroundLocationSession({
         active: true,
+        status: 'paused',
         paused: true,
         autoPaused: isAutoPausedRef.current,
         runId: runIdRef.current,
         userId: user?.id ? String(user.id) : null,
         startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
         updatedAt: pauseStartTimeRef.current,
+        activityType: selectedActivityTypeRef.current ?? undefined,
         movementConfirmed: movementConfirmedRef.current,
         pauseEvents: pauseEventsRef.current,
       });
+      console.info('[WorkoutLifecycle] SESSION_PAUSED', { runId: runIdRef.current, status: 'paused' });
 
       addLog('⏸ Run paused - tracking stopped');
     } catch (error) {
@@ -1901,6 +2148,8 @@ export default function MapScreen() {
       isPausedRef.current = false;
       isAutoPausedRef.current = false;
       lastMovementTimestampRef.current = resumedAt;
+      autoPauseGraceUntilRef.current = resumedAt + AUTO_PAUSE_GRACE_DURATION_MS;
+      stationaryCandidateStartedAtRef.current = null;
       setIsPaused(false);
       if (recoveredElapsedBaseRef.current !== null) {
         recoveredResumeAtRef.current = resumedAt;
@@ -1909,15 +2158,21 @@ export default function MapScreen() {
       prepareMovementGateForResume();
       await persistBackgroundLocationSession({
         active: true,
+        status: 'active',
         paused: false,
         autoPaused: false,
         runId: runIdRef.current,
         userId: user?.id ? String(user.id) : null,
         startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
-        updatedAt: startTimeRef.current,
+        updatedAt: resumedAt,
+        activityType: selectedActivityTypeRef.current ?? undefined,
+        distanceKm: recordedDistanceRef.current / 1000,
+        elapsedSeconds,
+        paceMinutesPerKm: calculateMovingPaceMinutesPerKm(elapsedSeconds, recordedDistanceRef.current / 1000),
         movementConfirmed: movementConfirmedRef.current,
         pauseEvents: pauseEventsRef.current,
       });
+      console.info('[WorkoutLifecycle] SESSION_RESUMED', { runId: runIdRef.current, status: 'active' });
 
       // The watcher was never stopped; only active-distance accounting resumes.
       workoutEngineRef.current?.resume();
@@ -1980,31 +2235,72 @@ export default function MapScreen() {
     autoResumeActionRef.current = () => { void triggerAutoResume(); };
   }, [triggerAutoPause, triggerAutoResume]);
 
-  const stopRun = async ({ discard = false }: { discard?: boolean } = {}) => {
+  useEffect(() => {
+    if (!isRunning || isPaused || !pauseSettingsLoaded || !autoPauseEnabled) return;
+
+    const timer = setInterval(() => {
+      const now = Date.now();
+      const lastMovement = lastMovementTimestampRef.current;
+      const lastStep = lastStepTimestampRef.current;
+      if (
+        !isRunningRef.current
+        || isPausedRef.current
+        || !autoPauseEnabledRef.current
+        || now < autoPauseGraceUntilRef.current
+        || lastMovement === null
+        || now - lastMovement < AUTO_PAUSE_STATIONARY_DURATION_MS
+        || (lastStep !== null && now - lastStep <= STEP_MOVEMENT_EVIDENCE_WINDOW_MS)
+        || workoutEngineRef.current?.getSnapshot().state === 'waiting'
+      ) {
+        return;
+      }
+
+      autoPauseActionRef.current();
+    }, 1_000);
+
+    return () => clearInterval(timer);
+  }, [autoPauseEnabled, isPaused, isRunning, pauseSettingsLoaded]);
+
+  const stopRun = async ({
+    discard = false,
+    fromRecoveryReview = false,
+    recoveryId,
+  }: { discard?: boolean; fromRecoveryReview?: boolean; recoveryId?: string } = {}) => {
     if (isStoppingRef.current) {
+      console.warn('[SaveLifecycle] SAVE_ALREADY_IN_PROGRESS; DUPLICATE_SAVE_BLOCKED', {
+        runId: runIdRef.current,
+      });
       return;
     }
 
     isStoppingRef.current = true;
-    updateLiveTrackingNotificationMessage(
-      discard
-        ? { title: 'ZYRun · Discarding workout', body: 'Discarding this workout without saving.' }
-        : { title: 'ZYRun · Saving workout', body: 'Finalizing and saving your workout.' },
-      {
-        runId: runIdRef.current,
-        distanceKm: recordedDistanceRef.current / 1000,
-        elapsedSeconds,
-        paceMinutesPerKm: pace,
-        status: isPausedRef.current ? 'paused' : 'running',
-        startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
-      },
-    );
+    console.info('[SaveLifecycle] SAVE_REQUESTED', {
+      runId: runIdRef.current,
+      status: discard ? 'cancelling' : 'finalizing',
+    });
+    if (!fromRecoveryReview) {
+      updateLiveTrackingNotificationMessage(
+        discard
+          ? { title: 'ZYRun · Discarding workout', body: 'Discarding this workout without saving.' }
+          : { title: 'ZYRun · Saving workout', body: 'Finalizing and saving your workout.' },
+        {
+          runId: runIdRef.current,
+          distanceKm: recordedDistanceRef.current / 1000,
+          elapsedSeconds,
+          paceMinutesPerKm: pace,
+          status: isPausedRef.current ? 'paused' : 'running',
+          startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+        },
+      );
+    }
     let shouldPublishSummary = false;
     let activitySubmitted = false;
-    let runSessionCleared = false;
+    let runSessionFinalized = false;
+    let keepRecordingAfterFailure = false;
     let payloadForExport: ActivitySubmissionPayload | null = null;
     let savedActivityId: string | number | null = null;
     let payloadQueuedOffline = false;
+    let pendingRecovery: Awaited<ReturnType<typeof getPendingWorkoutRecovery>> = null;
     let summaryMetrics = {
       distanceKm: recordedDistanceRef.current / 1000,
       elapsedSeconds,
@@ -2013,6 +2309,17 @@ export default function MapScreen() {
       startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
     };
     try {
+      if (fromRecoveryReview) {
+        if (!recoveryId) throw new Error('The saved workout recovery could not be identified.');
+        pendingRecovery = await getPendingWorkoutRecovery(recoveryId);
+        if (!pendingRecovery || pendingRecovery.session.runId !== runIdRef.current) {
+          throw new Error('This saved workout recovery is no longer available.');
+        }
+        const activeSession = await getBackgroundLocationSession();
+        if (activeSession?.active && activeSession.runId !== recoveryId) {
+          throw new Error('Finish or save your current workout before recovering this earlier workout.');
+        }
+      }
       const stoppedAt = new Date();
       // A Stop & Save while paused has no resume action, so close that pause
       // at the stop timestamp before constructing the final payload.
@@ -2050,6 +2357,9 @@ export default function MapScreen() {
       const movingTimeSeconds = Number(Math.max(0, elapsedTimeSeconds - pausedTimeSeconds).toFixed(3));
       const movingTimePayloadSeconds = Math.round(movingTimeSeconds);
       const elapsedTimePayloadSeconds = Math.round(elapsedTimeSeconds);
+      // Do not turn Save & Exit into a manual lap. The backend requires each
+      // lap event to occur before end_time and generates the final partial
+      // split automatically from the remaining route after the last lap.
       isRunningRef.current = false;
       setIsRunning(false);
       setCompletionPromptVisible(false);
@@ -2074,23 +2384,42 @@ export default function MapScreen() {
       } catch (stopError) {
         console.warn('[BackgroundLocationTask] Unable to stop service at finish start', stopError);
       }
-      await flushBackgroundLocationTask();
-      await flushActiveRunJournal();
-      await persistBackgroundLocationSession({
-        active: false,
-        paused: isPausedRef.current,
-        autoPaused: isAutoPausedRef.current,
+      console.info('[WorkoutLifecycle] SESSION_FINALIZING', {
         runId: runIdRef.current,
-        userId: user?.id ? String(user.id) : null,
-        startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
-        updatedAt: stoppedAt.getTime(),
-        distanceKm: recordedDistanceRef.current / 1000,
-        elapsedSeconds,
-        paceMinutesPerKm: pace,
-        movementConfirmed: movementConfirmedRef.current,
-        pauseEvents: pauseEventsRef.current,
+        status: discard ? 'cancelling' : 'finalizing',
       });
-      const finalJournal = await readActiveRunJournal();
+      if (!fromRecoveryReview) {
+        try {
+          const serviceStopped = await stopBackgroundLocationTracking();
+          if (!serviceStopped) {
+            console.error('[BackgroundLifecycle] FOREGROUND_SERVICE_STOP_FAILED', {
+              runId: runIdRef.current,
+            });
+          }
+        } catch (stopError) {
+          console.warn('[BackgroundLocationTask] Unable to stop service at finish start', stopError);
+        }
+      }
+      if (!fromRecoveryReview) {
+        await flushBackgroundLocationTask();
+        await flushActiveRunJournal();
+        await persistBackgroundLocationSession({
+          active: false,
+          status: 'finalizing',
+          paused: isPausedRef.current,
+          autoPaused: isAutoPausedRef.current,
+          runId: runIdRef.current,
+          userId: user?.id ? String(user.id) : null,
+          startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+          updatedAt: stoppedAt.getTime(),
+          distanceKm: recordedDistanceRef.current / 1000,
+          elapsedSeconds,
+          paceMinutesPerKm: pace,
+          movementConfirmed: movementConfirmedRef.current,
+          pauseEvents: pauseEventsRef.current,
+        });
+      }
+      const finalJournal = pendingRecovery?.journal ?? await readActiveRunJournal();
       const hasDurableRouteMovement = finalJournal?.runId === runIdRef.current
         && finalJournal.points.length >= 2;
       if (hasDurableRouteMovement) movementConfirmedRef.current = true;
@@ -2098,6 +2427,7 @@ export default function MapScreen() {
         || (!hasDetectedMovement && !hasStepEvidence && !hasMeaningfulDistance && !hasDurableRouteMovement);
 
       if (locationSubscription.current) {
+        console.info('[BackgroundLifecycle] LOCATION_WATCHER_STOPPED', { runId: runIdRef.current });
         locationSubscription.current.remove();
         locationSubscription.current = null;
       }
@@ -2113,6 +2443,12 @@ export default function MapScreen() {
         distanceRef.current = 0;
         extraDistanceRef.current = 0;
         recordedDistanceRef.current = 0;
+
+
+
+
+
+        
         setWorkoutDistance(0);
         setDistance(0);
         setElapsedSeconds(0);
@@ -2160,7 +2496,13 @@ export default function MapScreen() {
         ].filter((timestamp): timestamp is number => (
           typeof timestamp === 'number' && Number.isFinite(timestamp)
         ));
-        const filteredPoints = processor.filterRawPoints(routeBoundaries);
+        const filteredPoints = processor.filterRawPoints(
+          routeBoundaries,
+          movementConfirmedRef.current
+            || hasDetectedMovement
+            || hasStepEvidence
+            || lapEventsRef.current.length > 0,
+        );
 
         const finalOptimized = processor.simplifyFinal(filteredPoints);
         const extraRouteCoordinates = routeSegmentsRef.current
@@ -2284,7 +2626,7 @@ export default function MapScreen() {
             .filter((point) => point.timestamp >= interval.startedAt && point.timestamp <= interval.endedAt)
             .map((point) => pointPayload(point, isExtraDistancePoint(point))),
         }));
-        const laps: ActivityLapPayload[] = completedLaps.map((lap) => ({
+        const workoutLaps: ActivityLapPayload[] = completedLaps.map((lap) => ({
           segment_order: lap.segmentOrder,
           segment_type: lap.segmentType,
           repeat_number: lap.repeatNumber,
@@ -2296,6 +2638,11 @@ export default function MapScreen() {
             : null,
           completed: lap.completed,
         }));
+        const laps = workoutLaps;
+        const isIntervalWorkout = Boolean(isStructuredOrPlannedWorkout
+          || isPlannedWorkout
+          || workoutEngineRef.current
+          || completedLaps.length > 0);
         const pointsBetween = (start: number, end: number | null, nextStart: number | undefined) => uploadRoutePoints
           .filter((point) => point.timestamp >= start
             && (end === null || point.timestamp <= end)
@@ -2426,8 +2773,11 @@ export default function MapScreen() {
           split_distance_m: SPLIT_DISTANCE_METERS,
           avg_pace: Number(paceSecondsPerKm.toFixed(2)),
           pace_seconds_per_km: Number(paceSecondsPerKm.toFixed(2)),
-          laps,
-          segments: segmentPayloads,
+          // Keep interval metadata out of regular activities. The API uses
+          // these fields to distinguish planned interval workouts from free runs.
+          ...(isIntervalWorkout
+            ? { laps, segments: segmentPayloads }
+            : { lap_events: lapEventsRef.current }),
           extra: extraPayload,
           pause_events: pauseEventPayload,
           pause_count: pauseEventPayload.length,
@@ -2435,13 +2785,42 @@ export default function MapScreen() {
         };
         payloadForExport = iosStyleActivityPayload;
         activitySubmitted = false;
+        let offlineSubmission = false;
         if (apiClientRef.current) {
           try {
+            console.info('[SaveLifecycle] SAVE_API_STARTED', { runId: runIdRef.current });
             // Submit the actual final payload in the iOS-compatible shape.
-            const activitySubmission = await apiClientRef.current.submitActivity(iosStyleActivityPayload);
-            activitySubmitted = activitySubmission.success;
+            const activitySubmission = await apiClientRef.current.submitActivity(
+              iosStyleActivityPayload,
+              runIdRef.current,
+            );
+            if (!activitySubmission.success) {
+              throw new Error('The server did not confirm the activity save.');
+            }
+            activitySubmitted = true;
             if (activitySubmitted) {
+              console.info('[SaveLifecycle] SAVE_API_SUCCESS', {
+                runId: runIdRef.current,
+                activityId: activitySubmission.activityId,
+              });
               savedActivityId = activitySubmission.activityId;
+              // Persist the terminal state as soon as the server confirms the
+              // save, so a process interruption cannot restore this run.
+              if (!fromRecoveryReview) {
+                await persistBackgroundLocationSession({
+                  active: false,
+                  status: 'completed',
+                  runId: runIdRef.current,
+                  userId: user?.id ? String(user.id) : null,
+                  startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+                  updatedAt: Date.now(),
+                  distanceKm: totalDistance / 1000,
+                  elapsedSeconds: elapsedTimeSeconds,
+                  paceMinutesPerKm: paceSecondsPerKm / 60,
+                  movementConfirmed: movementConfirmedRef.current,
+                  pauseEvents: pauseEventsRef.current,
+                });
+              }
             }
             if (activitySubmitted && activitySubmission.activityId !== null) {
               try {
@@ -2470,11 +2849,23 @@ export default function MapScreen() {
               }
             }
           } catch (submitError: any) {
-            console.warn('[MapScreen] submitActivity offline/failed, queuing locally:', submitError?.message || submitError);
-            activitySubmitted = false;
+            const isNetworkFailure =
+              !submitError?.response &&
+              (submitError?.code === 'ERR_NETWORK' ||
+                submitError?.code === 'ECONNABORTED' ||
+                submitError?.message?.toLowerCase().includes('network'));
+            if (!isNetworkFailure) {
+              throw submitError;
+            }
+            offlineSubmission = true;
+            console.warn('[SaveLifecycle] SAVE_API_FAILED', {
+              runId: runIdRef.current,
+              message: submitError?.message ?? 'Unknown upload error',
+            });
+            console.warn('[MapScreen] Network unavailable; queuing workout locally:', submitError?.message || submitError);
           }
 
-          if (!activitySubmitted) {
+          if (offlineSubmission) {
             try {
               await offlineWorkoutQueue.enqueue({
                 runId: runIdRef.current,
@@ -2507,11 +2898,49 @@ export default function MapScreen() {
         }
       }
 
+      if (!discard && !stationarySession && !activitySubmitted && !payloadQueuedOffline) {
+        throw new Error('The workout could not be saved or queued. Your run is being kept so you can retry.');
+      }
+
       voiceCoach?.stop?.();
-      setBackgroundLocationListener(undefined);
-      await clearBackgroundLocationSession();
-      runSessionCleared = true;
-      await clearActiveRunJournal();
+      if (!fromRecoveryReview) {
+        setBackgroundLocationListener(undefined);
+        await persistBackgroundLocationSession({
+          active: false,
+          status: discard ? 'cancelled' : payloadQueuedOffline ? 'pending_sync' : 'completed',
+          paused: isPausedRef.current,
+          autoPaused: isAutoPausedRef.current,
+          runId: runIdRef.current,
+          userId: user?.id ? String(user.id) : null,
+          startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+          updatedAt: Date.now(),
+          distanceKm: recordedDistanceRef.current / 1000,
+          elapsedSeconds,
+          paceMinutesPerKm: pace,
+          movementConfirmed: movementConfirmedRef.current,
+          pauseEvents: pauseEventsRef.current,
+        });
+      }
+      console.info(
+        discard
+          ? '[WorkoutLifecycle] SESSION_CANCELLED'
+          : activitySubmitted
+            ? '[WorkoutLifecycle] SESSION_SAVED'
+            : payloadQueuedOffline
+              ? '[WorkoutLifecycle] SESSION_PENDING_SYNC'
+              : '[WorkoutLifecycle] SESSION_COMPLETED',
+        {
+          runId: runIdRef.current,
+          status: discard ? 'cancelled' : activitySubmitted ? 'completed' : payloadQueuedOffline ? 'pending_sync' : 'completed',
+        },
+      );
+      if (fromRecoveryReview && recoveryId) {
+        await removePendingWorkoutRecovery(recoveryId);
+        recoveryReviewRequiredRef.current = false;
+      } else {
+        await clearActiveRunJournal();
+      }
+      runSessionFinalized = true;
       setIsRunning(false);
       isRunningRef.current = false;
       startTimeRef.current = null;
@@ -2529,6 +2958,7 @@ export default function MapScreen() {
       workoutVoiceRef.current = null;
       workoutEngineRef.current = null;
       splitEngineRef.current.reset();
+      lapEventsRef.current = [];
       previousWorkoutPointRef.current = null;
       movementStateRef.current = 'STATIONARY';
       consecutiveMovementRef.current = 0;
@@ -2592,38 +3022,76 @@ export default function MapScreen() {
       }
     } catch (error: any) {
       const backendData = error?.response?.data;
-      const backendMessage = typeof backendData === 'string'
-        ? backendData
-        : backendData?.message
-          ?? backendData?.detail
-          ?? (backendData && typeof backendData === 'object' ? JSON.stringify(backendData) : null);
-      if (!runSessionCleared && !discard) {
-        setIsRunning(true);
-        isRunningRef.current = true;
-        await persistBackgroundLocationSession({
-          active: true,
-          paused: isPausedRef.current,
-          autoPaused: isAutoPausedRef.current,
-          runId: runIdRef.current,
-          userId: user?.id ? String(user.id) : null,
-          startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
-          updatedAt: Date.now(),
-          distanceKm: recordedDistanceRef.current / 1000,
-          elapsedSeconds,
-          paceMinutesPerKm: pace,
-          pauseEvents: pauseEventsRef.current,
-        });
-        try {
-          await startLiveTrackingNotification({
+      const responseStatus = Number(error?.response?.status);
+      const backendMessage = responseStatus >= 500
+        ? `The server could not process this activity (HTTP ${responseStatus}). Your workout is still available; try saving again later.`
+        : typeof backendData === 'string'
+          ? (/<!doctype\s+html|<html\b/i.test(backendData)
+            ? 'The server returned an unreadable error page. Your workout is still available; please try again.'
+            : backendData)
+          : backendData?.message
+            ?? backendData?.detail
+            ?? (backendData && typeof backendData === 'object' ? JSON.stringify(backendData) : null);
+      console.error('[SaveLifecycle] ACTIVITY_SAVE_FAILED', {
+        status: Number.isFinite(responseStatus) ? responseStatus : null,
+        message: backendMessage ?? error?.message ?? 'Unknown save error',
+      });
+      if (!runSessionFinalized && !discard && !activitySubmitted && !payloadQueuedOffline) {
+        if (fromRecoveryReview) {
+          recoveryReviewRequiredRef.current = true;
+          isRunningRef.current = false;
+          setIsRunning(false);
+          setRecoveryPromptVisible(true);
+        } else {
+          keepRecordingAfterFailure = true;
+          setIsRunning(true);
+          isRunningRef.current = true;
+          await persistBackgroundLocationSession({
+            active: true,
+            status: isPausedRef.current ? 'paused' : 'active',
+            paused: isPausedRef.current,
+            autoPaused: isAutoPausedRef.current,
             runId: runIdRef.current,
+            userId: user?.id ? String(user.id) : null,
+            startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+            updatedAt: Date.now(),
+            activityType: selectedActivityTypeRef.current ?? undefined,
             distanceKm: recordedDistanceRef.current / 1000,
             elapsedSeconds,
             paceMinutesPerKm: pace,
-            status: isPausedRef.current ? 'paused' : 'running',
-            startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+            pauseEvents: pauseEventsRef.current,
           });
-        } catch (notificationError) {
-          console.warn('[LiveTrackingNotification] Unable to restore live notification after save failure', notificationError);
+          const retryActivityDetection = new ActivityDetectionService();
+          activityDetectionRef.current = retryActivityDetection;
+          void retryActivityDetection.start().catch((restartError) => {
+            console.warn('[LocationManager] Could not restart activity detection after save failure', restartError);
+          });
+          const retryStepDetection = new StepDetectionService();
+          stepDetectionRef.current = retryStepDetection;
+          void retryStepDetection.start((steps) => {
+            lastStepTimestampRef.current = Date.now();
+            stepCountRef.current = steps;
+          }).catch((restartError) => {
+            console.warn('[LocationManager] Could not restart step detection after save failure', restartError);
+          });
+          try {
+            await startLiveGPS();
+            await startBackgroundLocationTracking();
+          } catch (restartError) {
+            console.warn('[BackgroundLifecycle] Could not resume tracking after save failure', restartError);
+          }
+          try {
+            await startLiveTrackingNotification({
+              runId: runIdRef.current,
+              distanceKm: recordedDistanceRef.current / 1000,
+              elapsedSeconds,
+              paceMinutesPerKm: pace,
+              status: isPausedRef.current ? 'paused' : 'running',
+              startedAt: startTimeRef.current ? new Date(startTimeRef.current).toISOString() : null,
+            });
+          } catch (notificationError) {
+            console.warn('[LiveTrackingNotification] Unable to restore live notification after save failure', notificationError);
+          }
         }
       }
       Alert.alert(
@@ -2633,11 +3101,21 @@ export default function MapScreen() {
           : 'The activity could not be uploaded. Your route is still available for retry.'),
       );
     } finally {
-      setBackgroundLocationListener(undefined);
-      try {
-        await stopBackgroundLocationTracking();
-      } catch (stopError) {
-        console.warn('[BackgroundLocationTask] Unable to stop Android foreground service', stopError);
+      if (!keepRecordingAfterFailure && !fromRecoveryReview) {
+        setBackgroundLocationListener(undefined);
+        try {
+          const serviceStopped = await stopBackgroundLocationTracking();
+          if (!serviceStopped) {
+            console.error('[BackgroundLifecycle] FOREGROUND_SERVICE_STOP_FAILED', {
+              runId: runIdRef.current,
+            });
+          }
+        } catch (stopError) {
+          console.warn('[BackgroundLocationTask] Unable to stop Android foreground service', stopError);
+        }
+        // Always remove the sticky foreground notification first. The saved
+        // summary uses a separate, non-ongoing notification with the same ID.
+        await stopLiveTrackingNotification();
       }
       if (shouldPublishSummary) {
         try {
@@ -2645,8 +3123,6 @@ export default function MapScreen() {
         } catch (notificationError) {
           console.warn('[RecordView] Workout summary notification failed', notificationError);
         }
-      } else {
-        await stopLiveTrackingNotification();
       }
       isStoppingRef.current = false;
     }
@@ -2654,24 +3130,31 @@ export default function MapScreen() {
 
   const discardRecoveredWorkout = async () => {
     if (isStoppingRef.current) return;
-    isStoppingRef.current = true;
-    isRunningRef.current = false;
-    setRecoveryPromptVisible(false);
-    setIsRunning(false);
-    setIsPaused(false);
-    setCompletionPromptVisible(false);
-    setBackgroundLocationListener(undefined);
+    const recoveryId = recoveryRouteId;
+    if (!recoveryId) {
+      Alert.alert('Recovery unavailable', 'This saved workout recovery could not be identified.');
+      return;
+    }
 
+    isStoppingRef.current = true;
+    setRecoveryPromptVisible(false);
     try {
-      if (runIdRef.current && apiClientRef.current && !runIdRef.current.startsWith('RUN-') && !runIdRef.current.includes('-OFFLINE')) {
-        await apiClientRef.current.stopRun({
-          run_id: runIdRef.current,
+      const recovery = await getPendingWorkoutRecovery(recoveryId);
+      if (!recovery) throw new Error('This saved workout recovery is no longer available.');
+      const activeSession = await getBackgroundLocationSession();
+      if (activeSession?.active && activeSession.runId !== recoveryId) {
+        throw new Error('Finish or save your current workout before discarding this earlier workout.');
+      }
+
+      if (!recoveryId.startsWith('RUN-') && !recoveryId.includes('-OFFLINE')) {
+        await new RunningApiClient().stopRun({
+          run_id: recoveryId,
           ended_at: new Date().toISOString(),
           final_sequence: 0,
-        }).catch((error) => {
-          console.warn('[MapScreen] Could not close discarded backend run', error);
         });
       }
+      await removePendingWorkoutRecovery(recoveryId);
+      recoveryReviewRequiredRef.current = false;
       locationSubscription.current?.remove();
       locationSubscription.current = null;
       activityDetectionRef.current?.stop();
@@ -2707,6 +3190,7 @@ export default function MapScreen() {
       isPausedRef.current = false;
       isAutoPausedRef.current = false;
       splitEngineRef.current.reset();
+      lapEventsRef.current = [];
       setRouteSegments([]);
       setPauseMarkers([]);
       setDistance(0);
@@ -2715,11 +3199,14 @@ export default function MapScreen() {
       setWorkoutSnapshot(null);
       setIsPlannedWorkout(false);
       router.replace('/(app)/dashboard');
+      Alert.alert('Workout Discarded', 'The interrupted workout was removed from your recovery list.');
     } catch (error) {
       console.warn('[MapScreen] Could not discard recovered workout cleanly', error);
-      Alert.alert('Could not discard workout', 'Please try again. Your saved checkpoint is still available.');
-      isRunningRef.current = true;
-      setIsRunning(true);
+      setRecoveryPromptVisible(true);
+      Alert.alert(
+        'Could not discard workout',
+        error instanceof Error ? error.message : 'Please try again. Your saved checkpoint is still available.',
+      );
     } finally {
       isStoppingRef.current = false;
     }
@@ -2731,21 +3218,20 @@ export default function MapScreen() {
     }
 
     saveConfirmationOpenRef.current = true;
-    const shouldResumeAfterCancel = !isPausedRef.current;
     setCompletionPromptVisible(false);
 
     function showConfirmation() {
       Alert.alert(
-        'Save and Exit',
-        'Whether you want to save this record?',
+        'Save or discard workout?',
+        'Save this workout to your history, or discard it without saving?',
         [
           {
             text: 'Discard',
-            style: 'cancel',
+            style: 'destructive',
             onPress: showDiscardConfirmation,
           },
           {
-            text: 'Confirm',
+            text: 'Save & Exit',
             onPress: () => {
               saveConfirmationOpenRef.current = false;
               void stopRun();
@@ -2759,15 +3245,17 @@ export default function MapScreen() {
     function showDiscardConfirmation() {
       Alert.alert(
         'Discard Workout',
-        'Are you sure you want to cancel this recorded workout?',
+        'This will permanently delete this workout and its route. To keep recording, tap Cancel.',
         [
           {
             text: 'Cancel',
             style: 'cancel',
-            onPress: showConfirmation,
+            onPress: () => {
+              saveConfirmationOpenRef.current = false;
+            },
           },
           {
-            text: 'Confirm',
+            text: 'Discard workout',
             style: 'destructive',
             onPress: () => {
               saveConfirmationOpenRef.current = false;
@@ -2779,11 +3267,7 @@ export default function MapScreen() {
       );
     }
 
-    if (shouldResumeAfterCancel) {
-      void pauseRun().then(showConfirmation);
-    } else {
-      showConfirmation();
-    }
+    showConfirmation();
   };
 
   useEffect(() => {
@@ -2868,7 +3352,9 @@ export default function MapScreen() {
   const renderedRouteSegments = useMemo(
     () => routeSegments.map((segment) => ({
       ...segment,
-      coordinates: PathProcessor.simplifyLivePolyline(segment.coordinates),
+      coordinates: createCatmullRomPolyline(
+        PathProcessor.simplifyLivePolyline(segment.coordinates),
+      ),
     })),
     [routeSegments],
   );
@@ -3033,17 +3519,18 @@ export default function MapScreen() {
                 </View>
               </View>
               <Text style={styles.recoveryPace}>Average pace: {formatPaceDisplay(pace)} min/km</Text>
-              <Pressable style={styles.recoverySaveButton} onPress={() => void continueRecoveredWorkout()}>
-                <Text style={styles.recoverySaveText}>Continue Workout</Text>
+              <Pressable style={styles.recoveryStopButton} onPress={() => void continueRecoveredWorkout()}>
+                <Text style={styles.recoveryStopText}>Continue Workout</Text>
               </Pressable>
               <Pressable
-                style={styles.recoveryStopButton}
+                style={styles.recoverySaveButton}
                 onPress={() => {
                   setRecoveryPromptVisible(false);
-                  void stopRun();
+                  const recoveryId = recoveryRouteId ?? undefined;
+                  void stopRun({ fromRecoveryReview: true, recoveryId });
                 }}
               >
-                <Text style={styles.recoveryStopText}>Stop &amp; Save Activity</Text>
+                <Text style={styles.recoverySaveText}>Recover &amp; Save Workout</Text>
               </Pressable>
               <Pressable style={styles.recoveryDiscardButton} onPress={() => void discardRecoveredWorkout()}>
                 <Text style={styles.recoveryDiscardText}>Discard Workout</Text>
@@ -3375,6 +3862,13 @@ export default function MapScreen() {
                 </View>
                 <Text style={styles.liveMetricStatus}>{isRunning ? `${selectedActivityType} · ${isPaused ? 'PAUSED' : 'LIVE'}` : `${selectedActivityType} · READY`}</Text>
               </View>
+              {lastManualSplit ? (
+                <Text style={styles.manualSplitStatus} numberOfLines={1}>
+                  SPLIT {lastManualSplit.splitNumber} · {Math.round(lastManualSplit.distanceMeters)} m
+                </Text>
+              ) : isRunning && Platform.OS === 'android' ? (
+                <Text style={styles.manualSplitHint} numberOfLines={1}>Press either volume button to mark a split</Text>
+              ) : null}
             </View>
 
             {!isRunning && !isStructuredOrPlannedWorkout && (
@@ -4027,6 +4521,8 @@ const styles = StyleSheet.create({
   liveMetricUnit: { color: '#B7C5BA', fontSize: 11, fontWeight: '700' },
   liveMetricDivider: { height: 1, marginVertical: 5, backgroundColor: '#35C72B', shadowColor: '#35C72B', shadowOpacity: 0.9, shadowRadius: 5, shadowOffset: { width: 0, height: 0 } },
   liveMetricStatus: { color: '#35C72B', fontSize: 8, fontWeight: '900', letterSpacing: 0.5, paddingTop: 10 },
+  manualSplitStatus: { color: '#FFFFFF', fontSize: 11, fontWeight: '800', marginTop: 7 },
+  manualSplitHint: { color: '#9BA3AF', fontSize: 9, fontWeight: '700', marginTop: 6 },
   controlStatusValue: { color: '#fff', fontSize: 17, fontWeight: '800' },
   paceStatus: { color: '#FFB800', fontSize: 11, fontWeight: '700', marginTop: 3 },
   startButton: { position: 'absolute', inset: 0, backgroundColor: '#20D000', borderRadius: 30, justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 6 },

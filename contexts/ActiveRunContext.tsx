@@ -1,15 +1,17 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import {
-  type BackgroundLocationSessionState,
-  getBackgroundLocationSession,
-  subscribeToBackgroundLocationSession,
-} from '../src/services/backgroundLocationTask';
+import { useAuth } from '../service/auth';
 import { flushActiveRunJournal, readActiveRunJournal } from '../src/services/activeRunJournal';
+import {
+    getBackgroundLocationSession,
+    subscribeToBackgroundLocationSession,
+    type BackgroundLocationSessionState,
+} from '../src/services/backgroundLocationTask';
 
 const ActiveRunContext = createContext<BackgroundLocationSessionState | null>(null);
 
 export function ActiveRunProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<BackgroundLocationSessionState | null>(null);
+  const { user, isLoading } = useAuth();
 
   useEffect(() => {
     let mounted = true;
@@ -21,7 +23,24 @@ export function ActiveRunProvider({ children }: { children: ReactNode }) {
     let hasReceivedSessionUpdate = false;
 
     const applySession = (nextSession: BackgroundLocationSessionState | null) => {
-      if (!nextSession?.active || !nextSession.runId) {
+      const currentUserId = user?.id == null ? null : String(user.id);
+      const sessionUserId = nextSession?.userId == null ? null : String(nextSession.userId);
+      const hasUserMismatch = currentUserId !== null && sessionUserId !== null && currentUserId !== sessionUserId;
+      const isTerminal = nextSession?.status === 'finalizing'
+        || nextSession?.status === 'completed'
+        || nextSession?.status === 'cancelled'
+        || nextSession?.status === 'pending_sync';
+      // Auth can briefly be unresolved while the app restores credentials. Hide
+      // the banner until then, but never destroy a persisted run from this UI layer.
+      if (
+        isLoading
+        || !nextSession?.active
+        || isTerminal
+        || nextSession.recoveryReviewRequired
+        || !nextSession.runId
+        || hasUserMismatch
+        || currentUserId === null
+      ) {
         currentRunId = null;
         validatedRunId = null;
         validatingRunId = null;
@@ -74,7 +93,7 @@ export function ActiveRunProvider({ children }: { children: ReactNode }) {
       mounted = false;
       unsubscribe();
     };
-  }, []);
+  }, [isLoading, user?.id]);
 
   return <ActiveRunContext.Provider value={session}>{children}</ActiveRunContext.Provider>;
 }

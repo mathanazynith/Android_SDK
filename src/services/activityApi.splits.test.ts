@@ -70,6 +70,355 @@ describe('normalizeActivitySplits', () => {
     }]);
   });
 
+  it('uses the saved manual lap events when a RUN segment has no GPS-derived splits', () => {
+    const result = normalizeActivitySplits({
+      split_distance_m: 1000,
+      segments: [{
+        sequence: 1,
+        type: 'RUN',
+        completed_distance_m: 0,
+        actual_time_s: 0,
+        gps_points: [],
+        splits: [],
+      }],
+      lap_events: [{
+        event_number: 1,
+        timestamp: '2026-11-10T05:35:00.000Z',
+        split_number: 1,
+        distance_m: 1000,
+        time_s: 300,
+        pace_s_per_km: 300,
+      }],
+    });
+
+    expect(result.segments).toHaveLength(1);
+    expect(result.segments[0]?.completed_distance_m).toBe(1000);
+    expect(result.segments[0]?.actual_time_s).toBe(300);
+    expect(result.segments[0]?.splits).toEqual([{
+      split_number: 1,
+      distance_m: 1000,
+      time_s: 300,
+      pace_s_per_km: 300,
+    }]);
+  });
+
+  it('keeps manual laps separate while generating 1 km splits for interval segments', () => {
+    const metresToLongitude = (metres: number) => metres / (6_371_000 * Math.PI / 180);
+    const result = normalizeActivitySplits({
+      split_distance_m: 1000,
+      segments: [{
+        sequence: 1,
+        type: 'RUN',
+        gps_points: [
+          { latitude: 0, longitude: 0, timestamp: '2026-11-10T05:30:00Z' },
+          { latitude: 0, longitude: metresToLongitude(1700), timestamp: '2026-11-10T05:58:20Z' },
+        ],
+      }],
+      lap_events: [{
+        event_number: 1,
+        timestamp: '2026-11-10T05:39:00Z',
+        split_number: 1,
+        distance_m: 540,
+        time_s: 180,
+        pace_s_per_km: 333.333,
+      }],
+    });
+
+    expect(result.segments[0]?.splits[0]?.distance_m).toBe(1000);
+    expect(result.segments[0]?.splits[1]?.distance_m).toBeCloseTo(700, 0);
+    expect(result.segments[0]?.completed_distance_m).toBeCloseTo(1700, 0);
+    expect(result.laps).toHaveLength(1);
+    expect(result.laps[0]?.distance_m).toBe(540);
+    expect(result.laps[0]?.time_s).toBe(180);
+    expect(result.laps[0]?.splits).toHaveLength(1);
+    const manualLapSplit = result.laps[0]?.splits?.[0];
+    expect(manualLapSplit?.split_number).toBe(1);
+    expect(manualLapSplit?.distance_m).toBe(540);
+    expect(manualLapSplit?.time_s).toBe(180);
+    expect(manualLapSplit?.pace_s_per_km).toBeCloseTo(333.333, 3);
+  });
+
+  it('records a short manual lap and gives the remaining manual lap one matching split', () => {
+    const result = normalizeActivitySplits({
+      activity_type: 'WALK',
+      split_distance_m: 1000,
+      start_time: '2026-11-10T05:30:00Z',
+      end_time: '2026-11-10T05:50:00Z',
+      gps_points: [
+        { latitude: 0, longitude: 0, timestamp: '2026-11-10T05:30:00Z' },
+        { latitude: 0, longitude: 2000 / (6_371_000 * Math.PI / 180), timestamp: '2026-11-10T05:50:00Z' },
+      ],
+      lap_events: [
+        {
+          event_number: 1,
+          split_number: 1,
+          timestamp: '2026-11-10T05:30:10Z',
+          distance_m: 15,
+          time_s: 10,
+        },
+        {
+          event_number: 2,
+          split_number: 2,
+          timestamp: '2026-11-10T05:50:00Z',
+          distance_m: 1985,
+          time_s: 1190,
+        },
+      ],
+    });
+
+    expect(result.segments[0]?.type).toBe('WALK');
+    expect(result.laps).toHaveLength(2);
+    expect(result.laps[0]?.distance_m).toBe(15);
+    expect(result.laps[0]?.splits?.map((split) => split.distance_m)).toEqual([15]);
+    expect(result.laps[1]?.distance_m).toBe(1985);
+    expect(result.laps[1]?.splits?.map((split) => split.distance_m)).toEqual([1985]);
+  });
+
+  it('creates a separate remainder lap after one short manual lap', () => {
+    const result = normalizeActivitySplits({
+      activity_type: 'WALK',
+      distance_meters: 2000,
+      moving_time_s: 1200,
+      lap_events: [{
+        event_number: 1,
+        split_number: 1,
+        timestamp: '2026-11-10T05:30:10Z',
+        distance_m: 15,
+        time_s: 10,
+        pace_s_per_km: 666.667,
+      }],
+    });
+
+    expect(result.segments[0]?.completed_distance_m).toBe(2000);
+    expect(result.laps).toHaveLength(2);
+    expect(result.laps.map((lap) => lap.label)).toEqual(['Lap 1', 'Lap 2']);
+    expect(result.laps[0]?.distance_m).toBe(15);
+    expect(result.laps[0]?.splits?.map((split) => split.distance_m)).toEqual([15]);
+    expect(result.laps[1]?.distance_m).toBe(1985);
+    expect(result.laps[1]?.splits?.map((split) => split.distance_m)).toEqual([1985]);
+    expect(result.laps[1]?.splits?.map((split) => split.split_number)).toEqual([1]);
+  });
+
+  it('uses saved manual events over an aggregate backend lap and segment splits', () => {
+    const result = normalizeActivitySplits({
+      activity_type: 'RUN',
+      distance_meters: 20,
+      moving_time_s: 107,
+      laps: [{
+        lap_number: 1,
+        distance_meters: 20,
+        duration_seconds: 107,
+      }],
+      segments: [{
+        sequence: 1,
+        type: 'RUN',
+        completed_distance_m: 20,
+        actual_time_s: 107,
+        splits: [
+          { split_number: 1, distance_m: 10, time_s: 84, pace_s_per_km: 8400 },
+          { split_number: 2, distance_m: 10, time_s: 23, pace_s_per_km: 2300 },
+        ],
+      }],
+      lap_events: [{
+        event_number: 1,
+        split_number: 1,
+        timestamp: '2026-11-11T15:08:24Z',
+        distance_m: 10,
+        time_s: 84,
+      }],
+    });
+
+    expect(result.laps.map((lap) => lap.label)).toEqual(['Lap 1', 'Lap 2']);
+    expect(result.laps.map((lap) => lap.distance_m)).toEqual([10, 10]);
+    expect(result.laps.map((lap) => lap.splits?.map((split) => split.distance_m))).toEqual([
+      [10],
+      [10],
+    ]);
+  });
+
+  it('keeps dynamic 700m and 3km manual laps separate with matching splits', () => {
+    const result = normalizeActivitySplits({
+      activity_type: 'WALK',
+      distance_meters: 3700,
+      moving_time_s: 1200,
+      lap_events: [
+        {
+          event_number: 1,
+          split_number: 1,
+          timestamp: '2026-11-10T05:37:00Z',
+          distance_m: 700,
+          time_s: 300,
+        },
+        {
+          event_number: 2,
+          split_number: 2,
+          timestamp: '2026-11-10T05:57:00Z',
+          distance_m: 3000,
+          time_s: 900,
+        },
+      ],
+    });
+
+    expect(result.laps.map((lap) => lap.label)).toEqual(['Lap 1', 'Lap 2']);
+    expect(result.laps.map((lap) => lap.distance_m)).toEqual([700, 3000]);
+    expect(result.laps.map((lap) => lap.splits?.map((split) => split.distance_m))).toEqual([
+      [700],
+      [3000],
+    ]);
+  });
+
+  it('keeps a second 700m manual lap separate from a dynamic remainder lap', () => {
+    const result = normalizeActivitySplits({
+      activity_type: 'WALK',
+      distance_meters: 2000,
+      moving_time_s: 600,
+      lap_events: [
+        {
+          event_number: 1,
+          split_number: 1,
+          timestamp: '2026-11-10T05:30:10Z',
+          distance_m: 15,
+          time_s: 10,
+        },
+        {
+          event_number: 2,
+          split_number: 2,
+          timestamp: '2026-11-10T05:37:10Z',
+          distance_m: 700,
+          time_s: 300,
+        },
+      ],
+    });
+
+    expect(result.laps.map((lap) => lap.label)).toEqual(['Lap 1', 'Lap 2', 'Lap 3']);
+    expect(result.laps.map((lap) => lap.distance_m)).toEqual([15, 700, 1285]);
+    expect(result.laps.map((lap) => lap.splits?.map((split) => split.distance_m))).toEqual([
+      [15],
+      [700],
+      [1285],
+    ]);
+    expect(result.laps[2]?.splits?.map((split) => split.split_number)).toEqual([1]);
+  });
+
+  it('creates 1 km splits from saved segment distance and time when GPS splits are unavailable', () => {
+    const result = normalizeActivitySplits({
+      segments: [{
+        sequence: 1,
+        type: 'RUN',
+        completed_distance_m: 1700,
+        actual_time_s: 850,
+        splits: [],
+      }],
+    });
+
+    expect(result.segments[0]?.splits.map((split) => split.distance_m)).toEqual([1000, 700]);
+    expect(result.segments[0]?.splits.map((split) => split.time_s)).toEqual([500, 350]);
+  });
+
+  it('keeps manual split data as a WALK activity when no segment payload exists', () => {
+    const result = normalizeActivitySplits({
+      activity_type: 'WALK',
+      lap_events: [{ event_number: 1, distance_m: 620, time_s: 420 }],
+    });
+
+    expect(result.segments[0]?.type).toBe('WALK');
+    expect(result.segments[0]?.splits[0]?.distance_m).toBe(620);
+    expect(result.segments[0]?.splits[0]?.time_s).toBe(420);
+  });
+
+  it('keeps timestamp-only lap events visible as laps without inventing distance', () => {
+    const result = normalizeActivitySplits({
+      activity_type: 'RUN',
+      start_time: '2026-11-02T01:11:07Z',
+      end_time: '2026-11-02T02:01:53Z',
+      gps_points: [{
+        latitude: 13.0827,
+        longitude: 80.2707,
+        timestamp: '2026-11-02T01:11:08Z',
+      }],
+      lap_events: [
+        { event_number: 1, timestamp: '2026-11-02T01:20:30Z' },
+        { event_number: 2, timestamp: '2026-11-02T01:31:00Z' },
+      ],
+    });
+
+    expect(result.laps).toHaveLength(2);
+    expect(result.laps.map((lap) => lap.label)).toEqual(['Lap 1', 'Lap 2']);
+    expect(result.laps[0]?.time_s).toBe(563);
+    expect(result.laps[1]?.time_s).toBe(630);
+    expect(result.laps[0]?.distance_m).toBeUndefined();
+    expect(result.laps[0]?.pace_s_per_km).toBeUndefined();
+  });
+
+  it('subtracts paused time from timestamp-only manual lap duration', () => {
+    const result = normalizeActivitySplits({
+      start_time: '2026-11-02T01:11:07Z',
+      end_time: '2026-11-02T02:01:53Z',
+      gps_points: [{ latitude: 13.0827, longitude: 80.2707, timestamp: '2026-11-02T01:11:08Z' }],
+      lap_events: [{ event_number: 1, timestamp: '2026-11-02T01:31:00Z' }],
+      pause_events: [{
+        sequence: 1,
+        paused_at: '2026-11-02T01:25:00Z',
+        resumed_at: '2026-11-02T01:26:00Z',
+        duration_s: 60,
+      }],
+    });
+
+    expect(result.laps[0]?.time_s).toBe(1_133);
+  });
+
+  it('prefers complete backend lap records while retaining generated split rows', () => {
+    const result = normalizeActivitySplits({
+      split_distance_m: 1000,
+      start_time: '2026-11-02T01:11:07Z',
+      laps: [{
+        segment_order: 1,
+        segment_type: 'Run',
+        repeat_number: 1,
+        total_repeats: 2,
+        distance_meters: 1000,
+        duration_seconds: 300,
+        pace_seconds_per_km: 300,
+      }],
+      lap_events: [{ event_number: 1, timestamp: '2026-11-02T01:20:30Z' }],
+      gps_points: [
+        { latitude: 0, longitude: 0, timestamp: '2026-11-02T01:11:07Z' },
+        { latitude: 0, longitude: 0.01, timestamp: '2026-11-02T01:20:30Z' },
+      ],
+    });
+
+    expect(result.laps[0]).toMatchObject({
+      sequence: 1,
+      segment_sequence: 1,
+      label: 'Run 1/2',
+      distance_m: 1000,
+      time_s: 300,
+      pace_s_per_km: 300,
+    });
+    expect(result.laps).toHaveLength(2);
+    expect(result.laps[0]?.splits?.length).toBeGreaterThan(0);
+    expect(result.laps[1]?.label).toBe('Lap 1');
+    expect(result.segments[0]?.splits.length).toBeGreaterThan(0);
+  });
+
+  it('uses a backend-provided split distance for GPS estimates', () => {
+    const metresToLongitude = (metres: number) => metres / (6_371_000 * Math.PI / 180);
+    const result = normalizeActivitySplits({
+      split_distance_m: 1000,
+      segments: [{
+        sequence: 1,
+        type: 'RUN',
+        gps_points: [
+          { latitude: 0, longitude: 0, timestamp: '2026-01-01T00:00:00Z' },
+          { latitude: 0, longitude: metresToLongitude(1500), timestamp: '2026-01-01T00:15:00Z' },
+        ],
+      }],
+    });
+
+    expect(result.segments[0]?.splits[0]?.distance_m).toBe(1000);
+    expect(result.segments[0]?.splits[1]?.distance_m).toBeCloseTo(500, 5);
+  });
+
   it('maps EXTRA segments into the separate extra split section', () => {
     const result = normalizeActivitySplits({
       success: true,
@@ -137,6 +486,33 @@ describe('activity history elevation metrics', () => {
 
       expect(result.activities[0]?.elevation_gain).toBe(124.6);
       expect(result.activities[0]?.elevation_loss).toBe(119.2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps only one History row when the backend repeats an activity ID', async () => {
+    vi.stubGlobal('__DEV__', false);
+    const activity = {
+      id: 'run-duplicate-page-row',
+      activity_type: 'RUN',
+      distance: 5000,
+      moving_time: 1800,
+      elapsed_time: 1900,
+      avg_pace: 360,
+      start_time: '2026-11-04T06:00:00Z',
+      end_time: '2026-11-04T06:31:40Z',
+      processing_status: 'COMPLETED',
+    };
+
+    try {
+      const result = await normalizeHistoryPage({
+        results: [activity, { ...activity }],
+        has_more: false,
+      }, 10);
+
+      expect(result.activities).toHaveLength(1);
+      expect(result.activities[0]?.id).toBe(activity.id);
     } finally {
       vi.unstubAllGlobals();
     }

@@ -96,6 +96,11 @@ const publish = async (metrics: LiveTrackingMetrics, currentGeneration: number):
     });
     if (updatedNativeNotification) {
       await Notifications.dismissNotificationAsync(String(WORKOUT_FOREGROUND_NOTIFICATION_ID)).catch(() => undefined);
+      console.info('[NotificationLifecycle] NOTIFICATION_UPDATED', {
+        runId: metrics.runId ?? null,
+        status: metrics.status,
+        notificationId: WORKOUT_FOREGROUND_NOTIFICATION_ID,
+      });
       return;
     }
   }
@@ -120,6 +125,16 @@ const publish = async (metrics: LiveTrackingMetrics, currentGeneration: number):
     identifier: String(WORKOUT_FOREGROUND_NOTIFICATION_ID),
     content,
     trigger: null,
+  });
+  console.info('[NotificationLifecycle] LIVE_NOTIFICATION_CREATED', {
+    runId: metrics.runId ?? null,
+    status: metrics.status,
+    notificationId: WORKOUT_FOREGROUND_NOTIFICATION_ID,
+  });
+  console.info('[NotificationLifecycle] NOTIFICATION_CREATED', {
+    runId: metrics.runId ?? null,
+    status: metrics.status,
+    notificationId: WORKOUT_FOREGROUND_NOTIFICATION_ID,
   });
 };
 
@@ -157,6 +172,11 @@ export async function publishWorkoutSummaryNotification(
       content,
       trigger: null,
     });
+    console.info('[NotificationLifecycle] NOTIFICATION_CREATED', {
+      runId: metrics.runId ?? null,
+      status: 'summary',
+      notificationId: WORKOUT_FOREGROUND_NOTIFICATION_ID,
+    });
     lastPublishedDistanceKm = null;
     lastPublishedAt = 0;
     lastPublishedStatus = null;
@@ -167,9 +187,23 @@ export async function publishWorkoutSummaryNotification(
 export async function startLiveTrackingNotification(metrics: LiveTrackingMetrics): Promise<void> {
   generation += 1;
   processingMessage = null;
+  console.info('[NotificationLifecycle] LIVE_NOTIFICATION_CREATE_REQUESTED', {
+    runId: metrics.runId ?? null,
+    status: metrics.status,
+  });
   lastPublishedDistanceKm = metrics.distanceKm;
   lastPublishedAt = Date.now();
   lastPublishedStatus = metrics.status;
+  console.info('[NotificationLifecycle] LIVE_NOTIFICATION_CREATED', {
+    runId: metrics.runId ?? null,
+    status: metrics.status,
+    notificationId: WORKOUT_FOREGROUND_NOTIFICATION_ID,
+  });
+  console.info('[NotificationLifecycle] NOTIFICATION_CREATED', {
+    runId: metrics.runId ?? null,
+    status: metrics.status,
+    notificationId: WORKOUT_FOREGROUND_NOTIFICATION_ID,
+  });
   await publish(metrics, generation);
 }
 
@@ -253,6 +287,12 @@ export async function stopLiveTrackingNotification(): Promise<void> {
     .catch((error) => console.warn('[LiveTrackingNotification] Pending update failed before dismissal', error))
     .then(async () => {
       dismissNativeRunNotification();
+      console.info('[NotificationLifecycle] LIVE_NOTIFICATION_CANCELLED', {
+        notificationId: WORKOUT_FOREGROUND_NOTIFICATION_ID,
+      });
+      console.info('[NotificationLifecycle] NOTIFICATION_CANCELLED', {
+        notificationId: WORKOUT_FOREGROUND_NOTIFICATION_ID,
+      });
       try {
         await Notifications.dismissNotificationAsync(String(WORKOUT_FOREGROUND_NOTIFICATION_ID));
       } catch (error) {

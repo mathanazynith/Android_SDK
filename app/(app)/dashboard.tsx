@@ -16,26 +16,33 @@ import { useAuth } from '../../service/auth';
 import { customWorkoutAPI, type UserWorkoutResponse } from '../../service/customWorkout';
 import { getFcmToken } from '../../service/fcmService';
 import { registerNotificationDevice } from '../../service/notificationService';
-import { flushActiveRunJournal, readActiveRunJournal } from '../../src/services/activeRunJournal';
+import { clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal } from '../../src/services/activeRunJournal';
 import { activityAPI, type BackendActivity } from '../../src/services/activityApi';
-import { getBackgroundLocationSession } from '../../src/services/backgroundLocationTask';
+import {
+  clearBackgroundLocationSession,
+  getBackgroundLocationSession,
+  isBackgroundLocationTrackingStarted,
+} from '../../src/services/backgroundLocationTask';
 import { offlineWorkoutQueue } from '../../src/services/offlineWorkoutQueue';
+import {
+  listPendingWorkoutRecoveries,
+  savePendingWorkoutRecovery,
+} from '../../src/services/pendingWorkoutRecoveries';
 import { calculateDistanceMeters } from '../../src/utils/distance';
-import { convertKilometersToDisplay, getDistanceUnitDisplayLabel } from '../../utils/distanceUnit';
 import { isAssessmentProfileComplete } from '../../utils/profileEligibility';
 import { useResponsive } from '../../utils/responsive';
 import DashboardActivePlan from './DashboardActivePlan';
 import DashboardNoPlan from './DashboardNoPlan';
 
 const NOTIFICATION_PERMISSION_DELAY_MS = 1_000;
+const WORKOUT_CHECKPOINT_STALE_AFTER_MS = 30_000;
 
 type RecoverableWorkout = {
+  id: string;
   runId: string;
   distanceMeters: number;
   elapsedSeconds: number;
 };
-
-const WORKOUT_CHECKPOINT_STALE_AFTER_MS = 30_000;
 
 const formatRecoveryDuration = (seconds: number) => {
   const safeSeconds = Math.max(0, Math.floor(seconds));
@@ -123,6 +130,7 @@ export default function DashboardScreen() {
   const { spacing, fontSize } = useResponsive();
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
+  const userId = user?.id;
   const { unreadCount } = useNotifications();
   const {
     workoutPlan,
@@ -207,24 +215,51 @@ export default function DashboardScreen() {
       let isActive = true;
       const findRecoverableWorkout = async () => {
         try {
-          await flushActiveRunJournal();
-          const [session, journal] = await Promise.all([
-            getBackgroundLocationSession(),
-            readActiveRunJournal(),
-          ]);
+          let recoveries = await listPendingWorkoutRecoveries();
           if (!isActive) return;
-          if (
-            !session?.active ||
-            !session.runId ||
-            !journal?.active ||
-            journal.runId !== session.runId ||
-            (session.userId && String(session.userId) !== String(user?.id ?? '')) ||
-            (session.updatedAt != null && Date.now() - session.updatedAt < WORKOUT_CHECKPOINT_STALE_AFTER_MS)
-          ) {
+          let recovery = recoveries.find((item) => (
+            Boolean(item.session.runId)
+            && (!item.session.userId || String(item.session.userId) === String(userId ?? ''))
+          ));
+
+          if (!recovery) {
+            await flushActiveRunJournal();
+            const [legacySession, legacyJournal, trackingStarted] = await Promise.all([
+              getBackgroundLocationSession(),
+              readActiveRunJournal(),
+              isBackgroundLocationTrackingStarted(),
+            ]);
+            if (!isActive) return;
+            const isStaleCheckpoint = legacySession?.updatedAt != null
+              && Date.now() - legacySession.updatedAt >= WORKOUT_CHECKPOINT_STALE_AFTER_MS;
+            if (
+              legacySession?.active
+              && legacySession.runId
+              && legacyJournal?.active
+              && legacyJournal.runId === legacySession.runId
+              && !trackingStarted
+              && (legacySession.recoveryReviewRequired || isStaleCheckpoint)
+              && (!legacySession.userId || String(legacySession.userId) === String(userId ?? ''))
+            ) {
+              await savePendingWorkoutRecovery(legacySession, legacyJournal);
+              await clearActiveRunJournal();
+              await clearBackgroundLocationSession();
+              recoveries = await listPendingWorkoutRecoveries();
+              recovery = recoveries.find((item) => item.id === legacySession.runId);
+            }
+          }
+
+          if (!isActive) return;
+          if (!recovery) {
             setRecoverableWorkout(null);
             return;
           }
-
+          const runId = recovery.session.runId;
+          if (!runId) {
+            setRecoverableWorkout(null);
+            return;
+          }
+          const { session, journal } = recovery;
           const points = journal.points;
           const journalDistanceMeters = points.slice(1).reduce((total, point, index) => (
             total + calculateDistanceMeters(points[index], point)
@@ -233,7 +268,8 @@ export default function DashboardScreen() {
             ? Math.max(0, Number(session.distanceKm) * 1000)
             : journalDistanceMeters;
           setRecoverableWorkout({
-            runId: session.runId,
+            id: recovery.id,
+            runId,
             distanceMeters: Math.max(sessionDistanceMeters, journalDistanceMeters),
             elapsedSeconds: Math.max(0, session.elapsedSeconds ?? 0),
           });
@@ -247,7 +283,7 @@ export default function DashboardScreen() {
       return () => {
         isActive = false;
       };
-    }, [user?.id])
+    }, [userId])
   );
 
   useEffect(() => {
@@ -447,12 +483,14 @@ export default function DashboardScreen() {
             accessibilityRole="button"
             accessibilityLabel="Review unfinished workout"
             activeOpacity={0.85}
-            onPress={() =>
-              router.push({
-                pathname: '/(app)/screens/map',
-                params: { recoveryReview: '1', runId: recoverableWorkout.runId },
-              })
-            }
+            onPress={() => router.push({
+              pathname: '/(app)/screens/map',
+              params: {
+                recoveryReview: '1',
+                recoveryId: recoverableWorkout.id,
+                runId: recoverableWorkout.runId,
+              },
+            })}
             style={{
               minHeight: 76,
               flexDirection: 'row',

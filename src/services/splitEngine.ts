@@ -12,6 +12,10 @@ interface SplitEngineState {
   segmentTimeSeconds: number;
   splitNumber: number;
   lastTimestamp: number | null;
+  manualSegmentDistanceMeters: number;
+  manualSegmentTimeSeconds: number;
+  manualSplitNumber: number;
+  manualLastTimestamp: number | null;
 }
 
 export class DistanceSplitEngine {
@@ -20,6 +24,10 @@ export class DistanceSplitEngine {
     segmentTimeSeconds: 0,
     splitNumber: 0,
     lastTimestamp: null,
+    manualSegmentDistanceMeters: 0,
+    manualSegmentTimeSeconds: 0,
+    manualSplitNumber: 0,
+    manualLastTimestamp: null,
   };
 
   public reset(): void {
@@ -28,6 +36,10 @@ export class DistanceSplitEngine {
       segmentTimeSeconds: 0,
       splitNumber: 0,
       lastTimestamp: null,
+      manualSegmentDistanceMeters: 0,
+      manualSegmentTimeSeconds: 0,
+      manualSplitNumber: 0,
+      manualLastTimestamp: null,
     };
   }
 
@@ -39,6 +51,9 @@ export class DistanceSplitEngine {
       ? 0
       : Math.max(0, (timestamp - previousTimestamp) / 1000);
     this.state.lastTimestamp = timestamp;
+    this.state.manualSegmentDistanceMeters += distanceMeters;
+    this.state.manualSegmentTimeSeconds += intervalSeconds;
+    this.state.manualLastTimestamp = timestamp;
 
     const completed: CompletedLiveSplit[] = [];
     let remainingDistance = distanceMeters;
@@ -70,6 +85,29 @@ export class DistanceSplitEngine {
       this.state.segmentTimeSeconds = 0;
     }
 
+    return completed;
+  }
+
+  public markSplit(timestamp: number): CompletedLiveSplit | null {
+    if (!Number.isFinite(timestamp)) return null;
+
+    if (this.state.manualLastTimestamp !== null) {
+      this.state.manualSegmentTimeSeconds += Math.max(0, (timestamp - this.state.manualLastTimestamp) / 1000);
+    }
+    this.state.manualLastTimestamp = timestamp;
+    if (this.state.manualSegmentDistanceMeters <= 0) return null;
+
+    this.state.manualSplitNumber += 1;
+    const distanceMeters = this.state.manualSegmentDistanceMeters;
+    const timeSeconds = this.state.manualSegmentTimeSeconds;
+    const completed: CompletedLiveSplit = {
+      splitNumber: this.state.manualSplitNumber,
+      distanceMeters,
+      timeSeconds,
+      paceSecondsPerKm: timeSeconds / (distanceMeters / 1000),
+    };
+    this.state.manualSegmentDistanceMeters = 0;
+    this.state.manualSegmentTimeSeconds = 0;
     return completed;
   }
 }

@@ -67,10 +67,7 @@ class GoogleAuthService {
         scopes: SCOPES,
         responseType: AuthSession.ResponseType.Code,
         usePKCE: true,
-        extraParams: {
-          prompt: "select_account",
-          access_type: "offline",
-        },
+        extraParams: {},
       });
 
 

@@ -24,6 +24,23 @@ export const shareActivityPayloadAsJson = async (
   });
 };
 
+export const shareActivityAsJson = async (activity: BackendActivity): Promise<void> => {
+  if (!(await Sharing.isAvailableAsync())) {
+    throw new Error('File sharing is not available on this device.');
+  }
+
+  const safeActivityId = String(activity.id).replace(/[^a-zA-Z0-9_-]/g, '_');
+  const file = new File(Paths.cache, `zyrun-activity-${safeActivityId}.json`);
+  file.create({ overwrite: true });
+  file.write(JSON.stringify(activity, null, 2));
+
+  await Sharing.shareAsync(file.uri, {
+    mimeType: 'application/json',
+    UTI: 'public.json',
+    dialogTitle: 'Export workout JSON',
+  });
+};
+
 export const shareActivityAsGpx = async (activity: BackendActivity): Promise<void> => {
   const contents = serializeActivityAsGpx(activity);
   const safeActivityId = String(activity.id).replace(/[^a-zA-Z0-9_-]/g, '_');

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import { useActiveRun } from '../../contexts/ActiveRunContext';
+import type { BackgroundLocationSessionState } from '../../src/services/backgroundLocationTask';
 import { calculateActiveRunElapsedSeconds } from '../../src/utils/activeRunMetrics';
 
 const formatElapsed = (seconds: number) => {
@@ -21,23 +22,27 @@ export default function ActiveRunBanner({
   onNavigateToRun,
 }: {
   bottomOffset: number;
-  onNavigateToRun?: () => void;
+  onNavigateToRun?: (session: BackgroundLocationSessionState) => void;
 }) {
   const session = useActiveRun();
   const pathname = usePathname();
   const { colors, isDark } = useTheme();
   const [now, setNow] = useState(0);
+  // The provider hydrates and validates the persisted run. Do not keep a local
+  // active copy here: it can outlive a discard/finish event and leave a stale
+  // banner mounted on unrelated screens.
+  const activeSession = session?.active ? session : null;
 
   useEffect(() => {
-    if (!session?.active) return;
+    if (!activeSession?.active) return;
     const interval = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(interval);
-  }, [session?.active]);
+  }, [activeSession?.active]);
 
-  if (!session?.active) return null;
+  if (!activeSession?.active) return null;
 
-  const isPaused = Boolean(session.paused);
-  const elapsed = calculateActiveRunElapsedSeconds(session, now || session.updatedAt || 0);
+  const isPaused = Boolean(activeSession.paused);
+  const elapsed = calculateActiveRunElapsedSeconds(activeSession, now || activeSession.updatedAt || 0);
   const isOnMap = pathname.endsWith('/screens/map');
 
   if (isOnMap) return null;
@@ -45,15 +50,18 @@ export default function ActiveRunBanner({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${isPaused ? 'Run paused' : 'Run recording'}, ${(session.distanceKm ?? 0).toFixed(2)} kilometers, ${formatElapsed(elapsed)}. Return to run.`}
+      accessibilityLabel={`${isPaused ? 'Run paused' : 'Run recording'}, ${(activeSession.distanceKm ?? 0).toFixed(2)} kilometers, ${formatElapsed(elapsed)}. Return to run.`}
       onPress={() => {
         if (onNavigateToRun) {
-          onNavigateToRun();
+          onNavigateToRun(activeSession);
           return;
         }
         router.navigate({
           pathname: '/(app)/screens/map',
-          params: session.runId ? { runId: session.runId } : undefined,
+          params: {
+            resumeRun: '1',
+            ...(activeSession.runId ? { runId: activeSession.runId } : {}),
+          },
         });
       }}
       style={[
@@ -67,7 +75,7 @@ export default function ActiveRunBanner({
     >
       <View style={[styles.statusDot, { backgroundColor: BRAND_GREEN }]} />
       <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.statusText, { color: colors.textPrimary }]}>
-        {isPaused ? 'RUN PAUSED' : 'LIVE RUN'}  ·  {(session.distanceKm ?? 0).toFixed(2)} km  ·  {formatElapsed(elapsed)}
+        {isPaused ? 'RUN PAUSED' : 'LIVE RUN'}  ·  {(activeSession.distanceKm ?? 0).toFixed(2)} km  ·  {formatElapsed(elapsed)}
       </Text>
       <Feather name="arrow-up-right" size={17} color={colors.textSecondary} />
     </Pressable>
