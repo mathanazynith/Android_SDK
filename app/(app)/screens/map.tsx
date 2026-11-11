@@ -939,7 +939,7 @@ export default function MapScreen() {
         ? calculateDistanceMeters(previousLocationRef.current, effectiveGps)
         : 0;
       const accuracy = effectiveAccuracy;
-      const hasGoodAccuracy = isSimulator ? true : (Number.isFinite(accuracy) && accuracy <= MAX_MOVEMENT_ACCURACY_METERS);
+      const hasGoodAccuracy = isSimulator || isReliableRoutePoint({ accuracy });
       const speed = rawGps.speed ?? 0;
       const previousTimestampValue = previousLocationRef.current?.timestamp;
       const previousTimestamp = typeof previousTimestampValue === 'number'
@@ -1022,7 +1022,7 @@ export default function MapScreen() {
       previousLocationRef.current = effectiveGps;
       // Keep the blue location dot anchored during GPS wander. The same
       // movement state gates route and distance below.
-      if (movementState === 'MOVING') publishLocation();
+      if (movementState === 'MOVING' && hasGoodAccuracy) publishLocation();
       if (isLiveMovementSample && autoPauseEnabledRef.current) {
         if (
           isAutoPausedRef.current
@@ -1048,7 +1048,7 @@ export default function MapScreen() {
         }
       }
 
-      const shouldProcessRoute = movementState === 'MOVING'
+      const shouldProcessRoute = (movementState === 'MOVING' && hasGoodAccuracy)
         || (fromDurableJournal && capturedPaused !== true && hasGoodAccuracy);
       previousLocationRef.current = rawGps;
       if (!shouldProcessRoute) {
@@ -1148,7 +1148,7 @@ export default function MapScreen() {
         ].filter((boundary): boundary is number => (
           typeof boundary === 'number' && Number.isFinite(boundary)
         ));
-        const filteredPoints = processor.filterRawPoints(routeBoundaries);
+        const filteredPoints = processor.filterRawPoints(routeBoundaries, movementConfirmedRef.current);
         const reliableRoutePoints: RunningGpsPoint[] = Device.isDevice
           ? filteredPoints.filter(isReliableRoutePoint)
           : filteredPoints;
@@ -2350,19 +2350,9 @@ export default function MapScreen() {
       const movingTimeSeconds = Number(Math.max(0, elapsedTimeSeconds - pausedTimeSeconds).toFixed(3));
       const movingTimePayloadSeconds = Math.round(movingTimeSeconds);
       const elapsedTimePayloadSeconds = Math.round(elapsedTimeSeconds);
-      if (!discard && !fromRecoveryReview) {
-        const finalManualSplit = splitEngineRef.current.markSplit(stoppedAt.getTime());
-        if (finalManualSplit) {
-          lapEventsRef.current.push({
-            event_number: lapEventsRef.current.length + 1,
-            timestamp: stoppedAt.toISOString(),
-            split_number: finalManualSplit.splitNumber,
-            distance_m: finalManualSplit.distanceMeters,
-            time_s: finalManualSplit.timeSeconds,
-            pace_s_per_km: finalManualSplit.paceSecondsPerKm,
-          });
-        }
-      }
+      // Do not turn Save & Exit into a manual lap. The backend requires each
+      // lap event to occur before end_time and generates the final partial
+      // split automatically from the remaining route after the last lap.
       isRunningRef.current = false;
       setIsRunning(false);
       setCompletionPromptVisible(false);
@@ -2499,7 +2489,13 @@ export default function MapScreen() {
         ].filter((timestamp): timestamp is number => (
           typeof timestamp === 'number' && Number.isFinite(timestamp)
         ));
-        const filteredPoints = processor.filterRawPoints(routeBoundaries);
+        const filteredPoints = processor.filterRawPoints(
+          routeBoundaries,
+          movementConfirmedRef.current
+            || hasDetectedMovement
+            || hasStepEvidence
+            || lapEventsRef.current.length > 0,
+        );
 
         const finalOptimized = processor.simplifyFinal(filteredPoints);
         const extraRouteCoordinates = routeSegmentsRef.current
@@ -2636,6 +2632,10 @@ export default function MapScreen() {
           completed: lap.completed,
         }));
         const laps = workoutLaps;
+        const isIntervalWorkout = Boolean(isStructuredOrPlannedWorkout
+          || isPlannedWorkout
+          || workoutEngineRef.current
+          || completedLaps.length > 0);
         const pointsBetween = (start: number, end: number | null, nextStart: number | undefined) => uploadRoutePoints
           .filter((point) => point.timestamp >= start
             && (end === null || point.timestamp <= end)
@@ -2743,30 +2743,6 @@ export default function MapScreen() {
             gps_points: extraPoints,
           }
           : null;
-        const manualRunSplits = lapEventsRef.current
-          .map((event, index) => ({
-            split_number: event.split_number ?? event.event_number ?? index + 1,
-            distance_m: Number(event.distance_m),
-            time_s: Number(event.time_s),
-            pace_s_per_km: Number(event.pace_s_per_km),
-          }))
-          .filter((split) => Number.isFinite(split.distance_m) && split.distance_m > 0
-            && Number.isFinite(split.time_s) && split.time_s >= 0
-            && Number.isFinite(split.pace_s_per_km) && split.pace_s_per_km >= 0);
-        if (manualRunSplits.length > 0) {
-          if (segmentPayloads.length === 0) {
-            segmentPayloads.push({
-              sequence: 1,
-              type: 'RUN',
-              planned_distance_m: 0,
-              planned_time_s: 0,
-              completed_distance_m: workoutDistance,
-              actual_time_s: movingTimePayloadSeconds,
-              actual_pace_s_per_km: paceSecondsPerKm,
-              gps_points: submittedRoutePoints.map((point) => pointPayload(point, isExtraDistancePoint(point))),
-            });
-          }
-        }
         const iosStyleActivityPayload: ActivitySubmissionPayload = {
           gps_points: submittedRoutePoints
             .map((point) => pointPayload(point, isExtraDistancePoint(point))),
@@ -2790,9 +2766,11 @@ export default function MapScreen() {
           split_distance_m: SPLIT_DISTANCE_METERS,
           avg_pace: Number(paceSecondsPerKm.toFixed(2)),
           pace_seconds_per_km: Number(paceSecondsPerKm.toFixed(2)),
-          laps,
-          lap_events: lapEventsRef.current,
-          segments: segmentPayloads,
+          // Keep interval metadata out of regular activities. The API uses
+          // these fields to distinguish planned interval workouts from free runs.
+          ...(isIntervalWorkout
+            ? { laps, segments: segmentPayloads }
+            : { lap_events: lapEventsRef.current }),
           extra: extraPayload,
           pause_events: pauseEventPayload,
           pause_count: pauseEventPayload.length,
@@ -3037,11 +3015,20 @@ export default function MapScreen() {
       }
     } catch (error: any) {
       const backendData = error?.response?.data;
-      const backendMessage = typeof backendData === 'string'
-        ? backendData
-        : backendData?.message
-          ?? backendData?.detail
-          ?? (backendData && typeof backendData === 'object' ? JSON.stringify(backendData) : null);
+      const responseStatus = Number(error?.response?.status);
+      const backendMessage = responseStatus >= 500
+        ? `The server could not process this activity (HTTP ${responseStatus}). Your workout is still available; try saving again later.`
+        : typeof backendData === 'string'
+          ? (/<!doctype\s+html|<html\b/i.test(backendData)
+            ? 'The server returned an unreadable error page. Your workout is still available; please try again.'
+            : backendData)
+          : backendData?.message
+            ?? backendData?.detail
+            ?? (backendData && typeof backendData === 'object' ? JSON.stringify(backendData) : null);
+      console.error('[SaveLifecycle] ACTIVITY_SAVE_FAILED', {
+        status: Number.isFinite(responseStatus) ? responseStatus : null,
+        message: backendMessage ?? error?.message ?? 'Unknown save error',
+      });
       if (!runSessionFinalized && !discard && !activitySubmitted && !payloadQueuedOffline) {
         if (fromRecoveryReview) {
           recoveryReviewRequiredRef.current = true;
@@ -3224,7 +3211,6 @@ export default function MapScreen() {
     }
 
     saveConfirmationOpenRef.current = true;
-    const shouldResumeAfterCancel = !isPausedRef.current;
     setCompletionPromptVisible(false);
 
     function showConfirmation() {
@@ -3259,9 +3245,6 @@ export default function MapScreen() {
             style: 'cancel',
             onPress: () => {
               saveConfirmationOpenRef.current = false;
-              if (shouldResumeAfterCancel && isPausedRef.current) {
-                void resumeRun();
-              }
             },
           },
           {
@@ -3277,11 +3260,7 @@ export default function MapScreen() {
       );
     }
 
-    if (shouldResumeAfterCancel) {
-      void pauseRun().then(showConfirmation);
-    } else {
-      showConfirmation();
-    }
+    showConfirmation();
   };
 
   useEffect(() => {

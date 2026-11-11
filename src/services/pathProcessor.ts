@@ -22,6 +22,9 @@ const getINDOOR_DRIFT_MIN_WANDER_RATIO = () => getGpsOptimizationConfig().indoor
 const getMIN_DISPLAY_INTERVAL_MS = () => getGpsOptimizationConfig().minDisplayIntervalSeconds * 1000;
 const getMAX_FINAL_POINT_GAP_METERS = () => getGpsOptimizationConfig().maxFinalPointGapMeters;
 const getMAX_JUMP_DISTANCE_METERS = () => getGpsOptimizationConfig().maxJumpDistanceMeters;
+const getMinimumMeaningfulDistanceMeters = (accuracyRadius: number) => (
+  Math.max(3, Math.min(8, accuracyRadius * 0.5))
+);
 
 export class PathProcessor {
   private readonly gpsFilter: GpsFilter;
@@ -140,7 +143,10 @@ export class PathProcessor {
     return pathPoint;
   }
 
-  public filterRawPoints(boundaryTimestamps: number[] = []): RunningPathPoint[] {
+  public filterRawPoints(
+    boundaryTimestamps: number[] = [],
+    movementConfirmed = false,
+  ): RunningPathPoint[] {
     this.filteredPoints.length = 0;
 
 
@@ -189,10 +195,11 @@ export class PathProcessor {
         const distance = calculateDistanceMeters(distanceAnchor, filteredPoint);
         const elapsedMilliseconds = Math.max(0, filteredPoint.timestamp - distanceAnchor.timestamp);
         const accuracyRadius = Math.max(distanceAnchor.accuracy ?? 0, filteredPoint.accuracy ?? 0);
-        const minimumMeaningfulDistance = Math.max(5, Math.min(12, accuracyRadius));
+        const minimumMeaningfulDistance = getMinimumMeaningfulDistanceMeters(accuracyRadius);
 
-        // Mirror ingestRaw()'s display gate. A 0.5m threshold turns ordinary
-        // GPS position noise into fake distance when all samples are summed.
+        // Match the movement gate's half-accuracy displacement rule, with a
+        // small noise floor. The old 5–12m save threshold could discard a
+        // short route that had already contributed distance to live/manual splits.
         if (
           elapsedMilliseconds < getMIN_DISPLAY_INTERVAL_MS() ||
           distance < minimumMeaningfulDistance
@@ -204,7 +211,7 @@ export class PathProcessor {
       this.filteredPoints.push(filteredPoint);
     }
 
-    this.collapseIndoorDrift(boundaryTimestamps);
+    if (!movementConfirmed) this.collapseIndoorDrift(boundaryTimestamps);
     return [...this.filteredPoints];
   }
 
