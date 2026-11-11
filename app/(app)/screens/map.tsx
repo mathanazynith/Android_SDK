@@ -63,8 +63,14 @@ import {
 import { formatStepTarget, WorkoutExecutionStep } from '../../../src/utils/workoutPlanBuilder';
 
 const formatTimerDisplay = (totalSec: number) => {
-  const m = Math.floor(Math.max(0, totalSec) / 60);
-  const s = Math.max(0, totalSec) % 60;
+  if (!Number.isFinite(totalSec) || totalSec <= 0) return '00:00';
+  const total = Math.round(totalSec);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) {
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 };
 
@@ -101,8 +107,9 @@ const formatStepTargetSafe = (step?: WorkoutExecutionStep | null, distanceUnit?:
     }
   }
   if (step.targetType === 'DURATION' && step.targetDurationSeconds) {
-    const mins = Math.floor(step.targetDurationSeconds / 60);
-    const secs = step.targetDurationSeconds % 60;
+    const total = Math.round(step.targetDurationSeconds);
+    const mins = Math.floor(total / 60);
+    const secs = total % 60;
     if (mins > 0 && secs > 0) return `${mins}m ${secs}s`;
     if (mins > 0) return `${mins} min`;
     return `${secs} sec`;
@@ -1630,7 +1637,7 @@ export default function MapScreen() {
               currentStepIndexRef.current = stepIndex;
               setCurrentStepIndex(stepIndex);
               const currentElapsed = startTimeRef.current
-                ? Math.max(0, (Date.now() - startTimeRef.current) / 1000)
+                ? Math.floor(Math.max(0, (Date.now() - startTimeRef.current) / 1000))
                 : 0;
               stepStartSecondsRef.current = currentElapsed;
               setStepStartSeconds(currentElapsed);
@@ -2856,7 +2863,7 @@ export default function MapScreen() {
     ? `${workoutSegment.segmentType} ${workoutSegment.repeatNumber}/${workoutSegment.totalRepeats}`
     : isRunning ? (isPaused ? 'Paused' : 'Live') : 'Ready';
 
-  const currentStepElapsedSeconds = Math.max(0, elapsedSeconds - stepStartSeconds);
+  const currentStepElapsedSeconds = Math.max(0, Math.floor(elapsedSeconds - stepStartSeconds));
   const currentStepDistanceMeters = Math.max(0, workoutDistance - stepStartDistanceMeters);
   const renderedRouteSegments = useMemo(
     () => routeSegments.map((segment) => ({
@@ -2868,7 +2875,7 @@ export default function MapScreen() {
 
   const remainingStepDuration =
     activeStep?.targetType === 'DURATION' && activeStep.targetDurationSeconds
-      ? Math.max(0, activeStep.targetDurationSeconds - currentStepElapsedSeconds)
+      ? Math.max(0, Math.round(activeStep.targetDurationSeconds - currentStepElapsedSeconds))
       : 0;
 
   const stepDurationProgress =

@@ -575,5 +575,30 @@ describe("Custom Workout Duration Calculation Parity", () => {
       expect(todayWorkouts.length).toBe(1);
       expect(todayWorkouts[0].id).toBe(101);
     });
+
+    it("safely formats floating-point durations without decimal leakage", () => {
+      // Replicate the exact formatTimerDisplay logic
+      const formatTimerDisplay = (totalSec: number) => {
+        if (!Number.isFinite(totalSec) || totalSec <= 0) return '00:00';
+        const total = Math.round(totalSec);
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = total % 60;
+        if (h > 0) {
+          return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+        return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      };
+
+      // The exact bug observed in the screenshot: 09:55.264999999999987
+      const leakedFloatDuration = 595.264999999999987;
+      expect(formatTimerDisplay(leakedFloatDuration)).toBe("09:55");
+
+      // Other edge cases
+      expect(formatTimerDisplay(0)).toBe("00:00");
+      expect(formatTimerDisplay(-5)).toBe("00:00");
+      expect(formatTimerDisplay(59.99999)).toBe("01:00");
+      expect(formatTimerDisplay(3665.4321)).toBe("01:01:05");
+    });
   });
 });

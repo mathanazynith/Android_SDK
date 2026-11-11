@@ -334,8 +334,9 @@ export function buildWorkoutExecutionPlan(workout: WorkoutStateInput | UserWorko
 export function formatStepTarget(step?: WorkoutExecutionStep | null): string {
   if (!step) return "";
   if (step.targetType === "DURATION" && step.targetDurationSeconds) {
-    const mins = Math.floor(step.targetDurationSeconds / 60);
-    const secs = step.targetDurationSeconds % 60;
+    const totalSecs = Math.round(Math.max(0, step.targetDurationSeconds));
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
     if (mins > 0 && secs > 0) return `${mins}m ${secs}s`;
     if (mins > 0) return `${mins} min`;
     return `${secs} sec`;

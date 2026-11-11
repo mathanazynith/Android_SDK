@@ -361,9 +361,9 @@ export default function CropActivityModal({
               <View style={styles.statBox}>
                 <Text style={styles.statLabel}>Elapsed / Moving</Text>
                 <Text style={styles.statValue}>
-                  {Math.floor(croppingElapsedTime / 60)}:{String(croppingElapsedTime % 60).padStart(2, '0')}
+                  {Math.floor(Math.round(croppingElapsedTime) / 60)}:{String(Math.round(croppingElapsedTime) % 60).padStart(2, '0')}
                   {' / '}
-                  {Math.floor(croppingMovingTime / 60)}:{String(croppingMovingTime % 60).padStart(2, '0')}
+                  {Math.floor(Math.round(croppingMovingTime) / 60)}:{String(Math.round(croppingMovingTime) % 60).padStart(2, '0')}
                 </Text>
               </View>
             </View>

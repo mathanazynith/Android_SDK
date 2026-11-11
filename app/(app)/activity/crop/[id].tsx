@@ -228,7 +228,10 @@ export default function CropActivityScreen() {
   const croppingPace = croppingDistance > 0
     ? croppingMovingTime / (croppingDistance / 1000)
     : 0;
-  const formatDuration = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  const formatDuration = (seconds: number) => {
+    const s = Math.round(Math.max(0, seconds));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
   const formatPace = (secondsPerKm: number) => secondsPerKm > 0
     ? `${Math.floor(secondsPerKm / 60)}:${String(Math.round(secondsPerKm % 60)).padStart(2, '0')} /km`
     : '-- /km';
