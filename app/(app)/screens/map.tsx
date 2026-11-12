@@ -545,7 +545,9 @@ export default function MapScreen() {
     const playBeat = () => {
       void metronomePlayer.seekTo(0)
         .then(() => {
-          if (active) metronomePlayer.play();
+          if (!active) return;
+          metronomePlayer.play();
+          if (!Device.isDevice) handlePedometerStepDelta(1);
         })
         .catch((error: unknown) => {
           console.warn('[Metronome] Unable to play beat', error);
@@ -587,6 +589,7 @@ export default function MapScreen() {
     metronomeEnabled,
     metronomePlayer,
     metronomePlayerStatus.isLoaded,
+    handlePedometerStepDelta,
     pauseSettingsLoaded,
     voiceAlertsEnabled,
   ]);
@@ -1464,9 +1467,11 @@ export default function MapScreen() {
       });
       const stepDetection = new StepDetectionService();
       stepDetectionRef.current = stepDetection;
-      void stepDetection.start(handlePedometerStepDelta).catch((error) => {
-        console.warn('[MapScreen] Recovered pedometer unavailable', error);
-      });
+      if (Device.isDevice) {
+        void stepDetection.start(handlePedometerStepDelta).catch((error) => {
+          console.warn('[MapScreen] Recovered pedometer unavailable', error);
+        });
+      }
 
       isRunningRef.current = true;
       setIsRunning(true);
@@ -1754,9 +1759,11 @@ export default function MapScreen() {
       });
       const stepDetection = new StepDetectionService();
       stepDetectionRef.current = stepDetection;
-      void stepDetection.start(handlePedometerStepDelta).catch((error) => {
-        console.warn('[MapScreen] Restored pedometer unavailable', error);
-      });
+      if (Device.isDevice) {
+        void stepDetection.start(handlePedometerStepDelta).catch((error) => {
+          console.warn('[MapScreen] Restored pedometer unavailable', error);
+        });
+      }
       isRunningRef.current = true;
       setIsRunning(true);
       lastMovementTimestampRef.current = session.paused ? null : Date.now();
@@ -2092,9 +2099,11 @@ export default function MapScreen() {
       void activityDetection.start().catch((error) => {
         console.warn('[LocationManager] Activity monitoring startup failed; GPS recording continues', error);
       });
-      void stepDetection.start(handlePedometerStepDelta).catch((error) => {
-        console.warn('[LocationManager] Pedometer startup failed; movement gate will require activity recognition and GPS evidence', error);
-      });
+      if (Device.isDevice) {
+        void stepDetection.start(handlePedometerStepDelta).catch((error) => {
+          console.warn('[LocationManager] Pedometer startup failed; movement gate will require activity recognition and GPS evidence', error);
+        });
+      }
     } catch (error) {
       console.error('Start run error:', error);
       if (runIdRef.current) {
@@ -3183,9 +3192,11 @@ export default function MapScreen() {
           });
           const retryStepDetection = new StepDetectionService();
           stepDetectionRef.current = retryStepDetection;
-          void retryStepDetection.start(handlePedometerStepDelta).catch((restartError) => {
-            console.warn('[LocationManager] Could not restart step detection after save failure', restartError);
-          });
+          if (Device.isDevice) {
+            void retryStepDetection.start(handlePedometerStepDelta).catch((restartError) => {
+              console.warn('[LocationManager] Could not restart step detection after save failure', restartError);
+            });
+          }
           try {
             await startLiveGPS();
             await startBackgroundLocationTracking();
