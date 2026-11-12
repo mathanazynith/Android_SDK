@@ -180,6 +180,18 @@ export class WorkoutEngine {
     return this.state === 'running';
   }
 
+  public stop(timestamp = Date.now()): void {
+    if (this.currentLap) {
+      this.refreshDuration(timestamp);
+      this.currentLap.completed = false;
+      this.currentLap.completedAt = timestamp;
+      const stoppedLap = { ...this.currentLap };
+      this.completedLaps.push(stoppedLap);
+      this.currentLap = null;
+    }
+    this.state = 'completed';
+  }
+
   public getSnapshot(): WorkoutEngineSnapshot {
     return {
       state: this.state,

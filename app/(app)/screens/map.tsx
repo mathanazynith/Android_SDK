@@ -2486,6 +2486,7 @@ export default function MapScreen() {
             ...(finalJournal.pausePoints ?? []),
           ]);
         }
+        workoutEngineRef.current?.stop(stoppedAt.getTime());
         const completedLaps = workoutEngineRef.current?.getSnapshot().completedLaps ?? [];
         const routeBoundaries = [
           ...pauseEventsRef.current.flatMap((event) => [
@@ -2736,6 +2737,18 @@ export default function MapScreen() {
           }
           segmentPayloads.push(segment);
         });
+        if (segmentPayloads.length === 0 && workoutDistance > 0) {
+          segmentPayloads.push({
+            sequence: 1,
+            type: 'RUN',
+            planned_distance_m: 0,
+            planned_time_s: 0,
+            completed_distance_m: workoutDistance,
+            actual_time_s: movingTimePayloadSeconds,
+            actual_pace_s_per_km: paceSecondsPerKm,
+            gps_points: submittedRoutePoints.map((point) => pointPayload(point, isExtraDistancePoint(point))),
+          });
+        }
         const extraPoints = uploadRoutePoints
           .filter((point) => isExtraDistancePoint(point) && getPauseSequence(point) === null)
           .map((point) => pointPayload(point, true));
@@ -2854,15 +2867,22 @@ export default function MapScreen() {
               (submitError?.code === 'ERR_NETWORK' ||
                 submitError?.code === 'ECONNABORTED' ||
                 submitError?.message?.toLowerCase().includes('network'));
-            if (!isNetworkFailure) {
+            const isServerError = Number(submitError?.response?.status) >= 500;
+            if (!isNetworkFailure && !isServerError) {
               throw submitError;
             }
             offlineSubmission = true;
             console.warn('[SaveLifecycle] SAVE_API_FAILED', {
               runId: runIdRef.current,
               message: submitError?.message ?? 'Unknown upload error',
+              isServerError,
             });
-            console.warn('[MapScreen] Network unavailable; queuing workout locally:', submitError?.message || submitError);
+            console.warn(
+              isServerError
+                ? '[MapScreen] Server error (HTTP 5xx); queuing workout locally for retry:'
+                : '[MapScreen] Network unavailable; queuing workout locally:',
+              submitError?.message || submitError,
+            );
           }
 
           if (offlineSubmission) {
