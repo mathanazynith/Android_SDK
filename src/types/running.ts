@@ -89,6 +89,8 @@ export interface ActivitySubmissionPayload {
   split_distance_m: number;
   avg_pace: number;
   pace_seconds_per_km: number;
+  total_steps?: number;
+  steps_per_minute?: ActivityStepsPerMinutePayload[];
   laps?: ActivityLapPayload[];
   lap_events?: ActivityLapEventPayload[];
   segments?: ActivitySegmentPayload[];
@@ -98,9 +100,18 @@ export interface ActivitySubmissionPayload {
   paused_time_s?: number;
 }
 
+export interface ActivityStepsPerMinutePayload {
+  interval_number: number;
+  start_time: string;
+  end_time: string;
+  step_count: number;
+  active_duration_s: number;
+}
+
 export interface ActivityLapEventPayload {
   event_number: number;
   timestamp: string;
+  manual_lap_number?: number;
   split_number?: number;
   distance_m?: number;
   time_s?: number;

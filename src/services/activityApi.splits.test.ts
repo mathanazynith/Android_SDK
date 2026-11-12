@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ACTIVITY_HISTORY_FIELDS, normalizeActivitySplits, normalizeHistoryPage } from './activityApi';
+import { normalizeActivitySubmissionPayload } from './runningApi';
+import type { ActivitySubmissionPayload } from '../types/running';
 
 vi.mock('../../service/storage', () => ({
   storage: {
@@ -11,6 +13,25 @@ vi.mock('../../service/storage', () => ({
 }));
 
 describe('normalizeActivitySplits', () => {
+  it('repartitions oversized backend splits even when a segment has multiple split rows', () => {
+    const result = normalizeActivitySplits({
+      segments: [{
+        sequence: 1,
+        type: 'RUN',
+        completed_distance_m: 1360,
+        actual_time_s: 442,
+        splits: [
+          { split_number: 1, distance_m: 80, time_s: 20, pace_s_per_km: 250 },
+          { split_number: 2, distance_m: 120, time_s: 38, pace_s_per_km: 316.67 },
+          { split_number: 3, distance_m: 1160, time_s: 384, pace_s_per_km: 331.03 },
+        ],
+      }],
+    });
+
+    expect(result.segments[0]?.splits.map((split) => split.distance_m)).toEqual([1000, 360]);
+    expect(result.segments[0]?.splits.reduce((total, split) => total + split.time_s, 0)).toBeCloseTo(442, 5);
+  });
+
   it('creates 1 km splits for segments above 1 km and preserves single split for segments under 1 km', () => {
     const metresToLongitude = (metres: number) => metres / (6_371_000 * Math.PI / 180);
     const point = (metres: number, seconds: number) => ({
@@ -138,7 +159,7 @@ describe('normalizeActivitySplits', () => {
     expect(manualLapSplit?.pace_s_per_km).toBeCloseTo(333.333, 3);
   });
 
-  it('records a short manual lap and gives the remaining manual lap one matching split', () => {
+  it('records a short manual lap and splits a longer manual lap at 1 km', () => {
     const result = normalizeActivitySplits({
       activity_type: 'WALK',
       split_distance_m: 1000,
@@ -171,7 +192,7 @@ describe('normalizeActivitySplits', () => {
     expect(result.laps[0]?.distance_m).toBe(15);
     expect(result.laps[0]?.splits?.map((split) => split.distance_m)).toEqual([15]);
     expect(result.laps[1]?.distance_m).toBe(1985);
-    expect(result.laps[1]?.splits?.map((split) => split.distance_m)).toEqual([1985]);
+    expect(result.laps[1]?.splits?.map((split) => split.distance_m)).toEqual([1000, 985]);
   });
 
   it('creates a separate remainder lap after one short manual lap', () => {
@@ -195,8 +216,8 @@ describe('normalizeActivitySplits', () => {
     expect(result.laps[0]?.distance_m).toBe(15);
     expect(result.laps[0]?.splits?.map((split) => split.distance_m)).toEqual([15]);
     expect(result.laps[1]?.distance_m).toBe(1985);
-    expect(result.laps[1]?.splits?.map((split) => split.distance_m)).toEqual([1985]);
-    expect(result.laps[1]?.splits?.map((split) => split.split_number)).toEqual([1]);
+    expect(result.laps[1]?.splits?.map((split) => split.distance_m)).toEqual([1000, 985]);
+    expect(result.laps[1]?.splits?.map((split) => split.split_number)).toEqual([1, 2]);
   });
 
   it('uses saved manual events over an aggregate backend lap and segment splits', () => {
@@ -252,6 +273,7 @@ describe('normalizeActivitySplits', () => {
         {
           event_number: 2,
           split_number: 2,
+          manual_lap_number: 2,
           timestamp: '2026-11-10T05:57:00Z',
           distance_m: 3000,
           time_s: 900,
@@ -263,8 +285,30 @@ describe('normalizeActivitySplits', () => {
     expect(result.laps.map((lap) => lap.distance_m)).toEqual([700, 3000]);
     expect(result.laps.map((lap) => lap.splits?.map((split) => split.distance_m))).toEqual([
       [700],
-      [3000],
+      [1000, 1000, 1000],
     ]);
+  });
+
+  it('splits a 1.16 km manual lap into a full kilometre and remainder using its manual lap number', () => {
+    const result = normalizeActivitySplits({
+      activity_type: 'RUN',
+      distance_meters: 1160,
+      moving_time_s: 445,
+      lap_events: [{
+        event_number: 3,
+        manual_lap_number: 3,
+        split_number: 1,
+        timestamp: '2026-11-12T08:45:02.416Z',
+        distance_m: 1160,
+        time_s: 445,
+        pace_s_per_km: 445 / 1.16,
+      }],
+    });
+
+    expect(result.laps[0]?.label).toBe('Lap 3');
+    expect(result.laps[0]?.splits?.map((split) => split.split_number)).toEqual([1, 2]);
+    expect(result.laps[0]?.splits?.map((split) => split.distance_m)).toEqual([1000, 160]);
+    expect(result.laps[0]?.splits?.reduce((total, split) => total + split.time_s, 0)).toBeCloseTo(445, 5);
   });
 
   it('keeps a second 700m manual lap separate from a dynamic remainder lap', () => {
@@ -295,9 +339,9 @@ describe('normalizeActivitySplits', () => {
     expect(result.laps.map((lap) => lap.splits?.map((split) => split.distance_m))).toEqual([
       [15],
       [700],
-      [1285],
+      [1000, 285],
     ]);
-    expect(result.laps[2]?.splits?.map((split) => split.split_number)).toEqual([1]);
+    expect(result.laps[2]?.splits?.map((split) => split.split_number)).toEqual([1, 2]);
   });
 
   it('creates 1 km splits from saved segment distance and time when GPS splits are unavailable', () => {
@@ -324,6 +368,50 @@ describe('normalizeActivitySplits', () => {
     expect(result.segments[0]?.type).toBe('WALK');
     expect(result.segments[0]?.splits[0]?.distance_m).toBe(620);
     expect(result.segments[0]?.splits[0]?.time_s).toBe(420);
+  });
+
+  it('preserves manual lap events when normalizing an interval workout payload', () => {
+    const payload: ActivitySubmissionPayload = {
+      gps_points: [],
+      start_time: '2026-11-12T08:44:52.416Z',
+      end_time: '2026-11-12T08:45:02.416Z',
+      moving_time: 10,
+      elapsed_time: 10,
+      moving_time_s: 10,
+      elapsed_time_s: 10,
+      activity_type: 'RUN',
+      distance: 3,
+      distance_meters: 3,
+      workout_distance_meters: 3,
+      additional_distance_meters: 0,
+      total_distance_meters: 3,
+      split_distance_m: 1000,
+      avg_pace: 3333.33,
+      pace_seconds_per_km: 3333.33,
+      segments: [{
+        sequence: 1,
+        type: 'RUN',
+        planned_distance_m: 0,
+        planned_time_s: 0,
+        completed_distance_m: 3,
+        actual_time_s: 10,
+        actual_pace_s_per_km: 3333.33,
+        gps_points: [],
+      }],
+      lap_events: [{
+        event_number: 3,
+        manual_lap_number: 3,
+        split_number: 1,
+        timestamp: '2026-11-12T08:45:02.416Z',
+        distance_m: 3,
+        time_s: 10,
+        pace_s_per_km: 3333.33,
+      }],
+    };
+
+    const normalized = normalizeActivitySubmissionPayload(payload);
+
+    expect(normalized.lap_events).toEqual(payload.lap_events);
   });
 
   it('keeps timestamp-only lap events visible as laps without inventing distance', () => {

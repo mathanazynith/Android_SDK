@@ -26,6 +26,7 @@ export const normalizeActivitySubmissionPayload = (
       ...activity,
       laps,
       segments,
+      ...(lap_events ? { lap_events } : {}),
     };
   }
 

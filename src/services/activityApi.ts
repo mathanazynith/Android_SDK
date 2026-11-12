@@ -229,7 +229,10 @@ const normalizeLapRecords = (
     if (!event || typeof event !== 'object') return [];
     const item = event as Record<string, unknown>;
     const eventTimestamp = parseTimestamp(item.timestamp ?? item.ended_at);
-    const sequence = Math.max(1, Math.floor(toNumber(item.split_number ?? item.event_number ?? item.sequence, index + 1)));
+    const sequence = Math.max(1, Math.floor(toNumber(
+      item.manual_lap_number ?? item.split_number ?? item.event_number ?? item.sequence,
+      index + 1,
+    )));
     const distance = optionalNumber(item.distance_m, item.distance_meters, item.distance)
       ?? (eventTimestamp !== null && previousBoundary !== null
         ? distanceBetweenPoints(points, previousBoundary, eventTimestamp)
@@ -402,18 +405,6 @@ const createSplitsFromDistanceAndTime = (
   return splits;
 };
 
-const createSingleLapSplit = (distanceMeters: number, timeSeconds: number): ActivitySplit[] => {
-  if (!Number.isFinite(distanceMeters) || distanceMeters <= 0 || !Number.isFinite(timeSeconds) || timeSeconds < 0) {
-    return [];
-  }
-  return [{
-    split_number: 1,
-    distance_m: distanceMeters,
-    time_s: timeSeconds,
-    pace_s_per_km: timeSeconds / (distanceMeters / 1000),
-  }];
-};
-
 const normalizeSegment = (value: unknown, index: number): ActivitySegmentSplits | null => {
   if (!value || typeof value !== 'object') return null;
   const segment = value as Record<string, unknown>;
@@ -474,7 +465,7 @@ export const normalizeActivitySplits = (activity: unknown): {
         if (!event || typeof event !== 'object') return null;
         const lapEvent = event as Record<string, unknown>;
         return normalizeSplit({
-          split_number: lapEvent.split_number ?? lapEvent.event_number ?? index + 1,
+          split_number: lapEvent.split_number ?? lapEvent.manual_lap_number ?? lapEvent.event_number ?? index + 1,
           distance_m: lapEvent.distance_m,
           time_s: lapEvent.time_s,
           pace_s_per_km: lapEvent.pace_s_per_km,
@@ -531,7 +522,7 @@ export const normalizeActivitySplits = (activity: unknown): {
       });
 
     let segmentSplits = segmentSplitsAreManual ? [] : segment.splits;
-    if (segmentSplits.length === 1 && segmentSplits[0].distance_m > splitDistanceMeters) {
+    if (segmentSplits.some((split) => split.distance_m > splitDistanceMeters)) {
       segmentSplits = repartitionSplits(segmentSplits, splitDistanceMeters);
     } else if (segmentSplits.length === 0) {
       if (gpsSplits.length > 0) {
@@ -626,10 +617,8 @@ export const normalizeActivitySplits = (activity: unknown): {
 
     let lapSplits: ActivitySplit[] = [];
     if (isManualLap) {
-      // Manual button presses define lap boundaries, so each lap's single
-      // split must match that exact dynamic lap distance (e.g. 700m or 3km).
       if (lap.distance_m !== undefined && lap.time_s !== undefined) {
-        lapSplits = createSingleLapSplit(lap.distance_m, lap.time_s);
+        lapSplits = createSplitsFromDistanceAndTime(lap.distance_m, lap.time_s, splitDistanceMeters);
       }
     } else if (lap.segment_sequence !== undefined && segment?.splits.length) {
       lapSplits = segment.splits;
@@ -672,9 +661,11 @@ export const normalizeActivitySplits = (activity: unknown): {
             activityEnd,
           ))
         : 0;
-    const remainderSplits = manualLaps.length > 0
-      ? createSingleLapSplit(remainingDistance, remainderTime)
-      : createSplitsFromDistanceAndTime(remainingDistance, remainderTime, splitDistanceMeters);
+    const remainderSplits = createSplitsFromDistanceAndTime(
+      remainingDistance,
+      remainderTime,
+      splitDistanceMeters,
+    );
 
     if (remainingDistance > 0.5) {
       const segment = segments.find((candidate) => candidate.type === 'RUN' || candidate.type === 'WALK')
