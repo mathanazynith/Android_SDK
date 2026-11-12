@@ -594,6 +594,23 @@ export const normalizeActivitySplits = (activity: unknown): {
       }
     }
 
+    if (targetDistance && targetDistance > 0 && segmentSplits.length > 0) {
+      const completedBeforeLast = segmentSplits.slice(0, -1).reduce((total, split) => total + split.distance_m, 0);
+      const remainingTargetDistance = targetDistance - completedBeforeLast;
+      if (remainingTargetDistance > 0) {
+        const lastSplit = segmentSplits[segmentSplits.length - 1];
+        const lastSplitTime = targetTime && targetTime > 0
+          ? Math.max(0, targetTime - segmentSplits.slice(0, -1).reduce((total, split) => total + split.time_s, 0))
+          : lastSplit.time_s;
+        segmentSplits[segmentSplits.length - 1] = {
+          ...lastSplit,
+          distance_m: remainingTargetDistance,
+          time_s: lastSplitTime,
+          pace_s_per_km: remainingTargetDistance > 0 ? lastSplitTime / (remainingTargetDistance / 1000) : lastSplit.pace_s_per_km,
+        };
+      }
+    }
+
     const splitDistance = segmentSplits.reduce((total, split) => total + split.distance_m, 0);
     const splitTime = segmentSplits.reduce((total, split) => total + split.time_s, 0);
 

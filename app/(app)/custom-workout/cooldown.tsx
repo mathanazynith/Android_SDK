@@ -481,19 +481,6 @@ export default function Cooldown() {
                 : calculatedDurationInfo.text}
             </Text>
           </View>
-
-          {/* Notes (Optional) */}
-          <Text style={styles.sectionLabel}>NOTES (OPTIONAL)</Text>
-          <View style={styles.section}>
-            <TextInput
-              value={notes}
-              onChangeText={setNotes}
-              placeholder="e.g. Gentle walk, light stretching"
-              placeholderTextColor={colors.placeholder}
-              style={[styles.input, styles.notesInput]}
-              multiline
-            />
-          </View>
         </ScrollView>
       </KeyboardAvoidingView>
 

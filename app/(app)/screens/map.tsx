@@ -2798,11 +2798,9 @@ export default function MapScreen() {
           split_distance_m: SPLIT_DISTANCE_METERS,
           avg_pace: Number(paceSecondsPerKm.toFixed(2)),
           pace_seconds_per_km: Number(paceSecondsPerKm.toFixed(2)),
-          // Keep interval metadata out of regular activities. The API uses
-          // these fields to distinguish planned interval workouts from free runs.
-          ...(isIntervalWorkout
-            ? { laps, segments: segmentPayloads }
-            : { lap_events: effectiveLapEvents }),
+          // Always send lap_events matching the backend schema
+          lap_events: effectiveLapEvents,
+          ...(isIntervalWorkout ? { laps, segments: segmentPayloads } : {}),
           extra: extraPayload,
           pause_events: pauseEventPayload,
           pause_count: pauseEventPayload.length,
@@ -2882,7 +2880,7 @@ export default function MapScreen() {
                 submitError?.message?.toLowerCase().includes('network') ||
                 submitError?.message?.toLowerCase().includes('timeout') ||
                 submitError?.message?.toLowerCase().includes('abort'));
-            if (!isNetworkFailure) {
+            if (!isNetworkFailure || isIntervalWorkout) {
               throw submitError;
             }
             offlineSubmission = true;

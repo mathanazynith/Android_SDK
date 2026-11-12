@@ -547,4 +547,27 @@ describe('activity history elevation metrics', () => {
     expect(splits[1].distance_m).toBe(500); // 0.50 km (scaled to complete 1500m)
     expect(splits[0].distance_m + splits[1].distance_m).toBe(1500);
   });
+
+  it('reconciles existing backend splits so final split matches completed segment distance', () => {
+    const result = normalizeActivitySplits({
+      segments: [{
+        sequence: 1,
+        type: 'RUN',
+        planned_distance_m: 1500,
+        completed_distance_m: 1500,
+        actual_time_s: 548,
+        splits: [
+          { split_number: 1, distance_m: 1000, time_s: 371, pace_s_per_km: 371 },
+          { split_number: 2, distance_m: 480, time_s: 177, pace_s_per_km: 368.75 },
+        ],
+      }],
+    });
+
+    expect(result.segments).toHaveLength(1);
+    const splits = result.segments[0].splits;
+    expect(splits).toHaveLength(2);
+    expect(splits[0].distance_m).toBe(1000);
+    expect(splits[1].distance_m).toBe(500); // 480m reconciled to 500m
+    expect(splits[0].distance_m + splits[1].distance_m).toBe(1500);
+  });
 });

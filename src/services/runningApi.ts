@@ -21,14 +21,6 @@ export const normalizeActivitySubmissionPayload = (
   const { laps, segments, lap_events, ...activity } = payload;
   const hasIntervalStructure = Boolean(laps?.length || segments?.length);
 
-  if (hasIntervalStructure) {
-    return {
-      ...activity,
-      laps,
-      segments,
-    };
-  }
-
   const endTimeMs = activity.end_time ? new Date(activity.end_time).getTime() : 0;
   const cleanLapEvents = (lap_events ?? [])
     .filter((event) => {
@@ -42,7 +34,8 @@ export const normalizeActivitySubmissionPayload = (
 
   return {
     ...activity,
-    ...(cleanLapEvents.length > 0 ? { lap_events: cleanLapEvents } : {}),
+    lap_events: cleanLapEvents,
+    ...(hasIntervalStructure ? { laps, segments } : {}),
   };
 };
 

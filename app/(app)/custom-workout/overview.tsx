@@ -299,6 +299,7 @@ function StepCard({
   const profileUnit: DistanceUnitType = getDistanceUnitCode(user?.profile?.distance_unit) === "mile" ? "mi" : "km";
 
   const openStep = () => {
+    if (!editable) return;
     if (onSelect) {
       onSelect();
     } else {
@@ -378,9 +379,9 @@ function StepCard({
 
   return (
     <TouchableOpacity
-      activeOpacity={isReordering ? 1 : editable ? 0.88 : 1}
-      onPress={isReordering ? undefined : openStep}
-      onLongPress={onLongPress}
+      activeOpacity={isReordering || !editable ? 1 : 0.88}
+      onPress={isReordering || !editable ? undefined : openStep}
+      onLongPress={editable ? onLongPress : undefined}
       style={[
         styles.stepCard,
         editable && selected && styles.selectedCard,
