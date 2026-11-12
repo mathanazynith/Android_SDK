@@ -95,6 +95,7 @@ export class RunningApiClient {
       // The API must persist this key and return the original result for retries
       // to guarantee one History row after an ambiguous timeout.
       response = await api.post(ACTIVITY_UPLOAD_PATH, submissionPayload, {
+        timeout: 60000,
         headers: {
           'Content-Type': 'application/json',
           ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),

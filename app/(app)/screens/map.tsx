@@ -45,6 +45,7 @@ import {
   removePendingWorkoutRecovery,
 } from '../../../src/services/pendingWorkoutRecoveries';
 import { RunningApiClient } from '../../../src/services/runningApi';
+import { getBackendErrorMessage } from '../../../service/api';
 import { DistanceSplitEngine, type CompletedLiveSplit } from '../../../src/services/splitEngine';
 import { StepDetectionService } from '../../../src/services/stepDetectionService';
 import voiceCoach from '../../../src/services/voiceCoach';
@@ -2863,10 +2864,13 @@ export default function MapScreen() {
             }
           } catch (submitError: any) {
             const isNetworkFailure =
-              !submitError?.response &&
-              (submitError?.code === 'ERR_NETWORK' ||
-                submitError?.code === 'ECONNABORTED' ||
-                submitError?.message?.toLowerCase().includes('network'));
+              !submitError?.response ||
+              submitError?.code === 'ERR_NETWORK' ||
+              submitError?.code === 'ECONNABORTED' ||
+              submitError?.code === 'ETIMEDOUT' ||
+              submitError?.message?.toLowerCase().includes('network') ||
+              submitError?.message?.toLowerCase().includes('timeout') ||
+              submitError?.message?.toLowerCase().includes('abort');
             const isServerError = Number(submitError?.response?.status) >= 500;
             if (!isNetworkFailure && !isServerError) {
               throw submitError;
@@ -2880,7 +2884,7 @@ export default function MapScreen() {
             console.warn(
               isServerError
                 ? '[MapScreen] Server error (HTTP 5xx); queuing workout locally for retry:'
-                : '[MapScreen] Network unavailable; queuing workout locally:',
+                : '[MapScreen] Network unavailable or upload timed out; queuing workout locally:',
               submitError?.message || submitError,
             );
           }
@@ -3041,17 +3045,15 @@ export default function MapScreen() {
         Alert.alert(completionTitle, completionMessage);
       }
     } catch (error: any) {
-      const backendData = error?.response?.data;
       const responseStatus = Number(error?.response?.status);
       const backendMessage = responseStatus >= 500
         ? `The server could not process this activity (HTTP ${responseStatus}). Your workout is still available; try saving again later.`
-        : typeof backendData === 'string'
-          ? (/<!doctype\s+html|<html\b/i.test(backendData)
-            ? 'The server returned an unreadable error page. Your workout is still available; please try again.'
-            : backendData)
-          : backendData?.message
-            ?? backendData?.detail
-            ?? (backendData && typeof backendData === 'object' ? JSON.stringify(backendData) : null);
+        : getBackendErrorMessage(
+            error,
+            error?.message?.toLowerCase().includes('timeout')
+              ? 'The upload timed out while sending your route data. Your workout is still available; please try again.'
+              : 'Could not connect to the server. Your workout is still available; please try again.'
+          );
       console.error('[SaveLifecycle] ACTIVITY_SAVE_FAILED', {
         status: Number.isFinite(responseStatus) ? responseStatus : null,
         message: backendMessage ?? error?.message ?? 'Unknown save error',
