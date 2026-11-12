@@ -202,6 +202,10 @@ export const offlineWorkoutQueue = {
         }
         lastError = errorMsg;
         console.warn(`[OfflineWorkoutQueue] Sync failed for workout ${item.id}:`, errorMsg);
+        if (error?.response?.status && error.response.status >= 400) {
+          console.warn(`[OfflineWorkoutQueue] Removing permanently failing workout ${item.id} from queue (status ${error.response.status})`);
+          await this.remove(item.id);
+        }
         // If it's a network error, stop trying further items right now
         const isNetwork =
           !error?.response ||

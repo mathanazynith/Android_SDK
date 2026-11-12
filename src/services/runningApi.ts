@@ -21,10 +21,28 @@ export const normalizeActivitySubmissionPayload = (
   const { laps, segments, lap_events, ...activity } = payload;
   const hasIntervalStructure = Boolean(laps?.length || segments?.length);
 
+  if (hasIntervalStructure) {
+    return {
+      ...activity,
+      laps,
+      segments,
+    };
+  }
+
+  const endTimeMs = activity.end_time ? new Date(activity.end_time).getTime() : 0;
+  const cleanLapEvents = (lap_events ?? [])
+    .filter((event) => {
+      const eventTimeMs = event?.timestamp ? new Date(event.timestamp).getTime() : 0;
+      return eventTimeMs > 0 && (endTimeMs === 0 || eventTimeMs < endTimeMs - 1000);
+    })
+    .map((event, index) => ({
+      event_number: index + 1,
+      timestamp: event.timestamp,
+    }));
+
   return {
     ...activity,
-    lap_events: lap_events ?? [],
-    ...(hasIntervalStructure ? { laps, segments } : {}),
+    ...(cleanLapEvents.length > 0 ? { lap_events: cleanLapEvents } : {}),
   };
 };
 
