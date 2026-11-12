@@ -18,20 +18,13 @@ const createRunId = (): string =>
 export const normalizeActivitySubmissionPayload = (
   payload: ActivitySubmissionPayload,
 ): ActivitySubmissionPayload => {
-  const hasIntervalStructure = Boolean(payload.laps?.length || payload.segments?.length);
   const { laps, segments, lap_events, ...activity } = payload;
-
-  if (hasIntervalStructure) {
-    return {
-      ...activity,
-      laps,
-      segments,
-    };
-  }
+  const hasIntervalStructure = Boolean(laps?.length || segments?.length);
 
   return {
     ...activity,
-    ...(lap_events ? { lap_events } : {}),
+    lap_events: lap_events ?? [],
+    ...(hasIntervalStructure ? { laps, segments } : {}),
   };
 };
 

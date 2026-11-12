@@ -2787,11 +2787,19 @@ export default function MapScreen() {
           split_distance_m: SPLIT_DISTANCE_METERS,
           avg_pace: Number(paceSecondsPerKm.toFixed(2)),
           pace_seconds_per_km: Number(paceSecondsPerKm.toFixed(2)),
-          // Keep interval metadata out of regular activities. The API uses
-          // these fields to distinguish planned interval workouts from free runs.
-          ...(isIntervalWorkout
-            ? { laps, segments: segmentPayloads }
-            : { lap_events: lapEventsRef.current }),
+          lap_events: lapEventsRef.current.length > 0
+            ? lapEventsRef.current
+            : completedLaps
+                .filter((lap) => lap.completedAt !== null)
+                .map((lap, index) => ({
+                  event_number: index + 1,
+                  timestamp: new Date(lap.completedAt!).toISOString(),
+                  split_number: index + 1,
+                  distance_m: lap.distanceMeters,
+                  time_s: lap.elapsedSeconds,
+                  pace_s_per_km: lap.distanceMeters > 0 ? lap.elapsedSeconds / (lap.distanceMeters / 1000) : 0,
+                })),
+          ...(isIntervalWorkout ? { laps, segments: segmentPayloads } : {}),
           extra: extraPayload,
           pause_events: pauseEventPayload,
           pause_count: pauseEventPayload.length,
