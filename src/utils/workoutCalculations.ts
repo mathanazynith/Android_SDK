@@ -283,18 +283,13 @@ export const calculateTwoFields = ({
 
 export const cleanPaceString = (paceStr?: string | null): string | null => {
   if (!paceStr) return null;
-  const matches = [...paceStr.matchAll(/(\d+)\s*:\s*(\d+(?:\.\d+)?)/g)];
-  if (!matches || matches.length === 0) return null;
-  if (matches.length >= 2) {
-    const min1 = parseInt(matches[0][1], 10);
-    const sec1 = matches[0][2].padStart(2, "0");
-    const min2 = parseInt(matches[1][1], 10);
-    const sec2 = matches[1][2].padStart(2, "0");
-    return `${min1}:${sec1} - ${min2}:${sec2}`;
-  }
-  const min = parseInt(matches[0][1], 10);
-  const sec = matches[0][2].padStart(2, "0");
-  return `${min}:${sec}`;
+  const match = paceStr.match(/(\d+)\s*:\s*(\d+(?:\.\d+)?)/);
+  if (!match) return null;
+  const min = parseInt(match[1], 10);
+  const sec = Math.round(parseFloat(match[2]) || 0);
+  const result = `${min}:${String(sec).padStart(2, "0")}`;
+  // Ensure the pace string strictly fits within backend CharField(max_length=10)
+  return result.length <= 10 ? result : result.slice(0, 10);
 };
 
 /**

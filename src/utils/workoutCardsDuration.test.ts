@@ -104,15 +104,17 @@ const calculateCardsDuration = (item: UserWorkoutResponse) => {
 };
 
 describe("cleanPaceString", () => {
-  it("preserves pace range like '04:30 - 05:30'", () => {
-    expect(cleanPaceString("04:30 - 05:30")).toBe("4:30 - 5:30");
-    expect(cleanPaceString("4:30-5:30")).toBe("4:30 - 5:30");
-    expect(cleanPaceString("05:00 - 06:00 /km")).toBe("5:00 - 6:00");
+  it("cleans pace range to primary target pace fitting within 10 characters", () => {
+    expect(cleanPaceString("04:30 - 05:30")).toBe("4:30");
+    expect(cleanPaceString("4:30-5:30")).toBe("4:30");
+    expect(cleanPaceString("05:00 - 06:00 /km")).toBe("5:00");
+    expect(cleanPaceString("04:30 - 05:30")!.length).toBeLessThanOrEqual(10);
   });
 
-  it("handles single pace correctly", () => {
+  it("handles single pace correctly within 10 characters", () => {
     expect(cleanPaceString("05:00")).toBe("5:00");
     expect(cleanPaceString("4:30 /km")).toBe("4:30");
+    expect(cleanPaceString("05:00")!.length).toBeLessThanOrEqual(10);
   });
 
   it("returns null for empty/invalid inputs", () => {
