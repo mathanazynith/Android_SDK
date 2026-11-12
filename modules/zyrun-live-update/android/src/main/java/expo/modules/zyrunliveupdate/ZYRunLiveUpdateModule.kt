@@ -85,12 +85,17 @@ class ZYRunLiveUpdateModule : Module() {
     val distanceKm = (data["distanceKm"] as? Number)?.toDouble()?.coerceAtLeast(0.0) ?: 0.0
     val elapsedSeconds = (data["elapsedSeconds"] as? Number)?.toDouble()?.coerceAtLeast(0.0) ?: 0.0
     val paceMinutesPerKm = (data["paceMinutesPerKm"] as? Number)?.toDouble() ?: 0.0
+    val distanceUnit = (data["distanceUnit"] as? String)?.lowercase() ?: "km"
+    val isMiles = distanceUnit == "mile"
+    val displayDistance = if (isMiles) distanceKm / 1.609344 else distanceKm
+    val displayPace = if (isMiles) paceMinutesPerKm * 1.609344 else paceMinutesPerKm
     val startedAtMs = (data["startedAtMs"] as? Number)?.toLong() ?: System.currentTimeMillis()
     val messageTitle = data["messageTitle"] as? String
     val messageBody = data["messageBody"] as? String
 
     val title = messageTitle ?: if (status == "paused") "ZYRun · Paused" else "ZYRun · Running"
-    val text = messageBody ?: "${formatDuration(elapsedSeconds)} · ${String.format(Locale.US, "%.2f", distanceKm)} km · ${formatPace(paceMinutesPerKm)}/km"
+    val unitLabel = if (isMiles) "mi" else "km"
+    val text = messageBody ?: "${formatDuration(elapsedSeconds)} · ${String.format(Locale.US, "%.2f", displayDistance)} $unitLabel · ${formatPace(displayPace)}/$unitLabel"
     val launchIntent = createRunIntent(context, runId, null) ?: return false
     val builder = Notification.Builder.recoverBuilder(context, activeNotification.notification)
       .setSmallIcon(notificationIcon)
@@ -112,7 +117,7 @@ class ZYRunLiveUpdateModule : Module() {
 
     if (Build.VERSION.SDK_INT >= 36) {
       builder
-        .setShortCriticalText(formatDistanceChip(distanceKm))
+        .setShortCriticalText(formatDistanceChip(displayDistance, isMiles))
         .addExtras(Bundle().apply {
           putBoolean("android.requestPromotedOngoing", true)
         })
@@ -253,8 +258,10 @@ class ZYRunLiveUpdateModule : Module() {
     return String.format(Locale.US, "%d:%02d", wholeMinutes, seconds)
   }
 
-  private fun formatDistanceChip(distanceKm: Double): String =
-    if (distanceKm < 10) String.format(Locale.US, "%.1fk", distanceKm) else "${distanceKm.toInt()}k"
+  private fun formatDistanceChip(distance: Double, isMiles: Boolean): String {
+    val suffix = if (isMiles) "mi" else "k"
+    return if (distance < 10) String.format(Locale.US, "%.1f%s", distance, suffix) else "${distance.toInt()}$suffix"
+  }
 
   private companion object {
     const val TAG = "ZYRunLiveUpdate"

@@ -1,12 +1,14 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { dismissNativeRunNotification, updateNativeRunNotification } from '../../modules/zyrun-live-update';
+import { storage } from '../../service/storage';
+import { getDistanceUnitCode } from '../../utils/distanceUnit';
 
 /** Reserved ID for the one native Android workout foreground notification. */
 export const WORKOUT_FOREGROUND_NOTIFICATION_ID = 1001;
 // Bump the channel ID when changing importance: Android keeps a channel's
 // original importance and ignores attempts to raise it in place.
-export const LIVE_TRACKING_CHANNEL_ID = 'zyrun-live-tracking-v2';
+export const LIVE_TRACKING_CHANNEL_ID = 'zyrun-live-tracking-v3';
 export const LIVE_TRACKING_ROUTE = '/(app)/screens/map';
 export const LIVE_TRACKING_STOP_ACTION = 'zyrun-stop';
 export const LIVE_TRACKING_PAUSE_ACTION = 'zyrun-pause';
@@ -19,9 +21,12 @@ export type LiveTrackingMetrics = {
   paceMinutesPerKm: number;
   status: 'running' | 'paused';
   startedAt?: string | number | null;
+  distanceUnit?: 'km' | 'mile';
 };
 
 let configured = false;
+let liveTrackingActive = false;
+let authExitSuppressed = false;
 let updateQueue: Promise<void> = Promise.resolve();
 let generation = 0;
 let lastPublishedDistanceKm: number | null = null;
@@ -43,10 +48,26 @@ const formatTime = (totalSeconds: number): string => {
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 };
 
-const notificationBody = (metrics: LiveTrackingMetrics): string => [
-  `Distance: ${metrics.distanceKm.toFixed(2)} km`,
-  `Pace: ${formatPace(metrics.paceMinutesPerKm)} /km`,
-].join('  |  ');
+const getDistanceUnit = async (metrics: LiveTrackingMetrics): Promise<'km' | 'mile'> => {
+  if (metrics.distanceUnit) return metrics.distanceUnit;
+  try {
+    const rawUser = await storage.getItem(storage.KEYS.USER);
+    const user = rawUser ? JSON.parse(rawUser) as { profile?: { distance_unit?: string | null } } : null;
+    return getDistanceUnitCode(user?.profile?.distance_unit);
+  } catch {
+    return 'km';
+  }
+};
+
+const notificationBody = (metrics: LiveTrackingMetrics, distanceUnit: 'km' | 'mile'): string => {
+  const isMiles = distanceUnit === 'mile';
+  const distance = isMiles ? metrics.distanceKm / 1.609344 : metrics.distanceKm;
+  const paceMinutes = isMiles ? metrics.paceMinutesPerKm * 1.609344 : metrics.paceMinutesPerKm;
+  return [
+    `Distance: ${distance.toFixed(2)} ${isMiles ? 'mi' : 'km'}`,
+    `Pace: ${formatPace(paceMinutes)} /${isMiles ? 'mi' : 'km'}`,
+  ].join('  |  ');
+};
 
 const getStartTimestamp = (metrics: LiveTrackingMetrics): number => {
   if (typeof metrics.startedAt === 'number' && Number.isFinite(metrics.startedAt)) return metrics.startedAt;
@@ -64,10 +85,9 @@ export async function configureLiveTrackingNotifications(): Promise<boolean> {
   await Notifications.setNotificationChannelAsync(LIVE_TRACKING_CHANNEL_ID, {
     name: 'Live workout metrics',
     description: 'Time, distance, and pace while a workout is active.',
-    // The fallback notification uses this channel on Android versions where
-    // the native ongoing-notification update is unavailable. HIGH is needed
-    // for heads-up presentation; sound and vibration remain disabled below.
-    importance: Notifications.AndroidImportance.HIGH,
+    // Keep metric refreshes in the notification shade without creating
+    // heads-up interruptions when a run starts or its metrics update.
+    importance: Notifications.AndroidImportance.DEFAULT,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     sound: null,
     enableVibrate: false,
@@ -84,13 +104,15 @@ export async function configureLiveTrackingNotifications(): Promise<boolean> {
 }
 
 const publish = async (metrics: LiveTrackingMetrics, currentGeneration: number): Promise<void> => {
-  if (currentGeneration !== generation || !(await configureLiveTrackingNotifications())) return;
+  if (!liveTrackingActive || currentGeneration !== generation || !(await configureLiveTrackingNotifications())) return;
+  const distanceUnit = await getDistanceUnit(metrics);
   if (Platform.OS === 'android') {
     const updatedNativeNotification = updateNativeRunNotification({
       runId: metrics.runId ?? null,
       distanceKm: metrics.distanceKm,
       elapsedSeconds: metrics.elapsedSeconds ?? 0,
       paceMinutesPerKm: metrics.paceMinutesPerKm,
+      distanceUnit,
       status: metrics.status,
       startedAtMs: getStartTimestamp(metrics),
     });
@@ -107,7 +129,7 @@ const publish = async (metrics: LiveTrackingMetrics, currentGeneration: number):
 
   const content = ({
     title: 'Zy-Run  |  Live workout',
-    body: notificationBody(metrics),
+    body: notificationBody(metrics, distanceUnit),
     data: { screen: LIVE_TRACKING_ROUTE, trackingActive: true },
     channelId: LIVE_TRACKING_CHANNEL_ID,
     when: getStartTimestamp(metrics),
@@ -143,14 +165,20 @@ export async function publishWorkoutSummaryNotification(
   outcome: 'saved' | 'queued' = 'saved',
 ): Promise<void> {
   generation += 1;
+  const currentGeneration = generation;
   processingMessage = null;
   updateQueue = updateQueue.then(async () => {
-    if (!(await configureLiveTrackingNotifications())) return;
+    if (authExitSuppressed || currentGeneration !== generation || !(await configureLiveTrackingNotifications())) return;
+    if (authExitSuppressed || currentGeneration !== generation) return;
+    const distanceUnit = await getDistanceUnit(metrics);
+    const isMiles = distanceUnit === 'mile';
+    const distance = isMiles ? metrics.distanceKm / 1.609344 : metrics.distanceKm;
+    const paceMinutes = isMiles ? metrics.paceMinutesPerKm * 1.609344 : metrics.paceMinutesPerKm;
     const content = ({
       title: outcome === 'queued' ? 'Workout Saved Offline' : '🎉 Workout Saved!',
       body: [
-        `Distance: ${metrics.distanceKm.toFixed(2)} km`,
-        `Pace: ${formatPace(metrics.paceMinutesPerKm)} /km`,
+        `Distance: ${distance.toFixed(2)} ${isMiles ? 'mi' : 'km'}`,
+        `Pace: ${formatPace(paceMinutes)} /${isMiles ? 'mi' : 'km'}`,
         `Time: ${formatTime(metrics.elapsedSeconds ?? 0)}`,
         ...(outcome === 'queued' ? ['Will sync when connected.'] : []),
       ].join('  •  '),
@@ -184,8 +212,46 @@ export async function publishWorkoutSummaryNotification(
   await updateQueue;
 }
 
+export async function publishWorkoutDiscardedNotification(): Promise<void> {
+  generation += 1;
+  const currentGeneration = generation;
+  processingMessage = null;
+  updateQueue = updateQueue.then(async () => {
+    if (authExitSuppressed || currentGeneration !== generation || !(await configureLiveTrackingNotifications())) return;
+    if (authExitSuppressed || currentGeneration !== generation) return;
+    const content = ({
+      title: 'Workout Discarded',
+      body: 'This workout was discarded and was not saved.',
+      data: { screen: LIVE_TRACKING_ROUTE, trackingActive: false, workoutDiscarded: true },
+      channelId: LIVE_TRACKING_CHANNEL_ID,
+      showWhen: false,
+      ongoing: false,
+      sticky: false,
+      autoDismiss: true,
+      onlyAlertOnce: true,
+      priority: Notifications.AndroidNotificationPriority.DEFAULT,
+    } as unknown) as Notifications.NotificationContentInput & { channelId: string };
+
+    await Notifications.scheduleNotificationAsync({
+      identifier: String(WORKOUT_FOREGROUND_NOTIFICATION_ID),
+      content,
+      trigger: null,
+    });
+    lastPublishedDistanceKm = null;
+    lastPublishedAt = 0;
+    lastPublishedStatus = null;
+    console.info('[NotificationLifecycle] NOTIFICATION_CREATED', {
+      status: 'discarded',
+      notificationId: WORKOUT_FOREGROUND_NOTIFICATION_ID,
+    });
+  });
+  await updateQueue;
+}
+
 export async function startLiveTrackingNotification(metrics: LiveTrackingMetrics): Promise<void> {
   generation += 1;
+  authExitSuppressed = false;
+  liveTrackingActive = true;
   processingMessage = null;
   console.info('[NotificationLifecycle] LIVE_NOTIFICATION_CREATE_REQUESTED', {
     runId: metrics.runId ?? null,
@@ -208,7 +274,7 @@ export async function startLiveTrackingNotification(metrics: LiveTrackingMetrics
 }
 
 export function updateLiveTrackingNotification(metrics: LiveTrackingMetrics): void {
-  if (processingMessage) return;
+  if (!liveTrackingActive || processingMessage) return;
   const now = Date.now();
   const distanceChanged = lastPublishedDistanceKm === null
     || Math.abs(metrics.distanceKm - lastPublishedDistanceKm) >= MIN_NOTIFICATION_DISTANCE_DELTA_KM;
@@ -228,6 +294,7 @@ export function updateLiveTrackingNotificationMessage(
   message: { title: string; body: string },
   metrics: LiveTrackingMetrics,
 ): void {
+  if (!liveTrackingActive) return;
   generation += 1;
   processingMessage = message;
   lastPublishedDistanceKm = metrics.distanceKm;
@@ -238,11 +305,13 @@ export function updateLiveTrackingNotificationMessage(
     .then(async () => {
       if (currentGeneration !== generation || !(await configureLiveTrackingNotifications())) return;
       if (Platform.OS === 'android') {
+        const distanceUnit = await getDistanceUnit(metrics);
         const updatedNativeNotification = updateNativeRunNotification({
           runId: metrics.runId ?? null,
           distanceKm: metrics.distanceKm,
           elapsedSeconds: metrics.elapsedSeconds ?? 0,
           paceMinutesPerKm: metrics.paceMinutesPerKm,
+          distanceUnit,
           status: metrics.status,
           startedAtMs: getStartTimestamp(metrics),
           messageTitle: message.title,
@@ -279,6 +348,7 @@ export function updateLiveTrackingNotificationMessage(
 
 export async function stopLiveTrackingNotification(): Promise<void> {
   generation += 1;
+  liveTrackingActive = false;
   processingMessage = null;
   lastPublishedDistanceKm = null;
   lastPublishedAt = 0;
@@ -300,4 +370,9 @@ export async function stopLiveTrackingNotification(): Promise<void> {
       }
     });
   await updateQueue;
+}
+
+export async function clearLiveTrackingNotificationForAuthExit(): Promise<void> {
+  authExitSuppressed = true;
+  await stopLiveTrackingNotification();
 }

@@ -14,6 +14,7 @@ import {
   stopBackgroundLocationTracking,
 } from "../src/services/backgroundLocationTask";
 import { clearActiveRunJournal } from "../src/services/activeRunJournal";
+import { clearLiveTrackingNotificationForAuthExit } from "../src/services/liveTrackingNotification";
 import {
   deactivateNotificationDevice,
   registerNotificationDevice,
@@ -100,10 +101,17 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const normalizeUser = (value: User | null): User | null => {
-  if (!value) return null;
+const normalizeUser = (value: unknown): User | null => {
+  if (!value || typeof value !== "object") return null;
 
-  const raw = value as User & Record<string, unknown>;
+  const raw = value as Partial<User> & Record<string, unknown>;
+  const rawId: unknown = raw.id;
+  const id = typeof rawId === "number"
+    ? rawId
+    : typeof rawId === "string" && /^\d+$/.test(rawId.trim())
+      ? Number(rawId)
+      : Number.NaN;
+  if (!Number.isSafeInteger(id) || id <= 0) return null;
   const provider = String(raw.authProvider ?? raw.auth_provider ?? raw.provider ?? '').toLowerCase();
   const explicitHasPassword = raw.hasPassword ?? raw.has_password;
   const hasPassword = typeof raw.password_setup_required === 'boolean'
@@ -112,7 +120,25 @@ const normalizeUser = (value: User | null): User | null => {
       ? explicitHasPassword
       : undefined;
 
-  return { ...value, hasPassword, authProvider: provider || undefined };
+  return { ...raw, id, hasPassword, authProvider: provider || undefined } as User;
+};
+
+const clearLiveRunState = async (reason: string) => {
+  // Invalidate updates immediately, stop the producer, then finish dismissal
+  // before clearing durable state.
+  const notificationDismissal = clearLiveTrackingNotificationForAuthExit();
+  await stopBackgroundLocationTracking().catch((error) => {
+    console.warn(`[Auth] Could not stop background tracking during ${reason}`, error);
+  });
+  await notificationDismissal.catch((error) => {
+    console.warn(`[Auth] Could not dismiss the live notification during ${reason}`, error);
+  });
+  await Promise.all([
+    clearBackgroundLocationSession(),
+    clearActiveRunJournal(),
+  ]).catch((error) => {
+    console.warn(`[Auth] Could not clear the active run during ${reason}`, error);
+  });
 };
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -155,17 +181,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (token) {
-        if (!restoredUser) {
-          restoredUser = {
-            id: 1,
-            email: '',
-            username: 'Runner',
-            first_name: '',
-            last_name: '',
-          };
-        }
         isLoggingOut.current = false;
-        setUser(restoredUser);
+        if (restoredUser) setUser(restoredUser);
 
         try {
           const response = await authAPI.getProfile();
@@ -174,6 +191,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (freshUser) {
             setUser(freshUser);
             await storeUser(freshUser);
+          } else if (!restoredUser) {
+            throw new Error('The profile response did not contain a valid user ID.');
           }
         } catch (error: any) {
           const status = error?.response?.status;
@@ -186,31 +205,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             error?.message?.toLowerCase().includes('failed');
 
           if (isNetworkError) {
-            console.log('[Auth] Offline mode detected during initialization; maintaining cached session.');
-            isLoggingOut.current = false;
-            setUser(restoredUser);
+            if (restoredUser) {
+              console.log('[Auth] Offline mode detected during initialization; maintaining cached session.');
+              isLoggingOut.current = false;
+              setUser(restoredUser);
+            } else {
+              // Keep credentials for a retry, but never invent a user identity.
+              setUser(null);
+            }
           } else if (status === 401 || status === 403) {
             await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
             await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
-            await Promise.all([
-              clearBackgroundLocationSession(),
-              stopBackgroundLocationTracking(),
-              clearActiveRunJournal(),
-            ]).catch((error) => {
-              console.warn('[Auth] Failed to clear background run after token invalidation', error);
-            });
+            await clearLiveRunState('token invalidation');
+            await storeUser(null);
+            setUser(null);
+          } else if (!restoredUser) {
+            await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
+            await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
+            await clearLiveRunState('unverified startup session');
             await storeUser(null);
             setUser(null);
           }
         }
       } else {
-        await Promise.all([
-          clearBackgroundLocationSession(),
-          stopBackgroundLocationTracking(),
-          clearActiveRunJournal(),
-        ]).catch((error) => {
-          console.warn('[Auth] Failed to clear stale background run for signed-out state', error);
-        });
+        await clearLiveRunState('signed-out startup');
         await storeUser(null);
         setUser(null);
       }
@@ -233,13 +251,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       && (currentUserId === null || previousUserId !== currentUserId);
 
     if (shouldClearLiveRun) {
-      void Promise.all([
-        clearBackgroundLocationSession(),
-        stopBackgroundLocationTracking(),
-        clearActiveRunJournal(),
-      ]).catch((error) => {
-        console.warn('[Auth] Failed to clear live run during account switch or logout', error);
-      });
+      void clearLiveRunState('account switch or logout');
     }
 
     previousUserIdRef.current = currentUserId;
@@ -280,6 +292,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await storage.setItem(storage.KEYS.REFRESH_TOKEN, refresh);
   };
 
+  const restoreStorageValue = async (key: string, value: string | null) => {
+    if (value === null) await storage.removeItem(key);
+    else await storage.setItem(key, value);
+  };
+
+  const establishTokenSession = async (
+    accessToken: string,
+    refreshToken: string,
+    responseUser: unknown,
+    operation: 'login' | 'OTP verification' | 'Google sign-in',
+  ): Promise<User> => {
+    const previousAccess = await storage.getItem(storage.KEYS.ACCESS_TOKEN);
+    const previousRefresh = await storage.getItem(storage.KEYS.REFRESH_TOKEN);
+    let userToSet = normalizeUser(responseUser);
+
+    try {
+      await storeTokens(accessToken, refreshToken);
+      if (!userToSet) {
+        const profileResponse = await authAPI.getProfile();
+        userToSet = normalizeUser(profileResponse.data?.data || profileResponse.data);
+      }
+      if (!userToSet) {
+        throw new Error(`The ${operation} response did not contain a valid user ID.`);
+      }
+      return userToSet;
+    } catch (error) {
+      await Promise.all([
+        restoreStorageValue(storage.KEYS.ACCESS_TOKEN, previousAccess),
+        restoreStorageValue(storage.KEYS.REFRESH_TOKEN, previousRefresh),
+      ]).catch((restoreError) => {
+        console.warn(`[Auth] Could not restore token storage after ${operation} failed`, restoreError);
+      });
+      throw error;
+    }
+  };
+
   const resolveAuthPayload = (response: any) => {
     const payload = response.data?.data || response.data || {};
     const tokens = payload.tokens || response.data?.tokens || response.tokens;
@@ -295,29 +343,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (identifier: string, password: string) => {
     const response = await authAPI.login({ identifier, password });
     const { accessToken, refreshToken, user: loggedInUser } = resolveAuthPayload(response);
-    await storeTokens(accessToken, refreshToken);
+    const userToSet = await establishTokenSession(accessToken, refreshToken, loggedInUser, 'login');
     isLoggingOut.current = false;
-
-    let userToSet = normalizeUser(loggedInUser);
-    if (!userToSet || !userToSet.id) {
-      try {
-        const profileRes = await authAPI.getProfile();
-        userToSet = normalizeUser(profileRes.data?.data || profileRes.data);
-      } catch (profileError) {
-        console.warn('[Auth] Could not fetch profile right after login', profileError);
-      }
-    }
-
-    if (!userToSet) {
-      userToSet = {
-        id: 1,
-        email: identifier.includes('@') ? identifier : '',
-        username: identifier,
-        first_name: '',
-        last_name: '',
-      };
-    }
-
     setUser(userToSet);
     await storeUser(userToSet);
   };
@@ -330,29 +357,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const verifyOtp = async (email: string, otpcode: string) => {
     const response = await authAPI.verifyOtp({ email, otp_code: otpcode });
     const { accessToken, refreshToken, user: verifiedUser } = resolveAuthPayload(response);
-    await storeTokens(accessToken, refreshToken);
+    const userToSet = await establishTokenSession(accessToken, refreshToken, verifiedUser, 'OTP verification');
     isLoggingOut.current = false;
-
-    let userToSet = normalizeUser(verifiedUser);
-    if (!userToSet || !userToSet.id) {
-      try {
-        const profileRes = await authAPI.getProfile();
-        userToSet = normalizeUser(profileRes.data?.data || profileRes.data);
-      } catch (profileError) {
-        console.warn('[Auth] Could not fetch profile right after OTP verify', profileError);
-      }
-    }
-
-    if (!userToSet) {
-      userToSet = {
-        id: 1,
-        email,
-        username: email.split('@')[0] || 'Runner',
-        first_name: '',
-        last_name: '',
-      };
-    }
-
     setUser(userToSet);
     await storeUser(userToSet);
   };
@@ -409,12 +415,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      await Promise.all([
-        clearBackgroundLocationSession(),
-        stopBackgroundLocationTracking(),
-      ]).catch((error) => {
-        console.warn('[Auth] Failed to clear live run state during logout', error);
-      });
+      await clearLiveRunState('logout');
 
       const refreshToken = await storage.getItem(storage.KEYS.REFRESH_TOKEN);
       await authAPI.logout({ refresh: refreshToken || "" });
@@ -488,34 +489,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           };
         }
 
-        await storeTokens(tokens.access, tokens.refresh);
-        isLoggingOut.current = false;
-        const googleUser = normalizeUser({
+        const userCandidate = {
           ...normalizedUser,
           authProvider: normalizedUser.authProvider
             ?? normalizedUser.auth_provider
             ?? normalizedUser.provider
             ?? 'google',
-        });
+        };
+        const googleUser = await establishTokenSession(
+          validateToken(tokens.access, 'Google access token'),
+          validateToken(tokens.refresh, 'Google refresh token'),
+          userCandidate,
+          'Google sign-in',
+        );
+        isLoggingOut.current = false;
         setUser(googleUser);
         await storeUser(googleUser);
         setIsLoading(false);
         return { requiresSignup: false };
       }
 
-      if (payload?.status === "success" && userData) {
-        setUser(normalizeUser({
-          ...userData,
-          authProvider: userData.authProvider
-            ?? userData.auth_provider
-            ?? userData.provider
-            ?? 'google',
-        }));
-        setIsLoading(false);
-        return { requiresSignup: false };
-      }
-
-      throw new Error("Invalid response from Google Login API");
+      throw new Error("Google sign-in did not return a supported access/refresh token pair.");
     } catch (error: any) {
       console.error("Google Login Error:", error);
       setIsLoading(false);

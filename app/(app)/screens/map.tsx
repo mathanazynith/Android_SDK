@@ -30,6 +30,7 @@ import {
   LIVE_TRACKING_PAUSE_ACTION,
   LIVE_TRACKING_RESUME_ACTION,
   LIVE_TRACKING_STOP_ACTION,
+  publishWorkoutDiscardedNotification,
   publishWorkoutSummaryNotification,
   startLiveTrackingNotification,
   stopLiveTrackingNotification,
@@ -1967,6 +1968,9 @@ export default function MapScreen() {
       // recording UI: either native request can be slow on Android.
       void startLiveGPS()
         .then(async () => {
+          // The user may finish or log out while native GPS setup is pending.
+          // Do not recreate the live notification for a run that has ended.
+          if (!isRunningRef.current || runIdRef.current !== runId) return;
           try {
             await startLiveTrackingNotification({
               runId,
@@ -2440,18 +2444,12 @@ export default function MapScreen() {
       const processor = pathProcessorRef.current;
 
       if (discard) {
-        distanceRef.current = 0;
-        extraDistanceRef.current = 0;
-        recordedDistanceRef.current = 0;
 
 
 
 
 
         
-        setWorkoutDistance(0);
-        setDistance(0);
-        setElapsedSeconds(0);
         addLog('Workout discarded without saving');
         if (apiClientRef.current && runIdRef.current) {
           try {
@@ -3036,7 +3034,7 @@ export default function MapScreen() {
         status: Number.isFinite(responseStatus) ? responseStatus : null,
         message: backendMessage ?? error?.message ?? 'Unknown save error',
       });
-      if (!runSessionFinalized && !discard && !activitySubmitted && !payloadQueuedOffline) {
+      if (!runSessionFinalized && !activitySubmitted && !payloadQueuedOffline) {
         if (fromRecoveryReview) {
           recoveryReviewRequiredRef.current = true;
           isRunningRef.current = false;
@@ -3124,6 +3122,13 @@ export default function MapScreen() {
           console.warn('[RecordView] Workout summary notification failed', notificationError);
         }
       }
+      if (discard && runSessionFinalized) {
+        try {
+          await publishWorkoutDiscardedNotification();
+        } catch (notificationError) {
+          console.warn('[RecordView] Workout discard notification failed', notificationError);
+        }
+      }
       isStoppingRef.current = false;
     }
   };
@@ -3169,6 +3174,11 @@ export default function MapScreen() {
       await clearBackgroundLocationSession();
       await clearActiveRunJournal();
       await stopLiveTrackingNotification();
+      try {
+        await publishWorkoutDiscardedNotification();
+      } catch (notificationError) {
+        console.warn('[RecordView] Recovered workout discard notification failed', notificationError);
+      }
 
       startTimeRef.current = null;
       recoveredElapsedBaseRef.current = null;

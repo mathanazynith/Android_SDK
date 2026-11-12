@@ -3,9 +3,11 @@ import { router, usePathname } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../service/auth';
 import { useActiveRun } from '../../contexts/ActiveRunContext';
 import type { BackgroundLocationSessionState } from '../../src/services/backgroundLocationTask';
 import { calculateActiveRunElapsedSeconds } from '../../src/utils/activeRunMetrics';
+import { formatDistanceFromMeters } from '../../src/utils/activityUnitFormatters';
 
 const formatElapsed = (seconds: number) => {
   const totalSeconds = Math.max(0, Math.floor(seconds));
@@ -25,6 +27,7 @@ export default function ActiveRunBanner({
   onNavigateToRun?: (session: BackgroundLocationSessionState) => void;
 }) {
   const session = useActiveRun();
+  const { user } = useAuth();
   const pathname = usePathname();
   const { colors, isDark } = useTheme();
   const [now, setNow] = useState(0);
@@ -43,6 +46,10 @@ export default function ActiveRunBanner({
 
   const isPaused = Boolean(activeSession.paused);
   const elapsed = calculateActiveRunElapsedSeconds(activeSession, now || activeSession.updatedAt || 0);
+  const distance = formatDistanceFromMeters(
+    (activeSession.distanceKm ?? 0) * 1000,
+    user?.profile?.distance_unit,
+  );
   const isOnMap = pathname.endsWith('/screens/map');
 
   if (isOnMap) return null;
@@ -50,7 +57,7 @@ export default function ActiveRunBanner({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${isPaused ? 'Run paused' : 'Run recording'}, ${(activeSession.distanceKm ?? 0).toFixed(2)} kilometers, ${formatElapsed(elapsed)}. Return to run.`}
+      accessibilityLabel={`${isPaused ? 'Run paused' : 'Run recording'}, ${distance}, ${formatElapsed(elapsed)}. Return to run.`}
       onPress={() => {
         if (onNavigateToRun) {
           onNavigateToRun(activeSession);
@@ -75,7 +82,7 @@ export default function ActiveRunBanner({
     >
       <View style={[styles.statusDot, { backgroundColor: BRAND_GREEN }]} />
       <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.statusText, { color: colors.textPrimary }]}>
-        {isPaused ? 'RUN PAUSED' : 'LIVE RUN'}  ·  {(activeSession.distanceKm ?? 0).toFixed(2)} km  ·  {formatElapsed(elapsed)}
+        {isPaused ? 'RUN PAUSED' : 'LIVE RUN'}  ·  {distance}  ·  {formatElapsed(elapsed)}
       </Text>
       <Feather name="arrow-up-right" size={17} color={colors.textSecondary} />
     </Pressable>

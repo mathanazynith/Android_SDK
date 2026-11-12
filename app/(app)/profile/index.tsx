@@ -10,6 +10,7 @@ import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
 import { resolveApiUrl } from "../../../service/api";
 import { useAuth } from "../../../service/auth";
 import { subscriptionAPI, type UserSubscription } from "../../../src/services/subscriptionApi";
+import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 
 type DetailRowProps = { label: string; value: string; multiline?: boolean };
 
@@ -59,9 +60,11 @@ const formatSubscriptionAmount = (subscription: UserSubscription) => {
     formattedAmount = `${subscription.currency} ${amount.toFixed(2)}`;
   }
 
-  const interval = subscription.billing_interval || 1;
-  const unit = subscription.billing_interval_unit || "month";
-  const period = interval > 1 ? `/${interval} ${unit}s` : `/${unit}`;
+  const interval = subscription.billing_interval;
+  const unit = subscription.billing_interval_unit;
+  const period = interval > 0 && unit
+    ? ` / ${interval} ${interval === 1 ? unit : `${unit}s`}`
+    : "";
   return `${formattedAmount}${period}`;
 };
 
@@ -107,6 +110,18 @@ export default function ProfileScreen() {
   }
 
   const profile = user.profile as any;
+  const isImperial = getDistanceUnitCode(profile?.distance_unit) === "mile";
+  const heightValue = Number(profile?.height_cm);
+  const weightValue = Number(profile?.weight_kg);
+  const totalHeightInches = Math.round(heightValue / 2.54);
+  const heightDisplay = Number.isFinite(heightValue) && heightValue > 0
+    ? isImperial
+      ? `${Math.floor(totalHeightInches / 12)} ft ${totalHeightInches % 12} in`
+      : `${heightValue} cm`
+    : "--";
+  const weightDisplay = Number.isFinite(weightValue) && weightValue > 0
+    ? `${isImperial ? (weightValue * 2.2046226218).toFixed(1) : weightValue} ${isImperial ? "lb" : "kg"}`
+    : "--";
   const displayName = user.username || user.email?.split("@")[0] || "User";
   const initials = displayName.slice(0, 2).toUpperCase();
   const account = user as any;
@@ -222,8 +237,8 @@ export default function ProfileScreen() {
           <DetailRow label="Age" value={calculateAge(profile?.date_of_birth)} />
           <DetailRow label="Gender" value={profile?.gender || "--"} />
           <DetailRow label="Blood Group" value={profile?.blood_group || "--"} />
-          <DetailRow label="Height" value={profile?.height_cm ? `${profile.height_cm} cm` : "--"} />
-          <DetailRow label="Weight" value={profile?.weight_kg ? `${profile.weight_kg} kg` : "--"} />
+          <DetailRow label="Height" value={heightDisplay} />
+          <DetailRow label="Weight" value={weightDisplay} />
           <DetailRow label="Member Since" value={formatDate(memberSince)} />
         </View>
         </MotionEntrance>

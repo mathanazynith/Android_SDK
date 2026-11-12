@@ -6,6 +6,7 @@ interface NativeRunNotification {
   distanceKm: number;
   elapsedSeconds: number;
   paceMinutesPerKm: number;
+  distanceUnit: 'km' | 'mile';
   status: 'running' | 'paused';
   startedAtMs: number;
   messageTitle?: string;
