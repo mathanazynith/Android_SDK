@@ -18,20 +18,24 @@ const createRunId = (): string =>
 export const normalizeActivitySubmissionPayload = (
   payload: ActivitySubmissionPayload,
 ): ActivitySubmissionPayload => {
-  const hasIntervalStructure = Boolean(payload.laps?.length || payload.segments?.length);
   const { laps, segments, lap_events, ...activity } = payload;
+  const hasIntervalStructure = Boolean(laps?.length || segments?.length);
 
-  if (hasIntervalStructure) {
-    return {
-      ...activity,
-      laps,
-      segments,
-    };
-  }
+  const endTimeMs = activity.end_time ? new Date(activity.end_time).getTime() : 0;
+  const cleanLapEvents = (lap_events ?? [])
+    .filter((event) => {
+      const eventTimeMs = event?.timestamp ? new Date(event.timestamp).getTime() : 0;
+      return eventTimeMs > 0 && (endTimeMs === 0 || eventTimeMs < endTimeMs - 1000);
+    })
+    .map((event, index) => ({
+      event_number: index + 1,
+      timestamp: event.timestamp,
+    }));
 
   return {
     ...activity,
-    ...(lap_events ? { lap_events } : {}),
+    lap_events: cleanLapEvents,
+    ...(hasIntervalStructure ? { laps, segments } : {}),
   };
 };
 
@@ -95,6 +99,7 @@ export class RunningApiClient {
       // The API must persist this key and return the original result for retries
       // to guarantee one History row after an ambiguous timeout.
       response = await api.post(ACTIVITY_UPLOAD_PATH, submissionPayload, {
+        timeout: 60000,
         headers: {
           'Content-Type': 'application/json',
           ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),

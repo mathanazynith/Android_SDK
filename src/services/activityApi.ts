@@ -42,9 +42,32 @@ const getPointTimestamp = (point: BackendGpsPoint): number | null => {
   return Number.isFinite(timestamp) ? timestamp : null;
 };
 
-const createSplitsFromGpsPoints = (points: BackendGpsPoint[], splitDistanceMeters: number): ActivitySplit[] => {
+const createSplitsFromGpsPoints = (
+  points: BackendGpsPoint[],
+  splitDistanceMeters: number,
+  targetDistanceMeters?: number,
+  targetTimeSeconds?: number,
+): ActivitySplit[] => {
   if (!Number.isFinite(splitDistanceMeters) || splitDistanceMeters <= 0) return [];
   if (points.length < 2) return [];
+
+  let rawTotalDistance = 0;
+  let rawTotalTime = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const d = calculateDistanceMeters(points[index - 1], points[index]);
+    if (Number.isFinite(d) && d > 0) rawTotalDistance += d;
+    const t0 = getPointTimestamp(points[index - 1]);
+    const t1 = getPointTimestamp(points[index]);
+    if (t0 !== null && t1 !== null && t1 > t0) rawTotalTime += (t1 - t0) / 1000;
+  }
+  if (rawTotalDistance <= 0) return [];
+
+  const hasTargetDistance = Number.isFinite(targetDistanceMeters) && (targetDistanceMeters ?? 0) > 0;
+  const distanceScale = hasTargetDistance ? targetDistanceMeters! / rawTotalDistance : 1;
+  const effectiveTotalDistance = hasTargetDistance ? targetDistanceMeters! : rawTotalDistance;
+
+  const hasTargetTime = Number.isFinite(targetTimeSeconds) && (targetTimeSeconds ?? 0) > 0;
+  const timeScale = hasTargetTime && rawTotalTime > 0 ? targetTimeSeconds! / rawTotalTime : 1;
 
   const splits: ActivitySplit[] = [];
   let splitNumber = 1;
@@ -54,16 +77,16 @@ const createSplitsFromGpsPoints = (points: BackendGpsPoint[], splitDistanceMeter
   for (let index = 1; index < points.length; index += 1) {
     const previous = points[index - 1];
     const current = points[index];
-    const distance = calculateDistanceMeters(previous, current);
-    if (!Number.isFinite(distance) || distance <= 0) continue;
+    const rawDistance = calculateDistanceMeters(previous, current);
+    if (!Number.isFinite(rawDistance) || rawDistance <= 0) continue;
 
     const previousTime = getPointTimestamp(previous);
     const currentTime = getPointTimestamp(current);
-    const intervalTime = previousTime !== null && currentTime !== null
+    const rawIntervalTime = previousTime !== null && currentTime !== null
       ? Math.max(0, (currentTime - previousTime) / 1000)
       : 0;
-    let remainingDistance = distance;
-    let remainingTime = intervalTime;
+    let remainingDistance = rawDistance * distanceScale;
+    let remainingTime = rawIntervalTime * timeScale;
 
     while (remainingDistance > 0) {
       const distanceToBoundary = splitDistanceMeters - splitDistance;
@@ -91,12 +114,18 @@ const createSplitsFromGpsPoints = (points: BackendGpsPoint[], splitDistanceMeter
   }
 
   if (splitDistance > 0.000001) {
-    splits.push({
-      split_number: splitNumber,
-      distance_m: splitDistance,
-      time_s: splitTime,
-      pace_s_per_km: splitTime / (splitDistance / 1000),
-    });
+    const completedDistance = splits.reduce((total, split) => total + split.distance_m, 0);
+    const finalDistance = hasTargetDistance
+      ? Math.max(0, effectiveTotalDistance - completedDistance)
+      : splitDistance;
+    if (finalDistance > 0) {
+      splits.push({
+        split_number: splitNumber,
+        distance_m: finalDistance,
+        time_s: splitTime,
+        pace_s_per_km: splitTime / (finalDistance / 1000),
+      });
+    }
   }
 
   return splits;
@@ -495,7 +524,12 @@ export const normalizeActivitySplits = (activity: unknown): {
     value.elapsed_time,
   );
   const activityPoints = getActivityPoints(value);
-  const generatedActivitySplits = createSplitsFromGpsPoints(activityPoints.filter((point) => !point.is_extra_distance), splitDistanceMeters);
+  const generatedActivitySplits = createSplitsFromGpsPoints(
+    activityPoints.filter((point) => !point.is_extra_distance),
+    splitDistanceMeters,
+    activityDistanceMeters && activityDistanceMeters > 0 ? activityDistanceMeters : undefined,
+    activityMovingTimeSeconds && activityMovingTimeSeconds > 0 ? activityMovingTimeSeconds : undefined,
+  );
   const generatedExtraSplits = createSplitsFromGpsPoints(activityPoints.filter((point) => point.is_extra_distance), splitDistanceMeters);
   const manualSegmentIndex = normalizedSegments.findIndex((segment) => (
     segment.type === 'RUN' || segment.type === 'WALK'
@@ -510,8 +544,17 @@ export const normalizeActivitySplits = (activity: unknown): {
       };
     }
 
+    const targetDistance = (segment.completed_distance_m ?? 0) > 0
+      ? segment.completed_distance_m!
+      : (segment.planned_distance_m ?? 0) > 0
+        ? segment.planned_distance_m!
+        : undefined;
+    const targetTime = (segment.actual_time_s ?? 0) > 0
+      ? segment.actual_time_s!
+      : undefined;
+
     const gpsSplits = segment.gps_points && segment.gps_points.length >= 2
-      ? createSplitsFromGpsPoints(segment.gps_points, splitDistanceMeters)
+      ? createSplitsFromGpsPoints(segment.gps_points, splitDistanceMeters, targetDistance, targetTime)
       : [];
     const manualDistance = index === manualSegmentIndex
       ? manualLapSplits.reduce((total, split) => total + split.distance_m, 0)
@@ -548,6 +591,23 @@ export const normalizeActivitySplits = (activity: unknown): {
         if (distance > 0) {
           segmentSplits = createSplitsFromDistanceAndTime(distance, time, splitDistanceMeters);
         }
+      }
+    }
+
+    if (targetDistance && targetDistance > 0 && segmentSplits.length > 0) {
+      const completedBeforeLast = segmentSplits.slice(0, -1).reduce((total, split) => total + split.distance_m, 0);
+      const remainingTargetDistance = targetDistance - completedBeforeLast;
+      if (remainingTargetDistance > 0) {
+        const lastSplit = segmentSplits[segmentSplits.length - 1];
+        const lastSplitTime = targetTime && targetTime > 0
+          ? Math.max(0, targetTime - segmentSplits.slice(0, -1).reduce((total, split) => total + split.time_s, 0))
+          : lastSplit.time_s;
+        segmentSplits[segmentSplits.length - 1] = {
+          ...lastSplit,
+          distance_m: remainingTargetDistance,
+          time_s: lastSplitTime,
+          pace_s_per_km: remainingTargetDistance > 0 ? lastSplitTime / (remainingTargetDistance / 1000) : lastSplit.pace_s_per_km,
+        };
       }
     }
 

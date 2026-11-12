@@ -285,16 +285,25 @@ export const cleanPaceString = (paceStr?: string | null): string | null => {
   if (!paceStr) return null;
   const matches = [...paceStr.matchAll(/(\d+)\s*:\s*(\d+(?:\.\d+)?)/g)];
   if (!matches || matches.length === 0) return null;
+
+  // If a pace range is provided (e.g. "6:15 - 6:45"), take the median pace for calculation & storage
   if (matches.length >= 2) {
-    const min1 = parseInt(matches[0][1], 10);
-    const sec1 = matches[0][2].padStart(2, "0");
-    const min2 = parseInt(matches[1][1], 10);
-    const sec2 = matches[1][2].padStart(2, "0");
-    return `${min1}:${sec1} - ${min2}:${sec2}`;
+    const sec1 = (parseInt(matches[0][1], 10) || 0) * 60 + (parseFloat(matches[0][2]) || 0);
+    const sec2 = (parseInt(matches[1][1], 10) || 0) * 60 + (parseFloat(matches[1][2]) || 0);
+    const avgSec = Math.round((sec1 + sec2) / 2);
+    if (avgSec > 0) {
+      const min = Math.floor(avgSec / 60);
+      const sec = avgSec % 60;
+      const result = `${min}:${String(sec).padStart(2, "0")}`;
+      return result.length <= 10 ? result : result.slice(0, 10);
+    }
   }
+
   const min = parseInt(matches[0][1], 10);
-  const sec = matches[0][2].padStart(2, "0");
-  return `${min}:${sec}`;
+  const sec = Math.round(parseFloat(matches[0][2]) || 0);
+  const result = `${min}:${String(sec).padStart(2, "0")}`;
+  // Ensure the pace string strictly fits within backend CharField(max_length=10)
+  return result.length <= 10 ? result : result.slice(0, 10);
 };
 
 /**

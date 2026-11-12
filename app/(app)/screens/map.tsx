@@ -46,6 +46,7 @@ import {
   removePendingWorkoutRecovery,
 } from '../../../src/services/pendingWorkoutRecoveries';
 import { RunningApiClient } from '../../../src/services/runningApi';
+import { getBackendErrorMessage } from '../../../service/api';
 import { DistanceSplitEngine, type CompletedLiveSplit } from '../../../src/services/splitEngine';
 import { StepDetectionService } from '../../../src/services/stepDetectionService';
 import voiceCoach from '../../../src/services/voiceCoach';
@@ -2484,6 +2485,7 @@ export default function MapScreen() {
             ...(finalJournal.pausePoints ?? []),
           ]);
         }
+        workoutEngineRef.current?.stop(stoppedAt.getTime());
         const completedLaps = workoutEngineRef.current?.getSnapshot().completedLaps ?? [];
         const routeBoundaries = [
           ...pauseEventsRef.current.flatMap((event) => [
@@ -2734,6 +2736,18 @@ export default function MapScreen() {
           }
           segmentPayloads.push(segment);
         });
+        if (segmentPayloads.length === 0 && workoutDistance > 0) {
+          segmentPayloads.push({
+            sequence: 1,
+            type: 'RUN',
+            planned_distance_m: 0,
+            planned_time_s: 0,
+            completed_distance_m: workoutDistance,
+            actual_time_s: movingTimePayloadSeconds,
+            actual_pace_s_per_km: paceSecondsPerKm,
+            gps_points: submittedRoutePoints.map((point) => pointPayload(point, isExtraDistancePoint(point))),
+          });
+        }
         const extraPoints = uploadRoutePoints
           .filter((point) => isExtraDistancePoint(point) && getPauseSequence(point) === null)
           .map((point) => pointPayload(point, true));
@@ -2748,6 +2762,17 @@ export default function MapScreen() {
             gps_points: extraPoints,
           }
           : null;
+        const endTimeMs = stoppedAt.getTime();
+        const effectiveLapEvents: ActivityLapEventPayload[] = lapEventsRef.current
+          .filter((event) => {
+            const eventTimeMs = new Date(event.timestamp).getTime();
+            return eventTimeMs > 0 && eventTimeMs < endTimeMs - 1000;
+          })
+          .map((event, index) => ({
+            event_number: index + 1,
+            timestamp: event.timestamp,
+          }));
+
         const iosStyleActivityPayload: ActivitySubmissionPayload = {
           gps_points: submittedRoutePoints
             .map((point) => pointPayload(point, isExtraDistancePoint(point))),
@@ -2771,11 +2796,9 @@ export default function MapScreen() {
           split_distance_m: SPLIT_DISTANCE_METERS,
           avg_pace: Number(paceSecondsPerKm.toFixed(2)),
           pace_seconds_per_km: Number(paceSecondsPerKm.toFixed(2)),
-          // Keep interval metadata out of regular activities. The API uses
-          // these fields to distinguish planned interval workouts from free runs.
-          ...(isIntervalWorkout
-            ? { laps, segments: segmentPayloads }
-            : { lap_events: lapEventsRef.current }),
+          // Always send lap_events matching the backend schema
+          lap_events: effectiveLapEvents,
+          ...(isIntervalWorkout ? { laps, segments: segmentPayloads } : {}),
           extra: extraPayload,
           pause_events: pauseEventPayload,
           pause_count: pauseEventPayload.length,
@@ -2851,8 +2874,11 @@ export default function MapScreen() {
               !submitError?.response &&
               (submitError?.code === 'ERR_NETWORK' ||
                 submitError?.code === 'ECONNABORTED' ||
-                submitError?.message?.toLowerCase().includes('network'));
-            if (!isNetworkFailure) {
+                submitError?.code === 'ETIMEDOUT' ||
+                submitError?.message?.toLowerCase().includes('network') ||
+                submitError?.message?.toLowerCase().includes('timeout') ||
+                submitError?.message?.toLowerCase().includes('abort'));
+            if (!isNetworkFailure || isIntervalWorkout) {
               throw submitError;
             }
             offlineSubmission = true;
@@ -2860,7 +2886,10 @@ export default function MapScreen() {
               runId: runIdRef.current,
               message: submitError?.message ?? 'Unknown upload error',
             });
-            console.warn('[MapScreen] Network unavailable; queuing workout locally:', submitError?.message || submitError);
+            console.warn(
+              '[MapScreen] Network unavailable or upload timed out; queuing workout locally:',
+              submitError?.message || submitError,
+            );
           }
 
           if (offlineSubmission) {
@@ -3019,17 +3048,15 @@ export default function MapScreen() {
         Alert.alert(completionTitle, completionMessage);
       }
     } catch (error: any) {
-      const backendData = error?.response?.data;
       const responseStatus = Number(error?.response?.status);
       const backendMessage = responseStatus >= 500
         ? `The server could not process this activity (HTTP ${responseStatus}). Your workout is still available; try saving again later.`
-        : typeof backendData === 'string'
-          ? (/<!doctype\s+html|<html\b/i.test(backendData)
-            ? 'The server returned an unreadable error page. Your workout is still available; please try again.'
-            : backendData)
-          : backendData?.message
-            ?? backendData?.detail
-            ?? (backendData && typeof backendData === 'object' ? JSON.stringify(backendData) : null);
+        : getBackendErrorMessage(
+            error,
+            error?.message?.toLowerCase().includes('timeout')
+              ? 'The upload timed out while sending your route data. Your workout is still available; please try again.'
+              : 'Could not connect to the server. Your workout is still available; please try again.'
+          );
       console.error('[SaveLifecycle] ACTIVITY_SAVE_FAILED', {
         status: Number.isFinite(responseStatus) ? responseStatus : null,
         message: backendMessage ?? error?.message ?? 'Unknown save error',

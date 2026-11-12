@@ -104,15 +104,22 @@ const calculateCardsDuration = (item: UserWorkoutResponse) => {
 };
 
 describe("cleanPaceString", () => {
-  it("preserves pace range like '04:30 - 05:30'", () => {
-    expect(cleanPaceString("04:30 - 05:30")).toBe("4:30 - 5:30");
-    expect(cleanPaceString("4:30-5:30")).toBe("4:30 - 5:30");
-    expect(cleanPaceString("05:00 - 06:00 /km")).toBe("5:00 - 6:00");
+  it("cleans pace range to median target pace fitting within 10 characters", () => {
+    // Median of 04:30 (270s) and 05:30 (330s) is 05:00 (300s)
+    expect(cleanPaceString("04:30 - 05:30")).toBe("5:00");
+    expect(cleanPaceString("4:30-5:30")).toBe("5:00");
+    // Median of 05:00 (300s) and 06:00 (360s) is 05:30 (330s)
+    expect(cleanPaceString("05:00 - 06:00 /km")).toBe("5:30");
+    // Median of 6:15 (375s) and 6:45 (405s) is 6:30 (390s)
+    expect(cleanPaceString("6:15 - 6:45")).toBe("6:30");
+    expect(cleanPaceString("04:30 - 05:30")!.length).toBeLessThanOrEqual(10);
+    expect(cleanPaceString("6:15 - 6:45")!.length).toBeLessThanOrEqual(10);
   });
 
-  it("handles single pace correctly", () => {
+  it("handles single pace correctly within 10 characters", () => {
     expect(cleanPaceString("05:00")).toBe("5:00");
     expect(cleanPaceString("4:30 /km")).toBe("4:30");
+    expect(cleanPaceString("05:00")!.length).toBeLessThanOrEqual(10);
   });
 
   it("returns null for empty/invalid inputs", () => {
