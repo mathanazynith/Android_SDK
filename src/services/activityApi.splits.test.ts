@@ -517,4 +517,34 @@ describe('activity history elevation metrics', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('scales GPS splits to match completed_distance_m (e.g. 1.48 km raw GPS scaled to 1.50 km target)', () => {
+    const metresToLongitude = (metres: number) => metres / (6_371_000 * Math.PI / 180);
+    // Create GPS points totaling 1480 meters (1.48 km)
+    const points = [
+      { latitude: 0, longitude: 0, timestamp: '2026-11-12T06:00:00Z' },
+      { latitude: 0, longitude: metresToLongitude(1000), timestamp: '2026-11-12T06:06:08Z' },
+      { latitude: 0, longitude: metresToLongitude(1480), timestamp: '2026-11-12T06:09:09Z' },
+    ];
+
+    const result = normalizeActivitySplits({
+      segments: [{
+        sequence: 1,
+        type: 'WARM_UP',
+        planned_distance_m: 1500,
+        completed_distance_m: 1500,
+        actual_time_s: 549, // 09:09
+        gps_points: points,
+      }],
+    });
+
+    expect(result.segments).toHaveLength(1);
+    const splits = result.segments[0].splits;
+    expect(splits).toHaveLength(2);
+    expect(splits[0].split_number).toBe(1);
+    expect(splits[0].distance_m).toBe(1000); // 1.00 km
+    expect(splits[1].split_number).toBe(2);
+    expect(splits[1].distance_m).toBe(500); // 0.50 km (scaled to complete 1500m)
+    expect(splits[0].distance_m + splits[1].distance_m).toBe(1500);
+  });
 });
