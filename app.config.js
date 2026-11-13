@@ -20,6 +20,15 @@ module.exports = () => {
     },
     plugins: [
       withWorkoutVolumeSplit,
+      [
+        "expo-audio",
+        {
+          enableBackgroundPlayback: true,
+          enableBackgroundRecording: false,
+          recordAudioAndroid: false,
+          microphonePermission: false,
+        },
+      ],
       (config) =>
         withAndroidManifest(config, (manifestConfig) => {
           const application = manifestConfig.modResults.manifest.application?.[0];

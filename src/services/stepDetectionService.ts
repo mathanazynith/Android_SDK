@@ -10,10 +10,11 @@ type PedometerSubscription = ReturnType<typeof Pedometer.watchStepCount>;
  */
 export class StepDetectionService {
   private subscription: PedometerSubscription | null = null;
-  private stepCount = 0;
+  private lastReportedStepCount = 0;
 
-  public async start(onStepCount: (steps: number) => void): Promise<void> {
+  public async start(onStepDelta: (steps: number) => void): Promise<void> {
     this.stop();
+    this.lastReportedStepCount = 0;
 
     const available = await Pedometer.isAvailableAsync();
     if (!available) {
@@ -28,8 +29,9 @@ export class StepDetectionService {
     }
 
     this.subscription = Pedometer.watchStepCount(({ steps }) => {
-      this.stepCount += steps;
-      onStepCount(this.stepCount);
+      const stepDelta = Math.max(0, steps - this.lastReportedStepCount);
+      this.lastReportedStepCount = Math.max(this.lastReportedStepCount, steps);
+      if (stepDelta > 0) onStepDelta(stepDelta);
     });
   }
 

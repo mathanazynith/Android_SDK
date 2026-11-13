@@ -2,10 +2,11 @@ import { Alert } from '@/components/ThemedAlert';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Animated, Modal, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useReducedMotion } from 'react-native-reanimated';
 import BenchmarkBadgeIcon from '../../../../components/BenchmarkBadgeIcon';
+import { usePauseSettings } from '../../../../contexts/PauseSettingsContext';
 import { useTheme } from '../../../../contexts/ThemeContext';
 import { cacheAssignedRoute, customWorkoutAPI, getCachedAssignedRoute, type SuggestedRoute } from '../../../../service/customWorkout';
 import { workoutPlanService } from '../../../../service/workoutPlan';
@@ -132,6 +133,8 @@ const getWorkoutPageIcon = (workout: WorkoutDetail) => {
   return { name: workout.iconName || 'walk-outline', color: workout.accentColor || '#22C55E' };
 };
 
+const METRONOME_BPM_OPTIONS = [160, 165, 170, 175, 180] as const;
+
 export default function WorkoutModal({
   visible,
   workout,
@@ -143,9 +146,13 @@ export default function WorkoutModal({
   const { height: windowHeight } = useWindowDimensions();
   const compactPage = windowHeight < 760;
   const reduceMotion = useReducedMotion();
+  const { isLoaded: pauseSettingsLoaded, voiceAlertsEnabled } = usePauseSettings();
   const [rendered, setRendered] = useState(visible);
   const renderedRef = useRef(visible);
   const [activeWorkout, setActiveWorkout] = useState<WorkoutDetail | null>(workout);
+  const [runSetupVisible, setRunSetupVisible] = useState(false);
+  const [metronomeEnabled, setMetronomeEnabled] = useState(false);
+  const [selectedMetronomeBpm, setSelectedMetronomeBpm] = useState<number>(170);
   const [assignedRoute, setAssignedRoute] = useState<SuggestedRoute | null>(null);
   const [routeAvailability, setRouteAvailability] = useState<{
     workoutId: number | null;
@@ -349,8 +356,24 @@ export default function WorkoutModal({
     );
   };
 
-  const handleStartRun = () => {
+  const workoutLabel = `${activeWorkout.workoutType} ${activeWorkout.title}`.toLowerCase().replace(/[-_]/g, ' ');
+  const supportsMetronomeSetup = !activeWorkout.isRest
+    && (workoutLabel.includes('easy run') || workoutLabel.includes('long run'));
+
+  const launchRun = () => {
+    if (metronomeEnabled && (!pauseSettingsLoaded || !voiceAlertsEnabled)) {
+      Alert.alert(
+        'Voice Coach required',
+        'Enable Voice Coach in Settings before using the metronome.',
+      );
+      return;
+    }
+
+    setRunSetupVisible(false);
     if (presentation === 'modal') onClose();
+    const metronomeParams = metronomeEnabled
+      ? { metronomeEnabled: 'true', metronomeBpm: String(selectedMetronomeBpm) }
+      : {};
     const hasSegments = Array.isArray(activeWorkout.segments) && activeWorkout.segments.length > 0;
     if (hasSegments) {
       const planSteps = buildPlanFromPlanSegments(
@@ -365,6 +388,7 @@ export default function WorkoutModal({
               ? `${activeWorkout.title} (Benchmark)`
               : activeWorkout.title,
             workoutPlan: JSON.stringify(planSteps),
+            ...metronomeParams,
             ...(assignedRoute ? { assignedRoute: JSON.stringify(assignedRoute) } : {}),
           },
         });
@@ -383,10 +407,107 @@ export default function WorkoutModal({
         workoutDuration: activeWorkout.estimatedDuration,
         workoutDistance: activeWorkout.distance,
         workoutPace: activeWorkout.targetPace,
+        ...metronomeParams,
         ...(assignedRoute ? { assignedRoute: JSON.stringify(assignedRoute) } : {}),
       },
     });
   };
+
+  const handleStartRun = () => {
+    if (supportsMetronomeSetup) {
+      setMetronomeEnabled(false);
+      setSelectedMetronomeBpm(170);
+      setRunSetupVisible(true);
+      return;
+    }
+
+    launchRun();
+  };
+
+  const handleMetronomeToggle = (enabled: boolean) => {
+    if (enabled && (!pauseSettingsLoaded || !voiceAlertsEnabled)) {
+      Alert.alert(
+        'Voice Coach required',
+        'Enable Voice Coach in Settings before using the metronome.',
+      );
+      return;
+    }
+    setMetronomeEnabled(enabled);
+  };
+
+  const runSetupOverlay = runSetupVisible ? (
+    <View style={styles.setupOverlay}>
+      <TouchableOpacity
+        style={styles.setupBackdrop}
+        onPress={() => setRunSetupVisible(false)}
+        activeOpacity={1}
+        accessibilityRole="button"
+        accessibilityLabel="Close run setup"
+      />
+      <View style={[styles.setupSheet, { backgroundColor: colors.background, borderColor: colors.border }]}>
+        <View style={styles.setupHeader}>
+          <TouchableOpacity
+            onPress={() => setRunSetupVisible(false)}
+            style={styles.setupHeaderButton}
+            accessibilityRole="button"
+          >
+            <Text style={[styles.setupHeaderButtonText, { color: colors.textSecondary }]}>Cancel</Text>
+          </TouchableOpacity>
+          <Text style={[styles.setupTitle, { color: colors.text }]}>Run Setup</Text>
+          <TouchableOpacity
+            onPress={launchRun}
+            style={[styles.setupHeaderButton, styles.setupStartButton, { backgroundColor: colors.primary }]}
+            accessibilityRole="button"
+          >
+            <Text style={[styles.setupStartButtonText, { color: colors.primaryText }]}>Start Workout</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={[styles.metronomeCard, { backgroundColor: colors.surfaceRaised }]}>
+          <View style={styles.metronomeToggleRow}>
+            <Text style={[styles.metronomeLabel, { color: colors.text }]}>Metronome</Text>
+            <Switch
+              value={metronomeEnabled}
+              onValueChange={handleMetronomeToggle}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor="#FFFFFF"
+              accessibilityLabel="Metronome"
+            />
+          </View>
+          <Text style={[styles.metronomeHelper, { color: colors.textSecondary }]}>
+            {pauseSettingsLoaded && voiceAlertsEnabled
+              ? 'The metronome can run alongside Voice Coach.'
+              : 'Enable Voice Coach in Settings to use the metronome.'}
+          </Text>
+        </View>
+
+        {metronomeEnabled && (
+          <View style={styles.bpmSection}>
+            <Text style={[styles.bpmTitle, { color: colors.textSecondary }]}>Beats per minute</Text>
+            <View style={[styles.bpmOptions, { backgroundColor: colors.surfaceRaised }]}>
+              {METRONOME_BPM_OPTIONS.map((bpm, index) => (
+                <TouchableOpacity
+                  key={bpm}
+                  style={[
+                    styles.bpmOption,
+                    index < METRONOME_BPM_OPTIONS.length - 1 && { borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth },
+                  ]}
+                  onPress={() => setSelectedMetronomeBpm(bpm)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: selectedMetronomeBpm === bpm }}
+                >
+                  <Text style={[styles.bpmOptionText, { color: colors.text }]}>{bpm} BPM</Text>
+                  {selectedMetronomeBpm === bpm && (
+                    <Ionicons name="checkmark" size={22} color={colors.primary} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+      </View>
+    </View>
+  ) : null;
 
   const content = (
     <ScrollView style={styles.fullScreen} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
@@ -813,6 +934,7 @@ export default function WorkoutModal({
             )}
           </View>
         </ScrollView>
+        {runSetupOverlay}
       </SafeAreaView>
     );
   }
@@ -830,6 +952,7 @@ export default function WorkoutModal({
               {content}
           </View>
         </Animated.View>
+        {runSetupOverlay}
       </SafeAreaView>
     </Modal>
   );
@@ -935,6 +1058,32 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   fullScreen: { flex: 1 },
+  setupOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'flex-end' },
+  setupBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0, 0, 0, 0.62)' },
+  setupSheet: {
+    borderWidth: 1,
+    borderRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 28,
+    maxHeight: '82%',
+    gap: 20,
+  },
+  setupHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  setupHeaderButton: { minHeight: 42, justifyContent: 'center', paddingHorizontal: 8 },
+  setupHeaderButtonText: { fontSize: 16, fontWeight: '600' },
+  setupTitle: { fontSize: 17, fontWeight: '700' },
+  setupStartButton: { borderRadius: 22, paddingHorizontal: 16 },
+  setupStartButtonText: { fontSize: 15, fontWeight: '700' },
+  metronomeCard: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 14 },
+  metronomeToggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  metronomeLabel: { fontSize: 16, fontWeight: '600' },
+  metronomeHelper: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(128, 128, 128, 0.35)', marginTop: 10, paddingTop: 12, fontSize: 13, lineHeight: 19 },
+  bpmSection: { gap: 10 },
+  bpmTitle: { fontSize: 15, fontWeight: '700', paddingHorizontal: 4 },
+  bpmOptions: { borderRadius: 20, overflow: 'hidden', paddingHorizontal: 16 },
+  bpmOption: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  bpmOptionText: { fontSize: 16 },
   pageContent: { flexGrow: 1, justifyContent: 'space-between' },
   pageMain: { gap: 14 },
   pageCaption: { marginBottom: 4 },

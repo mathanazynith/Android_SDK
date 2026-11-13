@@ -12,6 +12,7 @@
     "axios": "^1.19.0",
     "babel-preset-expo": "^57.0.2",
     "expo": "~57.0.29",
+    "expo-audio": "~57.0.5",
     "expo-auth-session": "~57.0.16",
     "expo-blur": "~57.0.3",
     "expo-constants": "~57.0.3",

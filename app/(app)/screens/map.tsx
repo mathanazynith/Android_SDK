@@ -1,5 +1,6 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import * as Device from 'expo-device';
 import * as Location from 'expo-location';
 import { useFocusEffect, useLocalSearchParams, usePathname, useRouter } from 'expo-router';
@@ -9,11 +10,13 @@ import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import { usePauseSettings } from '../../../contexts/PauseSettingsContext';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { getBackendErrorMessage } from '../../../service/api';
 import { useAuth } from '../../../service/auth';
 import { workoutPlanService } from '../../../service/workoutPlan';
-import { beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal, restoreActiveRunJournal } from '../../../src/services/activeRunJournal';
+import { beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal, restoreActiveRunJournal, updateActiveRunStepData } from '../../../src/services/activeRunJournal';
 import { ActivityDetectionService } from '../../../src/services/activityDetectionService';
 import { activityDistanceOverrides } from '../../../src/services/activityDistanceOverrides';
+import { ActivityStepTracker } from '../../../src/services/activityStepTracker';
 import { activityTimingOverrides } from '../../../src/services/activityTimingOverrides';
 import {
   clearBackgroundLocationSession,
@@ -46,7 +49,6 @@ import {
   removePendingWorkoutRecovery,
 } from '../../../src/services/pendingWorkoutRecoveries';
 import { RunningApiClient } from '../../../src/services/runningApi';
-import { getBackendErrorMessage } from '../../../service/api';
 import { DistanceSplitEngine, type CompletedLiveSplit } from '../../../src/services/splitEngine';
 import { StepDetectionService } from '../../../src/services/stepDetectionService';
 import voiceCoach from '../../../src/services/voiceCoach';
@@ -82,6 +84,8 @@ const formatTimerDisplay = (totalSec: number) => {
   }
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 };
+
+const METRONOME_BPM_OPTIONS = [160, 165, 170, 175, 180] as const;
 
 const formatPaceDisplay = (paceMinutesPerKm: number | null | undefined) => {
   if (!Number.isFinite(paceMinutesPerKm) || paceMinutesPerKm === null || paceMinutesPerKm === undefined || paceMinutesPerKm <= 0) {
@@ -252,6 +256,8 @@ export default function MapScreen() {
     workoutPlan?: string;
     workoutType?: string;
     activityType?: string;
+    metronomeEnabled?: string;
+    metronomeBpm?: string;
     assignedRoute?: string;
     runId?: string;
     resumeRun?: string;
@@ -260,6 +266,13 @@ export default function MapScreen() {
     recoveryReview?: string;
     recoveryId?: string;
   }>();
+  const metronomePlayer = useAudioPlayer(require('../../../assets/audio/metronome-click.wav'));
+  const metronomePlayerStatus = useAudioPlayerStatus(metronomePlayer);
+  const metronomeBpm = METRONOME_BPM_OPTIONS.find(
+    (bpm) => bpm === Number(params.metronomeBpm),
+  ) ?? 170;
+  const metronomeEnabled = params.metronomeEnabled === 'true'
+    && METRONOME_BPM_OPTIONS.some((bpm) => bpm === Number(params.metronomeBpm));
   const recoveryRouteId = typeof params.recoveryId === 'string'
     ? params.recoveryId
     : params.recoveryReview === '1' && typeof params.runId === 'string'
@@ -343,6 +356,7 @@ export default function MapScreen() {
   const [floatingOverlayHeight, setFloatingOverlayHeight] = useState(216);
   const [routeSegments, setRouteSegments] = useState<RouteSegment[]>([]);
   const [distance, setDistance] = useState(0);
+  const [activityStepCount, setActivityStepCount] = useState(0);
   const [workoutDistance, setWorkoutDistance] = useState(0);
   const [lastManualSplit, setLastManualSplit] = useState<CompletedLiveSplit | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -425,6 +439,8 @@ export default function MapScreen() {
   const autoPauseActionRef = useRef<() => void>(() => {});
   const autoResumeActionRef = useRef<() => void>(() => {});
   const stepCountRef = useRef(0);
+  const activityStepTrackerRef = useRef<ActivityStepTracker | null>(null);
+  const lastStepCheckpointAtRef = useRef(0);
   const lastStepTimestampRef = useRef<number | null>(null);
   const movementConfirmedRef = useRef(false);
   const movementStateRef = useRef<MovementState>('STATIONARY');
@@ -442,6 +458,25 @@ export default function MapScreen() {
   const workoutCompletionPromptShownRef = useRef(false);
   const handledNativeRunActionRef = useRef<string | null>(null);
   const saveConfirmationOpenRef = useRef(false);
+
+  const handlePedometerStepDelta = useCallback((stepDelta: number) => {
+    if (!Number.isFinite(stepDelta) || stepDelta <= 0) return;
+    const updatedAt = Date.now();
+    lastStepTimestampRef.current = updatedAt;
+    stepCountRef.current += stepDelta;
+
+    if (!isRunningRef.current || isPausedRef.current) return;
+    const tracker = activityStepTrackerRef.current;
+    if (!tracker) return;
+    tracker.recordStepDelta(stepDelta, updatedAt);
+    setActivityStepCount(tracker.getTotalSteps());
+    if (updatedAt - lastStepCheckpointAtRef.current >= 15_000) {
+      lastStepCheckpointAtRef.current = updatedAt;
+      void updateActiveRunStepData(tracker.getSnapshot()).catch((error) => {
+        console.warn('[ActiveRunJournal] Could not persist step count checkpoint', error);
+      });
+    }
+  }, []);
 
   useEffect(() => () => {
     if (voiceCoachNoticeTimerRef.current) clearTimeout(voiceCoachNoticeTimerRef.current);
@@ -492,6 +527,74 @@ export default function MapScreen() {
     voiceCoach?.setMuted?.(!enabled || isVoiceMuted);
     workoutVoiceRef.current?.setEnabled(enabled);
   }, [isVoiceMuted, pauseSettingsLoaded, voiceAlertsEnabled]);
+
+  useEffect(() => {
+    if (
+      !isRunning
+      || isPaused
+      || !metronomeEnabled
+      || !pauseSettingsLoaded
+      || !voiceAlertsEnabled
+      || !metronomePlayerStatus.isLoaded
+    ) {
+      metronomePlayer.pause();
+      return;
+    }
+
+    let active = true;
+    let beatTimer: ReturnType<typeof setInterval> | null = null;
+
+    const playBeat = () => {
+      void metronomePlayer.seekTo(0)
+        .then(() => {
+          if (!active) return;
+          metronomePlayer.play();
+          if (!Device.isDevice) handlePedometerStepDelta(1);
+        })
+        .catch((error: unknown) => {
+          console.warn('[Metronome] Unable to play beat', error);
+        });
+    };
+
+    void setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: true,
+      interruptionMode: 'mixWithOthers',
+    })
+      .then(() => {
+        if (!active) return;
+        metronomePlayer.setActiveForLockScreen(true, {
+          title: 'Workout Metronome',
+          artist: 'ZY-Run',
+        });
+        playBeat();
+        beatTimer = setInterval(playBeat, 60_000 / metronomeBpm);
+      })
+      .catch((error: unknown) => {
+        console.warn('[Metronome] Unable to configure audio playback', error);
+      });
+
+    return () => {
+      active = false;
+      if (beatTimer) clearInterval(beatTimer);
+      metronomePlayer.pause();
+      metronomePlayer.setActiveForLockScreen(false);
+      void setAudioModeAsync({ shouldPlayInBackground: false })
+        .catch((error: unknown) => {
+          console.warn('[Metronome] Unable to restore foreground audio mode', error);
+        });
+    };
+  }, [
+    isPaused,
+    isRunning,
+    metronomeBpm,
+    metronomeEnabled,
+    metronomePlayer,
+    metronomePlayerStatus.isLoaded,
+    handlePedometerStepDelta,
+    pauseSettingsLoaded,
+    voiceAlertsEnabled,
+  ]);
 
   const plannedRouteCoordinates = useMemo(() => {
     return assignedRoutePoints;
@@ -1273,7 +1376,8 @@ export default function MapScreen() {
     lapEventsRef.current.push({
       event_number: lapEventsRef.current.length + 1,
       timestamp: new Date(pressedAt).toISOString(),
-      split_number: split.splitNumber,
+      manual_lap_number: split.splitNumber,
+      split_number: 1,
       distance_m: split.distanceMeters,
       time_s: split.timeSeconds,
       pace_s_per_km: split.paceSecondsPerKm,
@@ -1365,12 +1469,11 @@ export default function MapScreen() {
       });
       const stepDetection = new StepDetectionService();
       stepDetectionRef.current = stepDetection;
-      void stepDetection.start((steps) => {
-        lastStepTimestampRef.current = Date.now();
-        stepCountRef.current = steps;
-      }).catch((error) => {
-        console.warn('[MapScreen] Recovered pedometer unavailable', error);
-      });
+      if (Device.isDevice) {
+        void stepDetection.start(handlePedometerStepDelta).catch((error) => {
+          console.warn('[MapScreen] Recovered pedometer unavailable', error);
+        });
+      }
 
       isRunningRef.current = true;
       setIsRunning(true);
@@ -1528,6 +1631,11 @@ export default function MapScreen() {
       runIdRef.current = session.runId;
       apiClientRef.current = new RunningApiClient();
       startTimeRef.current = session.startedAt ? new Date(session.startedAt).getTime() : Date.now();
+      activityStepTrackerRef.current = new ActivityStepTracker(
+        startTimeRef.current,
+        journal.stepData,
+      );
+      setActivityStepCount(activityStepTrackerRef.current.getTotalSteps());
       isPausedRef.current = Boolean(session.paused);
       isAutoPausedRef.current = Boolean(session.autoPaused);
       lastMovementTimestampRef.current = session.paused ? null : Date.now();
@@ -1653,12 +1761,11 @@ export default function MapScreen() {
       });
       const stepDetection = new StepDetectionService();
       stepDetectionRef.current = stepDetection;
-      void stepDetection.start((steps) => {
-        lastStepTimestampRef.current = Date.now();
-        stepCountRef.current = steps;
-      }).catch((error) => {
-        console.warn('[MapScreen] Restored pedometer unavailable', error);
-      });
+      if (Device.isDevice) {
+        void stepDetection.start(handlePedometerStepDelta).catch((error) => {
+          console.warn('[MapScreen] Restored pedometer unavailable', error);
+        });
+      }
       isRunningRef.current = true;
       setIsRunning(true);
       lastMovementTimestampRef.current = session.paused ? null : Date.now();
@@ -1687,6 +1794,7 @@ export default function MapScreen() {
     return () => { cancelled = true; };
   }, [
     addLog,
+    handlePedometerStepDelta,
     handleLocationUpdate,
     params.notificationAction,
     params.recoveryReview,
@@ -1762,6 +1870,8 @@ export default function MapScreen() {
       setDistance(0);
       setElapsedSeconds(0);
       stepCountRef.current = 0;
+      lastStepCheckpointAtRef.current = 0;
+      setActivityStepCount(0);
       lastStepTimestampRef.current = null;
       isAutoPausedRef.current = false;
       lastMovementTimestampRef.current = null;
@@ -1790,6 +1900,7 @@ export default function MapScreen() {
 
       const startedAt = new Date().toISOString();
       startTimeRef.current = new Date(startedAt).getTime();
+      activityStepTrackerRef.current = new ActivityStepTracker(startTimeRef.current);
       recoveryReviewRequiredRef.current = false;
       selectedActivityTypeRef.current = activityTypeToUse;
       recoveredElapsedBaseRef.current = null;
@@ -1993,12 +2104,11 @@ export default function MapScreen() {
       void activityDetection.start().catch((error) => {
         console.warn('[LocationManager] Activity monitoring startup failed; GPS recording continues', error);
       });
-      void stepDetection.start((steps) => {
-        lastStepTimestampRef.current = Date.now();
-        stepCountRef.current = steps;
-      }).catch((error) => {
-        console.warn('[LocationManager] Pedometer startup failed; movement gate will require activity recognition and GPS evidence', error);
-      });
+      if (Device.isDevice) {
+        void stepDetection.start(handlePedometerStepDelta).catch((error) => {
+          console.warn('[LocationManager] Pedometer startup failed; movement gate will require activity recognition and GPS evidence', error);
+        });
+      }
     } catch (error) {
       console.error('Start run error:', error);
       if (runIdRef.current) {
@@ -2407,6 +2517,8 @@ export default function MapScreen() {
       }
       if (!fromRecoveryReview) {
         await flushBackgroundLocationTask();
+        const stepData = activityStepTrackerRef.current?.getSnapshot();
+        if (stepData) await updateActiveRunStepData(stepData);
         await flushActiveRunJournal();
         await persistBackgroundLocationSession({
           active: false,
@@ -2762,17 +2874,11 @@ export default function MapScreen() {
             gps_points: extraPoints,
           }
           : null;
-        const endTimeMs = stoppedAt.getTime();
-        const effectiveLapEvents: ActivityLapEventPayload[] = lapEventsRef.current
-          .filter((event) => {
-            const eventTimeMs = new Date(event.timestamp).getTime();
-            return eventTimeMs > 0 && eventTimeMs < endTimeMs - 1000;
-          })
-          .map((event, index) => ({
-            event_number: index + 1,
-            timestamp: event.timestamp,
-          }));
-
+        const totalSteps = activityStepTrackerRef.current?.getTotalSteps() ?? 0;
+        const stepsPerMinute = activityStepTrackerRef.current?.getStepsPerMinute(
+          stoppedAt.getTime(),
+          pauseEventsRef.current,
+        ) ?? [];
         const iosStyleActivityPayload: ActivitySubmissionPayload = {
           gps_points: submittedRoutePoints
             .map((point) => pointPayload(point, isExtraDistancePoint(point))),
@@ -2796,9 +2902,18 @@ export default function MapScreen() {
           split_distance_m: SPLIT_DISTANCE_METERS,
           avg_pace: Number(paceSecondsPerKm.toFixed(2)),
           pace_seconds_per_km: Number(paceSecondsPerKm.toFixed(2)),
-          // Always send lap_events matching the backend schema
-          lap_events: effectiveLapEvents,
-          ...(isIntervalWorkout ? { laps, segments: segmentPayloads } : {}),
+          total_steps: totalSteps,
+          steps_per_minute: stepsPerMinute,
+          // Keep interval metadata out of regular activities. The API uses
+          // these fields to distinguish planned intervals. Manual laps are
+          // retained for both activity types.
+          ...(isIntervalWorkout
+            ? {
+              laps,
+              segments: segmentPayloads,
+              ...(lapEventsRef.current.length > 0 ? { lap_events: lapEventsRef.current } : {}),
+            }
+            : { lap_events: lapEventsRef.current }),
           extra: extraPayload,
           pause_events: pauseEventPayload,
           pause_count: pauseEventPayload.length,
@@ -3093,12 +3208,11 @@ export default function MapScreen() {
           });
           const retryStepDetection = new StepDetectionService();
           stepDetectionRef.current = retryStepDetection;
-          void retryStepDetection.start((steps) => {
-            lastStepTimestampRef.current = Date.now();
-            stepCountRef.current = steps;
-          }).catch((restartError) => {
-            console.warn('[LocationManager] Could not restart step detection after save failure', restartError);
-          });
+          if (Device.isDevice) {
+            void retryStepDetection.start(handlePedometerStepDelta).catch((restartError) => {
+              console.warn('[LocationManager] Could not restart step detection after save failure', restartError);
+            });
+          }
           try {
             await startLiveGPS();
             await startBackgroundLocationTracking();
@@ -3797,6 +3911,11 @@ export default function MapScreen() {
                     {formatDistanceFromMeters(distance, user?.profile?.distance_unit)}
                   </Text>
                 </View>
+                <View style={styles.paceDivider} />
+                <View style={styles.paceItem}>
+                  <Text style={styles.paceLabel}>STEPS</Text>
+                  <Text style={styles.paceValue}>{activityStepCount.toLocaleString()}</Text>
+                </View>
               </View>
 
               {/* Up Next Banner */}
@@ -3889,6 +4008,10 @@ export default function MapScreen() {
                 <View style={styles.liveMetricItem}>
                   <Text style={styles.liveMetricLabel} numberOfLines={1}>AVG PACE:</Text>
                   <Text style={styles.liveMetricValue} numberOfLines={1} adjustsFontSizeToFit>{formatPaceFromSecondsPerKm(pace * 60, user?.profile?.distance_unit)}</Text>
+                </View>
+                <View style={styles.liveMetricItem}>
+                  <Text style={styles.liveMetricLabel} numberOfLines={1}>STEPS:</Text>
+                  <Text style={styles.liveMetricValue} numberOfLines={1}>{activityStepCount.toLocaleString()}</Text>
                 </View>
               </View>
               <View style={styles.liveMetricDivider} />
