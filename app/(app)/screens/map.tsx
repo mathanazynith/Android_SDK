@@ -84,6 +84,13 @@ const formatTimerDisplay = (totalSec: number) => {
 };
 
 const METRONOME_BPM_OPTIONS = [160, 165, 170, 175, 180] as const;
+const METRONOME_AUDIO_SOURCES = {
+  160: require('../../../assets/audio/metronome-160.wav'),
+  165: require('../../../assets/audio/metronome-165.wav'),
+  170: require('../../../assets/audio/metronome-170.wav'),
+  175: require('../../../assets/audio/metronome-175.wav'),
+  180: require('../../../assets/audio/metronome-click.wav'),
+} as const;
 
 const formatPaceDisplay = (paceMinutesPerKm: number | null | undefined) => {
   if (!Number.isFinite(paceMinutesPerKm) || paceMinutesPerKm === null || paceMinutesPerKm === undefined || paceMinutesPerKm <= 0) {
@@ -264,11 +271,11 @@ export default function MapScreen() {
     recoveryReview?: string;
     recoveryId?: string;
   }>();
-  const metronomePlayer = useAudioPlayer(require('../../../assets/audio/metronome-click.wav'));
-  const metronomePlayerStatus = useAudioPlayerStatus(metronomePlayer);
   const metronomeBpm = METRONOME_BPM_OPTIONS.find(
     (bpm) => bpm === Number(params.metronomeBpm),
   ) ?? 170;
+  const metronomePlayer = useAudioPlayer(METRONOME_AUDIO_SOURCES[metronomeBpm]);
+  const metronomePlayerStatus = useAudioPlayerStatus(metronomePlayer);
   const metronomeEnabled = params.metronomeEnabled === 'true'
     && METRONOME_BPM_OPTIONS.some((bpm) => bpm === Number(params.metronomeBpm));
   const recoveryRouteId = typeof params.recoveryId === 'string'
@@ -531,8 +538,6 @@ export default function MapScreen() {
       !isRunning
       || isPaused
       || !metronomeEnabled
-      || !pauseSettingsLoaded
-      || !voiceAlertsEnabled
       || !metronomePlayerStatus.isLoaded
     ) {
       metronomePlayer.pause();
@@ -540,19 +545,6 @@ export default function MapScreen() {
     }
 
     let active = true;
-    let beatTimer: ReturnType<typeof setInterval> | null = null;
-
-    const playBeat = () => {
-      void metronomePlayer.seekTo(0)
-        .then(() => {
-          if (!active) return;
-          metronomePlayer.play();
-          if (!Device.isDevice) handlePedometerStepDelta(1);
-        })
-        .catch((error: unknown) => {
-          console.warn('[Metronome] Unable to play beat', error);
-        });
-    };
 
     void setAudioModeAsync({
       playsInSilentMode: true,
@@ -565,8 +557,18 @@ export default function MapScreen() {
           title: 'Workout Metronome',
           artist: 'ZY-Run',
         });
-        playBeat();
-        beatTimer = setInterval(playBeat, 60_000 / metronomeBpm);
+        metronomePlayer.loop = true;
+        // Each selected BPM has its own 60-second audio loop containing
+        // exactly that many metronome beeps.
+        metronomePlayer.volume = 1;
+        void metronomePlayer.seekTo(0)
+          .then(() => {
+            if (!active) return;
+            metronomePlayer.play();
+          })
+          .catch((error: unknown) => {
+            console.warn('[Metronome] Unable to start audio clock', error);
+          });
       })
       .catch((error: unknown) => {
         console.warn('[Metronome] Unable to configure audio playback', error);
@@ -574,7 +576,6 @@ export default function MapScreen() {
 
     return () => {
       active = false;
-      if (beatTimer) clearInterval(beatTimer);
       metronomePlayer.pause();
       metronomePlayer.setActiveForLockScreen(false);
       void setAudioModeAsync({ shouldPlayInBackground: false })
@@ -589,10 +590,33 @@ export default function MapScreen() {
     metronomeEnabled,
     metronomePlayer,
     metronomePlayerStatus.isLoaded,
-    handlePedometerStepDelta,
-    pauseSettingsLoaded,
-    voiceAlertsEnabled,
   ]);
+
+  useEffect(() => {
+    if (Device.isDevice || !isRunning || isPaused || !metronomeEnabled) return;
+
+    const beatIntervalMs = 60_000 / metronomeBpm;
+    const startedAt = Date.now();
+    let simulatedBeatCount = 1;
+    let beatTimer: ReturnType<typeof setTimeout> | null = null;
+    handlePedometerStepDelta(1);
+
+    const scheduleNextStep = () => {
+      const nextStepAt = startedAt + simulatedBeatCount * beatIntervalMs;
+      beatTimer = setTimeout(() => {
+        const targetBeatCount = Math.floor((Date.now() - startedAt) / beatIntervalMs) + 1;
+        const stepDelta = Math.max(0, targetBeatCount - simulatedBeatCount);
+        simulatedBeatCount = Math.max(simulatedBeatCount, targetBeatCount);
+        if (stepDelta > 0) handlePedometerStepDelta(stepDelta);
+        scheduleNextStep();
+      }, Math.max(0, nextStepAt - Date.now()));
+    };
+
+    scheduleNextStep();
+    return () => {
+      if (beatTimer) clearTimeout(beatTimer);
+    };
+  }, [handlePedometerStepDelta, isPaused, isRunning, metronomeBpm, metronomeEnabled]);
 
   const plannedRouteCoordinates = useMemo(() => {
     return assignedRoutePoints;
@@ -635,6 +659,7 @@ export default function MapScreen() {
   const continueAfterCompletion = useCallback(() => {
     setCompletionPromptVisible(false);
     if (workoutEngineRef.current) {
+      splitEngineRef.current.startManualSplitSection();
       workoutEngineRef.current.continue();
       setWorkoutSnapshot(workoutEngineRef.current.getSnapshot());
       void workoutVoiceRef.current?.workoutCompleted();
@@ -1371,9 +1396,11 @@ export default function MapScreen() {
       return;
     }
     setLastManualSplit(split);
+    const isExtraDistance = workoutEngineRef.current?.isPostWorkoutContinuation() ?? false;
     lapEventsRef.current.push({
       event_number: lapEventsRef.current.length + 1,
       timestamp: new Date(pressedAt).toISOString(),
+      is_extra_distance: isExtraDistance,
       manual_lap_number: split.splitNumber,
       split_number: 1,
       distance_m: split.distanceMeters,
@@ -2801,6 +2828,7 @@ export default function MapScreen() {
           return 'RUN';
         };
         const segmentPayloads: ActivitySegmentPayload[] = [];
+        const stepSegmentRanges: { startTimeMs: number; endTimeMs: number; type: string; sequence: number }[] = [];
         let payloadSequence = 1;
         completedLaps.forEach((lap, index) => {
           if (lap.segmentType === 'Rest') return;
@@ -2809,6 +2837,12 @@ export default function MapScreen() {
             pointsBetween(lap.startedAt, lap.completedAt, nextLap?.startedAt),
             lap.targetDistanceMeters,
           );
+          stepSegmentRanges.push({
+            startTimeMs: lap.startedAt,
+            endTimeMs: lap.completedAt ?? stoppedAt.getTime(),
+            type: segmentType(lap.segmentType),
+            sequence: payloadSequence,
+          });
           const segmentDistance = lap.targetDistanceMeters !== null
             ? Math.min(lap.distanceMeters, lap.targetDistanceMeters)
             : lap.distanceMeters;
@@ -2827,6 +2861,12 @@ export default function MapScreen() {
           };
           const recovery = nextLap?.segmentType === 'Rest' ? nextLap : null;
           if (recovery) {
+            stepSegmentRanges.push({
+              startTimeMs: recovery.startedAt,
+              endTimeMs: recovery.completedAt ?? stoppedAt.getTime(),
+              type: 'RECOVERY',
+              sequence: payloadSequence + 1,
+            });
             const recoveryPoints = pointsBetween(
               recovery.startedAt,
               recovery.completedAt,
@@ -2851,6 +2891,18 @@ export default function MapScreen() {
         const extraPoints = uploadRoutePoints
           .filter((point) => isExtraDistancePoint(point) && getPauseSequence(point) === null)
           .map((point) => pointPayload(point, true));
+        const completedWorkoutEngine = workoutEngineRef.current;
+        const postWorkoutLap = completedWorkoutEngine?.isPostWorkoutContinuation()
+          ? completedWorkoutEngine.getSnapshot().currentLap
+          : null;
+        if (postWorkoutLap) {
+          stepSegmentRanges.push({
+            startTimeMs: postWorkoutLap.startedAt,
+            endTimeMs: stoppedAt.getTime(),
+            type: 'EXTRA',
+            sequence: payloadSequence,
+          });
+        }
         const extraPayload: ActivityExtraPayload | null = extraPoints.length > 0
           ? {
             type: 'EXTRA',
@@ -2866,7 +2918,19 @@ export default function MapScreen() {
         const stepsPerMinute = activityStepTrackerRef.current?.getStepsPerMinute(
           stoppedAt.getTime(),
           pauseEventsRef.current,
+          (timestampMs) => {
+            const range = stepSegmentRanges.find(({ startTimeMs, endTimeMs }) => (
+              timestampMs >= startTimeMs && timestampMs <= endTimeMs
+            ));
+            if (range) return { type: range.type, sequence: range.sequence };
+            return { type: activityType, sequence: 1 };
+          },
         ) ?? [];
+        const stepTrackingSource = !Device.isDevice
+          ? (metronomeEnabled ? 'SIMULATOR_METRONOME' : 'SIMULATOR')
+          : Platform.OS === 'ios'
+            ? 'CMPedometer'
+            : 'Pedometer';
         const iosStyleActivityPayload: ActivitySubmissionPayload = {
           gps_points: submittedRoutePoints
             .map((point) => pointPayload(point, isExtraDistancePoint(point))),
@@ -2891,6 +2955,11 @@ export default function MapScreen() {
           avg_pace: Number(paceSecondsPerKm.toFixed(2)),
           pace_seconds_per_km: Number(paceSecondsPerKm.toFixed(2)),
           total_steps: totalSteps,
+          step_summary: {
+            total_steps: totalSteps,
+            counted_steps: totalSteps,
+            step_tracking_source: stepTrackingSource,
+          },
           steps_per_minute: stepsPerMinute,
           // Keep interval metadata out of regular activities. The API uses
           // these fields to distinguish planned intervals. Manual laps are
@@ -4834,3 +4903,5 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
 });
+
+ 

@@ -176,6 +176,10 @@ export class WorkoutEngine {
     return this.state === 'paused' || this.continuedAfterCompletion;
   }
 
+  public isPostWorkoutContinuation(): boolean {
+    return this.continuedAfterCompletion;
+  }
+
   public isDistanceCounting(): boolean {
     return this.state === 'running';
   }

@@ -13,6 +13,7 @@ import {
     PlanBenchmarkStore,
     type PlanBenchmarkAssignment,
 } from '../../../src/services/planBenchmarkStore';
+import { formatDistanceMeters } from '../../../src/utils/distance';
 import Timeline from '../calendar/components/Timeline';
 import TrainingCalendarCard from '../calendar/components/TrainingCalendarCard';
 import type { RunningPlanData, WorkoutDetail } from '../calendar/components/types';
@@ -102,7 +103,7 @@ const accentForWorkout = (workout: CurrentWorkout, isRest: boolean, isBenchmark:
 };
 
 const formatDuration = (seconds: number | null) => seconds == null ? '' : `${Math.round(seconds / 60)} min`;
-const formatDistance = (metres: number | null) => metres == null ? '' : `${(metres / 1000).toFixed(1)} km`;
+const formatDistance = (metres: number | null) => metres == null ? '' : formatDistanceMeters(metres);
 
 const toWorkoutDetail = (
   workout: CurrentWorkout,
@@ -169,7 +170,7 @@ const toWorkoutDetail = (
     steps: workout.segments.map((segment: CurrentWorkout['segments'][number]) => [
       segment.segment_type,
       segment.repeats > 1 ? `${segment.repeats}×` : '',
-      segment.rep_distance != null ? `${(segment.rep_distance / 1000).toFixed(1)} km` : '',
+      segment.rep_distance != null ? formatDistanceMeters(segment.rep_distance) : '',
       segment.duration != null ? formatDuration(segment.duration) : '',
       segment.target_pace ? `${segment.target_pace} ${segment.pace_unit}`.trim() : '',
       segment.rest_duration != null ? `rest ${formatDuration(segment.rest_duration)}` : '',
@@ -182,7 +183,7 @@ const toWorkoutDetail = (
     heartRateZone: workout.zone,
     distance: formatDistance(workout.distance),
     notes: workout.notes,
-    segments: workout.segments.map((segment) => ({ order: segment.segment_order, type: segment.segment_type, repeats: segment.repeats, distance: segment.rep_distance != null ? `${(segment.rep_distance / 1000).toFixed(1)} km` : '', duration: formatDuration(segment.duration), pace: segment.target_pace ? `${segment.target_pace} ${segment.pace_unit}`.trim() : '', rest: segment.rest_duration != null ? formatDuration(segment.rest_duration) : '', notes: segment.notes })),
+    segments: workout.segments.map((segment) => ({ order: segment.segment_order, type: segment.segment_type, repeats: segment.repeats, distance: segment.rep_distance != null ? formatDistanceMeters(segment.rep_distance) : '', duration: formatDuration(segment.duration), pace: segment.target_pace ? `${segment.target_pace} ${segment.pace_unit}`.trim() : '', rest: segment.rest_duration != null ? formatDuration(segment.rest_duration) : '', notes: segment.notes })),
   };
 };
 

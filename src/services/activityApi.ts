@@ -123,6 +123,29 @@ const getLapGpsPoints = (value: Record<string, unknown>): BackendGpsPoint[] => {
   )) ?? [];
 };
 
+const isExtraDistanceFlag = (value: unknown): boolean => (
+  value === true
+  || value === 1
+  || (typeof value === 'string' && ['true', '1'].includes(value.trim().toLowerCase()))
+);
+
+const isExtraManualLapEvent = (
+  item: Record<string, unknown>,
+  points: BackendGpsPoint[],
+): boolean => {
+  if (item.is_extra_distance !== undefined && item.is_extra_distance !== null) {
+    return isExtraDistanceFlag(item.is_extra_distance);
+  }
+
+  const extraStart = points
+    .filter((point) => isExtraDistanceFlag(point.is_extra_distance))
+    .map((point) => parseTimestamp(point.timestamp))
+    .filter((timestamp): timestamp is number => timestamp !== null)
+    .sort((left, right) => left - right)[0];
+  const eventTimestamp = parseTimestamp(item.timestamp ?? item.ended_at);
+  return extraStart !== undefined && eventTimestamp !== null && eventTimestamp >= extraStart;
+};
+
 const parseTimestamp = (value: unknown): number | null => {
   const timestamp = typeof value === 'number'
     ? value
@@ -185,6 +208,7 @@ const normalizeLapRecords = (
   value: Record<string, unknown>,
   includeManualEvents = true,
   includeWorkoutLaps = true,
+  includeExtraManualEvents = false,
 ): ActivityLapRecord[] => {
   const backendLaps = includeWorkoutLaps && Array.isArray(value.laps) ? value.laps : [];
   const lapEvents = Array.isArray(value.lap_events) ? value.lap_events : [];
@@ -228,6 +252,7 @@ const normalizeLapRecords = (
   const normalizedManualLaps = lapEvents.flatMap((event, index) => {
     if (!event || typeof event !== 'object') return [];
     const item = event as Record<string, unknown>;
+    if (isExtraManualLapEvent(item, points) !== includeExtraManualEvents) return [];
     const eventTimestamp = parseTimestamp(item.timestamp ?? item.ended_at);
     const sequence = Math.max(1, Math.floor(toNumber(
       item.manual_lap_number ?? item.split_number ?? item.event_number ?? item.sequence,
@@ -274,6 +299,14 @@ const normalizeSplit = (value: unknown, index: number): ActivitySplit | null => 
     distance_m: distance,
     time_s: time,
     pace_s_per_km: toNumber(split.pace_s_per_km ?? split.pace, time / (distance / 1000)),
+    ...((split.steps !== undefined ? split.steps : split.step_count) === null
+      ? { steps: null }
+      : (split.steps !== undefined ? split.steps : split.step_count) !== undefined
+        ? { steps: toNumber(split.steps !== undefined ? split.steps : split.step_count) }
+        : {}),
+    ...(split.average_spm !== undefined
+      ? { average_spm: split.average_spm === null ? null : toNumber(split.average_spm) }
+      : {}),
   };
 };
 
@@ -415,15 +448,43 @@ const normalizeSegment = (value: unknown, index: number): ActivitySegmentSplits 
   const nestedRecovery = segment.recovery && typeof segment.recovery === 'object'
     ? normalizeSegment(segment.recovery, index + 1)
     : undefined;
+  const sequence = Math.max(1, Math.floor(toNumber(segment.sequence ?? segment.segment_order, index + 1)));
+  const laps = Array.isArray(segment.laps)
+    ? segment.laps.flatMap((lap, lapIndex) => {
+      if (!lap || typeof lap !== 'object') return [];
+      const value = lap as Record<string, unknown>;
+      const lapNumber = Math.max(1, Math.floor(toNumber(value.lap_number ?? value.sequence, lapIndex + 1)));
+      const distance = optionalNumber(value.distance_m, value.distance_meters, value.distance);
+      const time = optionalNumber(value.time_s, value.duration_seconds, value.time);
+      const pace = optionalNumber(value.pace_s_per_km, value.pace_seconds_per_km, value.pace)
+        ?? (distance !== undefined && distance > 0 && time !== undefined ? time / (distance / 1000) : undefined);
+      const stepsValue = value.steps !== undefined ? value.steps : value.step_count;
+      return [{
+        sequence: lapNumber,
+        segment_sequence: sequence,
+        label: `Lap ${lapNumber}`,
+        distance_m: distance,
+        time_s: time,
+        pace_s_per_km: pace,
+        ...(stepsValue === null
+          ? { steps: null }
+          : stepsValue !== undefined
+            ? { steps: toNumber(stepsValue) }
+            : {}),
+        splits: normalizeSplits(value.splits),
+      }];
+    })
+    : undefined;
   return {
     id: typeof segment.id === 'string' || typeof segment.id === 'number' ? segment.id : undefined,
-    sequence: Math.max(1, Math.floor(toNumber(segment.sequence ?? segment.segment_order, index + 1))),
+    sequence,
     type,
     planned_distance_m: toNumber(segment.planned_distance_m ?? segment.planned_distance ?? segment.rep_distance, 0) || undefined,
     completed_distance_m: toNumber(segment.completed_distance_m ?? segment.completed_distance ?? segment.distance_m, 0) || undefined,
     actual_time_s: toNumber(segment.actual_time_s ?? segment.time_s ?? segment.duration_s ?? segment.actual_time, 0) || undefined,
     actual_pace_s_per_km: toNumber(segment.actual_pace_s_per_km ?? segment.pace_s_per_km ?? segment.pace, 0) || undefined,
     splits: isRecovery(type) ? [] : normalizeSplits(segment.splits),
+    laps,
     gps_points: gpsPoints,
     recovery: nestedRecovery ? { ...nestedRecovery, splits: [] } : undefined,
   };
@@ -459,11 +520,13 @@ export const normalizeActivitySplits = (activity: unknown): {
       })
       .filter((split): split is ActivitySplit => split !== null)
     : [];
+  const activityPoints = getActivityPoints(value);
   const manualLapSplits = Array.isArray(value.lap_events)
     ? value.lap_events
       .map((event, index) => {
         if (!event || typeof event !== 'object') return null;
         const lapEvent = event as Record<string, unknown>;
+        if (isExtraManualLapEvent(lapEvent, activityPoints)) return null;
         return normalizeSplit({
           split_number: lapEvent.split_number ?? lapEvent.manual_lap_number ?? lapEvent.event_number ?? index + 1,
           distance_m: lapEvent.distance_m,
@@ -479,15 +542,23 @@ export const normalizeActivitySplits = (activity: unknown): {
     value.workout_distance_meters,
     value.distance,
   );
+  const activityWorkoutDistanceMeters = optionalNumber(value.workout_distance_meters);
   const activityMovingTimeSeconds = optionalNumber(
     value.moving_time_s,
     value.moving_time,
     value.elapsed_time_s,
     value.elapsed_time,
   );
-  const activityPoints = getActivityPoints(value);
-  const generatedActivitySplits = createSplitsFromGpsPoints(activityPoints.filter((point) => !point.is_extra_distance), splitDistanceMeters);
-  const generatedExtraSplits = createSplitsFromGpsPoints(activityPoints.filter((point) => point.is_extra_distance), splitDistanceMeters);
+  const hasExtraDistancePoints = activityPoints.some((point) => isExtraDistanceFlag(point.is_extra_distance));
+  const firstExtraPointIndex = activityPoints.findIndex((point) => isExtraDistanceFlag(point.is_extra_distance));
+  const workoutPoints = hasExtraDistancePoints
+    ? activityPoints.slice(0, firstExtraPointIndex)
+    : activityPoints;
+  const generatedActivitySplits = createSplitsFromGpsPoints(workoutPoints, splitDistanceMeters);
+  const extraPointsWithBoundary = hasExtraDistancePoints
+    ? activityPoints.slice(Math.max(0, firstExtraPointIndex - 1))
+    : [];
+  const generatedExtraSplits = createSplitsFromGpsPoints(extraPointsWithBoundary, splitDistanceMeters);
   const manualSegmentIndex = normalizedSegments.findIndex((segment) => (
     segment.type === 'RUN' || segment.type === 'WALK'
   )) >= 0
@@ -580,9 +651,13 @@ export const normalizeActivitySplits = (activity: unknown): {
     const lapTime = lapSplits.reduce((total, split) => total + split.time_s, 0);
     const generatedDistance = generatedActivitySplits.reduce((total, split) => total + split.distance_m, 0);
     const generatedTime = generatedActivitySplits.reduce((total, split) => total + split.time_s, 0);
-    const completedDistance = activityDistanceMeters && activityDistanceMeters > 0
-      ? activityDistanceMeters
-      : generatedDistance || manualDistance || lapDistance;
+    const completedDistance = activityWorkoutDistanceMeters !== undefined
+      ? activityWorkoutDistanceMeters
+      : hasExtraDistancePoints
+        ? generatedDistance || manualDistance || lapDistance
+        : activityDistanceMeters && activityDistanceMeters > 0
+          ? activityDistanceMeters
+          : generatedDistance || manualDistance || lapDistance;
     const completedTime = activityMovingTimeSeconds && activityMovingTimeSeconds > 0
       ? activityMovingTimeSeconds
       : generatedTime || manualTime || lapTime;
@@ -640,9 +715,16 @@ export const normalizeActivitySplits = (activity: unknown): {
     const recordedLapDistance = normalizedLaps.reduce((total, lap) => total + (lap.distance_m ?? 0), 0);
     const recordedLapTime = normalizedLaps.reduce((total, lap) => total + (lap.time_s ?? 0), 0);
     const routeDistance = generatedActivitySplits.reduce((total, split) => total + split.distance_m, 0);
-    const totalDistance = activityDistanceMeters && activityDistanceMeters > 0
-      ? activityDistanceMeters
-      : routeDistance;
+    // The total activity distance may include post-workout extra distance.
+    // Use the workout-only total (or the untagged route) for the planned
+    // activity remainder so extra distance cannot create another workout lap.
+    const totalDistance = activityWorkoutDistanceMeters !== undefined
+      ? activityWorkoutDistanceMeters
+      : hasExtraDistancePoints
+        ? routeDistance
+        : activityDistanceMeters && activityDistanceMeters > 0
+          ? activityDistanceMeters
+          : routeDistance;
     const remainingDistance = Math.max(0, totalDistance - recordedLapDistance);
     const activityEnd = parseTimestamp(value.end_time ?? value.ended_at)
       ?? Date.now();
@@ -700,21 +782,61 @@ export const normalizeActivitySplits = (activity: unknown): {
         splits: segment.splits,
       }];
     });
+  const extraManualLaps = normalizeLapRecords(value, true, false, true).map((lap, index) => ({
+    ...lap,
+    sequence: index + 1,
+    label: `Lap ${index + 1}`,
+    splits: lap.distance_m !== undefined && lap.time_s !== undefined
+      ? createSplitsFromDistanceAndTime(lap.distance_m, lap.time_s, splitDistanceMeters)
+      : [],
+  }));
+  const normalizedExtraSplits = extraSegment?.splits.length
+    ? repartitionSplits(extraSegment.splits, splitDistanceMeters)
+      .map((split, index) => ({ ...split, split_number: index + 1 }))
+    : generatedExtraSplits;
+  const extraDistanceFromSplits = normalizedExtraSplits.reduce((total, split) => total + split.distance_m, 0);
+  const extraManualDistance = extraManualLaps.reduce((total, lap) => total + (lap.distance_m ?? 0), 0);
+  const extraManualTime = extraManualLaps.reduce((total, lap) => total + (lap.time_s ?? 0), 0);
+  const extraDistanceTotal = extraDistanceFromSplits
+    || extraManualDistance
+    || extraSegment?.completed_distance_m
+    || extraSegment?.planned_distance_m
+    || 0;
+  const extraTimeTotal = extraSegment?.actual_time_s ?? 0;
+  const extraLapRemainderDistance = Math.max(0, extraDistanceTotal - extraManualDistance);
+  const extraLapRemainderTime = Math.max(0, extraTimeTotal - extraManualTime);
+  const calculatedExtraLaps = [
+    ...extraManualLaps,
+    ...(extraLapRemainderDistance > 0.5
+      ? [{
+        sequence: extraManualLaps.length + 1,
+        label: `Lap ${extraManualLaps.length + 1}`,
+        distance_m: extraLapRemainderDistance,
+        time_s: extraLapRemainderTime,
+        pace_s_per_km: extraLapRemainderDistance > 0
+          ? extraLapRemainderTime / (extraLapRemainderDistance / 1000)
+          : undefined,
+        splits: createSplitsFromDistanceAndTime(extraLapRemainderDistance, extraLapRemainderTime, splitDistanceMeters),
+      }]
+      : []),
+  ];
+  const extraLaps = extraSegment?.laps?.length ? extraSegment.laps : calculatedExtraLaps;
   return {
     segments,
     laps,
-    extra: extraSegment && (extraSegment.splits.length > 0 || generatedExtraSplits.length > 0)
+    extra: (extraSegment && (extraSegment.splits.length > 0 || generatedExtraSplits.length > 0))
+      || extraManualLaps.length > 0
       ? {
-        id: extraSegment.id,
+        id: extraSegment?.id,
         type: 'EXTRA',
-        distance_m: extraSegment.completed_distance_m ?? extraSegment.planned_distance_m,
-        actual_time_s: extraSegment.actual_time_s,
-        actual_pace_s_per_km: extraSegment.actual_pace_s_per_km,
-        splits: extraSegment.splits.length > 0
-          ? (extraSegment.splits.length === 1 && extraSegment.splits[0].distance_m > splitDistanceMeters
-              ? repartitionSplits(extraSegment.splits, splitDistanceMeters)
-              : extraSegment.splits)
-          : generatedExtraSplits,
+        distance_m: extraDistanceFromSplits
+          || extraSegment?.completed_distance_m
+          || extraSegment?.planned_distance_m
+          || extraManualDistance,
+        actual_time_s: extraSegment?.actual_time_s,
+        actual_pace_s_per_km: extraSegment?.actual_pace_s_per_km,
+        splits: normalizedExtraSplits,
+        laps: extraLaps,
       }
       : null,
   };
@@ -758,6 +880,14 @@ export interface BackendActivity {
   planned_distance_km?: number | null;
   extra_distance?: number | null;
   extra_distance_km?: number | null;
+  total_steps?: number | null;
+  counted_steps?: number | null;
+  step_tracking_source?: string | null;
+  step_summary?: {
+    total_steps?: number | null;
+    counted_steps?: number | null;
+    step_tracking_source?: string | null;
+  } | null;
   avg_speed: number;
   max_speed: number;
   avg_pace: number;

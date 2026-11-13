@@ -93,6 +93,7 @@ export default function ActivityDetailScreen() {
   const [splitSegments, setSplitSegments] = useState<ActivitySegmentSplits[]>([]);
   const [lapRecords, setLapRecords] = useState<ActivityLapRecord[]>([]);
   const [extraSplits, setExtraSplits] = useState<ActivityExtraSplits['splits']>([]);
+  const [extraLapRecords, setExtraLapRecords] = useState<ActivityLapRecord[]>([]);
   const cropStartIndex = cropStart === undefined ? undefined : Number(cropStart);
   const cropEndIndex = cropEnd === undefined ? undefined : Number(cropEnd);
   const extraDistanceMeters = getActivityExtraDistanceMeters(activity);
@@ -113,6 +114,7 @@ export default function ActivityDetailScreen() {
       setActivity(loadedActivity);
       setSplitSegments(loadedActivity.segments ?? []);
       setExtraSplits(loadedActivity.extra?.splits ?? []);
+      setExtraLapRecords(loadedActivity.extra?.laps ?? []);
       if (autoOpenSplits === 'true' && !autoOpenedSplitsRef.current) {
         autoOpenedSplitsRef.current = true;
         setSplitsVisible(true);
@@ -256,6 +258,7 @@ export default function ActivityDetailScreen() {
       setSplitSegments(splitData.segments);
       setLapRecords(splitData.laps);
       setExtraSplits(splitData.extra?.splits ?? []);
+      setExtraLapRecords(splitData.extra?.laps ?? []);
     } catch (requestError) {
       setSplitsError(getBackendErrorMessage(requestError, 'Unable to load split details.'));
     } finally {
@@ -415,6 +418,7 @@ export default function ActivityDetailScreen() {
         segments={splitSegments}
         laps={lapRecords}
         extraSplits={extraSplits}
+        extraLaps={extraLapRecords}
         extraDistanceMeters={extraDistanceMeters}
         distanceUnit={distanceUnit}
         onClose={() => setSplitsVisible(false)}

@@ -1,5 +1,6 @@
 import api from '../../service/api';
 import { ActivitySubmissionPayload, RunSessionStartPayload, RunSessionStartResponse, RunStopPayload, UploadBatchPayload } from '../types/running';
+import { calculateDistanceMeters } from '../utils/distance';
 import { activityManualLapOverrides } from './activityManualLapOverrides';
 
 // `service/api.ts` supplies the /api/v1 base URL and authenticated Bearer
@@ -11,6 +12,108 @@ const ACTIVITY_UPLOAD_PATH = (
 const createRunId = (): string =>
   `RUN-${Date.now()}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
 
+type LapRoutePoint = {
+  latitude: number;
+  longitude: number;
+  timestamp: string;
+  is_paused?: boolean;
+  is_extra_distance?: boolean;
+};
+
+type LapRoute = { key: string; points: LapRoutePoint[] };
+
+const getDistanceAtTime = (points: LapRoutePoint[], timestampMs: number) => {
+  const orderedPoints = points
+    .filter((point) => !point.is_paused)
+    .map((point) => ({ point, time: Date.parse(point.timestamp) }))
+    .filter((item) => Number.isFinite(item.time))
+    .sort((left, right) => left.time - right.time);
+  if (orderedPoints.length < 2) return null;
+
+  let cumulativeDistance = 0;
+  for (let index = 1; index < orderedPoints.length; index += 1) {
+    const previous = orderedPoints[index - 1];
+    const current = orderedPoints[index];
+    const intervalDistance = calculateDistanceMeters(previous.point, current.point);
+    if (!Number.isFinite(intervalDistance) || intervalDistance < 0) continue;
+
+    if (timestampMs >= previous.time && timestampMs <= current.time) {
+      const duration = current.time - previous.time;
+      const fraction = duration > 0 ? (timestampMs - previous.time) / duration : 0;
+      return cumulativeDistance + intervalDistance * Math.max(0, Math.min(1, fraction));
+    }
+    cumulativeDistance += intervalDistance;
+  }
+  return null;
+};
+
+const roundBackendMeter = (meters: number) => {
+  const lower = Math.floor(meters);
+  const fraction = meters - lower;
+  if (fraction < 0.5) return lower;
+  if (fraction > 0.5) return lower + 1;
+  return lower % 2 === 0 ? lower : lower + 1;
+};
+
+/**
+ * The backend turns manual lap event distances into whole meters and rejects
+ * duplicate or terminal lap boundaries. Drop only boundaries that cannot
+ * form a valid positive lap; the final activity/segment distance then remains
+ * part of the automatically generated final lap.
+ */
+const keepValidManualLapEvents = (payload: ActivitySubmissionPayload) => {
+  const routes: LapRoute[] = [];
+  if (payload.segments?.length) {
+    payload.segments.forEach((segment) => {
+      routes.push({ key: `segment-${segment.sequence}`, points: segment.gps_points });
+      if (segment.recovery) {
+        routes.push({ key: `segment-${segment.recovery.sequence}`, points: segment.recovery.gps_points });
+      }
+    });
+    if (payload.extra?.gps_points.length) {
+      routes.push({ key: 'extra', points: payload.extra.gps_points });
+    }
+  } else {
+    const regularPoints = payload.gps_points.filter((point) => !point.is_extra_distance);
+    if (regularPoints.length) routes.push({ key: 'activity', points: regularPoints });
+    const extraPoints = payload.extra?.gps_points?.length
+      ? payload.extra.gps_points
+      : payload.gps_points.filter((point) => point.is_extra_distance);
+    if (extraPoints.length) routes.push({ key: 'extra', points: extraPoints });
+  }
+
+  const previousRoundedDistance = new Map<string, number>();
+  const events = (payload.lap_events ?? []).flatMap((event) => {
+    const eventTime = Date.parse(event.timestamp);
+    if (!Number.isFinite(eventTime)) return [];
+    const matches = routes.flatMap((route) => {
+      const ordered = route.points
+        .map((point) => ({ point, time: Date.parse(point.timestamp) }))
+        .filter((item) => Number.isFinite(item.time))
+        .sort((left, right) => left.time - right.time);
+      if (ordered.length < 2 || eventTime < ordered[0].time || eventTime > ordered.at(-1)!.time) return [];
+      const distance = getDistanceAtTime(route.points, eventTime);
+      const totalDistance = ordered.slice(1).reduce((total, current, index) => (
+        total + calculateDistanceMeters(ordered[index].point, current.point)
+      ), 0);
+      return distance === null ? [] : [{ route, distance, totalDistance }];
+    });
+
+    // A manual lap timestamp with no route interval, or one that ambiguously
+    // falls on multiple segment timelines, cannot be split safely by backend.
+    if (matches.length !== 1) return [];
+    const [{ route, distance, totalDistance }] = matches;
+    const roundedDistance = roundBackendMeter(distance);
+    const roundedTotal = roundBackendMeter(totalDistance);
+    const previousDistance = previousRoundedDistance.get(route.key) ?? 0;
+    if (roundedDistance <= previousDistance || roundedDistance >= roundedTotal) return [];
+    previousRoundedDistance.set(route.key, roundedDistance);
+    return [event];
+  });
+
+  return events.map((event, index) => ({ ...event, event_number: index + 1 }));
+};
+
 /**
  * Keep free activities and structured interval activities on distinct API
  * shapes. This also repairs queued payloads created by older app versions.
@@ -19,7 +122,8 @@ export const normalizeActivitySubmissionPayload = (
   payload: ActivitySubmissionPayload,
 ): ActivitySubmissionPayload => {
   const hasIntervalStructure = Boolean(payload.laps?.length || payload.segments?.length);
-  const { laps, segments, lap_events, ...activity } = payload;
+  const { laps, segments, ...activity } = payload;
+  const lap_events = keepValidManualLapEvents(payload);
 
   if (hasIntervalStructure) {
     return {

@@ -95,7 +95,10 @@ export class DistanceSplitEngine {
       this.state.manualSegmentTimeSeconds += Math.max(0, (timestamp - this.state.manualLastTimestamp) / 1000);
     }
     this.state.manualLastTimestamp = timestamp;
-    if (this.state.manualSegmentDistanceMeters <= 0) return null;
+    // The backend stores lap boundaries at whole-meter precision. Do not
+    // emit sub-meter laps that would round to zero or duplicate the previous
+    // boundary and make the entire activity upload fail.
+    if (this.state.manualSegmentDistanceMeters < 1) return null;
 
     this.state.manualSplitNumber += 1;
     const distanceMeters = this.state.manualSegmentDistanceMeters;
@@ -109,5 +112,12 @@ export class DistanceSplitEngine {
     this.state.manualSegmentDistanceMeters = 0;
     this.state.manualSegmentTimeSeconds = 0;
     return completed;
+  }
+
+  public startManualSplitSection(): void {
+    this.state.manualSegmentDistanceMeters = 0;
+    this.state.manualSegmentTimeSeconds = 0;
+    this.state.manualSplitNumber = 0;
+    this.state.manualLastTimestamp = this.state.lastTimestamp;
   }
 }
