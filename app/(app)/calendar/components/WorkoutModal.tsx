@@ -292,7 +292,8 @@ export default function WorkoutModal({
           weekday: activeWorkout.day,
           title: activeWorkout.title,
           workoutType: activeWorkout.workoutType,
-          distance: activeWorkout.distance ? parseFloat(activeWorkout.distance) * 1000 : null,
+          distance: activeWorkout.distanceMeters
+            ?? (activeWorkout.distance ? parseFloat(activeWorkout.distance) * 1000 : null),
           duration: activeWorkout.estimatedDuration ? parseInt(activeWorkout.estimatedDuration, 10) * 60 : null,
           notes: activeWorkout.notes,
           segments: activeWorkout.segments,

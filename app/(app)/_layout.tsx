@@ -24,12 +24,20 @@ function AppLayoutContent() {
   const activeRun = useActiveRun();
   const blurTargetRef = useRef<View | null>(null);
   const isIOS = Platform.OS === 'ios';
+  const backNavigationPending = useRef(false);
+
+  useEffect(() => {
+    backNavigationPending.current = false;
+  }, [pathname]);
 
   useEffect(() => {
     if (!showBottomNav) return;
 
     const handleBackPress = () => {
+      if (backNavigationPending.current) return true;
+
       if (pathname.replace('/(app)', '') !== '/dashboard') {
+        backNavigationPending.current = true;
         router.replace('/(app)/dashboard');
         return true;
       }

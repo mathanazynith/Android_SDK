@@ -209,6 +209,9 @@ export default function DashboardScreen() {
   );
 
   const weeklyStats = useMemo(() => calculateWeeklySummary(activities), [activities]);
+  const hasWorkoutPlan = Boolean(workoutPlan);
+  const isConfirmedNoPlan = isWorkoutPlanLoaded && !hasWorkoutPlan && !workoutPlanError;
+  const showQuickShortcutRow = hasWorkoutPlan || isConfirmedNoPlan;
 
   useFocusEffect(
     useCallback(() => {
@@ -420,7 +423,7 @@ export default function DashboardScreen() {
           styles.topBar,
           {
             borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
-            minHeight: spacing(76) + insets.top,
+            minHeight: spacing(56) + insets.top,
             paddingHorizontal: spacing(20),
             paddingTop: insets.top + spacing(6),
           },
@@ -470,8 +473,9 @@ export default function DashboardScreen() {
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          { paddingHorizontal: spacing(18), paddingBottom: spacing(118) },
+          { paddingHorizontal: spacing(20), paddingBottom: spacing(84) },
         ]}
+        alwaysBounceVertical={false}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -501,7 +505,7 @@ export default function DashboardScreen() {
               flexDirection: 'row',
               alignItems: 'center',
               gap: 12,
-              marginBottom: spacing(14),
+              marginBottom: spacing(12),
               paddingHorizontal: spacing(16),
               paddingVertical: spacing(12),
               borderRadius: 20,
@@ -561,85 +565,133 @@ export default function DashboardScreen() {
         </MotionEntrance>
 
         {/* 3. Quick Action Shortcuts Bar */}
-        <MotionEntrance delay={45}>
-          <View style={styles.quickShortcutsRow}>
-            <TouchableOpacity
-              style={[
-                styles.quickShortcutPill,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
-                },
-              ]}
-              onPress={() => router.push('/(app)/screens/map')}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.quickShortcutIcon, { backgroundColor: `${BRAND_GREEN}18` }]}>
-                <Feather name="play" size={13} color={BRAND_GREEN} />
-              </View>
-              <DashboardText style={[styles.quickShortcutLabel, { color: colors.text }]}>
-                Quick Run
-              </DashboardText>
-            </TouchableOpacity>
+        {showQuickShortcutRow ? (
+          <MotionEntrance delay={45}>
+            <View style={styles.quickShortcutsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.quickShortcutPill,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+                  },
+                ]}
+                onPress={() => router.push('/(app)/screens/map')}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.quickShortcutIcon, { backgroundColor: `${BRAND_GREEN}18` }]}>
+                  <Feather name="play" size={13} color={BRAND_GREEN} />
+                </View>
+                <DashboardText
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                  style={[styles.quickShortcutLabel, { color: colors.text }]}
+                >
+                  Quick Run
+                </DashboardText>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[
-                styles.quickShortcutPill,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
-                },
-              ]}
-              onPress={() => router.push('/(app)/custom-workout')}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(255, 149, 0, 0.18)' }]}>
-                <Feather name="sliders" size={13} color="#FF9500" />
-              </View>
-              <DashboardText style={[styles.quickShortcutLabel, { color: colors.text }]}>
-                Custom
-              </DashboardText>
-            </TouchableOpacity>
+              {hasWorkoutPlan ? (
+                <TouchableOpacity
+                  style={[
+                    styles.quickShortcutPill,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+                    },
+                  ]}
+                  onPress={() => router.push('/(app)/activity')}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(255, 149, 0, 0.18)' }]}>
+                    <Feather name="activity" size={13} color="#FF9500" />
+                  </View>
+                  <DashboardText
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.8}
+                    style={[styles.quickShortcutLabel, { color: colors.text }]}
+                  >
+                    History
+                  </DashboardText>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[
+                    styles.quickShortcutPill,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+                    },
+                  ]}
+                  onPress={() => router.push('/(app)/custom-workout')}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(255, 149, 0, 0.18)' }]}>
+                    <Feather name="sliders" size={13} color="#FF9500" />
+                  </View>
+                  <DashboardText
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.8}
+                    style={[styles.quickShortcutLabel, { color: colors.text }]}
+                  >
+                    Custom
+                  </DashboardText>
+                </TouchableOpacity>
+              )}
 
-            <TouchableOpacity
-              style={[
-                styles.quickShortcutPill,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
-                },
-              ]}
-              onPress={() => router.push('/(app)/training-plan')}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(10, 132, 255, 0.18)' }]}>
-                <Feather name="calendar" size={13} color="#0A84FF" />
-              </View>
-              <DashboardText style={[styles.quickShortcutLabel, { color: colors.text }]}>
-                Plan
-              </DashboardText>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.quickShortcutPill,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+                  },
+                ]}
+                onPress={() => router.push('/(app)/training-plan')}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(10, 132, 255, 0.18)' }]}>
+                  <Feather name="calendar" size={13} color="#0A84FF" />
+                </View>
+                <DashboardText
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                  style={[styles.quickShortcutLabel, { color: colors.text }]}
+                >
+                  Plan
+                </DashboardText>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[
-                styles.quickShortcutPill,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
-                },
-              ]}
-              onPress={() => router.push('/(app)/stats')}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(175, 82, 222, 0.18)' }]}>
-                <Feather name="bar-chart-2" size={13} color="#AF52DE" />
-              </View>
-              <DashboardText style={[styles.quickShortcutLabel, { color: colors.text }]}>
-                Stats
-              </DashboardText>
-            </TouchableOpacity>
-          </View>
-        </MotionEntrance>
+              <TouchableOpacity
+                style={[
+                  styles.quickShortcutPill,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+                  },
+                ]}
+                onPress={() => router.push('/(app)/stats')}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(175, 82, 222, 0.18)' }]}>
+                  <Feather name="bar-chart-2" size={13} color="#AF52DE" />
+                </View>
+                <DashboardText
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                  style={[styles.quickShortcutLabel, { color: colors.text }]}
+                >
+                  Stats
+                </DashboardText>
+              </TouchableOpacity>
+            </View>
+          </MotionEntrance>
+        ) : null}
 
         {/* Offline Workouts Pending Sync Banner */}
         {offlinePendingCount > 0 && (
@@ -764,8 +816,6 @@ export default function DashboardScreen() {
               plan={workoutPlan}
               todayWorkout={todayWorkout}
               nextWorkout={nextWorkout}
-              scheduledCustomWorkout={todayCustomWorkout}
-              scheduledCustomWorkouts={todayCustomWorkouts}
             />
           ) : isWorkoutPlanLoading && !workoutPlanError ? (
             <View
@@ -780,8 +830,9 @@ export default function DashboardScreen() {
             <DashboardNoPlan
               canStartAssessment={canStartAssessment}
               onStartAssessment={startAssessment}
-              scheduledCustomWorkout={todayCustomWorkout}
-              scheduledCustomWorkouts={todayCustomWorkouts}
+              scheduledCustomWorkout={isConfirmedNoPlan ? todayCustomWorkout : null}
+              scheduledCustomWorkouts={isConfirmedNoPlan ? todayCustomWorkouts : []}
+              showCustomWorkouts={isConfirmedNoPlan}
             />
           )}
         </MotionEntrance>
@@ -844,10 +895,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0 },
-  content: { paddingHorizontal: 18, paddingBottom: 118 },
+  content: { flexGrow: 1, paddingTop: 8 },
   greetingCard: {
-    padding: 16,
-    marginBottom: 14,
+    padding: 14,
+    marginBottom: 12,
     borderRadius: 20,
     borderWidth: 1,
     gap: 6,
@@ -978,29 +1029,36 @@ const styles = StyleSheet.create({
   quickShortcutsRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   quickShortcutPill: {
     flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 10,
-    paddingHorizontal: 4,
+    paddingHorizontal: 2,
     borderRadius: 14,
     borderWidth: 1,
   },
   quickShortcutIcon: {
     width: 22,
     height: 22,
+    flexShrink: 0,
     borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },
   quickShortcutLabel: {
-    fontSize: 11,
-    fontWeight: '700',
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    includeFontPadding: false,
   },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#0B0E0F' },
   centerText: { color: '#F7F7F7', textAlign: 'center', marginTop: 14 },
@@ -1036,7 +1094,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 14,
     borderWidth: 1,
-    marginBottom: 16,
+    marginBottom: 12,
     gap: 10,
   },
   offlineModeLeft: {

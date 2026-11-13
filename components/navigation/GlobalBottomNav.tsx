@@ -109,6 +109,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
   const { user, isLoading: isAuthLoading } = useAuth();
   const [rowWidth, setRowWidth] = useState(0);
   const [planPrompt, setPlanPrompt] = useState<'get-plan' | 'profile-required' | null>(null);
+  const tabNavigationPending = useRef(false);
   const isProfileComplete = isAssessmentProfileComplete(user);
   const isPlanPromptVisible = planPrompt !== null;
   const activeIndex = tabs.findIndex((tab) => isTabActive(pathname, tab.route));
@@ -120,6 +121,10 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
   useEffect(() => {
     if (!isWorkoutPlanLoaded && !isWorkoutPlanLoading) void fetchWorkoutPlan();
   }, [fetchWorkoutPlan, isWorkoutPlanLoaded, isWorkoutPlanLoading]);
+
+  useEffect(() => {
+    tabNavigationPending.current = false;
+  }, [pathname]);
 
   useEffect(() => {
     if (activeIndex < 0 || rowWidth <= 0) return;
@@ -154,6 +159,8 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
 
     setPlanPrompt(null);
     if (isTabActive(pathname, tab.route)) return;
+    if (tabNavigationPending.current) return;
+    tabNavigationPending.current = true;
 
     if (tab.label === 'Home') {
       router.replace('/(app)/dashboard');

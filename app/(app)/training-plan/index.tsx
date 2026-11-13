@@ -8,14 +8,18 @@ import EndActivePlanModal from '../../../components/EndActivePlanModal';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { useAuth } from '../../../service/auth';
 import { workoutPlanService, type CurrentWorkout, type UserWorkoutResponse } from '../../../service/workoutPlan';
 import {
     PlanBenchmarkStore,
     type PlanBenchmarkAssignment,
 } from '../../../src/services/planBenchmarkStore';
+import { formatDistanceFromMeters } from '../../../src/utils/activityUnitFormatters';
+import { formatPaceForUnit, type DistanceUnitType } from '../../../src/utils/workoutCalculations';
 import Timeline from '../calendar/components/Timeline';
 import TrainingCalendarCard from '../calendar/components/TrainingCalendarCard';
 import type { RunningPlanData, WorkoutDetail } from '../calendar/components/types';
+import { getDistanceUnitCode } from '../../../utils/distanceUnit';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -102,12 +106,14 @@ const accentForWorkout = (workout: CurrentWorkout, isRest: boolean, isBenchmark:
 };
 
 const formatDuration = (seconds: number | null) => seconds == null ? '' : `${Math.round(seconds / 60)} min`;
-const formatDistance = (metres: number | null) => metres == null ? '' : `${(metres / 1000).toFixed(1)} km`;
+const formatDistance = (metres: number | null, unit: DistanceUnitType) =>
+  metres == null ? '' : formatDistanceFromMeters(metres, unit);
 
 const toWorkoutDetail = (
   workout: CurrentWorkout,
   benchmarkAssignments: Record<string, PlanBenchmarkAssignment> = {},
-  dbPlanWorkouts: UserWorkoutResponse[] = []
+  dbPlanWorkouts: UserWorkoutResponse[] = [],
+  distanceUnit: DistanceUnitType = 'km'
 ): WorkoutDetail => {
   const isRest = `${workout.workout_type} ${workout.title}`.toLowerCase().includes('rest');
   const date = workout.workout_date ? new Date(`${workout.workout_date}T00:00:00`) : null;
@@ -165,29 +171,43 @@ const toWorkoutDetail = (
     benchmarkType: assignment?.benchmarkType || (isBenchmark ? 'plan' : undefined),
     description,
     instructions: '',
-    warmUp: formatDistance(workout.warmup),
+    warmUp: formatDistance(workout.warmup, distanceUnit),
     steps: workout.segments.map((segment: CurrentWorkout['segments'][number]) => [
       segment.segment_type,
       segment.repeats > 1 ? `${segment.repeats}×` : '',
-      segment.rep_distance != null ? `${(segment.rep_distance / 1000).toFixed(1)} km` : '',
+      segment.rep_distance != null ? formatDistance(segment.rep_distance, distanceUnit) : '',
       segment.duration != null ? formatDuration(segment.duration) : '',
-      segment.target_pace ? `${segment.target_pace} ${segment.pace_unit}`.trim() : '',
+      formatPaceForUnit(segment.target_pace, segment.pace_unit, distanceUnit),
       segment.rest_duration != null ? `rest ${formatDuration(segment.rest_duration)}` : '',
       segment.notes,
     ].filter(Boolean).join(' · ')).filter(Boolean),
-    coolDown: formatDistance(workout.cooldown),
+    coolDown: formatDistance(workout.cooldown, distanceUnit),
     estimatedDuration: formatDuration(workout.duration),
     estimatedCalories: '',
-    targetPace: workout.target_pace ? `${workout.target_pace} ${workout.pace_unit}`.trim() : '',
+    targetPace: formatPaceForUnit(workout.target_pace, workout.pace_unit, distanceUnit),
     heartRateZone: workout.zone,
-    distance: formatDistance(workout.distance),
+    distance: formatDistance(workout.distance, distanceUnit),
+    distanceMeters: workout.distance,
     notes: workout.notes,
-    segments: workout.segments.map((segment) => ({ order: segment.segment_order, type: segment.segment_type, repeats: segment.repeats, distance: segment.rep_distance != null ? `${(segment.rep_distance / 1000).toFixed(1)} km` : '', duration: formatDuration(segment.duration), pace: segment.target_pace ? `${segment.target_pace} ${segment.pace_unit}`.trim() : '', rest: segment.rest_duration != null ? formatDuration(segment.rest_duration) : '', notes: segment.notes })),
+    segments: workout.segments.map((segment) => ({
+      order: segment.segment_order,
+      type: segment.segment_type,
+      repeats: segment.repeats,
+      distance: formatDistance(segment.rep_distance, distanceUnit),
+      rep_distance: segment.rep_distance,
+      duration: formatDuration(segment.duration),
+      pace: formatPaceForUnit(segment.target_pace, segment.pace_unit, distanceUnit),
+      rest: segment.rest_duration != null ? formatDuration(segment.rest_duration) : '',
+      notes: segment.notes,
+    })),
   };
 };
 
 export default function TrainingPlanScreen() {
   const { colors, isDark } = useTheme();
+  const { user } = useAuth();
+  const distanceUnit: DistanceUnitType =
+    getDistanceUnitCode(user?.profile?.distance_unit) === 'mile' ? 'mi' : 'km';
   const params = useLocalSearchParams<{ selectedWeek?: string; selectedDate?: string }>();
   const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan, endWorkoutPlan } = useQuestionnaire();
   const [selectedWeekIndex, setSelectedWeekIndex] = useState(() => {
@@ -276,11 +296,11 @@ export default function TrainingPlanScreen() {
           label: `Week ${week.week_number} of ${workoutPlan.weeks.length}`,
           dateRange: range,
           statusText: scheduleNote,
-          workouts: completedWorkouts.map((w) => toWorkoutDetail(w, benchmarkAssignments, dbPlanWorkouts)),
+          workouts: completedWorkouts.map((w) => toWorkoutDetail(w, benchmarkAssignments, dbPlanWorkouts, distanceUnit)),
         };
       }),
     };
-  }, [workoutPlan, benchmarkAssignments, dbPlanWorkouts]);
+  }, [workoutPlan, benchmarkAssignments, dbPlanWorkouts, distanceUnit]);
 
   const safeWeekIndex = plan ? Math.min(selectedWeekIndex, Math.max(0, plan.weeks.length - 1)) : 0;
   const selectedWeek = plan?.weeks[safeWeekIndex] ?? null;

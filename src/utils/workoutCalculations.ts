@@ -55,6 +55,11 @@ export const getPaceUnitLabel = (unit: DistanceUnitType): string => {
   return "min/km";
 };
 
+export const getPaceDistanceUnit = (paceUnit?: string | null): DistanceUnitType => {
+  const normalized = paceUnit?.trim().toLowerCase() ?? "";
+  return /\b(?:mi|miles?)\b/.test(normalized) ? "mi" : "km";
+};
+
 export const parsePaceToSeconds = (paceStr?: string | null): number | null => {
   if (!paceStr) return null;
   const matches = [...paceStr.matchAll(/(\d+)\s*:\s*(\d+(?:\.\d+)?)/g)];
@@ -171,6 +176,21 @@ export const convertPace = (
   }
 
   return formatSecondsToPace(convertedSec, baseTo, includeUnitSuffix);
+};
+
+export const formatPaceForUnit = (
+  pace: string | null | undefined,
+  sourceUnit?: string | null,
+  targetUnit: DistanceUnitType = "km",
+  includeUnitSuffix = true
+): string => {
+  if (!pace) return "";
+  return convertPace(
+    pace,
+    getPaceDistanceUnit(sourceUnit || pace),
+    targetUnit,
+    includeUnitSuffix
+  );
 };
 
 export const convertPaceToSeconds = (
