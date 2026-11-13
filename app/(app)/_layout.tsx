@@ -8,6 +8,16 @@ import GlobalBottomNav, { isPrimaryTabPath } from '../../components/navigation/G
 import TabZoomTransition from '../../components/navigation/TabZoomTransition';
 import { ActiveRunProvider, useActiveRun } from '../../contexts/ActiveRunContext';
 
+const primaryTabRouteNames = new Set([
+  'activity/index',
+  'dashboard',
+  'history',
+  'home',
+  'profile',
+  'stats',
+  'training-plan',
+]);
+
 function AppLayoutContent() {
   const pathname = usePathname();
   const showBottomNav = isPrimaryTabPath(pathname);
@@ -38,7 +48,14 @@ function AppLayoutContent() {
   const renderScreen = ({ route, children }: { route: { key: string; name: string }; children: React.ReactElement }) =>
     route.name === 'profile'
       ? children
-      : <TabZoomTransition key={route.key} animate={route.name !== 'screens/map'}>{children}</TabZoomTransition>;
+      : (
+        <TabZoomTransition
+          key={route.key}
+          animate={!primaryTabRouteNames.has(route.name) && route.name !== 'screens/map'}
+        >
+          {children}
+        </TabZoomTransition>
+      );
 
   const stackContent = (
     <Stack

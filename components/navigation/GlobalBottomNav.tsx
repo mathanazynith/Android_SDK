@@ -1,17 +1,14 @@
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, usePathname } from 'expo-router';
 import { memo, useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, {
     cancelAnimation,
-    Easing as ReanimatedEasing,
     useAnimatedStyle,
     useReducedMotion,
     useSharedValue,
-    withSequence,
-    withTiming,
+    withSpring,
 } from 'react-native-reanimated';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
@@ -19,14 +16,14 @@ import { useAuth } from '../../service/auth';
 import { isAssessmentProfileComplete } from '../../utils/profileEligibility';
 
 type Tab = {
-  icon: React.ComponentProps<typeof Feather>['name'];
-  label: 'Plan' | 'History' | 'Home' | 'Stats' | 'Profile';
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  label: 'Home' | 'History' | 'Plans' | 'Stats' | 'Profile';
   route: '/(app)/training-plan' | '/(app)/activity' | '/(app)/dashboard' | '/(app)/stats' | '/(app)/profile';
 };
 
 export const PRIMARY_TAB_PATHS = [
-  '/training-plan',
   '/activity',
+  '/training-plan',
   '/dashboard',
   '/stats',
   '/profile',
@@ -39,16 +36,14 @@ export const isPrimaryTabPath = (pathname: string) => {
 
 const tabs: Tab[] = [
   { icon: 'home', label: 'Home', route: '/(app)/dashboard' },
-  { icon: 'clipboard', label: 'Plan', route: '/(app)/training-plan' },
-  { icon: 'activity', label: 'History', route: '/(app)/activity' },
-  { icon: 'bar-chart-2', label: 'Stats', route: '/(app)/stats' },
-  { icon: 'user', label: 'Profile', route: '/(app)/profile' },
+  { icon: 'history', label: 'History', route: '/(app)/activity' },
+  { icon: 'calendar-month', label: 'Plans', route: '/(app)/training-plan' },
+  { icon: 'chart-line', label: 'Stats', route: '/(app)/stats' },
+  { icon: 'account', label: 'Profile', route: '/(app)/profile' },
 ];
 
-const ACTIVE_GLOW_SIZE = 60;
-const TAB_ROW_HORIZONTAL_PADDING = 4;
-const ACTIVE_GLOW_WIDTH = 60;
-const TAB_PILL_DURATION_MS = 240;
+const ACTIVE_INDICATOR_SIZE = 44;
+const TAB_ROW_HORIZONTAL_PADDING = 6;
 
 type TabButtonProps = {
   tab: Tab;
@@ -56,9 +51,6 @@ type TabButtonProps = {
   enabled: boolean;
   activeColor: string;
   inactiveColor: string;
-  iconSize: number;
-  labelSize: number;
-  reduceMotion: boolean;
   onPress: (tab: Tab) => void;
 };
 
@@ -68,65 +60,26 @@ const TabButton = memo(function TabButton({
   enabled,
   activeColor,
   inactiveColor,
-  iconSize,
-  labelSize,
-  reduceMotion,
   onPress,
 }: TabButtonProps) {
-  const iconScale = useSharedValue(active ? 1 : 0.98);
-  const hasMounted = useRef(false);
-  const iconMotionStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: iconScale.value }],
-  }));
-
-  useEffect(() => {
-    if (!hasMounted.current) {
-      hasMounted.current = true;
-      return;
-    }
-
-    /* eslint-disable react-hooks/immutability */
-    cancelAnimation(iconScale);
-    if (reduceMotion) {
-      iconScale.value = 1;
-    } else if (active) {
-      iconScale.value = withSequence(
-        withTiming(1.05, {
-          duration: 90,
-          easing: ReanimatedEasing.out(ReanimatedEasing.quad),
-        }),
-        withTiming(1, {
-          duration: 130,
-          easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
-        }),
-      );
-    } else {
-      iconScale.value = withTiming(0.98, {
-        duration: 120,
-        easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
-      });
-    }
-    /* eslint-enable react-hooks/immutability */
-  }, [active, iconScale, reduceMotion]);
-
   return (
     <TouchableOpacity
       style={styles.tab}
       onPress={() => onPress(tab)}
       disabled={!enabled}
-      accessibilityRole="button"
+      accessibilityRole="tab"
       accessibilityState={{ selected: active, disabled: !enabled }}
     >
-      <Animated.View style={[styles.iconWrapper, iconMotionStyle]}>
-        <Feather name={tab.icon} size={iconSize} color={active ? activeColor : inactiveColor} />
-      </Animated.View>
+      <View style={styles.iconSlot}>
+        <MaterialCommunityIcons name={tab.icon} size={21} color={active ? activeColor : inactiveColor} />
+      </View>
       <Text
         numberOfLines={1}
         adjustsFontSizeToFit
         minimumFontScale={0.8}
         style={[
           styles.label,
-          { color: active ? activeColor : inactiveColor, fontSize: labelSize },
+          { color: active ? activeColor : inactiveColor },
           active && styles.activeLabel,
           !enabled && styles.disabledLabel,
         ]}
@@ -151,7 +104,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
   const { colors, isDark } = useTheme();
   const isAndroid = Platform.OS === 'android';
   const reduceMotion = useReducedMotion();
-  const bottomOffset = 12;
+  const bottomOffset = 8;
   const { workoutPlan, isWorkoutPlanLoaded, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
   const { user, isLoading: isAuthLoading } = useAuth();
   const [rowWidth, setRowWidth] = useState(0);
@@ -162,6 +115,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
   const tabContentWidth = Math.max(0, rowWidth - TAB_ROW_HORIZONTAL_PADDING * 2);
   const tabWidth = tabContentWidth > 0 ? tabContentWidth / tabs.length : 0;
   const glowTranslateX = useSharedValue(0);
+  const hasPositionedIndicator = useRef(false);
 
   useEffect(() => {
     if (!isWorkoutPlanLoaded && !isWorkoutPlanLoading) void fetchWorkoutPlan();
@@ -170,17 +124,13 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
   useEffect(() => {
     if (activeIndex < 0 || rowWidth <= 0) return;
 
-    const targetX = TAB_ROW_HORIZONTAL_PADDING + activeIndex * tabWidth + (tabWidth - ACTIVE_GLOW_WIDTH) / 2;
-    if (reduceMotion) {
+    const targetX = TAB_ROW_HORIZONTAL_PADDING + activeIndex * tabWidth + (tabWidth - ACTIVE_INDICATOR_SIZE) / 2;
+    cancelAnimation(glowTranslateX);
+    if (reduceMotion || !hasPositionedIndicator.current) {
       glowTranslateX.value = targetX;
+      hasPositionedIndicator.current = true;
     } else {
-      glowTranslateX.value = withTiming(
-        targetX,
-        {
-          duration: TAB_PILL_DURATION_MS,
-          easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
-        },
-      );
+      glowTranslateX.value = withSpring(targetX, { damping: 20, stiffness: 160, mass: 1 });
     }
   }, [activeIndex, glowTranslateX, reduceMotion, rowWidth, tabWidth]);
 
@@ -190,7 +140,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
 
   const hasActivePlan = isWorkoutPlanLoaded && Boolean(workoutPlan?.weeks?.length);
   const handleTabPress = useCallback((tab: Tab) => {
-    if (tab.label === 'Plan') {
+    if (tab.label === 'Plans') {
       if (isWorkoutPlanLoading) return;
       if (!isWorkoutPlanLoaded) {
         void fetchWorkoutPlan();
@@ -209,7 +159,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
       router.replace('/(app)/dashboard');
       return;
     }
-    if (tab.label === 'Plan') {
+    if (tab.label === 'Plans') {
       router.replace({ pathname: tab.route, params: { selectedWeek: '1' } });
       return;
     }
@@ -242,49 +192,31 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
   if (!isPrimaryTabPath(pathname)) return null;
 
   const navContent = (
-    <>
-      <View pointerEvents="none" style={[styles.glassSheen, { borderColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.88)' }]} />
-      <LinearGradient
-        pointerEvents="none"
-        colors={isDark ? ['rgba(255, 255, 255, 0.12)', 'rgba(255, 255, 255, 0.02)', 'rgba(0, 0, 0, 0.12)'] : ['rgba(255, 255, 255, 0.76)', 'rgba(255, 255, 255, 0.22)', 'rgba(220, 252, 231, 0.30)']}
-        locations={[0, 0.45, 1]}
-        style={styles.glassGradient}
-      />
-      <View
-        onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
-        style={styles.tabRow}
-      >
-        {rowWidth > 0 && activeIndex >= 0 ? (
-          <Animated.View
-            pointerEvents="none"
-            style={[styles.activeGlow, glowStyle]}
-          >
-            <LinearGradient
-              colors={['rgba(255, 255, 255, 0.34)', 'rgba(255, 255, 255, 0.08)', 'rgba(34, 197, 94, 0.12)']}
-              locations={[0, 0.42, 1]}
-              style={styles.activeGlowGradient}
-            />
-          </Animated.View>
-        ) : null}
-        {tabs.map((tab) => {
-          const active = isTabActive(pathname, tab.route);
-          return (
-            <TabButton
-              key={tab.label}
-              tab={tab}
-              active={active}
-              enabled={tab.label !== 'Plan' || hasActivePlan || !isWorkoutPlanLoading}
-              activeColor={isDark ? BRAND_GREEN : '#16A34A'}
-              inactiveColor={isDark ? '#FFFFFF' : '#000000'}
-              iconSize={24}
-              labelSize={12}
-              reduceMotion={reduceMotion}
-              onPress={handleTabPress}
-            />
-          );
-        })}
-      </View>
-    </>
+    <View
+      onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
+      style={styles.tabRow}
+    >
+      {rowWidth > 0 && activeIndex >= 0 ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.activeIndicator, glowStyle]}
+        />
+      ) : null}
+      {tabs.map((tab) => {
+        const active = isTabActive(pathname, tab.route);
+        return (
+          <TabButton
+            key={tab.label}
+            tab={tab}
+            active={active}
+            enabled={tab.label !== 'Plans' || hasActivePlan || !isWorkoutPlanLoading}
+            activeColor={BRAND_GREEN}
+            inactiveColor={colors.textSecondary}
+            onPress={handleTabPress}
+          />
+        );
+      })}
+    </View>
   );
 
   return (
@@ -297,26 +229,33 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
           style={StyleSheet.absoluteFill}
         />
       )}
-      <BlurView
-        intensity={isDark ? 88 : 92}
-        tint={isDark ? 'dark' : 'light'}
-        blurTarget={blurTarget}
-        blurMethod={isAndroid ? 'dimezisBlurViewSdk31Plus' : undefined}
-        blurReductionFactor={isAndroid ? (isDark ? 3 : 2) : undefined}
+      <View
         style={[
           styles.container,
           {
             bottom: bottomOffset,
-            backgroundColor: isDark ? 'rgba(18, 18, 22, 0.48)' : 'rgba(241, 248, 243, 0.72)',
-            borderColor: BRAND_GREEN,
-            borderWidth: 1.25,
-            shadowColor: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(25, 75, 45, 0.18)',
-            elevation: isDark ? 12 : 9,
+            shadowColor: '#000000',
+            elevation: 8,
           },
         ]}
       >
-        {navContent}
-      </BlurView>
+        <BlurView
+          intensity={55}
+          tint={isDark ? 'dark' : 'light'}
+          blurTarget={blurTarget}
+          blurMethod={isAndroid ? 'dimezisBlurViewSdk31Plus' : undefined}
+          blurReductionFactor={isAndroid ? (isDark ? 3 : 2) : undefined}
+          style={[
+            styles.blurSurface,
+            {
+              backgroundColor: isDark ? 'rgba(28, 28, 30, 0.5)' : 'rgba(255, 255, 255, 0.48)',
+              borderColor: 'rgba(255, 255, 255, 0.12)',
+            },
+          ]}
+        >
+          {navContent}
+        </BlurView>
+      </View>
       {isPlanPromptVisible && (
         <View
           accessibilityRole="alert"
@@ -375,13 +314,18 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
-    height: 64,
-    borderRadius: 30,
-    overflow: 'hidden',
+    height: 72,
+    borderRadius: 36,
     zIndex: 10,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 1,
-    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+  },
+  blurSurface: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: 36,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
   },
   tabRow: {
     flex: 1,
@@ -389,25 +333,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: TAB_ROW_HORIZONTAL_PADDING,
   },
-  glassSheen: {
-    ...StyleSheet.absoluteFill,
-    borderRadius: 30,
-    borderWidth: 1,
-    borderBottomColor: 'transparent',
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-  },
-  glassGradient: {
-    ...StyleSheet.absoluteFill,
-    borderRadius: 40,
-  },
-  activeGlowGradient: {
-    ...StyleSheet.absoluteFill,
-    borderRadius: ACTIVE_GLOW_SIZE / 2,
-  },
-  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minWidth: 0, position: 'relative' },
-  iconWrapper: { width: 30, height: 28, alignItems: 'center', justifyContent: 'center' },
-  label: { fontSize: 12, lineHeight: 14, marginTop: 1, textAlign: 'center', includeFontPadding: false, maxWidth: '100%' },
-  activeLabel: { fontWeight: '700' },
+  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minWidth: 0, zIndex: 1 },
+  iconSlot: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  label: { fontSize: 11, lineHeight: 13, marginTop: 5, textAlign: 'center', includeFontPadding: false, maxWidth: '100%', fontWeight: '500' },
+  activeLabel: { fontWeight: '600' },
   disabledLabel: { opacity: 0.5 },
   planPrompt: {
     position: 'absolute',
@@ -434,19 +363,13 @@ const styles = StyleSheet.create({
   planPromptButton: { minHeight: 42, marginTop: 12, paddingHorizontal: 14, borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   planPromptButtonDisabled: { opacity: 0.45 },
   planPromptButtonText: { color: '#081009', fontSize: 14, fontWeight: '700' },
-  activeGlow: {
+  activeIndicator: {
     position: 'absolute',
     left: 0,
-    top: 1,
-    width: ACTIVE_GLOW_WIDTH,
-    height: ACTIVE_GLOW_SIZE,
-    borderRadius: ACTIVE_GLOW_SIZE / 2,
+    top: 4,
+    width: ACTIVE_INDICATOR_SIZE,
+    height: ACTIVE_INDICATOR_SIZE,
+    borderRadius: ACTIVE_INDICATOR_SIZE / 2,
     backgroundColor: 'rgba(34, 197, 94, 0.18)',
-    borderWidth: 1,
-    borderColor: 'rgba(187, 247, 208, 0.5)',
-    shadowColor: '#22C55E',
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
   },
 });

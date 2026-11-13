@@ -1,8 +1,8 @@
 import { Alert } from '@/components/ThemedAlert';
-import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, AppState, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DashboardText from '../../components/common/DashboardText';
 import { RunningLoader } from '../../components/common/RunningLoader';
@@ -427,8 +427,13 @@ export default function DashboardScreen() {
         ]}
       >
         <View style={styles.brandingGroup}>
-          <View style={[styles.brandLogoBadge, { backgroundColor: `${BRAND_GREEN}22` }]}>
-            <MaterialCommunityIcons name="run-fast" size={20} color={BRAND_GREEN} />
+          <View style={styles.brandLogoBadge}>
+            <Image
+              source={require('../../assets/images/zyrun-adaptive-foreground.png')}
+              resizeMode="contain"
+              style={styles.brandLogoImage}
+              accessibilityLabel="Zy-Run logo"
+            />
           </View>
           <View>
             <DashboardText style={[styles.brandTitle, { color: colors.text }]}>ZY-RUN</DashboardText>
@@ -809,11 +814,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   brandLogoBadge: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#090B0A',
+    overflow: 'hidden',
+  },
+  brandLogoImage: {
+    position: 'absolute',
+    width: 59,
+    height: 59,
+    left: -9.5,
+    top: -9.5,
   },
   brandTitle: {
     fontSize: 18,

@@ -1,10 +1,10 @@
 import { Alert } from '@/components/ThemedAlert';
-import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { File } from 'expo-file-system';
+import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { BlurTargetView, BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { Image as ExpoImage } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -25,13 +25,7 @@ import {
   type ViewToken
 } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
-import Reanimated, {
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withSpring,
-  withTiming,
-} from 'react-native-reanimated';
+import { useReducedMotion } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 import ThemedCalendarPicker from '../../../components/common/ThemedCalendarPicker';
@@ -43,21 +37,27 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage, resolveApiUrl } from '../../../service/api';
 import { useAuth } from '../../../service/auth';
 import { activityAPI, BackendActivity, runRouteAPI } from '../../../src/services/activityApi';
-import { shareActivityAsGpx, shareActivityAsJson } from '../../../src/services/gpxFileExport';
-import { parseGpxWorkout, type GpxWorkoutPreview } from '../../../src/services/gpxService';
+import { shareActivityAsGpx } from '../../../src/services/gpxFileExport';
+import {
+  getDateFilterStart,
+  matchesDateFilter,
+  matchesDistanceRange,
+  type ActivityDateFilter,
+  type ActivityDistanceFilter,
+} from '../../../src/utils/activityHistoryFilters';
 import {
   formatDistanceFromMeters,
   formatElevationFromMeters,
   formatPaceFromSecondsPerKm,
 } from '../../../src/utils/activityUnitFormatters';
 import { formatDurationMmSs as formatDuration } from '../../../src/utils/splitFormatters';
-import { getDistanceUnitCode, getDistanceUnitDisplayLabel } from '../../../utils/distanceUnit';
 
 const formatActivityType = (activityType: string) =>
   activityType.toLowerCase() === 'walk' ? 'Walk' : 'Run';
 
 const activityDetailRequests = new Map<string, Promise<BackendActivity>>();
 const activityDetails = new Map<string, BackendActivity>();
+const ACTIVITY_SELECTION_LONG_PRESS_MS = 550;
 const getActivityDetailCacheKey = (userId: string | null, activityId: BackendActivity['id']) =>
   `${userId ?? 'anonymous'}:${String(activityId)}`;
 const cacheActivityDetail = (key: string, detail: BackendActivity) => {
@@ -68,15 +68,13 @@ const cacheActivityDetail = (key: string, detail: BackendActivity) => {
     if (oldestKey !== undefined) activityDetails.delete(oldestKey);
   }
 };
-const getNormalizedActivityType = (activityType: string): 'run' | 'walk' =>
-  activityType.toLowerCase() === 'walk' ? 'walk' : 'run';
+const getNormalizedActivityType = (activityType: string): 'Run' | 'Walk' =>
+  activityType.toLowerCase() === 'walk' ? 'Walk' : 'Run';
 
-type ActivityTypeFilter = 'all' | 'run' | 'walk';
-type ActivityDateFilter = 'all' | '7d' | '30d' | '90d' | 'month' | 'year' | 'single' | 'range';
-type ActivityDistanceFilter = 'all' | 'under1' | 'under2' | 'short' | 'medium' | 'long';
-type DatePickerTarget = 'start' | 'end';
 type ActivityGroupMode = 'month' | 'week';
 type FilterPopover = 'type' | 'date' | 'distance';
+type ActivityMenuAnchor = { x: number; y: number; width: number; height: number };
+type ActivityMenuPosition = { left: number; top: number; width: number };
 type FilterPopoverPosition = { left: number; top: number; width: number; maxHeight: number; placement: 'above' | 'below' | 'center'; caretLeft: number; originXPercent: number; originYPercent: number };
 
 type ActivityListRow =
@@ -84,107 +82,37 @@ type ActivityListRow =
   | { type: 'day'; key: string; title: string; count: number }
   | { type: 'activity'; key: string; activity: BackendActivity };
 
-const activityTypeOptions: { label: string; value: ActivityTypeFilter }[] = [
-  { label: 'All Types', value: 'all' },
-  { label: 'Run', value: 'run' },
-  { label: 'Walk', value: 'walk' },
-];
-
 const activityDateOptions: { label: string; value: ActivityDateFilter }[] = [
-  { label: 'All', value: 'all' },
-  { label: '7d', value: '7d' },
-  { label: '30d', value: '30d' },
-  { label: '90d', value: '90d' },
+  { label: 'All time', value: 'all' },
+  { label: 'Month', value: 'month' },
   { label: 'Year', value: 'year' },
-  { label: 'Single', value: 'single' },
-  { label: 'Range', value: 'range' },
+  { label: 'Week', value: 'week' },
+  { label: 'Day', value: 'day' },
 ];
 
-const monthOptions = Array.from({ length: 12 }, (_, month) => ({
-  label: new Intl.DateTimeFormat(undefined, { month: 'short' }).format(new Date(2020, month, 1)),
-  value: month,
-}));
-
-const getActivityDistanceOptions = (distanceUnit?: string | null): { label: string; value: ActivityDistanceFilter }[] => {
-  const unit = getDistanceUnitDisplayLabel(distanceUnit);
-  return [
-    { label: 'All', value: 'all' },
-    { label: `<1 ${unit}`, value: 'under1' },
-    { label: `<2 ${unit}`, value: 'under2' },
-    { label: `<5 ${unit}`, value: 'short' },
-    { label: `5–10 ${unit}`, value: 'medium' },
-    { label: `10+ ${unit}`, value: 'long' },
-  ];
-};
+const activityDistanceOptions: { label: string; value: ActivityDistanceFilter }[] = [
+  { label: 'Any distance', value: 'all' },
+  { label: 'Under 100 m', value: 'under100' },
+  { label: '100 m to 1 km', value: 'under1000' },
+  { label: 'Over 1 km', value: 'over1000' },
+];
 
 const formatDateLabel = (value: Date | null) => {
   if (!value) return 'Select date';
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(value);
 };
 
-const formatMonthLabel = (value: Date | null) => {
-  if (!value) return 'Select month';
-  return new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(value);
-};
+const getLocaleWeekStartDay = () => {
+  if (typeof Intl.Locale !== 'function') return 0;
 
-const matchesDateRange = (
-  activity: BackendActivity,
-  range: ActivityDateFilter,
-  selectedDay?: Date | null,
-  rangeStart?: Date | null,
-  rangeEnd?: Date | null,
-  selectedMonth?: Date | null,
-): boolean => {
-  if (range === 'all') return true;
-
-  const activityDate = new Date(activity.start_time).getTime();
-  if (!Number.isFinite(activityDate)) return false;
-
-  if (range === 'month') {
-    if (!selectedMonth) return false;
-    const monthStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1).getTime();
-    const nextMonthStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 1).getTime();
-    return activityDate >= monthStart && activityDate < nextMonthStart;
-  }
-
-  if (range === 'single') {
-    if (!selectedDay) return false;
-    const start = new Date(selectedDay).setHours(0, 0, 0, 0);
-    const end = new Date(selectedDay).setHours(23, 59, 59, 999);
-    return activityDate >= start && activityDate <= end;
-  }
-
-  if (range === 'range') {
-    if (!rangeStart || !rangeEnd) return false;
-    const startValue = Math.min(new Date(rangeStart).getTime(), new Date(rangeEnd).getTime());
-    const endValue = Math.max(new Date(rangeStart).getTime(), new Date(rangeEnd).getTime());
-    const start = new Date(startValue).setHours(0, 0, 0, 0);
-    const end = new Date(endValue).setHours(23, 59, 59, 999);
-    return activityDate >= start && activityDate <= end;
-  }
-
-  const now = Date.now();
-  const rangeMs = {
-    '7d': 7 * 24 * 60 * 60 * 1000,
-    '30d': 30 * 24 * 60 * 60 * 1000,
-    '90d': 90 * 24 * 60 * 60 * 1000,
-    year: 365 * 24 * 60 * 60 * 1000,
-  }[range];
-
-  return now - activityDate <= rangeMs;
-};
-
-const matchesDistanceRange = (activity: BackendActivity, range: ActivityDistanceFilter, distanceUnit?: string | null): boolean => {
-  if (range === 'all') return true;
-
-  const distance = getDistanceUnitCode(distanceUnit) === 'mile'
-    ? (Number(activity.distance) || 0) / 1609.344
-    : (Number(activity.distance) || 0) / 1000;
-  if (range === 'under1') return distance < 1;
-  if (range === 'under2') return distance < 2;
-  if (range === 'short') return distance < 5;
-  if (range === 'medium') return distance >= 5 && distance < 10;
-  return distance >= 10;
+  const locale = new Intl.Locale(new Intl.DateTimeFormat().resolvedOptions().locale) as Intl.Locale & {
+    weekInfo?: { firstDay?: number };
+    getWeekInfo?: () => { firstDay?: number };
+  };
+  const firstDay = locale.weekInfo?.firstDay ?? locale.getWeekInfo?.().firstDay;
+  return typeof firstDay === 'number' && firstDay >= 1 && firstDay <= 7
+    ? firstDay % 7
+    : 0;
 };
 
 const sortActivities = (items: BackendActivity[]) => {
@@ -321,147 +249,70 @@ const buildActivityRows = (
 interface ActivityCardProps {
   activity: BackendActivity;
   accountId: string | null;
+  blurTarget: RefObject<View | null> | null;
   distanceUnit?: string | null;
   onPress: (activity: BackendActivity) => void;
-  onRouteMenu: (activity: BackendActivity) => void;
+  onRouteMenu: (activity: BackendActivity, anchor: ActivityMenuAnchor) => void;
   onStartSelection: (activityId: BackendActivity['id']) => void;
   reduceMotion: boolean;
   selectionMode: boolean;
   selected: boolean;
   deleting: boolean;
   busy: boolean;
+  savingRoute: boolean;
   isVisible: boolean;
 }
 
 const FilterTile = memo(function FilterTile({
-  filter,
   label,
   icon,
   onPress,
-  onDelete,
-  activeLongPress,
-  setActiveLongPress,
   anchorRef,
   accentColor,
   surfaceColor,
   borderColor,
   primaryTextColor,
   isActive,
+  showChevron = true,
 }: {
-  filter: FilterPopover;
   label: string;
-  icon: keyof typeof Feather['glyphMap'];
+  icon: keyof typeof MaterialCommunityIcons['glyphMap'];
   onPress: () => void;
-  onDelete: () => void;
-  activeLongPress: FilterPopover | null;
-  setActiveLongPress: Dispatch<SetStateAction<FilterPopover | null>>;
-  anchorRef: MutableRefObject<View | null>;
+  anchorRef: { current: View | null };
   accentColor: string;
   surfaceColor: string;
   borderColor: string;
   primaryTextColor: string;
   isActive: boolean;
+  showChevron?: boolean;
 }) {
-  const progress = useSharedValue(0);
-  const trayOpacity = useSharedValue(0);
-  const trayTranslateY = useSharedValue(12);
-
-  const holdProgressStyle = useAnimatedStyle(() => ({
-    position: 'absolute',
-    left: 10,
-    right: 10,
-    top: -8,
-    height: 3,
-    borderRadius: 999,
-    overflow: 'hidden',
-    backgroundColor: '#35C72B',
-    width: `${progress.value * 100}%`,
-    opacity: progress.value > 0.03 ? 1 : 0,
-    transform: [{ scaleX: 0.96 + progress.value * 0.04 }],
-  }));
-
-  const deleteTrayStyle = useAnimatedStyle(() => ({
-    position: 'absolute',
-    left: '50%',
-    top: -52,
-    width: 90,
-    marginLeft: -45,
-    zIndex: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    opacity: trayOpacity.value,
-    transform: [{ translateY: trayTranslateY.value }, { scale: 0.92 + trayOpacity.value * 0.08 }],
-  }));
-
-  useEffect(() => {
-    const isSelected = activeLongPress === filter;
-    progress.value = withSpring(isSelected ? 1 : 0, {
-      damping: 16,
-      stiffness: 180,
-      overshootClamping: false,
-    });
-    trayOpacity.value = withSpring(isSelected ? 1 : 0, {
-      damping: 15,
-      stiffness: 200,
-      overshootClamping: false,
-    });
-    trayTranslateY.value = withSpring(isSelected ? 0 : 12, {
-      damping: 15,
-      stiffness: 200,
-      overshootClamping: false,
-    });
-  }, [activeLongPress, filter, progress, trayOpacity, trayTranslateY]);
-
   return (
-    <View style={styles.filterTileWrap}>
-      <Reanimated.View pointerEvents="none" style={holdProgressStyle} />
-      <TouchableOpacity
-        ref={anchorRef}
-        accessibilityRole="button"
-        activeOpacity={0.85}
-        onPress={onPress}
-        onLongPress={() => {
-          setActiveLongPress((current) => (current === filter ? null : filter));
-        }}
-        style={[
-          styles.filterBarButton,
-          styles.compactFilterButton,
-          {
-            backgroundColor: surfaceColor,
-            borderColor: isActive ? accentColor : borderColor,
-            shadowColor: isActive ? accentColor : 'transparent',
-            shadowOpacity: isActive ? 0.2 : 0,
-            shadowRadius: isActive ? 8 : 0,
-          },
-        ]}
-      >
-        <Feather name={icon} size={14} color={isActive ? accentColor : primaryTextColor} />
-        <Text numberOfLines={1} style={[styles.filterBarText, styles.compactFilterText, { color: primaryTextColor }]}>
-          {label}
-        </Text>
-      </TouchableOpacity>
-
-      <Reanimated.View style={deleteTrayStyle}>
-        <TouchableOpacity
-          accessibilityRole="button"
-          activeOpacity={0.9}
-          onPress={() => {
-            onDelete();
-            setActiveLongPress(null);
-          }}
-          style={[styles.filterDeleteButton, { backgroundColor: '#1F2937', borderColor: '#374151' }]}
-        >
-          <Text style={[styles.filterDeleteText, { color: '#F9FAFB' }]}>Delete</Text>
-        </TouchableOpacity>
-        <View style={styles.filterDeleteCaret} />
-      </Reanimated.View>
-    </View>
+    <TouchableOpacity
+      ref={anchorRef}
+      accessibilityRole="button"
+      activeOpacity={0.75}
+      onPress={onPress}
+      style={[
+        styles.filterBarButton,
+        {
+          backgroundColor: surfaceColor,
+          borderColor: isActive ? accentColor : borderColor,
+        },
+      ]}
+    >
+      <MaterialCommunityIcons name={icon} size={14} color={isActive ? accentColor : primaryTextColor} />
+      <Text numberOfLines={1} style={[styles.filterBarText, { color: primaryTextColor }]}>
+        {label}
+      </Text>
+      {showChevron && <Feather name="chevron-down" size={14} color={primaryTextColor} />}
+    </TouchableOpacity>
   );
 });
 
 const ActivityCard = memo(function ActivityCard({
   activity,
   accountId,
+  blurTarget,
   distanceUnit,
   onPress,
   onRouteMenu,
@@ -471,6 +322,7 @@ const ActivityCard = memo(function ActivityCard({
   selected,
   deleting,
   busy,
+  savingRoute,
   isVisible,
 }: ActivityCardProps) {
   const { colors, isDark } = useTheme();
@@ -484,12 +336,16 @@ const ActivityCard = memo(function ActivityCard({
   const [failedThumbnailUri, setFailedThumbnailUri] = useState<string | null>(null);
   const thumbnailFailed = thumbnailUri !== null && failedThumbnailUri === thumbnailUri;
   const longPressHandledRef = useRef(false);
+  const longPressRecognizedRef = useRef(false);
+  const longPressProgressFinishedRef = useRef(false);
+  const selectionGestureStartedRef = useRef(false);
+  const routeMenuButtonRef = useRef<View>(null);
+  const [isLongPressProgressVisible, setIsLongPressProgressVisible] = useState(false);
+  const [longPressProgress] = useState(() => new Animated.Value(0));
   const [selectionScale] = useState(() => new Animated.Value(1));
-  const holdProgress = useSharedValue(0);
-  const holdProgressStyle = useAnimatedStyle(() => ({
-    width: `${holdProgress.value * 100}%`,
-    opacity: holdProgress.value > 0.03 ? 1 : 0,
-  }));
+  const [selectionControlOpacity] = useState(() => new Animated.Value(0));
+  const [selectionControlScale] = useState(() => new Animated.Value(0.78));
+  useEffect(() => () => longPressProgress.stopAnimation(), [longPressProgress]);
 
   useEffect(() => {
     Animated.spring(selectionScale, {
@@ -499,6 +355,33 @@ const ActivityCard = memo(function ActivityCard({
       useNativeDriver: true,
     }).start();
   }, [selected, selectionScale]);
+
+  useEffect(() => {
+    if (!selectionMode) {
+      selectionControlOpacity.setValue(0);
+      selectionControlScale.setValue(0.78);
+      return;
+    }
+    if (reduceMotion) {
+      selectionControlOpacity.setValue(1);
+      selectionControlScale.setValue(1);
+      return;
+    }
+    Animated.parallel([
+      Animated.timing(selectionControlOpacity, {
+        toValue: 1,
+        duration: 150,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.spring(selectionControlScale, {
+        toValue: 1,
+        damping: 16,
+        stiffness: 240,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [reduceMotion, selectionControlOpacity, selectionControlScale, selectionMode]);
 
   useEffect(() => {
     if (!isVisible || routeActivity || (thumbnailUri && !thumbnailFailed)) return;
@@ -542,7 +425,10 @@ const ActivityCard = memo(function ActivityCard({
   };
 
   const handleStartSelection = useCallback(() => {
+    if (selectionGestureStartedRef.current) return;
+    selectionGestureStartedRef.current = true;
     longPressHandledRef.current = true;
+    setIsLongPressProgressVisible(false);
     onStartSelection(activityId);
     if (Platform.OS === 'android') {
       Vibration.vibrate(12);
@@ -552,33 +438,74 @@ const ActivityCard = memo(function ActivityCard({
     }
   }, [activityId, onStartSelection]);
 
-  // The hold indicator runs on the UI thread and selection begins after the 500 ms long press.
+  const beginLongPressProgress = useCallback(() => {
+    longPressRecognizedRef.current = false;
+    longPressProgressFinishedRef.current = false;
+    selectionGestureStartedRef.current = false;
+    setIsLongPressProgressVisible(true);
+    longPressProgress.stopAnimation();
+    longPressProgress.setValue(0);
+    Animated.timing(longPressProgress, {
+      toValue: 1,
+      duration: ACTIVITY_SELECTION_LONG_PRESS_MS,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) return;
+      longPressProgressFinishedRef.current = true;
+      if (longPressRecognizedRef.current) handleStartSelection();
+    });
+  }, [handleStartSelection, longPressProgress]);
+
+  const handleLongPressRecognition = useCallback(() => {
+    longPressRecognizedRef.current = true;
+    longPressHandledRef.current = true;
+    if (longPressProgressFinishedRef.current) handleStartSelection();
+  }, [handleStartSelection]);
+
+  const finishLongPressProgress = useCallback((success: boolean) => {
+    if (success || selectionGestureStartedRef.current) return;
+
+    longPressRecognizedRef.current = false;
+    longPressProgressFinishedRef.current = false;
+    longPressProgress.stopAnimation();
+    Animated.timing(longPressProgress, {
+      toValue: 0,
+      duration: 120,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) setIsLongPressProgressVisible(false);
+    });
+  }, [longPressProgress]);
+
   /* eslint-disable react-hooks/immutability, react-hooks/refs */
-  const selectionGesture = useMemo(() => Gesture.LongPress()
-      .enabled(!busy)
-      .minDuration(500)
+  const selectionGesture = useMemo(
+    () => Gesture.LongPress()
+      .enabled(!busy && !selectionMode)
+      .minDuration(ACTIVITY_SELECTION_LONG_PRESS_MS)
       .maxDistance(12)
       .onBegin(() => {
-        holdProgress.value = withTiming(1, { duration: 500 });
+        scheduleOnRN(beginLongPressProgress);
       })
       .onStart(() => {
-        holdProgress.value = withTiming(1, { duration: reduceMotion ? 0 : 80 });
-        scheduleOnRN(handleStartSelection);
+        scheduleOnRN(handleLongPressRecognition);
       })
-      .onFinalize(() => {
-        holdProgress.value = withTiming(0, { duration: reduceMotion ? 0 : 130 });
-      }), [busy, handleStartSelection, holdProgress, reduceMotion]);
+      .onFinalize((_event, success) => {
+        scheduleOnRN(finishLongPressProgress, success);
+      }),
+    [beginLongPressProgress, busy, finishLongPressProgress, handleLongPressRecognition, selectionMode],
+  );
   /* eslint-enable react-hooks/immutability, react-hooks/refs */
 
   return (
     <GestureDetector gesture={selectionGesture}>
-      <Reanimated.View>
+      <View>
       <Animated.View
         style={[
           styles.card,
           isRouteSaved && styles.cardExpanded,
           {
-            backgroundColor: selected ? (isDark ? '#351F20' : '#FEF2F2') : colors.surface,
+            backgroundColor: 'transparent',
             borderColor: selected ? '#DC2626' : colors.border,
             borderWidth: selected ? 2 : 1,
           },
@@ -587,6 +514,21 @@ const ActivityCard = memo(function ActivityCard({
           },
         ]}
       >
+      <BlurView
+        intensity={40}
+        tint={isDark ? 'dark' : 'light'}
+        blurTarget={blurTarget ?? undefined}
+        blurMethod={Platform.OS === 'android' ? 'dimezisBlurViewSdk31Plus' : undefined}
+        blurReductionFactor={Platform.OS === 'android' ? 3 : undefined}
+        style={[
+          StyleSheet.absoluteFill,
+          {
+            backgroundColor: selected
+              ? (isDark ? 'rgba(86, 38, 40, 0.62)' : 'rgba(254, 242, 242, 0.72)')
+              : (isDark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(255, 255, 255, 0.48)'),
+          },
+        ]}
+      />
       <TouchableOpacity
         style={[styles.cardContent, styles.cardContentWithMenu]}
         accessibilityRole="button"
@@ -681,16 +623,29 @@ const ActivityCard = memo(function ActivityCard({
       {!selectionMode ? (
         <TouchableOpacity
           accessibilityRole="button"
-          accessibilityLabel={`More actions for ${activityName.toLowerCase()} activity`}
-          accessibilityHint="Export this activity as GPX or JSON, or manage its saved route."
+          accessibilityLabel={isRouteSaved ? 'Manage saved route' : 'Activity options'}
+          accessibilityHint={isRouteSaved
+            ? 'Export the workout route or change its visibility.'
+            : 'Export the workout route or save it to My Routes.'}
           disabled={busy}
           onPress={(event) => {
             event.stopPropagation();
-            onRouteMenu(activity);
+            routeMenuButtonRef.current?.measureInWindow((x, y, width, height) => {
+              onRouteMenu(activity, { x, y, width, height });
+            });
           }}
-          style={[styles.routeMenuButton, { backgroundColor: colors.surface, borderColor: colors.border }, busy && styles.routeMenuButtonDisabled]}
+          ref={routeMenuButtonRef}
+          style={[styles.routeMenuButton, busy && styles.routeMenuButtonDisabled]}
         >
-          <Feather name="more-vertical" size={19} color={colors.textSecondary} />
+          {savingRoute
+            ? <RunningLoader size={18} fillColor={colors.primary} />
+            : (
+              <Ionicons
+                name={isRouteSaved ? 'bookmark' : 'ellipsis-horizontal-circle-outline'}
+                size={21}
+                color={isRouteSaved ? colors.primary : colors.textSecondary}
+              />
+            )}
         </TouchableOpacity>
       ) : null}
       {!selectionMode && isRouteSaved ? (
@@ -699,35 +654,57 @@ const ActivityCard = memo(function ActivityCard({
           <Text style={[styles.routeSavedText, { color: colors.textSecondary }]}>Saved to My Routes</Text>
         </View>
       ) : null}
-      <Reanimated.View
-        pointerEvents="none"
-        style={[
-          styles.longPressProgressTrack,
-          holdProgressStyle,
-        ]}
-      />
-      {selectionMode && (
-        <TouchableOpacity
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: selected, disabled: busy }}
-          accessibilityLabel={`${selected ? 'Deselect' : 'Select'} ${activityName.toLowerCase()} activity for deletion`}
-          disabled={busy}
-          onPress={() => onPress(activity)}
+      {isLongPressProgressVisible && !selectionMode ? (
+        <View
+          pointerEvents="none"
           style={[
-            styles.cardCheckbox,
-            { backgroundColor: selected ? '#DC2626' : isDark ? '#111827' : '#FFFFFF' },
-            { borderColor: selected ? '#FFFFFF' : colors.border },
+            styles.longPressProgressTrack,
+            { backgroundColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.12)' },
           ]}
         >
-          {deleting
-            ? <RunningLoader size={18} fillColor="#FF6B6B" />
-            : selected
-              ? <Feather name="check" size={21} color="#FFFFFF" />
-              : <Feather name="square" size={20} color={colors.textSecondary} />}
-        </TouchableOpacity>
+          <Animated.View
+            style={[
+              styles.longPressProgressFill,
+              {
+                backgroundColor: colors.primary,
+                transform: [{ scaleX: longPressProgress }],
+              },
+            ]}
+          />
+        </View>
+      ) : null}
+      {selectionMode && (
+        <Animated.View
+          style={[
+            styles.cardCheckboxMotion,
+            {
+              opacity: selectionControlOpacity,
+              transform: [{ scale: selectionControlScale }],
+            },
+          ]}
+        >
+          <TouchableOpacity
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: selected, disabled: busy }}
+            accessibilityLabel={`${selected ? 'Deselect' : 'Select'} ${activityName.toLowerCase()} activity for deletion`}
+            disabled={busy}
+            onPress={() => onPress(activity)}
+            style={[
+              styles.cardCheckbox,
+              { backgroundColor: selected ? '#DC2626' : isDark ? '#111827' : '#FFFFFF' },
+              { borderColor: selected ? '#FFFFFF' : colors.border },
+            ]}
+          >
+            {deleting
+              ? <RunningLoader size={18} fillColor="#FF6B6B" />
+              : selected
+                ? <Feather name="check" size={21} color="#FFFFFF" />
+                : <Feather name="square" size={20} color={colors.textSecondary} />}
+          </TouchableOpacity>
+        </Animated.View>
       )}
       </Animated.View>
-      </Reanimated.View>
+      </View>
     </GestureDetector>
   );
 });
@@ -778,10 +755,11 @@ async function fetchHistoryPageSkippingEmptyPages(cursor: string | null) {
 
 export default function ActivityScreen() {
   const { colors } = useTheme();
+  const glassTargetRef = useRef<View | null>(null);
   const { user } = useAuth();
+  const weekStartDay = useMemo(() => getLocaleWeekStartDay(), []);
   const userId = user?.id == null ? null : String(user.id);
   const distanceUnit = user?.profile?.distance_unit;
-  const activityDistanceOptions = useMemo(() => getActivityDistanceOptions(distanceUnit), [distanceUnit]);
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const reduceMotion = useReducedMotion();
@@ -789,77 +767,57 @@ export default function ActivityScreen() {
   const [savingActivityIds, setSavingActivityIds] = useState<Set<string>>(() => new Set());
   const [exportingActivityIds, setExportingActivityIds] = useState<Set<string>>(() => new Set());
   const [pendingSaveActivity, setPendingSaveActivity] = useState<BackendActivity | null>(null);
+  const [activityOptionsActivity, setActivityOptionsActivity] = useState<BackendActivity | null>(null);
+  const [activityOptionsMessage, setActivityOptionsMessage] = useState<string | null>(null);
   const [visibleActivityIds, setVisibleActivityIds] = useState<Set<string>>(() => new Set());
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedActivityIds, setSelectedActivityIds] = useState<Set<string>>(() => new Set());
-  const deleteActivityRequestRef = useRef<(activity: BackendActivity) => void>(() => undefined);
-  const [groupMode, setGroupMode] = useState<ActivityGroupMode>('month');
+  const [pendingDeleteActivities, setPendingDeleteActivities] = useState<BackendActivity[] | null>(null);
+  const groupMode: ActivityGroupMode = 'month';
   const [selectionToast, setSelectionToast] = useState<string | null>(null);
-  const [deleteSuccess, setDeleteSuccess] = useState(false);
   const [deletingActivityIds, setDeletingActivityIds] = useState<Set<string>>(() => new Set());
   const [isDeletingActivities, setIsDeletingActivities] = useState(false);
-  const [selectedType, setSelectedType] = useState<ActivityTypeFilter>('all');
-  const [selectedDateRange, setSelectedDateRange] = useState<ActivityDateFilter>('all');
-  const [selectedMonthDate, setSelectedMonthDate] = useState<Date | null>(null);
+  const [selectedType, setSelectedType] = useState('All types');
+  const [selectedDateFilter, setSelectedDateFilter] = useState<ActivityDateFilter>('all');
+  const [filterDate, setFilterDate] = useState(() => new Date());
   const [selectedDistanceRange, setSelectedDistanceRange] = useState<ActivityDistanceFilter>('all');
   const [showNativeDatePicker, setShowNativeDatePicker] = useState(false);
-  const [datePickerTarget, setDatePickerTarget] = useState<DatePickerTarget>('start');
-  const [selectedDayDate, setSelectedDayDate] = useState<Date | null>(null);
-  const [rangeStartDate, setRangeStartDate] = useState<Date | null>(null);
-  const [rangeEndDate, setRangeEndDate] = useState<Date | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [isImportingGpx, setIsImportingGpx] = useState(false);
   const [totalHistoryCount, setTotalHistoryCount] = useState<number | null>(null);
   const cursorRef = useRef<string | null>(null);
-  const monthAutoLoadKeyRef = useRef<string | null>(null);
+  const dateFilterAutoLoadKeyRef = useRef<string | null>(null);
   const loadingMoreRef = useRef(false);
   const loadingFirstPageRef = useRef(false);
   const hasLoadedHistoryRef = useRef(false);
   const requestIdRef = useRef(0);
   const activeAccountIdRef = useRef(userId);
+  const activityListRef = useRef<FlatList<ActivityListRow>>(null);
   const activityViewabilityConfig = useMemo(() => ({ itemVisiblePercentThreshold: 10, minimumViewTime: 80 }), []);
   const selectionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const deleteSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [deleteButtonStateProgress] = useState(() => new Animated.Value(0));
-  const [deleteTrayOpacity] = useState(() => new Animated.Value(0));
-  const [deleteTrayTranslateY] = useState(() => new Animated.Value(24));
-  const [deleteSuccessScale] = useState(() => new Animated.Value(0.65));
   const [selectionToolbarOpacity] = useState(() => new Animated.Value(0));
   const [selectionToolbarTranslateY] = useState(() => new Animated.Value(8));
-  const [selectionFiltersProgress] = useState(() => new Animated.Value(1));
   const [activeFilterPopover, setActiveFilterPopover] = useState<FilterPopover | null>(null);
-  const [activeLongPress, setActiveLongPress] = useState<FilterPopover | null>(null);
   const [filterPopoverPosition, setFilterPopoverPosition] = useState<FilterPopoverPosition>({ left: 12, top: 72, width: 280, maxHeight: 420, placement: 'below', caretLeft: 24, originXPercent: 50, originYPercent: 50 });
+  const [activityOptionsPosition, setActivityOptionsPosition] = useState<ActivityMenuPosition>({ left: 12, top: 72, width: 240 });
   const filterPopoverScale = useRef(new Animated.Value(0.78)).current;
   const filterPopoverOffset = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const typeFilterAnchorRef = useRef<View>(null);
   const dateFilterAnchorRef = useRef<View>(null);
   const distanceFilterAnchorRef = useRef<View>(null);
+  const datePickerAnchorRef = useRef<View>(null);
+  const activityTypeOptions = useMemo(() => [
+    { label: 'All types', value: 'All types' },
+    ...Array.from(new Set(activities.map((activity) => getNormalizedActivityType(activity.activity_type))))
+      .sort((first, second) => first.localeCompare(second))
+      .map((type) => ({ label: type, value: type })),
+  ], [activities]);
 
-  const resetTypeFilter = useCallback(() => {
-    setSelectedType('all');
-    setActiveFilterPopover(null);
-    setActiveLongPress(null);
-  }, []);
-
-  const resetDateFilter = useCallback(() => {
-    setSelectedDateRange('all');
-    setSelectedMonthDate(null);
-    setSelectedDayDate(null);
-    setRangeStartDate(null);
-    setRangeEndDate(null);
-    setActiveFilterPopover(null);
-    setActiveLongPress(null);
-  }, []);
-
-  const resetDistanceFilter = useCallback(() => {
-    setSelectedDistanceRange('all');
-    setActiveFilterPopover(null);
-    setActiveLongPress(null);
-  }, []);
+  useEffect(() => {
+    activityListRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [filterDate, selectedDateFilter, selectedDistanceRange, selectedType]);
 
   useEffect(() => {
     if (activeAccountIdRef.current === userId) return;
@@ -870,7 +828,7 @@ export default function ActivityScreen() {
     loadingFirstPageRef.current = false;
     loadingMoreRef.current = false;
     cursorRef.current = null;
-    monthAutoLoadKeyRef.current = null;
+    dateFilterAutoLoadKeyRef.current = null;
     activityDetails.clear();
     activityDetailRequests.clear();
 
@@ -890,7 +848,7 @@ export default function ActivityScreen() {
       const horizontalMargin = 12;
       const leftLimit = insets.left + horizontalMargin;
       const rightLimit = windowWidth - insets.right - horizontalMargin;
-      const width = Math.min(310, rightLimit - leftLimit);
+      const width = Math.min(filter === 'date' ? 310 : 232, rightLimit - leftLimit);
       const left = Math.max(leftLimit, Math.min(x + anchorWidth / 2 - width / 2, rightLimit - width));
       const topLimit = insets.top + 8;
       const bottomLimit = windowHeight - insets.bottom - 8;
@@ -918,26 +876,26 @@ export default function ActivityScreen() {
       const originYPercent = Math.min(88, Math.max(12, ((anchorCenterY - top) / maxHeight) * 100));
       const caretLeft = Math.max(12, Math.min(anchorCenterX - left - 8, width - 12));
 
-      filterPopoverScale.setValue(0.78);
+      filterPopoverScale.setValue(0.94);
       filterPopoverOffset.setValue({ x: startTranslateX, y: startTranslateY });
 
       Animated.parallel([
-        Animated.spring(filterPopoverScale, {
+        Animated.timing(filterPopoverScale, {
           toValue: 1,
-          tension: 210,
-          friction: 16,
+          duration: reduceMotion ? 0 : 160,
+          easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-        Animated.spring(filterPopoverOffset.x, {
+        Animated.timing(filterPopoverOffset.x, {
           toValue: 0,
-          tension: 180,
-          friction: 14,
+          duration: reduceMotion ? 0 : 160,
+          easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-        Animated.spring(filterPopoverOffset.y, {
+        Animated.timing(filterPopoverOffset.y, {
           toValue: 0,
-          tension: 180,
-          friction: 14,
+          duration: reduceMotion ? 0 : 160,
+          easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
       ]).start();
@@ -954,11 +912,11 @@ export default function ActivityScreen() {
       });
       setActiveFilterPopover(filter);
     });
-  }, [filterPopoverOffset, filterPopoverScale, insets.bottom, insets.left, insets.right, insets.top, windowHeight, windowWidth]);
+  }, [filterPopoverOffset, filterPopoverScale, insets.bottom, insets.left, insets.right, insets.top, reduceMotion, windowHeight, windowWidth]);
 
   useEffect(() => {
     if (!activeFilterPopover) {
-      filterPopoverScale.setValue(0.78);
+      filterPopoverScale.setValue(0.94);
       filterPopoverOffset.setValue({ x: 0, y: 0 });
     }
   }, [activeFilterPopover, filterPopoverOffset, filterPopoverScale]);
@@ -972,81 +930,8 @@ export default function ActivityScreen() {
     }, 2400);
   }, []);
 
-  const submitGpxWorkout = useCallback(async (preview: GpxWorkoutPreview) => {
-    setIsImportingGpx(true);
-    try {
-      const importedActivity = await activityAPI.importGpxWorkout(preview);
-      Alert.alert(
-        'GPX workout imported',
-        'The workout was added to your history.',
-        [{
-          text: 'View workout',
-          onPress: () => router.push({
-            pathname: '/(app)/activity/[id]',
-            params: { id: String(importedActivity.id) },
-          }),
-        }],
-      );
-    } catch (requestError) {
-      const status = (requestError as { response?: { status?: number } })?.response?.status;
-      const message = status === 404
-        ? 'The GPX workout import endpoint is not available on the server yet. Ask your backend team to implement POST /rundata/activities/import-gpx/.'
-        : getBackendErrorMessage(requestError, 'Could not import this GPX workout. Please try again.');
-      Alert.alert('Could not import GPX workout', message);
-    } finally {
-      setIsImportingGpx(false);
-    }
-  }, []);
-
-  const pickGpxWorkout = useCallback(async () => {
-    if (Platform.OS !== 'android') {
-      Alert.alert('GPX import unavailable', 'GPX import is currently supported on Android only.');
-      return;
-    }
-
-    setIsImportingGpx(true);
-    try {
-      const result = await File.pickFileAsync({
-        mimeTypes: ['application/gpx+xml', 'application/gpx', 'application/xml', 'text/xml'],
-      });
-      if (result.canceled) return;
-
-      const file = result.result;
-      if (!file.name.toLowerCase().endsWith('.gpx')) {
-        Alert.alert('Choose a GPX file', 'Select a file with the .gpx extension.');
-        return;
-      }
-      if (file.size !== null && file.size > 10 * 1024 * 1024) {
-        Alert.alert('GPX file is too large', 'Choose a GPX file no larger than 10 MB.');
-        return;
-      }
-
-      const xml = await file.text();
-      const preview = parseGpxWorkout(xml, file.name);
-      const gapNotice = preview.longGapCount > 0
-        ? `\n\nWarning: ${preview.longGapCount} time gap${preview.longGapCount === 1 ? '' : 's'} exceed 15 minutes. Elapsed time will include these gaps.`
-        : '';
-      Alert.alert(
-        'Import this GPX workout?',
-        `${preview.activityType === 'WALK' ? 'Walk' : 'Run'} · ${(preview.distanceMeters / 1000).toFixed(2)} km · ${formatDuration(preview.elapsedSeconds)} · ${preview.points.length.toLocaleString()} GPS points${gapNotice}`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Import', onPress: () => void submitGpxWorkout(preview) },
-        ],
-      );
-    } catch (pickerError) {
-      const message = pickerError instanceof Error
-        ? pickerError.message
-        : 'Could not read the selected GPX file.';
-      Alert.alert('Could not read GPX file', message);
-    } finally {
-      setIsImportingGpx(false);
-    }
-  }, [submitGpxWorkout]);
-
   useEffect(() => () => {
     if (selectionToastTimerRef.current) clearTimeout(selectionToastTimerRef.current);
-    if (deleteSuccessTimerRef.current) clearTimeout(deleteSuccessTimerRef.current);
   }, []);
 
   const handleViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
@@ -1059,61 +944,24 @@ export default function ActivityScreen() {
   }, []);
 
   useEffect(() => {
-    const enabled = selectedActivityIds.size > 0 || deleteSuccess;
-    const targetState = deleteSuccess ? 0.55 : enabled ? 0.55 : 0;
-    Animated.timing(deleteButtonStateProgress, {
-      toValue: targetState,
-      duration: 200,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [deleteButtonStateProgress, deleteSuccess, selectedActivityIds.size]);
-
-  useEffect(() => {
     if (selectionMode) {
       if (reduceMotion) {
         selectionToolbarOpacity.setValue(1);
         selectionToolbarTranslateY.setValue(0);
-        selectionFiltersProgress.setValue(1);
-      } else {
-        selectionToolbarOpacity.setValue(0);
-        selectionToolbarTranslateY.setValue(8);
-        selectionFiltersProgress.setValue(0);
-        Animated.parallel([
-          Animated.timing(selectionToolbarOpacity, {
-            toValue: 1,
-            duration: 220,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          }),
-          Animated.spring(selectionToolbarTranslateY, {
-            toValue: 0,
-            damping: 18,
-            stiffness: 190,
-            useNativeDriver: true,
-          }),
-          Animated.timing(selectionFiltersProgress, {
-            toValue: 1,
-            duration: 240,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          }),
-        ]).start();
+        return;
       }
-      deleteTrayOpacity.setValue(0);
-      deleteTrayTranslateY.setValue(24);
       Animated.parallel([
-        Animated.timing(deleteTrayOpacity, {
+        Animated.timing(selectionToolbarOpacity, {
           toValue: 1,
           duration: 220,
           easing: Easing.out(Easing.cubic),
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
-        Animated.spring(deleteTrayTranslateY, {
+        Animated.spring(selectionToolbarTranslateY, {
           toValue: 0,
-          damping: 16,
-          stiffness: 180,
-          useNativeDriver: false,
+          damping: 18,
+          stiffness: 190,
+          useNativeDriver: true,
         }),
       ]).start();
       return;
@@ -1121,39 +969,7 @@ export default function ActivityScreen() {
 
     selectionToolbarOpacity.setValue(0);
     selectionToolbarTranslateY.setValue(8);
-    selectionFiltersProgress.setValue(1);
-    Animated.parallel([
-      Animated.timing(deleteTrayOpacity, {
-        toValue: 0,
-        duration: 180,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: false,
-      }),
-      Animated.timing(deleteTrayTranslateY, {
-        toValue: 24,
-        duration: 180,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: false,
-      }),
-    ]).start();
-  }, [
-    deleteTrayOpacity,
-    deleteTrayTranslateY,
-    reduceMotion,
-    selectionFiltersProgress,
-    selectionMode,
-    selectionToolbarOpacity,
-    selectionToolbarTranslateY,
-  ]);
-
-  useEffect(() => {
-    Animated.spring(deleteSuccessScale, {
-      toValue: deleteSuccess ? 1 : 0.65,
-      damping: 14,
-      stiffness: 220,
-      useNativeDriver: false,
-    }).start();
-  }, [deleteSuccess, deleteSuccessScale]);
+  }, [reduceMotion, selectionMode, selectionToolbarOpacity, selectionToolbarTranslateY]);
 
   const loadFirstPage = useCallback(async () => {
     if (!userId) {
@@ -1242,83 +1058,35 @@ export default function ActivityScreen() {
   );
 
   useEffect(() => {
-    if (selectedDateRange !== 'month' || !selectedMonthDate || !hasMore || loading || loadingMore) return;
+    const filterStart = getDateFilterStart(selectedDateFilter, filterDate, weekStartDay);
+    const needsFullHistory = selectionMode || selectedType !== 'All types' || selectedDistanceRange !== 'all';
+    if ((filterStart === null && !needsFullHistory) || !hasMore || loading || loadingMore) return;
+    if (filterStart !== null && historyIsLoadedThroughDate(activities, filterStart)) return;
 
-    const monthStart = new Date(selectedMonthDate.getFullYear(), selectedMonthDate.getMonth(), 1).getTime();
-    if (historyIsLoadedThroughDate(activities, monthStart)) return;
-
-    const attemptKey = `${monthStart}:${cursorRef.current ?? 'first'}`;
-    if (monthAutoLoadKeyRef.current === attemptKey) return;
-    monthAutoLoadKeyRef.current = attemptKey;
+    const attemptKey = `${filterStart ?? 'all'}:${cursorRef.current ?? 'first'}`;
+    if (dateFilterAutoLoadKeyRef.current === attemptKey) return;
+    dateFilterAutoLoadKeyRef.current = attemptKey;
     void loadMore();
-  }, [activities, hasMore, loadMore, loading, loadingMore, selectedDateRange, selectedMonthDate]);
-
-  const dateSummary = useMemo(() => {
-    if (selectedDateRange === 'all') return 'All dates';
-    if (selectedDateRange === 'month') return formatMonthLabel(selectedMonthDate);
-    if (selectedDateRange === 'single') {
-      return selectedDayDate ? formatDateLabel(selectedDayDate) : 'Select date';
-    }
-    if (selectedDateRange === 'range') {
-      if (rangeStartDate && rangeEndDate) {
-        return `${formatDateLabel(rangeStartDate)} – ${formatDateLabel(rangeEndDate)}`;
-      }
-      if (rangeStartDate || rangeEndDate) {
-        return rangeStartDate ? `From ${formatDateLabel(rangeStartDate)}` : `Until ${formatDateLabel(rangeEndDate)}`;
-      }
-      return 'Select range';
-    }
-    return activityDateOptions.find((option) => option.value === selectedDateRange)?.label ?? 'Date';
-  }, [rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate, selectedMonthDate]);
-
-  const distanceSummary = useMemo(() => {
-    if (selectedDistanceRange === 'all') return 'Distance';
-    return activityDistanceOptions.find((option) => option.value === selectedDistanceRange)?.label ?? 'Distance';
-  }, [activityDistanceOptions, selectedDistanceRange]);
-
-  const activeFilterCount = useMemo(() => {
-    let count = 0;
-    if (selectedType !== 'all') count += 1;
-    if (selectedDateRange !== 'all') count += 1;
-    if (selectedDistanceRange !== 'all') count += 1;
-    return count;
-  }, [selectedDateRange, selectedDistanceRange, selectedType]);
-
-  const hasActiveFilters = activeFilterCount > 0;
-
-  const activeFilterSummary = useMemo(() => {
-    const labels: string[] = [];
-    if (selectedType !== 'all') labels.push(activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'Event');
-    if (selectedDateRange !== 'all') labels.push(dateSummary);
-    if (selectedDistanceRange !== 'all') labels.push(distanceSummary);
-    return labels;
-  }, [dateSummary, distanceSummary, selectedDateRange, selectedDistanceRange, selectedType]);
+  }, [activities, filterDate, hasMore, loadMore, loading, loadingMore, selectedDateFilter, selectedDistanceRange, selectedType, selectionMode, weekStartDay]);
 
   const visibleActivities = useMemo(() => {
     if (activeAccountIdRef.current !== userId) return [];
     let filtered = [...activities];
 
-    if (selectedType !== 'all') {
+    if (selectedType !== 'All types') {
       filtered = filtered.filter((activity) => getNormalizedActivityType(activity.activity_type) === selectedType);
     }
 
-    if (selectedDateRange !== 'all') {
-      filtered = filtered.filter((activity) => matchesDateRange(
-        activity,
-        selectedDateRange,
-        selectedDayDate,
-        rangeStartDate,
-        rangeEndDate,
-        selectedMonthDate,
-      ));
+    if (selectedDateFilter !== 'all') {
+      filtered = filtered.filter((activity) => matchesDateFilter(activity, selectedDateFilter, filterDate, weekStartDay));
     }
 
     if (selectedDistanceRange !== 'all') {
-      filtered = filtered.filter((activity) => matchesDistanceRange(activity, selectedDistanceRange, distanceUnit));
+      filtered = filtered.filter((activity) => matchesDistanceRange(activity, selectedDistanceRange));
     }
 
     return sortActivities(filtered);
-  }, [activities, distanceUnit, rangeEndDate, rangeStartDate, selectedDateRange, selectedDayDate, selectedDistanceRange, selectedMonthDate, selectedType, userId]);
+  }, [activities, filterDate, selectedDateFilter, selectedDistanceRange, selectedType, userId, weekStartDay]);
 
   const activityRows = useMemo(
     () => buildActivityRows(visibleActivities, groupMode),
@@ -1346,31 +1114,23 @@ export default function ActivityScreen() {
     });
   }, []);
 
-  const startActivitySelection = useCallback((activityId: BackendActivity['id']) => {
+  const enterActivitySelection = useCallback((activityId?: BackendActivity['id']) => {
     if (!reduceMotion) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     selectionToolbarOpacity.setValue(reduceMotion ? 1 : 0);
     selectionToolbarTranslateY.setValue(reduceMotion ? 0 : 8);
-    selectionFiltersProgress.setValue(reduceMotion ? 1 : 0);
     setSelectionMode(true);
-    setSelectedActivityIds((current) => new Set(current).add(String(activityId)));
-  }, [reduceMotion, selectionFiltersProgress, selectionToolbarOpacity, selectionToolbarTranslateY]);
+    setSelectedActivityIds(activityId === undefined ? new Set() : new Set([String(activityId)]));
+  }, [reduceMotion, selectionToolbarOpacity, selectionToolbarTranslateY]);
+
+  const startActivitySelection = useCallback((activityId: BackendActivity['id']) => {
+    enterActivitySelection(activityId);
+  }, [enterActivitySelection]);
 
   const cancelActivitySelection = useCallback(() => {
     if (!reduceMotion) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setSelectionMode(false);
     setSelectedActivityIds(new Set());
   }, [reduceMotion]);
-
-  const toggleGroupSelection = useCallback((groupActivities: BackendActivity[]) => {
-    const groupIds = groupActivities.map((activity) => String(activity.id));
-    setSelectedActivityIds((current) => {
-      const allSelected = groupIds.length > 0 && groupIds.every((id) => current.has(id));
-      const next = new Set(current);
-      if (allSelected) groupIds.forEach((id) => next.delete(id));
-      else groupIds.forEach((id) => next.add(id));
-      return next;
-    });
-  }, []);
 
   const toggleAllVisibleSelection = useCallback(() => {
     const visibleIds = visibleActivities.map((activity) => String(activity.id));
@@ -1446,6 +1206,7 @@ export default function ActivityScreen() {
       setActivities((current) => current.map((item) => String(item.id) === activityKey
         ? { ...item, is_saved_to_my_routes: true, saved_route_id: routeId, saved_route_is_public: isPublic }
         : item));
+      setPendingSaveActivity(null);
       showSelectionToast(`Route made ${isPublic ? 'public' : 'private'}.`);
     } catch (requestError) {
       Alert.alert('Could not change route visibility', getBackendErrorMessage(requestError, 'Please try again.'));
@@ -1479,115 +1240,43 @@ export default function ActivityScreen() {
     }
   }, [exportingActivityIds]);
 
-  const exportActivityJson = useCallback(async (activity: BackendActivity) => {
-    const activityKey = String(activity.id);
-    if (exportingActivityIds.has(activityKey)) return;
-    setExportingActivityIds((current) => new Set(current).add(activityKey));
-    try {
-      const detail = await activityAPI.get(activity.id);
-      await shareActivityAsJson(detail);
-    } catch (exportError) {
-      const message = exportError instanceof Error
-        ? exportError.message
-        : 'Could not export this activity as JSON.';
-      Alert.alert('Could not export JSON', message);
-    } finally {
-      setExportingActivityIds((current) => {
-        const next = new Set(current);
-        next.delete(activityKey);
-        return next;
-      });
-    }
-  }, [exportingActivityIds]);
+  const closeActivityOptions = useCallback(() => {
+    setActivityOptionsActivity(null);
+    setActivityOptionsMessage(null);
+  }, []);
 
-  const openActivityRouteMenu = useCallback((activity: BackendActivity) => {
-    const exportGpxOption = {
-      text: 'Export GPX',
-      onPress: () => { void exportActivityGpx(activity); },
-    };
-    const exportJsonOption = {
-      text: 'Export JSON',
-      onPress: () => { void exportActivityJson(activity); },
-    };
-    const deleteOption = {
-      text: 'Delete workout',
-      style: 'destructive' as const,
-      onPress: () => deleteActivityRequestRef.current(activity),
-    };
+  const openActivityRouteMenu = useCallback((activity: BackendActivity, anchor: ActivityMenuAnchor) => {
+    const routeId = Number(activity.saved_route_id);
+    const hasRouteId = Number.isInteger(routeId) && routeId > 0;
+    const menuWidth = Math.min(256, windowWidth - insets.left - insets.right - 24);
+    const hasRouteAction = !activity.is_saved_to_my_routes || hasRouteId;
+    const menuHeight = hasRouteAction ? 112 : 96;
+    const leftLimit = insets.left + 12;
+    const rightLimit = windowWidth - insets.right - 12;
+    const left = Math.max(leftLimit, Math.min(anchor.x + anchor.width - menuWidth, rightLimit - menuWidth));
+    const topLimit = insets.top + 8;
+    const bottomLimit = windowHeight - insets.bottom - 8;
+    const below = anchor.y + anchor.height + 4;
+    const top = below + menuHeight <= bottomLimit
+      ? below
+      : Math.max(topLimit, anchor.y - menuHeight - 4);
+    setActivityOptionsPosition({ left, top, width: menuWidth });
+    setActivityOptionsMessage(
+      activity.is_saved_to_my_routes && !hasRouteId
+        ? 'This route is saved, but its route ID is missing from the History response.'
+        : null,
+    );
+    setActivityOptionsActivity(activity);
+  }, [insets.bottom, insets.left, insets.right, insets.top, windowHeight, windowWidth]);
 
-    if (activity.is_saved_to_my_routes) {
-      const routeId = Number(activity.saved_route_id);
-      if (!Number.isInteger(routeId) || routeId <= 0) {
-        Alert.alert('Activity options', 'This route is saved, but its route ID is missing from the History response.', [
-          exportGpxOption,
-          exportJsonOption,
-          deleteOption,
-          { text: 'Cancel', style: 'cancel' },
-        ]);
-        return;
-      }
-
-      Alert.alert('Activity options', undefined, [
-        exportGpxOption,
-        exportJsonOption,
-        deleteOption,
-        {
-          text: 'Change route visibility',
-          onPress: () => {
-            void runRouteAPI.get(routeId).then((route) => {
-              const nextIsPublic = !route.is_public;
-              Alert.alert(
-                nextIsPublic ? 'Make route public?' : 'Make route private?',
-                nextIsPublic
-                  ? 'Other signed-in Zy-Run users will be able to view this route.'
-                  : 'Other users will no longer be able to view this route.',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: nextIsPublic ? 'Make Public' : 'Make Private',
-                    onPress: () => { void updateActivityRouteVisibility(activity, routeId, nextIsPublic); },
-                  },
-                ],
-                { cancelable: true },
-              );
-            }).catch((requestError) => {
-              Alert.alert('Could not load route visibility', getBackendErrorMessage(requestError, 'Please try again.'));
-            });
-          },
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]);
-      return;
-    }
-
-    Alert.alert('Activity options', undefined, [
-      exportGpxOption,
-      exportJsonOption,
-      deleteOption,
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Save to My Routes',
-        onPress: () => {
-          const routeProcessingComplete = activity.is_processed === true
-            || (activity.is_processed == null && activity.processing_status.toUpperCase() === 'COMPLETED');
-          if (!routeProcessingComplete || !activity.route_generated) {
-            Alert.alert('Route not ready', 'This activity needs to finish processing its route before it can be saved.');
-            return;
-          }
-          setPendingSaveActivity(activity);
-        },
-      },
-    ]);
-  }, [exportActivityGpx, exportActivityJson, updateActivityRouteVisibility]);
+  const changeActivityRouteVisibility = useCallback((activity: BackendActivity) => {
+    closeActivityOptions();
+    setPendingSaveActivity(activity);
+  }, [closeActivityOptions]);
 
   const deleteActivities = useCallback(async (targets: BackendActivity[]) => {
     if (targets.length === 0 || isDeletingActivities) return;
 
-    if (deleteSuccessTimerRef.current) {
-      clearTimeout(deleteSuccessTimerRef.current);
-      deleteSuccessTimerRef.current = null;
-    }
-    setDeleteSuccess(false);
     const targetIds = new Set(targets.map((activity) => String(activity.id)));
     setIsDeletingActivities(true);
     setDeletingActivityIds(targetIds);
@@ -1654,59 +1343,25 @@ export default function ActivityScreen() {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
         .catch((hapticError: unknown) => console.warn('[ActivityHistory] Delete success haptic unavailable', hapticError));
     }
-    setDeleteSuccess(true);
+    setIsDeletingActivities(false);
+    setSelectionMode(false);
+    setSelectedActivityIds(new Set());
+    activityListRef.current?.scrollToOffset({ offset: 0, animated: false });
     AccessibilityInfo.announceForAccessibility(targets.length === 1 ? 'Activity deleted.' : `${targets.length} activities deleted.`);
     showSelectionToast(targets.length === 1 ? 'Workout deleted.' : `${targets.length} workouts deleted.`);
-    deleteSuccessTimerRef.current = setTimeout(() => {
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      if (selectionMode) {
-        setSelectionMode(false);
-        setSelectedActivityIds(new Set());
-      }
-      setDeleteSuccess(false);
-      setIsDeletingActivities(false);
-      deleteSuccessTimerRef.current = null;
-    }, 620);
-  }, [isDeletingActivities, selectionMode, showSelectionToast]);
+  }, [isDeletingActivities, showSelectionToast]);
 
   const confirmDeleteActivities = useCallback((targets: BackendActivity[]) => {
     if (targets.length === 0) {
       showSelectionToast('Please select at least one activity to delete.');
       return;
     }
-    const count = targets.length;
-    const savedRouteCount = targets.filter((activity) => (
-      activity.is_saved_to_my_routes || activity.saved_route_id
-    )).length;
-    const deleteMessage = savedRouteCount > 0
-      ? `${count === 1 ? 'This workout' : `These ${count} workouts`} ${count === 1 ? 'has' : 'have'} ${savedRouteCount} associated saved ${savedRouteCount === 1 ? 'route' : 'routes'} that will also be removed from My Routes${savedRouteCount === 1 ? ' (including its public listing, if enabled)' : ' (including any public listings, if enabled)'}. This cannot be undone.`
-      : count === 1
-        ? 'Delete this workout from your history? This cannot be undone.'
-        : `Delete ${count} workouts from your history? This cannot be undone.`;
-    Alert.alert(
-      count === 1 ? 'Delete workout?' : 'Delete selected workouts?',
-      deleteMessage,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            void deleteActivities(targets);
-          },
-        },
-      ],
-      { cancelable: true },
-    );
-  }, [deleteActivities, showSelectionToast]);
+    setPendingDeleteActivities(targets);
+  }, [showSelectionToast]);
 
   const confirmDeleteSelected = useCallback(() => {
     confirmDeleteActivities(selectedActivities);
   }, [confirmDeleteActivities, selectedActivities]);
-
-  useEffect(() => {
-    deleteActivityRequestRef.current = (activity) => confirmDeleteActivities([activity]);
-  }, [confirmDeleteActivities]);
 
   const handleActivityPress = useCallback((activity: BackendActivity) => {
     if (selectionMode) {
@@ -1724,28 +1379,11 @@ export default function ActivityScreen() {
 
   const renderActivityRow = useCallback(({ item }: { item: ActivityListRow }) => {
     if (item.type === 'section') {
-      const selectedCount = item.activities.filter((activity) => selectedActivityIds.has(String(activity.id))).length;
-      const allSelected = selectedCount === item.activities.length;
       return (
-        <TouchableOpacity
-          accessibilityRole={selectionMode ? 'checkbox' : undefined}
-          accessibilityState={selectionMode ? { checked: allSelected } : undefined}
-          accessibilityLabel={`${item.title}, ${item.activities.length} activities${selectionMode ? `, ${selectedCount} selected` : ''}`}
-          activeOpacity={selectionMode ? 0.75 : 1}
-          disabled={!selectionMode || isDeletingActivities}
-          onPress={() => toggleGroupSelection(item.activities)}
-          style={styles.sectionHeader}
-        >
-          {selectionMode && (
-            <Feather
-              name={allSelected ? 'check-square' : selectedCount > 0 ? 'minus-square' : 'square'}
-              size={20}
-              color={allSelected || selectedCount > 0 ? '#35C72B' : colors.textSecondary}
-            />
-          )}
+        <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>{item.title}</Text>
           <Text style={[styles.sectionCount, { color: colors.textSecondary }]}>{item.activities.length}</Text>
-        </TouchableOpacity>
+        </View>
       );
     }
     if (item.type === 'day') {
@@ -1762,6 +1400,7 @@ export default function ActivityScreen() {
       <ActivityCard
         activity={activity}
         accountId={userId}
+        blurTarget={glassTargetRef}
         distanceUnit={distanceUnit}
         onPress={handleActivityPress}
         onRouteMenu={openActivityRouteMenu}
@@ -1772,6 +1411,7 @@ export default function ActivityScreen() {
         selected={selectedActivityIds.has(String(activity.id))}
         deleting={deletingActivityIds.has(String(activity.id))}
         busy={isDeletingActivities || savingActivityIds.has(String(activity.id)) || exportingActivityIds.has(String(activity.id))}
+        savingRoute={savingActivityIds.has(String(activity.id))}
       />
     );
   }, [
@@ -1780,6 +1420,7 @@ export default function ActivityScreen() {
     colors.textTertiary,
     distanceUnit,
     userId,
+    glassTargetRef,
     deletingActivityIds,
     exportingActivityIds,
     isDeletingActivities,
@@ -1791,7 +1432,6 @@ export default function ActivityScreen() {
     selectedActivityIds,
     selectionMode,
     startActivitySelection,
-    toggleGroupSelection,
   ]);
 
   const footerCountText = useMemo(() => {
@@ -1811,11 +1451,8 @@ export default function ActivityScreen() {
       isDeletingActivities,
       groupMode,
       selectedType,
-      selectedDateRange,
-      selectedMonthDate,
-      selectedDayDate,
-      rangeStartDate,
-      rangeEndDate,
+      selectedDateFilter,
+      filterDate,
       selectedDistanceRange,
       visibleActivities,
     }),
@@ -1824,25 +1461,112 @@ export default function ActivityScreen() {
       exportingActivityIds,
       groupMode,
       isDeletingActivities,
-      rangeEndDate,
-      rangeStartDate,
+      filterDate,
       selectedActivityIds,
-      selectedDateRange,
-      selectedDayDate,
+      selectedDateFilter,
       selectedDistanceRange,
-      selectedMonthDate,
       selectedType,
       selectionMode,
       visibleActivities,
     ],
   );
 
+  const optionsActivity = activityOptionsActivity;
+  const optionsRouteId = Number(optionsActivity?.saved_route_id);
+  const hasOptionsRouteId = Number.isInteger(optionsRouteId) && optionsRouteId > 0;
+  const optionsRouteIsSaved = Boolean(optionsActivity?.is_saved_to_my_routes || hasOptionsRouteId);
+  const pendingRouteId = Number(pendingSaveActivity?.saved_route_id);
+  const hasPendingRouteId = Number.isInteger(pendingRouteId) && pendingRouteId > 0;
+  const pendingRouteIsSaved = Boolean(
+    pendingSaveActivity?.is_saved_to_my_routes
+    || hasPendingRouteId,
+  );
+  const pendingVisibilityBusy = Boolean(
+    pendingSaveActivity && savingActivityIds.has(String(pendingSaveActivity.id)),
+  );
+
   return (
     <GestureHandlerRootView style={styles.gestureRoot}>
-      <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
+      <BlurTargetView ref={glassTargetRef} pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background }]} />
+      </BlurTargetView>
+      <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: 'transparent' }]}>
       <View style={styles.screenContent}>
       <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} />
-      {selectionMode ? (
+      <View style={styles.heading}>
+        <View style={styles.headingRow}>
+          <View style={styles.headingCopy}>
+            <Text style={[styles.title, { color: colors.text }]}>Workout History</Text>
+            {!selectionMode && <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Your completed runs and walks</Text>}
+          </View>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={selectionMode ? 'Cancel selection' : 'Select workouts to delete'}
+            accessibilityState={{ disabled: isDeletingActivities }}
+            disabled={isDeletingActivities}
+            onPress={selectionMode ? cancelActivitySelection : () => enterActivitySelection()}
+            style={styles.selectionModeAction}
+          >
+            <Text style={[styles.selectionModeActionText, { color: colors.primary }]}>
+              {selectionMode ? 'Cancel' : 'Select'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <MotionEntrance delay={45}>
+        <View style={styles.filterRowBar}>
+          <FilterTile
+            label={activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All types'}
+            icon="run"
+            onPress={() => openFilterPopover('type', typeFilterAnchorRef, 210)}
+            anchorRef={typeFilterAnchorRef}
+            accentColor={colors.primary}
+            surfaceColor={colors.surface}
+            borderColor={colors.border}
+            primaryTextColor={colors.text}
+            isActive={selectedType !== 'All types'}
+          />
+          <FilterTile
+            label={activityDateOptions.find((option) => option.value === selectedDateFilter)?.label ?? 'All time'}
+            icon="calendar-month"
+            onPress={() => openFilterPopover('date', dateFilterAnchorRef, 250)}
+            anchorRef={dateFilterAnchorRef}
+            accentColor={colors.primary}
+            surfaceColor={colors.surface}
+            borderColor={colors.border}
+            primaryTextColor={colors.text}
+            isActive={selectedDateFilter !== 'all'}
+          />
+          <FilterTile
+            label={activityDistanceOptions.find((option) => option.value === selectedDistanceRange)?.label ?? 'Any distance'}
+            icon="ruler"
+            onPress={() => openFilterPopover('distance', distanceFilterAnchorRef, 280)}
+            anchorRef={distanceFilterAnchorRef}
+            accentColor={colors.primary}
+            surfaceColor={colors.surface}
+            borderColor={colors.border}
+            primaryTextColor={colors.text}
+            isActive={selectedDistanceRange !== 'all'}
+          />
+          {selectedDateFilter !== 'all' && (
+            <FilterTile
+              label={formatDateLabel(filterDate)}
+              icon="calendar-month"
+              onPress={() => setShowNativeDatePicker(true)}
+              anchorRef={datePickerAnchorRef}
+              accentColor={colors.primary}
+              surfaceColor={colors.surface}
+              borderColor={colors.border}
+              primaryTextColor={colors.text}
+              isActive
+              showChevron={false}
+            />
+          )}
+        </View>
+      </MotionEntrance>
+
+      {selectionMode && (
         <Animated.View
           style={[
             styles.selectionToolbar,
@@ -1852,181 +1576,42 @@ export default function ActivityScreen() {
             },
           ]}
         >
-          <View style={styles.selectionToolbarHeader}>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Cancel workout selection"
-              disabled={isDeletingActivities}
-              onPress={cancelActivitySelection}
-              style={[styles.selectionToolbarButton, styles.cancelSelectionButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-            >
-              <Feather name="x" size={19} color="#E53935" />
-            </TouchableOpacity>
-            <View style={styles.selectionTitleGroup}>
-              <Text style={[styles.selectionTitle, { color: colors.text }]}>Select activities to delete</Text>
-              <Text style={[styles.selectionCount, { color: colors.textSecondary }]}>
-                {selectedActivities.length} selected · Tap cards to toggle
-              </Text>
-            </View>
-          </View>
           <View style={styles.selectionToolbarActions}>
-            <View style={[styles.groupModeSwitch, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
-              {(['month', 'week'] as const).map((mode) => (
-                <TouchableOpacity
-                  key={mode}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: groupMode === mode }}
-                  disabled={isDeletingActivities}
-                  onPress={() => setGroupMode(mode)}
-                  style={[styles.groupModeButton, { backgroundColor: groupMode === mode ? colors.primary : 'transparent' }]}
-                >
-                  <Text style={[styles.groupModeText, { color: groupMode === mode ? colors.primaryText : colors.textSecondary }]}>
-                    {mode === 'month' ? 'Month' : 'Week'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
             <TouchableOpacity
               accessibilityRole="button"
-              disabled={isDeletingActivities || visibleActivities.length === 0}
+              disabled={isDeletingActivities || loadingMore || visibleActivities.length === 0}
               onPress={toggleAllVisibleSelection}
-              style={[styles.selectionToolbarButton, { borderColor: colors.border, backgroundColor: colors.surface }]}
+              style={styles.selectionAllButton}
             >
-              <Text style={[styles.selectionToolbarButtonText, { color: colors.text }]}>
+              <Text style={[styles.selectionToolbarButtonText, { color: colors.primary }]}>
                 {visibleActivities.length > 0 && visibleActivities.every((activity) => selectedActivityIds.has(String(activity.id)))
-                  ? 'Deselect all'
-                  : 'Select all'}
+                  ? 'Deselect All'
+                  : 'Select All'}
               </Text>
             </TouchableOpacity>
+            <Text style={[styles.selectionCount, { color: colors.textSecondary }]}>
+              {selectedActivities.length} selected
+            </Text>
           </View>
-        </Animated.View>
-      ) : (
-        <View style={styles.heading}>
-          <View style={styles.headingRow}>
-            <View style={styles.headingCopy}>
-              <Text style={[styles.title, { color: colors.text }]}>Workout History</Text>
-              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Your completed runs and walks</Text>
-            </View>
+          {selectedActivities.length > 0 && (
             <TouchableOpacity
               accessibilityRole="button"
-              accessibilityLabel="Import GPX workout"
-              disabled={isImportingGpx}
-              onPress={() => void pickGpxWorkout()}
-              style={[styles.gpxImportButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+              accessibilityLabel={`Delete ${selectedActivities.length} selected workouts`}
+              accessibilityState={{ disabled: isDeletingActivities, busy: isDeletingActivities }}
+              disabled={isDeletingActivities}
+              onPress={() => void confirmDeleteSelected()}
+              style={styles.deleteSelectedButton}
             >
-              {isImportingGpx
-                ? <RunningLoader size={17} fillColor={colors.primary} />
-                : <Feather name="upload" size={16} color={colors.primary} />}
-              <Text style={[styles.gpxImportText, { color: colors.text }]}>GPX</Text>
+              {isDeletingActivities
+                ? <RunningLoader size={18} fillColor="#FFFFFF" />
+                : <Feather name="trash-2" size={18} color="#FFFFFF" />}
+              <Text style={styles.deleteSelectedButtonText}>
+                {isDeletingActivities ? 'Deleting…' : `Delete ${selectedActivities.length} selected`}
+              </Text>
             </TouchableOpacity>
-          </View>
-        </View>
+          )}
+        </Animated.View>
       )}
-
-      <Animated.View
-        style={{
-          opacity: selectionFiltersProgress.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0.92, 1],
-          }),
-          transform: [{
-            translateY: selectionFiltersProgress.interpolate({
-              inputRange: [0, 1],
-              outputRange: [-6, 0],
-            }),
-          }],
-        }}
-      >
-      {hasActiveFilters && (
-        <View style={styles.activeFilterSummaryRow}>
-          <View style={[styles.activeFilterBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
-            <Text style={[styles.activeFilterBadgeText, { color: colors.primary }]}>{activeFilterCount} active</Text>
-          </View>
-          {activeFilterSummary.slice(0, 3).map((label) => (
-            <View key={label} style={[styles.activeFilterPill, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Text style={[styles.activeFilterPillText, { color: colors.text }]}>{label}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-
-      <MotionEntrance delay={45}>
-        <View style={styles.filterRowBar}>
-          <FilterTile
-            filter="type"
-            label={activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All Types'}
-            icon="activity"
-            onPress={() => {
-              setActiveLongPress(null);
-              openFilterPopover('type', typeFilterAnchorRef, 300);
-            }}
-            onDelete={resetTypeFilter}
-            activeLongPress={activeLongPress}
-            setActiveLongPress={setActiveLongPress}
-            anchorRef={typeFilterAnchorRef}
-            accentColor={colors.primary}
-            surfaceColor={colors.surface}
-            borderColor={colors.border}
-            primaryTextColor={colors.text}
-            isActive={selectedType !== 'all'}
-          />
-          <FilterTile
-            filter="date"
-            label={selectedDateRange === 'all' ? 'Date' : dateSummary}
-            icon="calendar"
-            onPress={() => {
-              setActiveLongPress(null);
-              openFilterPopover('date', dateFilterAnchorRef, 620);
-            }}
-            onDelete={resetDateFilter}
-            activeLongPress={activeLongPress}
-            setActiveLongPress={setActiveLongPress}
-            anchorRef={dateFilterAnchorRef}
-            accentColor={colors.primary}
-            surfaceColor={colors.surface}
-            borderColor={colors.border}
-            primaryTextColor={colors.text}
-            isActive={selectedDateRange !== 'all'}
-          />
-          <FilterTile
-            filter="distance"
-            label={selectedDistanceRange === 'all' ? 'Distance' : distanceSummary}
-            icon="map-pin"
-            onPress={() => {
-              setActiveLongPress(null);
-              openFilterPopover('distance', distanceFilterAnchorRef, 420);
-            }}
-            onDelete={resetDistanceFilter}
-            activeLongPress={activeLongPress}
-            setActiveLongPress={setActiveLongPress}
-            anchorRef={distanceFilterAnchorRef}
-            accentColor={colors.primary}
-            surfaceColor={colors.surface}
-            borderColor={colors.border}
-            primaryTextColor={colors.text}
-            isActive={selectedDistanceRange !== 'all'}
-          />
-        </View>
-      </MotionEntrance>
-
-      {hasActiveFilters && (
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => {
-            setSelectedType('all');
-            setSelectedDateRange('all');
-            setSelectedMonthDate(null);
-            setSelectedDayDate(null);
-            setRangeStartDate(null);
-            setRangeEndDate(null);
-            setSelectedDistanceRange('all');
-          }}
-          style={[styles.resetButton, { backgroundColor: colors.selected }]}
-        >
-          <Text style={[styles.resetButtonText, { color: colors.primary }]}>Reset filters</Text>
-        </TouchableOpacity>
-      )}
-      </Animated.View>
 
       <Modal transparent visible={activeFilterPopover === 'type'} animationType="fade" onRequestClose={() => setActiveFilterPopover(null)}>
         <View style={styles.filterPopoverBackdrop}>
@@ -2049,15 +1634,7 @@ export default function ActivityScreen() {
               transformOrigin: `${filterPopoverPosition.originXPercent}% ${filterPopoverPosition.originYPercent}%`,
             }}>
               <View style={[styles.filterPopoverCard, { width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <View style={styles.modalHeaderRow}>
-                <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
-                  <Feather name="activity" size={14} color={colors.primary} />
-                </View>
-                <Text style={[styles.modalTitle, { color: colors.text }]}>Activity type</Text>
-              </View>
-
-              <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight - 60 }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
-                <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Show activities</Text>
+              <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
                 {activityTypeOptions.map((option) => {
                   const active = selectedType === option.value;
                   return (
@@ -2068,24 +1645,13 @@ export default function ActivityScreen() {
                         setSelectedType(option.value);
                         setActiveFilterPopover(null);
                       }}
-                      style={[styles.optionRow, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
+                      style={[styles.optionRow, { backgroundColor: active ? colors.selected : 'transparent' }]}
                     >
                       <Text style={[styles.optionText, { color: active ? colors.primary : colors.text }]}>{option.label}</Text>
                       {active && <Feather name="check" size={16} color={colors.primary} />}
                     </TouchableOpacity>
                   );
                 })}
-                <TouchableOpacity
-                  accessibilityRole="button"
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    setSelectedType('all');
-                    setActiveFilterPopover(null);
-                  }}
-                  style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
-                >
-                  <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
-                </TouchableOpacity>
               </ScrollView>
               {filterPopoverPosition.placement !== 'center' ? (
                 <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
@@ -2117,195 +1683,34 @@ export default function ActivityScreen() {
               transformOrigin: `${filterPopoverPosition.originXPercent}% ${filterPopoverPosition.originYPercent}%`,
             }}>
               <View style={[styles.filterPopoverCard, { width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <View style={styles.modalHeaderRow}>
-                <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
-                  <Feather name="calendar" size={14} color={colors.primary} />
-                </View>
-                <Text style={[styles.modalTitle, { color: colors.text }]}>Date filter</Text>
-              </View>
-
-              <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight - 112 }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
-                <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Quick ranges</Text>
-                <View style={styles.modalPresetRow}>
-                  {activityDateOptions.filter((option) => option.value !== 'single' && option.value !== 'range').map((option) => (
-                    <TouchableOpacity
-                      key={option.value}
-                      activeOpacity={0.8}
-                      onPress={() => {
-                        setSelectedDateRange(option.value);
-                        setSelectedMonthDate(null);
-                        setSelectedDayDate(null);
-                        setRangeStartDate(null);
-                        setRangeEndDate(null);
-                        setActiveFilterPopover(null);
-                      }}
-                      style={[styles.presetButton, { backgroundColor: selectedDateRange === option.value ? colors.selected : colors.surfaceRaised, borderColor: selectedDateRange === option.value ? colors.primary : colors.border }]}
-                    >
-                      <Text style={[styles.presetButtonText, { color: selectedDateRange === option.value ? colors.primary : colors.text }]}>{option.label}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Selection mode</Text>
-                <View style={styles.segmentedRow}>
-                  {(['month', 'single', 'range'] as const).map((mode) => {
-                    const active = selectedDateRange === mode;
+                <ScrollView
+                  style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight }]}
+                  contentContainerStyle={styles.filterPopoverScrollContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {activityDateOptions.map((option) => {
+                    const active = selectedDateFilter === option.value;
                     return (
                       <TouchableOpacity
-                        key={mode}
+                        key={option.value}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: active }}
                         activeOpacity={0.8}
                         onPress={() => {
-                          setSelectedDateRange(mode);
-                          if (mode === 'month') {
-                            setSelectedMonthDate((current) => current ?? new Date());
-                            setSelectedDayDate(null);
-                            setRangeStartDate(null);
-                            setRangeEndDate(null);
-                          } else if (mode === 'single') {
-                            setSelectedMonthDate(null);
-                            setRangeStartDate(null);
-                            setRangeEndDate(null);
-                          } else {
-                            setSelectedMonthDate(null);
-                            setSelectedDayDate(null);
-                          }
+                          setSelectedDateFilter(option.value);
+                          setActiveFilterPopover(null);
                         }}
-                        style={[styles.segmentedButton, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
+                        style={[styles.optionRow, { backgroundColor: active ? colors.selected : 'transparent' }]}
                       >
-                        <Text style={[styles.segmentedButtonText, { color: active ? colors.primary : colors.text }]}>
-                          {mode === 'month' ? 'Month' : mode === 'single' ? 'Single date' : 'Date range'}
-                        </Text>
+                        <Text style={[styles.optionText, { color: active ? colors.primary : colors.text }]}>{option.label}</Text>
+                        {active && <Feather name="check" size={16} color={colors.primary} />}
                       </TouchableOpacity>
                     );
                   })}
-                </View>
-
-                {selectedDateRange === 'month' ? (
-                  <View style={styles.monthPicker}>
-                    <View style={styles.monthYearRow}>
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel="Previous year"
-                        onPress={() => setSelectedMonthDate((current) => {
-                          const date = current ?? new Date();
-                          return new Date(date.getFullYear() - 1, date.getMonth(), 1);
-                        })}
-                        style={[styles.monthYearButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
-                      >
-                        <Feather name="chevron-left" size={18} color={colors.text} />
-                      </TouchableOpacity>
-                      <Text style={[styles.monthYearText, { color: colors.text }]}>{selectedMonthDate?.getFullYear()}</Text>
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel="Next year"
-                        onPress={() => setSelectedMonthDate((current) => {
-                          const date = current ?? new Date();
-                          return new Date(date.getFullYear() + 1, date.getMonth(), 1);
-                        })}
-                        style={[styles.monthYearButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
-                      >
-                        <Feather name="chevron-right" size={18} color={colors.text} />
-                      </TouchableOpacity>
-                    </View>
-                    <View style={styles.monthGrid}>
-                      {monthOptions.map((month) => {
-                        const active = selectedMonthDate?.getMonth() === month.value;
-                        return (
-                          <TouchableOpacity
-                            key={month.value}
-                            accessibilityRole="button"
-                            accessibilityLabel={`${month.label} ${selectedMonthDate?.getFullYear()}`}
-                            accessibilityState={{ selected: active }}
-                            onPress={() => setSelectedMonthDate((current) =>
-                              new Date(current?.getFullYear() ?? new Date().getFullYear(), month.value, 1))}
-                            style={[styles.monthOption, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
-                          >
-                            <Text style={[styles.monthOptionText, { color: active ? colors.primary : colors.text }]}>{month.label}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </View>
-                ) : selectedDateRange === 'single' ? (
-                  <View style={styles.dateSelectionRow}>
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={() => {
-                        setShowNativeDatePicker(true);
-                        setDatePickerTarget('start');
-                      }}
-                      style={[styles.dateValueBox, { backgroundColor: colors.background, borderColor: colors.border }]}
-                    >
-                      <Text style={[styles.dateValueLabel, { color: colors.textSecondary }]}>Date</Text>
-                      <Text style={[styles.dateValueText, { color: colors.text }]}>{selectedDayDate ? formatDateLabel(selectedDayDate) : 'Select date'}</Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <View style={styles.dateSelectionRow}>
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={() => {
-                        setDatePickerTarget('start');
-                        setShowNativeDatePicker(true);
-                      }}
-                      style={[styles.dateValueBox, { backgroundColor: colors.background, borderColor: colors.border }]}
-                    >
-                      <Text style={[styles.dateValueLabel, { color: colors.textSecondary }]}>Start</Text>
-                      <Text style={[styles.dateValueText, { color: colors.text }]}>{rangeStartDate ? formatDateLabel(rangeStartDate) : 'Select start'}</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={() => {
-                        setDatePickerTarget('end');
-                        setShowNativeDatePicker(true);
-                      }}
-                      style={[styles.dateValueBox, { backgroundColor: colors.background, borderColor: colors.border }]}
-                    >
-                      <Text style={[styles.dateValueLabel, { color: colors.textSecondary }]}>End</Text>
-                      <Text style={[styles.dateValueText, { color: colors.text }]}>{rangeEndDate ? formatDateLabel(rangeEndDate) : 'Select end'}</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </ScrollView>
-
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    setSelectedDateRange('all');
-                    setSelectedMonthDate(null);
-                    setSelectedDayDate(null);
-                    setRangeStartDate(null);
-                    setRangeEndDate(null);
-                    setActiveFilterPopover(null);
-                  }}
-                  style={[styles.modalActionButton, { backgroundColor: colors.background, borderColor: colors.border }]}
-                >
-                  <Text style={[styles.modalActionText, { color: '#EF4444' }]}>Clear</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    if (selectedDateRange === 'single' && selectedDayDate) {
-                      setActiveFilterPopover(null);
-                      return;
-                    }
-                    if (selectedDateRange === 'range' && rangeStartDate && rangeEndDate) {
-                      setActiveFilterPopover(null);
-                      return;
-                    }
-                    setActiveFilterPopover(null);
-                  }}
-                  style={[styles.modalActionButton, { backgroundColor: colors.primary, borderColor: colors.primary }]}
-                >
-                  <Text style={[styles.modalActionText, { color: colors.primaryText }]}>Apply</Text>
-                </TouchableOpacity>
-              </View>
-              {filterPopoverPosition.placement !== 'center' ? (
-                <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
-              ) : null}
+                </ScrollView>
+                {filterPopoverPosition.placement !== 'center' ? (
+                  <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
+                ) : null}
               </View>
             </Animated.View>
           </Animated.View>
@@ -2333,15 +1738,7 @@ export default function ActivityScreen() {
               transformOrigin: `${filterPopoverPosition.originXPercent}% ${filterPopoverPosition.originYPercent}%`,
             }}>
               <View style={[styles.filterPopoverCard, { width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <View style={styles.modalHeaderRow}>
-                <View style={[styles.modalHeaderBadge, { backgroundColor: colors.selected, borderColor: colors.border }]}>
-                  <Feather name="map-pin" size={14} color={colors.primary} />
-                </View>
-                <Text style={[styles.modalTitle, { color: colors.text }]}>Distance</Text>
-              </View>
-
-              <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight - 60 }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
-                <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Choose range</Text>
+              <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
                 {activityDistanceOptions.map((option) => {
                   const active = selectedDistanceRange === option.value;
                   return (
@@ -2352,23 +1749,13 @@ export default function ActivityScreen() {
                         setSelectedDistanceRange(option.value);
                         setActiveFilterPopover(null);
                       }}
-                      style={[styles.optionRow, { backgroundColor: active ? colors.selected : colors.surfaceRaised, borderColor: active ? colors.primary : colors.border }]}
+                      style={[styles.optionRow, { backgroundColor: active ? colors.selected : 'transparent' }]}
                     >
                       <Text style={[styles.optionText, { color: active ? colors.primary : colors.text }]}>{option.label}</Text>
                       {active && <Feather name="check" size={16} color={colors.primary} />}
                     </TouchableOpacity>
                   );
                 })}
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    setSelectedDistanceRange('all');
-                    setActiveFilterPopover(null);
-                  }}
-                  style={[styles.sheetClearButton, { backgroundColor: colors.background, borderColor: colors.border }]}
-                >
-                  <Text style={[styles.sheetClearText, { color: '#EF4444' }]}>Clear</Text>
-                </TouchableOpacity>
               </ScrollView>
               {filterPopoverPosition.placement !== 'center' ? (
                 <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
@@ -2381,28 +1768,12 @@ export default function ActivityScreen() {
 
       {showNativeDatePicker && (
         <ThemedCalendarPicker
-          title={selectedDateRange === 'single' ? 'Select activity date' : `Select ${datePickerTarget} date`}
-          value={datePickerTarget === 'start' ? (selectedDateRange === 'range' ? rangeStartDate ?? new Date() : selectedDayDate ?? new Date()) : (selectedDateRange === 'range' ? rangeEndDate ?? new Date() : selectedDayDate ?? new Date())}
+          title="Select activity date"
+          value={filterDate}
           onCancel={() => setShowNativeDatePicker(false)}
           onConfirm={(selectedDate) => {
             setShowNativeDatePicker(false);
-            if (selectedDateRange === 'single') {
-              setSelectedDayDate(selectedDate);
-              setSelectedDateRange('single');
-            } else {
-              if (datePickerTarget === 'start') {
-                setRangeStartDate(selectedDate);
-                if (rangeEndDate && selectedDate > rangeEndDate) {
-                  setRangeEndDate(selectedDate);
-                }
-              } else {
-                setRangeEndDate(selectedDate);
-                if (rangeStartDate && selectedDate < rangeStartDate) {
-                  setRangeStartDate(selectedDate);
-                }
-              }
-              setSelectedDateRange('range');
-            }
+            setFilterDate(selectedDate);
           }}
         />
       )}
@@ -2419,6 +1790,7 @@ export default function ActivityScreen() {
         </View>
       ) : (
         <FlatList
+          ref={activityListRef}
           data={activityRows}
           extraData={listExtraData}
           keyExtractor={(item) => item.key}
@@ -2442,85 +1814,147 @@ export default function ActivityScreen() {
             : hasMore
               ? null
               : <Text style={styles.endMessage}>You&apos;ve reached the end of your activity history!</Text>}
-          contentContainerStyle={[
-            styles.scrollContent,
-            selectionMode && styles.scrollContentWithDeleteTray,
-          ]}
+          contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
-          ListEmptyComponent={<Text style={styles.empty}>{activities.length === 0 ? 'No completed workouts yet.' : 'No workouts match your current filters.'}</Text>}
+          ListEmptyComponent={(
+            <Text style={styles.empty}>
+              {activities.length === 0
+                ? 'No completed workouts yet.'
+                : loadingMore
+                  ? 'Searching older workouts…'
+                  : 'No workouts match your current filters.'}
+            </Text>
+          )}
         />
       )}
-      <Animated.View
-        pointerEvents={selectionMode ? 'auto' : 'none'}
-        accessibilityElementsHidden={!selectionMode}
-        importantForAccessibility={selectionMode ? 'auto' : 'no-hide-descendants'}
-        style={[
-          styles.deleteTray,
-          {
-            opacity: deleteTrayOpacity,
-            transform: [{ translateY: deleteTrayTranslateY }],
-          },
-        ]}
-      >
-          <Animated.View
-            style={[
-              styles.deleteButton,
-              {
-                backgroundColor: deleteButtonStateProgress.interpolate({
-                  inputRange: [0, 0.55, 1],
-                  outputRange: ['#737373', '#E53935', '#B91C1C'],
-                }),
-                borderColor: deleteButtonStateProgress.interpolate({
-                  inputRange: [0, 0.55, 1],
-                  outputRange: ['#737373', '#E53935', '#FFFFFF'],
-                }),
-                opacity: deleteButtonStateProgress.interpolate({
-                  inputRange: [0, 0.55],
-                  outputRange: [0.62, 1],
-                  extrapolate: 'clamp',
-                }),
-              },
-            ]}
-          >
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel={deleteSuccess
-                ? 'Activities deleted successfully'
-                : selectedActivities.length > 0
-                ? `Delete ${selectedActivities.length} selected activities`
-                : 'Delete disabled: no activities selected'}
-              accessibilityState={{
-                disabled: !selectionMode || isDeletingActivities || deleteSuccess || selectedActivities.length === 0,
-                busy: isDeletingActivities && !deleteSuccess,
-              }}
-              disabled={!selectionMode || isDeletingActivities || deleteSuccess || selectedActivities.length === 0}
-              onPress={() => void confirmDeleteSelected()}
-              style={styles.deleteButtonAction}
-            >
-              {deleteSuccess
-                ? (
-                  <Animated.View style={{ opacity: deleteSuccessScale, transform: [{ scale: deleteSuccessScale }] }}>
-                    <Feather name="check-circle" size={23} color="#FFFFFF" />
-                  </Animated.View>
-                )
-                : isDeletingActivities
-                ? <RunningLoader size={20} fillColor="#FFFFFF" />
-                : <Feather name="trash-2" size={23} color="#FFFFFF" />}
-              <Text style={styles.deleteButtonText}>
-                {deleteSuccess
-                  ? 'Deleted'
-                  : isDeletingActivities
-                    ? 'Deleting…'
-                    : `Delete selected · ${selectedActivities.length}`}
-              </Text>
-            </TouchableOpacity>
-          </Animated.View>
-      </Animated.View>
       {selectionToast && (
         <View pointerEvents="none" style={styles.toast}>
           <Text style={styles.toastText}>{selectionToast}</Text>
         </View>
       )}
+      <Modal
+        visible={optionsActivity !== null}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={closeActivityOptions}
+      >
+        <View style={styles.activityOptionsBackdrop}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close activity options"
+            onPress={closeActivityOptions}
+            style={[StyleSheet.absoluteFill, { backgroundColor: colors.overlay }]}
+          />
+          {optionsActivity && (
+            <View style={[styles.activityOptionsMenu, {
+              left: activityOptionsPosition.left,
+              top: activityOptionsPosition.top,
+              width: activityOptionsPosition.width,
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+            }]}>
+              <TouchableOpacity
+                accessibilityRole="button"
+                onPress={() => {
+                  closeActivityOptions();
+                  void exportActivityGpx(optionsActivity);
+                }}
+                style={styles.activityOptionsMenuItem}
+              >
+                {exportingActivityIds.has(String(optionsActivity.id))
+                  ? <RunningLoader size={16} fillColor={colors.text} />
+                  : <Feather name="upload" size={17} color={colors.textSecondary} />}
+                <Text style={[styles.activityOptionsMenuText, { color: colors.text }]}>Export GPX</Text>
+              </TouchableOpacity>
+              {optionsRouteIsSaved && hasOptionsRouteId ? (
+                <>
+                  <View style={[styles.activityOptionsDivider, { backgroundColor: colors.border }]} />
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    onPress={() => changeActivityRouteVisibility(optionsActivity)}
+                    style={styles.activityOptionsMenuItem}
+                  >
+                    <Feather name="globe" size={17} color={colors.textSecondary} />
+                    <Text style={[styles.activityOptionsMenuText, { color: colors.text }]}>Change Visibility</Text>
+                  </TouchableOpacity>
+                </>
+              ) : !optionsRouteIsSaved ? (
+                <>
+                  <View style={[styles.activityOptionsDivider, { backgroundColor: colors.border }]} />
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    onPress={() => {
+                      closeActivityOptions();
+                      const routeProcessingComplete = optionsActivity.is_processed === true
+                        || (optionsActivity.is_processed == null && optionsActivity.processing_status.toUpperCase() === 'COMPLETED');
+                      if (!routeProcessingComplete || !optionsActivity.route_generated) {
+                        Alert.alert('Route not ready', 'This activity needs to finish processing its route before it can be saved.');
+                        return;
+                      }
+                      setPendingSaveActivity(optionsActivity);
+                    }}
+                    style={styles.activityOptionsMenuItem}
+                  >
+                    <Feather name="bookmark" size={17} color={colors.textSecondary} />
+                    <Text style={[styles.activityOptionsMenuText, { color: colors.text }]}>Save to My Routes</Text>
+                  </TouchableOpacity>
+                </>
+              ) : null}
+              {activityOptionsMessage && (
+                <Text style={[styles.activityOptionsMessage, { color: colors.textSecondary }]}>
+                  {activityOptionsMessage}
+                </Text>
+              )}
+            </View>
+          )}
+        </View>
+      </Modal>
+      <Modal
+        visible={pendingDeleteActivities !== null}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => setPendingDeleteActivities(null)}
+      >
+        <View style={[styles.actionSheetBackdrop, { backgroundColor: colors.overlay, paddingBottom: Math.max(insets.bottom, 12) }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Cancel delete confirmation"
+            onPress={() => setPendingDeleteActivities(null)}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={[styles.deleteConfirmationSheet, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.saveRouteTitle, { color: colors.text }]}>
+              Delete {pendingDeleteActivities?.length ?? 0} workouts?
+            </Text>
+            <Text style={[styles.saveRouteMessage, { color: colors.textSecondary }]}>
+              This action cannot be undone.
+            </Text>
+            <TouchableOpacity
+              accessibilityRole="button"
+              onPress={() => {
+                if (!pendingDeleteActivities) return;
+                const targets = pendingDeleteActivities;
+                setPendingDeleteActivities(null);
+                void deleteActivities(targets);
+              }}
+              style={styles.deleteConfirmationAction}
+            >
+              <Text style={styles.deleteConfirmationActionText}>
+                Delete {pendingDeleteActivities?.length ?? 0} workouts
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              onPress={() => setPendingDeleteActivities(null)}
+              style={[styles.deleteConfirmationCancel, { backgroundColor: colors.surfaceRaised }]}
+            >
+              <Text style={[styles.deleteConfirmationCancelText, { color: colors.text }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
       <Modal
         visible={pendingSaveActivity !== null}
         transparent
@@ -2531,38 +1965,72 @@ export default function ActivityScreen() {
           setPendingSaveActivity(null);
         }}
       >
-        <View style={[styles.saveRouteBackdrop, { backgroundColor: colors.overlay }]}>
+        <View style={[styles.saveRouteBackdrop, { backgroundColor: colors.overlay, paddingBottom: Math.max(insets.bottom, 16) }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close route visibility options"
+            disabled={pendingVisibilityBusy}
+            onPress={() => setPendingSaveActivity(null)}
+            style={StyleSheet.absoluteFill}
+          />
           <View style={[styles.saveRouteDialog, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={[styles.saveRouteIcon, { backgroundColor: colors.selected }]}>
-              <Feather name="map" size={18} color={colors.primary} />
-            </View>
-            <Text style={[styles.saveRouteTitle, { color: colors.text }]}>Save route to My Routes?</Text>
+            <Text style={[styles.saveRouteTitle, { color: colors.text }]}>
+              {pendingRouteIsSaved ? 'Change route visibility' : 'Save route to My Routes?'}
+            </Text>
             <Text style={[styles.saveRouteMessage, { color: colors.textSecondary }]}>
-              Private keeps the route visible only to you. Public lets other signed-in Zy-Run users view it.
+              {pendingRouteIsSaved
+                ? 'Choose who can view this route.'
+                : 'Private keeps the route visible only to you. Public lets other signed-in Zy-Run users view it.'}
             </Text>
             <TouchableOpacity
               accessibilityRole="button"
-              disabled={pendingSaveActivity === null || savingActivityIds.has(String(pendingSaveActivity?.id))}
-              onPress={() => pendingSaveActivity && void saveActivityRoute(pendingSaveActivity, false)}
-              style={[styles.saveVisibilityButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
+              disabled={pendingSaveActivity === null || pendingVisibilityBusy || (pendingRouteIsSaved && !hasPendingRouteId)}
+              onPress={() => {
+                if (!pendingSaveActivity) return;
+                if (pendingRouteIsSaved && hasPendingRouteId) {
+                  void updateActivityRouteVisibility(pendingSaveActivity, pendingRouteId, false);
+                } else if (!pendingRouteIsSaved) {
+                  void saveActivityRoute(pendingSaveActivity, false);
+                }
+              }}
+              style={[styles.saveVisibilityButton, {
+                backgroundColor: pendingSaveActivity?.saved_route_is_public === false ? colors.selected : colors.surfaceRaised,
+                borderColor: pendingSaveActivity?.saved_route_is_public === false ? colors.primary : colors.border,
+              }]}
             >
-              {pendingSaveActivity && savingActivityIds.has(String(pendingSaveActivity.id))
+              {pendingVisibilityBusy
                 ? <RunningLoader size={16} fillColor={colors.text} />
                 : <Feather name="lock" size={16} color={colors.text} />}
-              <Text style={[styles.saveVisibilityText, { color: colors.text }]}>Save Privately</Text>
+              <Text style={[styles.saveVisibilityText, { color: colors.text }]}>
+                {pendingRouteIsSaved ? 'Make Private' : 'Save Privately'}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               accessibilityRole="button"
-              disabled={pendingSaveActivity === null || savingActivityIds.has(String(pendingSaveActivity?.id))}
-              onPress={() => pendingSaveActivity && void saveActivityRoute(pendingSaveActivity, true)}
-              style={[styles.saveVisibilityButton, { backgroundColor: colors.selected, borderColor: colors.primary }]}
+              disabled={pendingSaveActivity === null || pendingVisibilityBusy || (pendingRouteIsSaved && !hasPendingRouteId)}
+              onPress={() => {
+                if (!pendingSaveActivity) return;
+                if (pendingRouteIsSaved && hasPendingRouteId) {
+                  void updateActivityRouteVisibility(pendingSaveActivity, pendingRouteId, true);
+                } else if (!pendingRouteIsSaved) {
+                  void saveActivityRoute(pendingSaveActivity, true);
+                }
+              }}
+              style={[styles.saveVisibilityButton, {
+                backgroundColor: pendingSaveActivity?.saved_route_is_public === true ? colors.selected : colors.surfaceRaised,
+                borderColor: pendingSaveActivity?.saved_route_is_public === true ? colors.primary : colors.border,
+              }]}
             >
-              <Feather name="globe" size={16} color={colors.primary} />
-              <Text style={[styles.saveVisibilityText, { color: colors.primary }]}>Save Publicly</Text>
+              {pendingVisibilityBusy
+                ? <RunningLoader size={16} fillColor={colors.text} />
+                : <Feather name="globe" size={16} color={colors.text} />}
+              <Text style={[styles.saveVisibilityText, { color: colors.text }]}>
+                {pendingRouteIsSaved ? 'Make Public' : 'Save Publicly'}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               accessibilityRole="button"
-              disabled={pendingSaveActivity !== null && savingActivityIds.has(String(pendingSaveActivity.id))}
+              disabled={pendingVisibilityBusy}
               onPress={() => setPendingSaveActivity(null)}
               style={styles.saveRouteCancel}
             >
@@ -2586,112 +2054,69 @@ const styles = StyleSheet.create({
   headingCopy: { flex: 1, minWidth: 0 },
   title: { color: '#F7F7F7', fontSize: 31, fontWeight: '700' },
   subtitle: { color: '#A9ADAF', fontSize: 15, marginTop: 4 },
-  gpxImportButton: { minWidth: 66, minHeight: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 10, borderWidth: 1, borderRadius: 12 },
-  gpxImportText: { fontSize: 12, fontWeight: '700' },
-  selectionToolbar: { paddingTop: 12, paddingBottom: 12, gap: 9 },
-  selectionToolbarHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  selectionTitleGroup: { flex: 1, minWidth: 0 },
-  selectionTitle: { fontSize: 14, fontWeight: '800' },
-  selectionCount: { fontSize: 12, fontWeight: '600', marginTop: 2 },
-  selectionToolbarActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 },
-  selectionToolbarButton: { minHeight: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 11, borderWidth: 1, borderRadius: 10 },
-  cancelSelectionButton: { width: 40, paddingHorizontal: 0, backgroundColor: '#FFFFFF' },
-  selectionToolbarButtonText: { fontSize: 12, fontWeight: '700' },
-  groupModeSwitch: { flexDirection: 'row', padding: 3, borderRadius: 11, backgroundColor: '#FFFFFF', gap: 2 },
-  groupModeButton: { minHeight: 34, justifyContent: 'center', paddingHorizontal: 9, borderRadius: 8 },
-  groupModeButtonSelected: { backgroundColor: '#35C72B' },
-  groupModeText: { fontSize: 11, fontWeight: '700' },
-  disabledButton: { opacity: 0.45 },
-  activeFilterSummaryRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
-  activeFilterBadge: { paddingHorizontal: 8, paddingVertical: 5, borderRadius: 999, borderWidth: 1 },
-  activeFilterBadgeText: { color: '#D9F9DB', fontSize: 11, fontWeight: '700' },
-  activeFilterPill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 5 },
-  activeFilterPillText: { fontSize: 11, fontWeight: '600' },
-  filterRowBar: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: 8, marginBottom: 10 },
-  filterBarButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, minHeight: 42 },
+  selectionModeAction: { minHeight: 40, justifyContent: 'center', paddingHorizontal: 4 },
+  selectionModeActionText: { fontSize: 15, fontWeight: '600' },
+  selectionToolbar: { paddingTop: 4, paddingBottom: 10, gap: 10 },
+  selectionToolbarActions: { minHeight: 36, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  selectionAllButton: { minHeight: 36, justifyContent: 'center', paddingHorizontal: 4 },
+  selectionToolbarButtonText: { fontSize: 14, fontWeight: '600' },
+  selectionCount: { fontSize: 13, fontWeight: '500' },
+  deleteSelectedButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#E53935' },
+  deleteSelectedButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
+  filterRowBar: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 10 },
+  filterBarButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, borderWidth: 1, minHeight: 36 },
   filterPopoverBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.12)' },
-  filterPopoverCard: { position: 'absolute', borderWidth: 1, borderRadius: 16, padding: 14, overflow: 'visible', elevation: 18, shadowColor: '#000000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.24, shadowRadius: 18 },
+  filterPopoverCard: { position: 'absolute', borderWidth: 1, borderRadius: 14, padding: 8, overflow: 'visible', elevation: 18, shadowColor: '#000000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.18, shadowRadius: 14 },
   filterPopoverScroll: { flexGrow: 0, flexShrink: 1 },
   filterPopoverScrollContent: { flexGrow: 0 },
   filterPopoverCaret: { position: 'absolute', width: 14, height: 14, zIndex: 2, transform: [{ rotate: '45deg' }] },
   filterPopoverCaretAbove: { bottom: -6 },
   filterPopoverCaretBelow: { top: -6 },
-  filterBarText: { fontSize: 12, fontWeight: '600' },
-  filterTileWrap: { position: 'relative', flex: 1, minWidth: 0 },
-  filterDeleteButton: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 12, borderWidth: 1 },
-  filterDeleteText: { fontSize: 11, fontWeight: '700' },
-  filterDeleteCaret: { width: 10, height: 10, borderWidth: 1, borderBottomWidth: 0, borderRightWidth: 0, borderTopLeftRadius: 2, marginTop: -5, transform: [{ rotate: '45deg' }] },
-  compactFilterButton: { flex: 1, minWidth: 0, justifyContent: 'center', gap: 6, paddingHorizontal: 8 },
-  compactFilterText: { flexShrink: 1, minWidth: 0, fontSize: 12 },
-  resetButton: { alignSelf: 'flex-start', marginBottom: 12, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, backgroundColor: '#23372A' },
-  resetButtonText: { color: '#EF4444', fontSize: 12, fontWeight: '700' },
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.42)', justifyContent: 'flex-end' },
-  modalCard: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, padding: 18, paddingBottom: 20 },
-  modalHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  modalHeaderBadge: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#1A261D', borderWidth: 1, borderColor: '#2B5B3A', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
-  modalTitle: { fontSize: 18, fontWeight: '700' },
-  modalSectionLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 8 },
-  modalPresetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
-  presetButton: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
-  presetButtonText: { fontSize: 12, fontWeight: '600' },
-  segmentedRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
-  segmentedButton: { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 10, alignItems: 'center' },
-  segmentedButtonText: { fontSize: 13, fontWeight: '700' },
-  monthPicker: { marginBottom: 14 },
-  monthYearRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 10 },
-  monthYearButton: { width: 34, height: 34, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  monthYearText: { minWidth: 56, textAlign: 'center', fontSize: 14, fontWeight: '700' },
-  monthGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  monthOption: { flexBasis: '22%', flexGrow: 1, minWidth: 48, borderWidth: 1, borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
-  monthOptionText: { fontSize: 12, fontWeight: '600' },
-  customDateRow: { marginBottom: 14 },
-  customDateButton: { borderWidth: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
-  customDateButtonText: { fontSize: 13, fontWeight: '700' },
-  dateSelectionRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  dateValueBox: { flex: 1, borderWidth: 1, borderRadius: 12, padding: 12, minHeight: 62 },
-  dateValueLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
-  dateValueText: { fontSize: 12, fontWeight: '600' },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
-  modalActionButton: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 },
-  modalActionText: { fontSize: 13, fontWeight: '700' },
-  optionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 8 },
+  filterBarText: { flexShrink: 1, fontSize: 13, fontWeight: '600' },
+  optionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 2 },
   optionText: { fontSize: 14, fontWeight: '600' },
-  sheetClearButton: { borderWidth: 1, borderRadius: 12, paddingVertical: 11, alignItems: 'center', marginTop: 4 },
-  sheetClearText: { fontSize: 13, fontWeight: '700'},
   scrollContent: { paddingBottom: 118 },
-  scrollContentWithDeleteTray: { paddingBottom: 205 },
   sectionHeader: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 12, paddingBottom: 8 },
   sectionTitle: { flex: 1, fontSize: 19, fontWeight: '700' },
   sectionCount: { fontSize: 12, fontWeight: '600' },
   dayHeader: { minHeight: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 12, paddingRight: 4, marginTop: 2 },
   dayTitle: { fontSize: 14, fontWeight: '700' },
   dayCount: { fontSize: 11, fontWeight: '600' },
-  toast: { position: 'absolute', alignSelf: 'center', bottom: 178, maxWidth: '90%', paddingHorizontal: 16, paddingVertical: 11, borderRadius: 22, backgroundColor: '#252A27', borderWidth: 1, borderColor: '#3C4B3F' },
+  toast: { position: 'absolute', alignSelf: 'center', bottom: 118, maxWidth: '90%', paddingHorizontal: 16, paddingVertical: 11, borderRadius: 22, backgroundColor: '#252A27', borderWidth: 1, borderColor: '#3C4B3F' },
   toastText: { color: '#F7F7F7', fontSize: 13, fontWeight: '600', textAlign: 'center' },
-  card: { minHeight: 0, backgroundColor: '#242627', borderRadius: 25, paddingVertical: 10, paddingHorizontal: 15, marginBottom: 5, borderWidth: 1, borderColor: '#393C3E' },
+  card: { minHeight: 0, backgroundColor: '#242627', borderRadius: 25, paddingVertical: 10, paddingHorizontal: 15, marginBottom: 5, borderWidth: 1, borderColor: '#393C3E', overflow: 'hidden' },
   cardExpanded: { minHeight: 136 },
-  longPressProgressTrack: { position: 'absolute', top: 0, left: 0, height: 3, backgroundColor: '#35C72B', borderTopLeftRadius: 25, borderTopRightRadius: 3 },
-  deleteTray: { position: 'absolute', left: 22, right: 22, bottom: 96, zIndex: 20, alignItems: 'center' },
-  deleteButton: { minWidth: 190, minHeight: 58, borderRadius: 29, backgroundColor: '#E53935', borderWidth: 2, borderColor: '#E53935', elevation: 10, shadowColor: '#E53935', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.25, shadowRadius: 10 },
-  deleteButtonAction: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 22, borderRadius: 27 },
-  deleteButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   cardContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  cardContentWithMenu: { paddingRight: 34 },
+  cardContentWithMenu: { paddingRight: 40 },
   mapThumbnailWithMenu: { width: '29%' },
-  routeMenuButton: { position: 'absolute', right: 6, top: '50%', marginTop: -18, width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center', zIndex: 3 },
+  routeMenuButton: { position: 'absolute', right: 6, top: '50%', marginTop: -24, width: 40, height: 48, borderRadius: 8, alignItems: 'center', justifyContent: 'center', zIndex: 3 },
   routeMenuButtonDisabled: { opacity: 0.5 },
   routeSavedStatus: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 10, paddingTop: 9, borderTopWidth: StyleSheet.hairlineWidth },
   routeSavedText: { fontSize: 12, fontWeight: '600' },
-  saveRouteBackdrop: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28 },
-  saveRouteDialog: { width: '100%', maxWidth: 360, borderWidth: 1, borderRadius: 24, padding: 18 },
-  saveRouteIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  longPressProgressTrack: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 4, overflow: 'hidden', zIndex: 4 },
+  longPressProgressFill: { position: 'absolute', left: 0, top: 0, bottom: 0, width: '100%', transformOrigin: 'left center' },
+  activityOptionsBackdrop: { flex: 1 },
+  activityOptionsMenu: { position: 'absolute', borderWidth: 1, borderRadius: 14, padding: 6, elevation: 18, shadowColor: '#000000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.2, shadowRadius: 14 },
+  activityOptionsMenuItem: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 10, borderRadius: 9 },
+  activityOptionsMenuText: { fontSize: 14, fontWeight: '600' },
+  activityOptionsDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 8, marginVertical: 4 },
+  activityOptionsMessage: { fontSize: 11, lineHeight: 15, paddingHorizontal: 10, paddingTop: 4, paddingBottom: 6 },
+  actionSheetBackdrop: { flex: 1, justifyContent: 'flex-end' },
+  deleteConfirmationSheet: { width: '100%', maxWidth: 520, alignSelf: 'center', borderWidth: 1, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingTop: 24 },
+  deleteConfirmationAction: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 12, marginTop: 8, backgroundColor: '#E53935' },
+  deleteConfirmationActionText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  deleteConfirmationCancel: { minHeight: 46, alignItems: 'center', justifyContent: 'center', borderRadius: 12, marginTop: 8 },
+  deleteConfirmationCancelText: { fontSize: 15, fontWeight: '600' },
+  saveRouteBackdrop: { flex: 1, justifyContent: 'flex-end' },
+  saveRouteDialog: { width: '100%', maxWidth: 520, alignSelf: 'center', borderWidth: 1, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingTop: 24 },
   saveRouteTitle: { fontSize: 17, fontWeight: '800' },
   saveRouteMessage: { fontSize: 13, lineHeight: 18, marginTop: 6, marginBottom: 12 },
-  saveVisibilityButton: { minHeight: 46, borderRadius: 23, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 8 },
+  saveVisibilityButton: { minHeight: 48, borderRadius: 12, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 10, paddingHorizontal: 14, marginTop: 8 },
   saveVisibilityText: { fontSize: 14, fontWeight: '700' },
   saveRouteCancel: { minHeight: 38, alignItems: 'center', justifyContent: 'center', marginTop: 5 },
   saveRouteCancelText: { fontSize: 13, fontWeight: '600' },
-  cardCheckbox: { position: 'absolute', top: 7, right: 7, width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 2, zIndex: 2 },
+  cardCheckboxMotion: { position: 'absolute', top: 7, right: 7, zIndex: 2 },
+  cardCheckbox: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 2 },
   cardDetails: { flex: 1, minWidth: 0, paddingRight: 8 },
   activityType: { color: '#F7F7F7', fontSize: 14, lineHeight: 17, fontWeight: '800' },
   distance: { color: '#35C72B', fontSize: 20, lineHeight: 24, fontWeight: '900', marginTop: 1 },

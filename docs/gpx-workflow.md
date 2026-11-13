@@ -3,7 +3,6 @@
 ## In-app workflow
 
 - On a workout in History, open Activity Details and tap the share icon, or open that activity's three-dot menu and select **Export GPX**, to create and share a GPX 1.1 track for that specific activity.
-- On Android History, tap **GPX** to choose a `.gpx` file using Expo FileSystem's built-in Android file picker. This avoids an additional DocumentPicker native module. The importer accepts timed `<trkpt>` tracks, `<rtept>` routes, and Xcode-style `<wpt>` waypoint sequences. It previews activity type, distance estimate, duration, and point count before sending the workout for import.
 - Import requires timestamps with time zones on every point. Coordinates are range-checked; files are limited to 10 MB, 100,000 points, and 72 hours. Time gaps longer than 15 minutes are called out before confirmation.
 - GPX latitude and longitude are mapped directly to the app's `latitude` and `longitude` fields. The app validates ranges but does not shift, swap, or otherwise "correct" valid coordinates.
 - Distance shown in the preview is a raw point-to-point estimate. The backend must compute the saved activity's canonical distance and moving time from the GPS samples; it must not trust that estimate as the final workout metric.
