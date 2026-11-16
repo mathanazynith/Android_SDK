@@ -4132,16 +4132,12 @@ export default function MapScreen() {
                     style={styles.startButton}
                     hitSlop={16}
                     android_disableSound
-                    onPress={() => {
-                      if (isStructuredOrPlannedWorkout) {
-                        void startRun('RUN');
-                      } else {
-                        setIsActivityModalVisible(true);
-                      }
-                    }}
+                    onPress={() => void startRun(isStructuredOrPlannedWorkout ? 'RUN' : selectedActivityTypeRef.current)}
                   >
                     <Feather name="play" size={17} color="#FFFFFF" style={{ marginRight: 6 }} />
-                    <Text style={styles.startButtonText}>START WORKOUT</Text>
+                    <Text style={styles.startButtonText}>
+                      {isStructuredOrPlannedWorkout ? 'START WORKOUT' : `START ${selectedActivityType}`}
+                    </Text>
                   </Pressable>
                 ) : manualPauseEnabled ? (
                   isPaused ? (
@@ -4903,5 +4899,3 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
 });
-
- 

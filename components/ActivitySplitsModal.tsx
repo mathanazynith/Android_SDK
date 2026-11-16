@@ -208,7 +208,14 @@ export default function ActivitySplitsModal({
             {displaySegments.length === 0 && laps.length > 0 && (
               <View style={[styles.segmentCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <Text style={[styles.splitsTitle, { color: colors.text, marginTop: 0 }]}>Splits</Text>
-                <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator style={styles.horizontalSplitScroll}>
+                <ScrollView
+                  horizontal
+                  nestedScrollEnabled
+                  directionalLockEnabled
+                  decelerationRate="fast"
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.horizontalSplitScroll}
+                >
                   <View style={{ width: splitTableWidth }}>
                 <View style={[styles.splitHeaderRow, { borderBottomColor: colors.border }]}>
                   <Text style={[styles.splitHeader, styles.splitLabelColumn, { color: colors.textSecondary }]}>Lap</Text>
@@ -245,7 +252,7 @@ export default function ActivitySplitsModal({
                       </TouchableOpacity>
                       {!isCollapsed && lap.splits?.map((split, splitIndex) => (
                         <View key={`${lapKey}-split-${split.split_number}-${splitIndex}`} style={styles.nestedSplitRow}>
-                          <Text style={[styles.splitValue, styles.splitLabelColumn, styles.nestedSplitLabel, { color: colors.text }]}>Split {split.split_number}</Text>
+                          <Text style={[styles.splitValue, styles.splitLabelColumn, { color: colors.text }]}>Split {split.split_number}</Text>
                           <Text style={[styles.splitValue, styles.splitDistanceColumn, { color: colors.text }]}>{formatSplitDistanceValue(split.distance_m, distanceUnit)}</Text>
                           <Text style={[styles.splitValue, styles.splitTimeColumn, { color: colors.text }]}>{formatSplitTime(split.time_s)}</Text>
                           <Text style={[styles.splitValue, styles.splitPaceColumn, { color: colors.textSecondary }]}>{formatPaceValueFromSecondsPerKm(split.pace_s_per_km, distanceUnit)}</Text>
@@ -313,7 +320,14 @@ export default function ActivitySplitsModal({
                   {gpsPoints !== undefined && <Text style={[styles.gpsPoints, { color: colors.textTertiary }]}>{gpsPoints} GPS points</Text>}
                   {lapRows.length > 0 && <>
                     <Text style={[styles.splitsTitle, { color: colors.text }]}>Splits</Text>
-                    <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator style={styles.horizontalSplitScroll}>
+                    <ScrollView
+                      horizontal
+                      nestedScrollEnabled
+                      directionalLockEnabled
+                      decelerationRate="fast"
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.horizontalSplitScroll}
+                    >
                       <View style={{ width: splitTableWidth }}>
                     <View style={[styles.splitHeaderRow, { borderBottomColor: colors.border }]}>
                       <Text style={[styles.splitHeader, styles.splitLabelColumn, { color: colors.textSecondary }]}>Lap</Text>
@@ -361,9 +375,9 @@ export default function ActivitySplitsModal({
                           {!isCollapsed && lap.splits?.map((split, splitIndex) => (
                             <View
                               key={`${lapKey}-split-${split.split_number}-${splitIndex}`}
-                              style={[styles.nestedSplitRow, splitIndex < (lap.splits?.length ?? 0) - 1 && { borderBottomColor: colors.border }]}
+                              style={styles.nestedSplitRow}
                             >
-                              <Text style={[styles.splitValue, styles.splitLabelColumn, styles.nestedSplitLabel, { color: colors.text }]}>Split {split.split_number}</Text>
+                              <Text style={[styles.splitValue, styles.splitLabelColumn, { color: colors.text }]}>Split {split.split_number}</Text>
                               <Text style={[styles.splitValue, styles.splitDistanceColumn, { color: colors.text }]}>{formatSplitDistanceValue(split.distance_m, distanceUnit)}</Text>
                               <Text style={[styles.splitValue, styles.splitTimeColumn, { color: colors.text }]}>{formatSplitTime(split.time_s)}</Text>
                               <Text style={[styles.splitValue, styles.splitPaceColumn, { color: colors.textSecondary }]}>{formatPaceValueFromSecondsPerKm(split.pace_s_per_km, distanceUnit)}</Text>
@@ -461,16 +475,15 @@ const styles = StyleSheet.create({
   splitHeader: { fontSize: 11, fontWeight: '700', letterSpacing: 0.15, textAlign: 'right' },
   splitRow: { flexDirection: 'row', alignItems: 'center', minHeight: 40, borderBottomWidth: StyleSheet.hairlineWidth },
   lapRow: { flexDirection: 'row', alignItems: 'center', minHeight: 40, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(128, 128, 128, 0.2)' },
-  nestedSplitRow: { flexDirection: 'row', alignItems: 'center', minHeight: 26, borderBottomWidth: StyleSheet.hairlineWidth },
+  nestedSplitRow: { flexDirection: 'row', alignItems: 'center', minHeight: 26 },
   lapChevronSpacer: { width: 18, marginLeft: 4 },
   splitValue: { fontSize: 13, fontWeight: '500', textAlign: 'right' },
-  splitLabelColumn: { flex: 0.8, textAlign: 'left' },
-  splitDistanceColumn: { flex: 1.05 },
-  splitTimeColumn: { flex: 0.8 },
-  splitPaceColumn: { flex: 1.35 },
-  splitStepsColumn: { flex: 0.7 },
-  splitCadenceColumn: { flex: 0.8 },
-  nestedSplitLabel: { paddingLeft: 18 },
+  splitLabelColumn: { flex: 1, textAlign: 'left' },
+  splitDistanceColumn: { flex: 1 },
+  splitTimeColumn: { flex: 1 },
+  splitPaceColumn: { flex: 1 },
+  splitStepsColumn: { flex: 1 },
+  splitCadenceColumn: { flex: 1 },
   splitNumber: { fontWeight: '700' },
   recoveryDetails: { borderTopWidth: 1, marginTop: 20, paddingTop: 4 },
   recoveryButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
