@@ -14,9 +14,9 @@ import { getBackendErrorMessage } from '../../../service/api';
 import { useAuth } from '../../../service/auth';
 import { workoutPlanService } from '../../../service/workoutPlan';
 import { beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal, restoreActiveRunJournal, updateActiveRunStepData } from '../../../src/services/activeRunJournal';
+import { activityAPI } from '../../../src/services/activityApi';
 import { ActivityDetectionService } from '../../../src/services/activityDetectionService';
 import { activityDistanceOverrides } from '../../../src/services/activityDistanceOverrides';
-import { activityAPI } from '../../../src/services/activityApi';
 import { ActivityStepTracker } from '../../../src/services/activityStepTracker';
 import { activityTimingOverrides } from '../../../src/services/activityTimingOverrides';
 import {
@@ -4190,16 +4190,12 @@ export default function MapScreen() {
                     style={styles.startButton}
                     hitSlop={16}
                     android_disableSound
-                    onPress={() => {
-                      if (isStructuredOrPlannedWorkout) {
-                        void startRun('RUN');
-                      } else {
-                        setIsActivityModalVisible(true);
-                      }
-                    }}
+                    onPress={() => void startRun(isStructuredOrPlannedWorkout ? 'RUN' : selectedActivityTypeRef.current)}
                   >
                     <Feather name="play" size={17} color="#FFFFFF" style={{ marginRight: 6 }} />
-                    <Text style={styles.startButtonText}>START WORKOUT</Text>
+                    <Text style={styles.startButtonText}>
+                      {isStructuredOrPlannedWorkout ? 'START WORKOUT' : `START ${selectedActivityType}`}
+                    </Text>
                   </Pressable>
                 ) : manualPauseEnabled ? (
                   isPaused ? (
