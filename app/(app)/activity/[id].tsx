@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import ActivitySplitsModal from '../../../components/ActivitySplitsModal';
+import { WorkoutShareStudioModal } from '../../../components/share/WorkoutShareStudioModal';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -86,6 +87,7 @@ export default function ActivityDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [exportingGpx, setExportingGpx] = useState(false);
+  const [shareCardVisible, setShareCardVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [splitsVisible, setSplitsVisible] = useState(false);
   const [splitsLoading, setSplitsLoading] = useState(false);
@@ -289,6 +291,14 @@ export default function ActivityDetailScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               accessibilityRole="button"
+              accessibilityLabel="Share workout card"
+              onPress={() => setShareCardVisible(true)}
+              style={styles.exportButton}
+            >
+              <Feather name="share-2" size={20} color={colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
               accessibilityLabel="Export workout as GPX"
               disabled={exportingGpx}
               onPress={() => void exportActivityGpx()}
@@ -419,6 +429,12 @@ export default function ActivityDetailScreen() {
         distanceUnit={distanceUnit}
         onClose={() => setSplitsVisible(false)}
         onRetry={() => void loadSplits()}
+      />
+      <WorkoutShareStudioModal
+        visible={shareCardVisible}
+        onClose={() => setShareCardVisible(false)}
+        activity={activity}
+        distanceUnit={distanceUnit}
       />
     </SafeAreaView>
   );
