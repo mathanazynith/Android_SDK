@@ -172,7 +172,7 @@ export default function DashboardScreen() {
       await Promise.allSettled([
         fetchWorkoutPlan(true),
         fetchCustomWorkouts(),
-        offlineWorkoutQueue.syncPending(),
+        offlineWorkoutQueue.syncPending(undefined, userId),
         (async () => {
           const freshPage = await activityAPI.listPage(null, 30);
           if (freshPage?.activities) {
@@ -183,7 +183,7 @@ export default function DashboardScreen() {
     } finally {
       setIsRefreshing(false);
     }
-  }, [fetchWorkoutPlan, fetchCustomWorkouts]);
+  }, [fetchWorkoutPlan, fetchCustomWorkouts, userId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -218,11 +218,16 @@ export default function DashboardScreen() {
       let isActive = true;
       const findRecoverableWorkout = async () => {
         try {
-          let recoveries = await listPendingWorkoutRecoveries();
+          if (userId == null) {
+            setRecoverableWorkout(null);
+            return;
+          }
+          let recoveries = await listPendingWorkoutRecoveries(userId);
           if (!isActive) return;
           let recovery = recoveries.find((item) => (
             Boolean(item.session.runId)
-            && (!item.session.userId || String(item.session.userId) === String(userId ?? ''))
+            && item.session.userId != null
+            && String(item.session.userId) === String(userId)
           ));
 
           if (!recovery) {
@@ -242,12 +247,13 @@ export default function DashboardScreen() {
               && legacyJournal.runId === legacySession.runId
               && !trackingStarted
               && (legacySession.recoveryReviewRequired || isStaleCheckpoint)
-              && (!legacySession.userId || String(legacySession.userId) === String(userId ?? ''))
+              && legacySession.userId != null
+              && String(legacySession.userId) === String(userId)
             ) {
               await savePendingWorkoutRecovery(legacySession, legacyJournal);
               await clearActiveRunJournal();
               await clearBackgroundLocationSession();
-              recoveries = await listPendingWorkoutRecoveries();
+              recoveries = await listPendingWorkoutRecoveries(userId);
               recovery = recoveries.find((item) => item.id === legacySession.runId);
             }
           }
@@ -292,12 +298,12 @@ export default function DashboardScreen() {
   useEffect(() => {
     const unsubscribe = offlineWorkoutQueue.subscribe((count) => {
       setOfflinePendingCount(count);
-    });
-    void offlineWorkoutQueue.syncPending();
+    }, userId ?? null);
+    if (userId != null) void offlineWorkoutQueue.syncPending(undefined, userId);
 
     const appStateSub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
-        void offlineWorkoutQueue.syncPending();
+        if (userId != null) void offlineWorkoutQueue.syncPending(undefined, userId);
       }
     });
 
@@ -305,7 +311,7 @@ export default function DashboardScreen() {
       unsubscribe();
       appStateSub.remove();
     };
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     void fetchWorkoutPlan();
@@ -697,7 +703,7 @@ export default function DashboardScreen() {
             activeOpacity={0.8}
             onPress={async () => {
               setIsSyncingOffline(true);
-              const result = await offlineWorkoutQueue.syncPending();
+              const result = await offlineWorkoutQueue.syncPending(undefined, userId);
               setIsSyncingOffline(false);
               if (result.synced > 0 && result.failed === 0) {
                 Alert.alert('Sync Successful', `Successfully synced ${result.synced} workout(s) to your account.`);
@@ -721,7 +727,7 @@ export default function DashboardScreen() {
                             {
                               text: 'Discard',
                               style: 'destructive',
-                              onPress: () => void offlineWorkoutQueue.clear(),
+                              onPress: () => void offlineWorkoutQueue.clear(userId),
                             },
                           ]
                         );

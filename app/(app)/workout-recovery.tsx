@@ -28,9 +28,9 @@ export default function WorkoutRecoveryScreen() {
     void (async () => {
       try {
         if (typeof recoveryId !== 'string') throw new Error('This saved workout recovery could not be identified.');
-        const item = await getPendingWorkoutRecovery(recoveryId);
+        const item = await getPendingWorkoutRecovery(recoveryId, user?.id);
         if (!item) throw new Error('This saved workout recovery is no longer available.');
-        if (item.session.userId && String(item.session.userId) !== String(user?.id ?? '')) {
+        if (item.session.userId == null || user?.id == null || String(item.session.userId) !== String(user.id)) {
           throw new Error('This workout belongs to a different account.');
         }
         if (active) setRecovery(item);
@@ -49,9 +49,9 @@ export default function WorkoutRecoveryScreen() {
     setBusy(true);
     const id = recovery.id;
     try {
-      const current = await getPendingWorkoutRecovery(id);
+      const current = await getPendingWorkoutRecovery(id, user?.id);
       if (!current || current.session.runId !== recovery.session.runId) throw new Error('This saved workout recovery is no longer available.');
-      if (current.session.userId && String(current.session.userId) !== String(user?.id ?? '')) throw new Error('This workout belongs to a different account.');
+      if (current.session.userId == null || user?.id == null || String(current.session.userId) !== String(user.id)) throw new Error('This workout belongs to a different account.');
 
       if (action === 'discard') {
         const trackingStopped = await stopBackgroundLocationTracking();

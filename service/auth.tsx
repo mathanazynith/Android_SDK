@@ -11,9 +11,16 @@ import "./googleAuth"; // Ensure GoogleAuthService is initialized
 import { googleAuthService } from "./googleAuth";
 import {
   clearBackgroundLocationSession,
+  flushBackgroundLocationTask,
+  getBackgroundLocationSession,
   stopBackgroundLocationTracking,
 } from "../src/services/backgroundLocationTask";
-import { clearActiveRunJournal } from "../src/services/activeRunJournal";
+import {
+  clearActiveRunJournal,
+  flushActiveRunJournal,
+  readActiveRunJournal,
+} from "../src/services/activeRunJournal";
+import { savePendingWorkoutRecovery } from "../src/services/pendingWorkoutRecoveries";
 import { clearLiveTrackingNotificationForAuthExit } from "../src/services/liveTrackingNotification";
 import {
   deactivateNotificationDevice,
@@ -123,16 +130,49 @@ const normalizeUser = (value: unknown): User | null => {
   return { ...raw, id, hasPassword, authProvider: provider || undefined } as User;
 };
 
-const clearLiveRunState = async (reason: string) => {
+const clearLiveRunState = async (reason: string, fallbackUserId?: string | number | null) => {
   // Invalidate updates immediately, stop the producer, then finish dismissal
   // before clearing durable state.
   const notificationDismissal = clearLiveTrackingNotificationForAuthExit();
   await stopBackgroundLocationTracking().catch((error) => {
     console.warn(`[Auth] Could not stop background tracking during ${reason}`, error);
   });
+  await flushBackgroundLocationTask().catch((error) => {
+    console.warn(`[Auth] Could not flush background locations during ${reason}`, error);
+  });
   await notificationDismissal.catch((error) => {
     console.warn(`[Auth] Could not dismiss the live notification during ${reason}`, error);
   });
+  await flushActiveRunJournal().catch((error) => {
+    console.warn(`[Auth] Could not flush the route journal during ${reason}`, error);
+  });
+  const [session, journal] = await Promise.all([
+    getBackgroundLocationSession(),
+    readActiveRunJournal(),
+  ]);
+  const hasMatchingRun = Boolean(
+    session?.active
+    && session.runId
+    && journal?.active
+    && journal.runId === session.runId
+  );
+  if (session?.active && session.runId && !hasMatchingRun) {
+    console.warn(`[Auth] Preserving ${reason} workout files because its route journal is unavailable or mismatched.`);
+    return;
+  }
+  if (hasMatchingRun && session && journal) {
+    const ownerId = session.userId ?? (fallbackUserId == null ? null : String(fallbackUserId));
+    if (!ownerId) {
+      console.warn(`[Auth] Preserving ${reason} workout files because their account owner is unknown.`);
+      return;
+    }
+    try {
+      await savePendingWorkoutRecovery({ ...session, userId: ownerId }, journal);
+    } catch (error) {
+      console.warn(`[Auth] Could not checkpoint the active workout during ${reason}; preserving its files.`, error);
+      return;
+    }
+  }
   await Promise.all([
     clearBackgroundLocationSession(),
     clearActiveRunJournal(),
@@ -251,7 +291,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       && (currentUserId === null || previousUserId !== currentUserId);
 
     if (shouldClearLiveRun) {
-      void clearLiveRunState('account switch or logout');
+      void clearLiveRunState('account switch or logout', previousUserId);
     }
 
     previousUserIdRef.current = currentUserId;
@@ -415,7 +455,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      await clearLiveRunState('logout');
+      await clearLiveRunState('logout', user?.id);
 
       const refreshToken = await storage.getItem(storage.KEYS.REFRESH_TOKEN);
       await authAPI.logout({ refresh: refreshToken || "" });

@@ -2,6 +2,7 @@ import polyline from '@mapbox/polyline';
 import api from '../../service/api';
 import { storage } from '../../service/storage';
 import { ActivityExtraSplits, ActivityLapRecord, ActivitySegmentSplits, ActivitySplit, SPLIT_DISTANCE_METERS } from '../types/activity';
+import type { ActivitySubmissionPayload } from '../types/running';
 import { calculateDistanceMeters } from '../utils/distance';
 import { activityDistanceOverrides } from './activityDistanceOverrides';
 import { activityManualLapOverrides } from './activityManualLapOverrides';
@@ -1010,7 +1011,12 @@ const GPX_ACTIVITY_IMPORT_PATH = (
 const ACTIVITY_HISTORY_CACHE_KEY = 'activity_history_first_page_v4';
 export const ACTIVITY_HISTORY_FIELDS = 'id,activity_type,distance,moving_time,elapsed_time,start_time,end_time,avg_pace,elevation_gain,elevation_loss,processing_status,is_processed,thumbnail_url,is_saved_to_my_routes,saved_route_id';
 
-const getActivityHistoryCacheKey = async () => {
+const getActivityHistoryCacheKey = async (requestedUserId?: string | number | null) => {
+  if (requestedUserId !== undefined) {
+    return requestedUserId === null || String(requestedUserId).trim() === ''
+      ? `${ACTIVITY_HISTORY_CACHE_KEY}_anonymous`
+      : `${ACTIVITY_HISTORY_CACHE_KEY}_user_${encodeURIComponent(String(requestedUserId))}`;
+  }
   try {
     const userJson = await storage.getItem(storage.KEYS.USER);
     const user = userJson ? JSON.parse(userJson) as { id?: string | number } : null;
@@ -1021,6 +1027,51 @@ const getActivityHistoryCacheKey = async () => {
   } catch {
     return `${ACTIVITY_HISTORY_CACHE_KEY}_anonymous`;
   }
+};
+
+interface RecentSavedActivity {
+  savedAt: number;
+  activity: BackendActivity;
+}
+
+const RECENT_SAVED_ACTIVITY_TTL_MS = 24 * 60 * 60 * 1000;
+const RECENT_SAVED_ACTIVITY_LIMIT = 20;
+
+const recentSavedActivitiesKey = (historyCacheKey: string) => `${historyCacheKey}_recent_saved`;
+
+const readRecentSavedActivities = async (historyCacheKey: string): Promise<RecentSavedActivity[]> => {
+  try {
+    const raw = await storage.getItem(recentSavedActivitiesKey(historyCacheKey));
+    const items = raw ? JSON.parse(raw) as unknown : [];
+    if (!Array.isArray(items)) return [];
+    const now = Date.now();
+    return items.filter((item): item is RecentSavedActivity => (
+      item && typeof item === 'object'
+      && typeof item.savedAt === 'number'
+      && now - item.savedAt < RECENT_SAVED_ACTIVITY_TTL_MS
+      && item.activity && typeof item.activity === 'object'
+      && (typeof item.activity.id === 'string' || typeof item.activity.id === 'number')
+    ));
+  } catch {
+    return [];
+  }
+};
+
+const writeRecentSavedActivities = async (historyCacheKey: string, items: RecentSavedActivity[]) => {
+  await storage.setItem(
+    recentSavedActivitiesKey(historyCacheKey),
+    JSON.stringify(items.slice(0, RECENT_SAVED_ACTIVITY_LIMIT).map(({ activity, savedAt }) => ({
+      activity: toCachedActivity(activity),
+      savedAt,
+    }))),
+  );
+};
+
+const removeRecentSavedActivity = async (historyCacheKey: string, activityId: BackendActivity['id']) => {
+  const recent = await readRecentSavedActivities(historyCacheKey);
+  await writeRecentSavedActivities(historyCacheKey, recent.filter(
+    ({ activity }) => String(activity.id) !== String(activityId),
+  ));
 };
 
 export interface ActivityHistoryPage {
@@ -1237,6 +1288,25 @@ export const normalizeHistoryPage = async (
   };
 };
 
+const mergeRecentSavedActivities = (
+  page: ActivityHistoryPage,
+  recent: RecentSavedActivity[],
+): ActivityHistoryPage => {
+  const knownIds = new Set(page.activities.map((activity) => String(activity.id)));
+  const newlyVisible = recent
+    .map(({ activity }) => activity)
+    .filter((activity) => !knownIds.has(String(activity.id)));
+  const activities = deduplicateActivitiesById([...page.activities, ...newlyVisible])
+    .sort((left, right) => Date.parse(right.start_time) - Date.parse(left.start_time));
+  return {
+    ...page,
+    activities,
+    totalCount: page.totalCount === null
+      ? null
+      : page.totalCount + newlyVisible.length,
+  };
+};
+
 const toCachedActivity = (activity: BackendActivity): BackendActivity => ({
   id: activity.id,
   activity_type: activity.activity_type,
@@ -1246,6 +1316,10 @@ const toCachedActivity = (activity: BackendActivity): BackendActivity => ({
   moving_time: activity.moving_time,
   elapsed_time: activity.elapsed_time,
   distance: activity.distance,
+  total_steps: activity.total_steps,
+  counted_steps: activity.counted_steps,
+  step_tracking_source: activity.step_tracking_source,
+  step_summary: activity.step_summary,
   avg_speed: activity.avg_speed,
   max_speed: activity.max_speed,
   avg_pace: activity.avg_pace,
@@ -1276,26 +1350,93 @@ export const activityAPI = {
       const rawActivities = extractActivities(response.data);
     }
     const result = await normalizeHistoryPage(response.data, limit, cursor);
+    let visibleResult = result;
+    if (cursor === null) {
+      const recent = await readRecentSavedActivities(historyCacheKey!);
+      const serverIds = new Set(result.activities.map((activity) => String(activity.id)));
+      const pendingRecent = recent.filter(({ activity }) => !serverIds.has(String(activity.id)));
+      await writeRecentSavedActivities(historyCacheKey!, pendingRecent);
+      visibleResult = mergeRecentSavedActivities(result, pendingRecent);
+    }
     if (historyCacheKey) {
       await storage.setItem(historyCacheKey, JSON.stringify({
-        ...result,
-        activities: result.activities.map(toCachedActivity),
+        ...visibleResult,
+        activities: visibleResult.activities.map(toCachedActivity),
       }));
     }
-    return result;
+    return visibleResult;
   },
 
   async getCachedFirstPage(): Promise<ActivityHistoryPage | null> {
     try {
       const historyCacheKey = await getActivityHistoryCacheKey();
       const cached = await storage.getItem(historyCacheKey);
-      if (!cached) return null;
+      const recent = await readRecentSavedActivities(historyCacheKey);
+      if (!cached) {
+        return recent.length > 0
+          ? mergeRecentSavedActivities({ activities: [], hasMore: true, nextCursor: null, totalCount: 0 }, recent)
+          : null;
+      }
       const parsed = JSON.parse(cached) as ActivityHistoryPage;
       return Array.isArray(parsed.activities)
-        ? { ...parsed, activities: deduplicateActivitiesById(parsed.activities) }
+        ? mergeRecentSavedActivities(
+          { ...parsed, activities: deduplicateActivitiesById(parsed.activities) },
+          recent,
+        )
         : null;
     } catch {
       return null;
+    }
+  },
+
+  async cacheSavedWorkout(
+    activityId: string | number,
+    payload: ActivitySubmissionPayload,
+    userId?: string | number | null,
+  ): Promise<void> {
+    const historyCacheKey = await getActivityHistoryCacheKey(userId);
+    const distance = Number(payload.total_distance_meters ?? payload.distance ?? 0);
+    const movingTime = Number(payload.moving_time_s ?? payload.moving_time ?? 0);
+    const elapsedTime = Number(payload.elapsed_time_s ?? payload.elapsed_time ?? movingTime);
+    const activity: BackendActivity = {
+      id: activityId,
+      activity_id: activityId,
+      activity_type: payload.activity_type,
+      start_time: payload.start_time,
+      end_time: payload.end_time,
+      moving_time: movingTime,
+      elapsed_time: elapsedTime,
+      distance,
+      total_steps: payload.total_steps ?? null,
+      step_summary: payload.step_summary ?? null,
+      avg_speed: movingTime > 0 ? distance / movingTime : 0,
+      max_speed: 0,
+      avg_pace: Number(payload.avg_pace ?? 0),
+      calories: 0,
+      gps_points_count: payload.gps_points?.length ?? 0,
+      route_generated: (payload.gps_points?.length ?? 0) > 1,
+      processing_status: 'COMPLETED',
+      is_processed: true,
+    };
+    const recent = await readRecentSavedActivities(historyCacheKey);
+    await writeRecentSavedActivities(historyCacheKey, [
+      { activity, savedAt: Date.now() },
+      ...recent.filter((item) => String(item.activity.id) !== String(activityId)),
+    ]);
+
+    try {
+      const rawCache = await storage.getItem(historyCacheKey);
+      const cached = rawCache ? JSON.parse(rawCache) as ActivityHistoryPage : null;
+      const page = cached && Array.isArray(cached.activities)
+        ? cached
+        : { activities: [], hasMore: true, nextCursor: null, totalCount: 0 };
+      const nextPage = mergeRecentSavedActivities(page, [{ activity, savedAt: Date.now() }]);
+      await storage.setItem(historyCacheKey, JSON.stringify({
+        ...nextPage,
+        activities: nextPage.activities.slice(0, 30).map(toCachedActivity),
+      }));
+    } catch (error) {
+      console.warn('[ActivityHistory] Could not update saved workout cache', error);
     }
   },
 
@@ -1363,6 +1504,7 @@ export const activityAPI = {
     const response = await api.delete(getActivityDeletePath(activityId));
     const historyCacheKey = await getActivityHistoryCacheKey();
     await storage.removeItem(historyCacheKey).catch(() => undefined);
+    await removeRecentSavedActivity(historyCacheKey, activityId).catch(() => undefined);
     return typeof response.data?.message === 'string'
       ? response.data.message
       : 'Activity deleted successfully.';

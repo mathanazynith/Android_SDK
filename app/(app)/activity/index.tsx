@@ -727,6 +727,7 @@ function HistorySkeleton() {
   );
 }
 
+const HISTORY_PAGE_SIZE = 30;
 const MAX_EMPTY_HISTORY_PAGES = 5;
 
 async function fetchHistoryPageSkippingEmptyPages(cursor: string | null) {
@@ -734,7 +735,7 @@ async function fetchHistoryPageSkippingEmptyPages(cursor: string | null) {
   let emptyPages = 0;
 
   while (true) {
-    const result = await activityAPI.listPage(nextCursor, 10);
+    const result = await activityAPI.listPage(nextCursor, HISTORY_PAGE_SIZE);
     if (result.activities.length > 0) return result;
 
     emptyPages += 1;
@@ -1631,7 +1632,11 @@ export default function ActivityScreen() {
               width: filterPopoverPosition.width,
               maxHeight: filterPopoverPosition.maxHeight,
               transform: [{ scale: filterPopoverScale }],
-              transformOrigin: `${filterPopoverPosition.originXPercent}% ${filterPopoverPosition.originYPercent}%`,
+              transformOrigin: [
+                `${filterPopoverPosition.originXPercent}%`,
+                `${filterPopoverPosition.originYPercent}%`,
+                0,
+              ],
             }}>
               <View style={[styles.filterPopoverCard, { width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
               <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>
@@ -1680,7 +1685,11 @@ export default function ActivityScreen() {
               width: filterPopoverPosition.width,
               maxHeight: filterPopoverPosition.maxHeight,
               transform: [{ scale: filterPopoverScale }],
-              transformOrigin: `${filterPopoverPosition.originXPercent}% ${filterPopoverPosition.originYPercent}%`,
+              transformOrigin: [
+                `${filterPopoverPosition.originXPercent}%`,
+                `${filterPopoverPosition.originYPercent}%`,
+                0,
+              ],
             }}>
               <View style={[styles.filterPopoverCard, { width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <ScrollView
@@ -1735,7 +1744,11 @@ export default function ActivityScreen() {
               width: filterPopoverPosition.width,
               maxHeight: filterPopoverPosition.maxHeight,
               transform: [{ scale: filterPopoverScale }],
-              transformOrigin: `${filterPopoverPosition.originXPercent}% ${filterPopoverPosition.originYPercent}%`,
+              transformOrigin: [
+                `${filterPopoverPosition.originXPercent}%`,
+                `${filterPopoverPosition.originYPercent}%`,
+                0,
+              ],
             }}>
               <View style={[styles.filterPopoverCard, { width: filterPopoverPosition.width, maxHeight: filterPopoverPosition.maxHeight, backgroundColor: colors.surface, borderColor: colors.border }]}>
               <ScrollView style={[styles.filterPopoverScroll, { maxHeight: filterPopoverPosition.maxHeight }]} contentContainerStyle={styles.filterPopoverScrollContent} showsVerticalScrollIndicator={false}>

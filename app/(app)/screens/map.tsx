@@ -16,6 +16,7 @@ import { workoutPlanService } from '../../../service/workoutPlan';
 import { beginActiveRunJournal, clearActiveRunJournal, flushActiveRunJournal, readActiveRunJournal, restoreActiveRunJournal, updateActiveRunStepData } from '../../../src/services/activeRunJournal';
 import { ActivityDetectionService } from '../../../src/services/activityDetectionService';
 import { activityDistanceOverrides } from '../../../src/services/activityDistanceOverrides';
+import { activityAPI } from '../../../src/services/activityApi';
 import { ActivityStepTracker } from '../../../src/services/activityStepTracker';
 import { activityTimingOverrides } from '../../../src/services/activityTimingOverrides';
 import {
@@ -429,6 +430,7 @@ export default function MapScreen() {
   const recordedDistanceRef = useRef(0);
   const lastRetainedCoordinateRef = useRef<Coordinate | null>(null);
   const isRunningRef = useRef(false);
+  const isFollowingLiveLocationRef = useRef(false);
   const lastCameraUpdateRef = useRef(0);
   const hasInitializedLocationRef = useRef(false);
   const stopRunRef = useRef<() => void>(() => {});
@@ -756,6 +758,7 @@ export default function MapScreen() {
 
   const zoomIn = useCallback(() => {
     if (!mapRef.current) return;
+    isFollowingLiveLocationRef.current = false;
     mapRef.current.getCamera().then((camera) => {
       mapRef.current?.animateCamera(
         {
@@ -768,6 +771,7 @@ export default function MapScreen() {
 
   const zoomOut = useCallback(() => {
     if (!mapRef.current) return;
+    isFollowingLiveLocationRef.current = false;
     mapRef.current.getCamera().then((camera) => {
       mapRef.current?.animateCamera(
         {
@@ -1061,9 +1065,15 @@ export default function MapScreen() {
         },
         timestamp,
       });
+      const publishAndFollowLocation = () => {
+        publishLocation();
+        if (isRunningRef.current && isFollowingLiveLocationRef.current) {
+          moveMapToLocation(effectiveGps.latitude, effectiveGps.longitude);
+        }
+      };
 
       if (!processor) {
-        publishLocation();
+        publishAndFollowLocation();
         return;
       }
 
@@ -1159,7 +1169,7 @@ export default function MapScreen() {
       previousLocationRef.current = effectiveGps;
       // Keep the blue location dot anchored during GPS wander. The same
       // movement state gates route and distance below.
-      if (movementState === 'MOVING' && hasGoodAccuracy) publishLocation();
+      if (movementState === 'MOVING' && hasGoodAccuracy) publishAndFollowLocation();
       if (isLiveMovementSample && autoPauseEnabledRef.current) {
         if (
           isAutoPausedRef.current
@@ -1334,7 +1344,7 @@ export default function MapScreen() {
       }
 
     },
-    [addLog, appendRoutePoint, fitMapToRoute, uploadBatch]
+    [addLog, appendRoutePoint, fitMapToRoute, moveMapToLocation, uploadBatch]
   );
 
   const reconcileJournaledPoints = useCallback(async () => {
@@ -1461,7 +1471,7 @@ export default function MapScreen() {
     if (!recoveryId || !runIdRef.current || isRunningRef.current || isStartingRef.current) return;
     isStartingRef.current = true;
     try {
-      const recovery = await getPendingWorkoutRecovery(recoveryId);
+      const recovery = await getPendingWorkoutRecovery(recoveryId, user?.id);
       if (!recovery || recovery.session.runId !== runIdRef.current) {
         throw new Error('This saved workout recovery is no longer available.');
       }
@@ -1567,7 +1577,7 @@ export default function MapScreen() {
         getBackgroundLocationSession(),
         readActiveRunJournal(),
         isBackgroundLocationTrackingStarted(),
-        recoveryId ? getPendingWorkoutRecovery(recoveryId) : Promise.resolve(null),
+        recoveryId ? getPendingWorkoutRecovery(recoveryId, user?.id) : Promise.resolve(null),
       ]);
       if (recoveryId && !pendingRecovery) {
         Alert.alert('Recovery unavailable', 'This saved workout recovery is no longer available.');
@@ -1877,6 +1887,7 @@ export default function MapScreen() {
 
       let selectedWorkout: BackendWorkout | null = null;
 
+      isFollowingLiveLocationRef.current = false;
       routeSegmentsRef.current = [];
       pauseEventsRef.current = [];
       restoredRunIdRef.current = null;
@@ -2449,7 +2460,7 @@ export default function MapScreen() {
     try {
       if (fromRecoveryReview) {
         if (!recoveryId) throw new Error('The saved workout recovery could not be identified.');
-        pendingRecovery = await getPendingWorkoutRecovery(recoveryId);
+        pendingRecovery = await getPendingWorkoutRecovery(recoveryId, user?.id);
         if (!pendingRecovery || pendingRecovery.session.runId !== runIdRef.current) {
           throw new Error('This saved workout recovery is no longer available.');
         }
@@ -3005,6 +3016,15 @@ export default function MapScreen() {
                 activityId: activitySubmission.activityId,
               });
               savedActivityId = activitySubmission.activityId;
+              if (savedActivityId !== null) {
+                await activityAPI.cacheSavedWorkout(
+                  savedActivityId,
+                  iosStyleActivityPayload,
+                  user?.id == null ? null : String(user.id),
+                ).catch((cacheError) => {
+                  console.warn('[ActivityHistory] Could not cache newly saved workout', cacheError);
+                });
+              }
               // Persist the terminal state as soon as the server confirms the
               // save, so a process interruption cannot restore this run.
               if (!fromRecoveryReview) {
@@ -3355,7 +3375,7 @@ export default function MapScreen() {
     isStoppingRef.current = true;
     setRecoveryPromptVisible(false);
     try {
-      const recovery = await getPendingWorkoutRecovery(recoveryId);
+      const recovery = await getPendingWorkoutRecovery(recoveryId, user?.id);
       if (!recovery) throw new Error('This saved workout recovery is no longer available.');
       const activeSession = await getBackgroundLocationSession();
       if (activeSession?.active && activeSession.runId !== recoveryId) {
@@ -3618,6 +3638,14 @@ export default function MapScreen() {
           zoomEnabled={true}
           scrollEnabled={true}
           zoomControlEnabled={false}
+          onPanDrag={() => {
+            isFollowingLiveLocationRef.current = false;
+          }}
+          onRegionChangeComplete={(_, details) => {
+            if (details?.isGesture) {
+              isFollowingLiveLocationRef.current = false;
+            }
+          }}
           onMapReady={() => {
             setIsMapReady(true);
             if (location && mapRef.current) {
@@ -3789,6 +3817,7 @@ export default function MapScreen() {
         >
           <Pressable style={styles.mapControlButton} onPress={() => {
             if (location) {
+              isFollowingLiveLocationRef.current = isRunningRef.current;
               moveMapToLocation(location.coords.latitude, location.coords.longitude, true);
             }
           }}>
