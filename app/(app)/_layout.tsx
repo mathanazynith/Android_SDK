@@ -102,6 +102,15 @@ function AppLayoutContent() {
           <Stack.Screen name="stats" options={{ animation: 'none' }} />
           <Stack.Screen name="screens/weather-details" />
           <Stack.Screen name="screens/map" options={{ gestureEnabled: !activeRun?.active }} />
+          <Stack.Screen name="workout-recovery" options={{
+            headerShown: false,
+            presentation: 'formSheet',
+            sheetAllowedDetents: [0.5],
+            sheetGrabberVisible: true,
+            sheetCornerRadius: 26,
+            contentStyle: { backgroundColor: '#F7F9F7' },
+            animation: 'slide_from_bottom',
+          }} />
           <Stack.Screen name="home" />
           <Stack.Screen name="history" />
           <Stack.Screen name="run" options={{ gestureEnabled: !activeRun?.active }} />

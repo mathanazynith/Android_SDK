@@ -5,6 +5,8 @@ export interface ActivitySplit {
   distance_m: number;
   time_s: number;
   pace_s_per_km: number;
+  steps?: number | null;
+  average_spm?: number | null;
 }
 
 export interface ActivityLapRecord {
@@ -15,6 +17,7 @@ export interface ActivityLapRecord {
   distance_m?: number;
   time_s?: number;
   pace_s_per_km?: number;
+  steps?: number | null;
   splits?: ActivitySplit[];
 }
 
@@ -27,6 +30,7 @@ export interface ActivitySegmentSplits {
   actual_time_s?: number;
   actual_pace_s_per_km?: number;
   splits: ActivitySplit[];
+  laps?: ActivityLapRecord[];
   recovery?: ActivitySegmentSplits;
   gps_points?: {
     latitude: number;
@@ -43,4 +47,5 @@ export interface ActivityExtraSplits {
   actual_time_s?: number;
   actual_pace_s_per_km?: number;
   splits: ActivitySplit[];
+  laps?: ActivityLapRecord[];
 }

@@ -11,15 +11,16 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import { useAuth } from '../../../service/auth';
 import { workoutPlanService, type CurrentWorkout, type UserWorkoutResponse } from '../../../service/workoutPlan';
 import {
-    PlanBenchmarkStore,
-    type PlanBenchmarkAssignment,
+  PlanBenchmarkStore,
+  type PlanBenchmarkAssignment,
 } from '../../../src/services/planBenchmarkStore';
 import { formatDistanceFromMeters } from '../../../src/utils/activityUnitFormatters';
+import { formatDistanceMeters } from '../../../src/utils/distance';
 import { formatPaceForUnit, type DistanceUnitType } from '../../../src/utils/workoutCalculations';
+import { getDistanceUnitCode } from '../../../utils/distanceUnit';
 import Timeline from '../calendar/components/Timeline';
 import TrainingCalendarCard from '../calendar/components/TrainingCalendarCard';
 import type { RunningPlanData, WorkoutDetail } from '../calendar/components/types';
-import { getDistanceUnitCode } from '../../../utils/distanceUnit';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -106,8 +107,10 @@ const accentForWorkout = (workout: CurrentWorkout, isRest: boolean, isBenchmark:
 };
 
 const formatDuration = (seconds: number | null) => seconds == null ? '' : `${Math.round(seconds / 60)} min`;
-const formatDistance = (metres: number | null, unit: DistanceUnitType) =>
-  metres == null ? '' : formatDistanceFromMeters(metres, unit);
+const formatDistance = (metres: number | null, unit: DistanceUnitType) => {
+  if (metres == null) return '';
+  return unit === 'mi' ? formatDistanceFromMeters(metres, unit) : formatDistanceMeters(metres);
+};
 
 const toWorkoutDetail = (
   workout: CurrentWorkout,

@@ -11,6 +11,11 @@ export interface ActivityStepTrackerSnapshot {
   intervalSteps: { intervalNumber: number; stepCount: number }[];
 }
 
+export interface ActivityStepSegmentMetadata {
+  type: string;
+  sequence: number;
+}
+
 export class ActivityStepTracker {
   private totalSteps = 0;
   private readonly stepsByInterval = new Map<number, number>();
@@ -68,6 +73,7 @@ export class ActivityStepTracker {
   public getStepsPerMinute(
     endedAtMs: number,
     pauses: StepPauseInterval[],
+    getSegmentAtTime?: (timestampMs: number) => ActivityStepSegmentMetadata | null,
   ): ActivityStepsPerMinutePayload[] {
     if (!Number.isFinite(this.startedAtMs) || !Number.isFinite(endedAtMs) || endedAtMs <= this.startedAtMs) {
       return [];
@@ -90,12 +96,19 @@ export class ActivityStepTracker {
         activeDurationMs -= overlapMs;
       });
 
+      const segment = getSegmentAtTime?.(intervalStartMs + (intervalEndMs - intervalStartMs) / 2) ?? null;
       return {
         interval_number: index + 1,
         start_time: new Date(intervalStartMs).toISOString(),
         end_time: new Date(intervalEndMs).toISOString(),
         step_count: this.stepsByInterval.get(index + 1) ?? 0,
         active_duration_s: Math.round(Math.max(0, activeDurationMs) / 1_000),
+        ...(segment
+          ? {
+            segment_type: segment.type,
+            segment_sequence: segment.sequence,
+          }
+          : {}),
       };
     });
   }

@@ -493,11 +493,9 @@ export default function DashboardScreen() {
             accessibilityLabel="Review unfinished workout"
             activeOpacity={0.85}
             onPress={() => router.push({
-              pathname: '/(app)/screens/map',
+              pathname: '/(app)/workout-recovery',
               params: {
-                recoveryReview: '1',
                 recoveryId: recoverableWorkout.id,
-                runId: recoverableWorkout.runId,
               },
             })}
             style={{
