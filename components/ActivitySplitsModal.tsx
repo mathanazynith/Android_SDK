@@ -110,6 +110,7 @@ export default function ActivitySplitsModal({
   onRetry,
 }: ActivitySplitsModalProps) {
   const { isDark, colors } = useTheme();
+  const splitTableWidth = 560;
   const distanceLabel = getDistanceUnitDisplayLabel(distanceUnit);
   const splitDistanceLabel = getDistanceUnitCode(distanceUnit) === 'mile' ? 'mi' : 'km';
   const paceLabel = `min/${getDistanceUnitCode(distanceUnit) === 'mile' ? 'mi' : 'km'}`;
@@ -207,12 +208,16 @@ export default function ActivitySplitsModal({
             {displaySegments.length === 0 && laps.length > 0 && (
               <View style={[styles.segmentCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <Text style={[styles.splitsTitle, { color: colors.text, marginTop: 0 }]}>Splits</Text>
+                <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator style={styles.horizontalSplitScroll}>
+                  <View style={{ width: splitTableWidth }}>
                 <View style={[styles.splitHeaderRow, { borderBottomColor: colors.border }]}>
                   <Text style={[styles.splitHeader, styles.splitLabelColumn, { color: colors.textSecondary }]}>Lap</Text>
                   <Text style={[styles.splitHeader, styles.splitDistanceColumn, { color: colors.textSecondary }]}>Distance ({splitDistanceLabel})</Text>
                   <Text style={[styles.splitHeader, styles.splitTimeColumn, { color: colors.textSecondary }]}>Time</Text>
                   <Text style={[styles.splitHeader, styles.splitPaceColumn, { color: colors.textSecondary }]}>Pace</Text>
                   <Text style={[styles.splitHeader, styles.splitStepsColumn, { color: colors.textSecondary }]}>Steps</Text>
+                  <Text style={[styles.splitHeader, styles.splitCadenceColumn, { color: colors.textSecondary }]}>Cadence{'\n'}(SPM)</Text>
+                  <View style={styles.lapChevronSpacer} />
                 </View>
                 {laps.map((lap, lapIndex) => {
                   const lapKey = `unassigned-${lap.sequence}-${lapIndex}`;
@@ -235,21 +240,25 @@ export default function ActivitySplitsModal({
                         <Text style={[styles.splitValue, styles.splitTimeColumn, { color: lapColor(isDark, colors) }]}>{formatMetric(lap.time_s, formatSplitTime)}</Text>
                         <Text style={[styles.splitValue, styles.splitPaceColumn, { color: lapColor(isDark, colors) }]}>{formatMetric(lap.pace_s_per_km, (value) => formatPaceValueFromSecondsPerKm(value, distanceUnit))}</Text>
                         <Text style={[styles.splitValue, styles.splitStepsColumn, { color: lapColor(isDark, colors) }]}>{formatMetric(lap.steps ?? undefined, (value) => Math.round(value).toLocaleString())}</Text>
+                        <Text style={[styles.splitValue, styles.splitCadenceColumn, { color: lapColor(isDark, colors) }]}>{formatMetric(lap.cadence_spm ?? undefined, (value) => `${Math.round(value)}`)}</Text>
                         <Feather name={isCollapsed ? 'chevron-right' : 'chevron-down'} size={18} color={colors.textSecondary} />
                       </TouchableOpacity>
                       {!isCollapsed && lap.splits?.map((split, splitIndex) => (
                         <View key={`${lapKey}-split-${split.split_number}-${splitIndex}`} style={styles.nestedSplitRow}>
-                          <Text style={[styles.splitValue, styles.splitLabelColumn, { color: colors.text }]}>Split {split.split_number}</Text>
+                          <Text style={[styles.splitValue, styles.splitLabelColumn, styles.nestedSplitLabel, { color: colors.text }]}>Split {split.split_number}</Text>
                           <Text style={[styles.splitValue, styles.splitDistanceColumn, { color: colors.text }]}>{formatSplitDistanceValue(split.distance_m, distanceUnit)}</Text>
                           <Text style={[styles.splitValue, styles.splitTimeColumn, { color: colors.text }]}>{formatSplitTime(split.time_s)}</Text>
                           <Text style={[styles.splitValue, styles.splitPaceColumn, { color: colors.textSecondary }]}>{formatPaceValueFromSecondsPerKm(split.pace_s_per_km, distanceUnit)}</Text>
                           <Text style={[styles.splitValue, styles.splitStepsColumn, { color: colors.textSecondary }]}>{formatMetric(split.steps ?? undefined, (value) => Math.round(value).toLocaleString())}</Text>
+                          <Text style={[styles.splitValue, styles.splitCadenceColumn, { color: colors.textSecondary }]}>{formatMetric(split.cadence_spm ?? split.average_spm ?? undefined, (value) => `${Math.round(value)}`)}</Text>
                           <View style={styles.lapChevronSpacer} />
                         </View>
                       ))}
                     </View>
                   );
                 })}
+                  </View>
+                </ScrollView>
               </View>
             )}
             {displaySegments.map(({ segment, recovery }) => {
@@ -304,12 +313,16 @@ export default function ActivitySplitsModal({
                   {gpsPoints !== undefined && <Text style={[styles.gpsPoints, { color: colors.textTertiary }]}>{gpsPoints} GPS points</Text>}
                   {lapRows.length > 0 && <>
                     <Text style={[styles.splitsTitle, { color: colors.text }]}>Splits</Text>
+                    <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator style={styles.horizontalSplitScroll}>
+                      <View style={{ width: splitTableWidth }}>
                     <View style={[styles.splitHeaderRow, { borderBottomColor: colors.border }]}>
                       <Text style={[styles.splitHeader, styles.splitLabelColumn, { color: colors.textSecondary }]}>Lap</Text>
                       <Text style={[styles.splitHeader, styles.splitDistanceColumn, { color: colors.textSecondary }]}>Distance ({splitDistanceLabel})</Text>
                       <Text style={[styles.splitHeader, styles.splitTimeColumn, { color: colors.textSecondary }]}>Time</Text>
                       <Text style={[styles.splitHeader, styles.splitPaceColumn, { color: colors.textSecondary }]}>Pace ({paceLabel})</Text>
                       <Text style={[styles.splitHeader, styles.splitStepsColumn, { color: colors.textSecondary }]}>Steps</Text>
+                      <Text style={[styles.splitHeader, styles.splitCadenceColumn, { color: colors.textSecondary }]}>Cadence{'\n'}(SPM)</Text>
+                      <View style={styles.lapChevronSpacer} />
                     </View>
                     {lapRows.map((lap, lapIndex) => {
                       const lapKey = `${segment.sequence}-${lap.sequence}-${lapIndex}`;
@@ -340,6 +353,9 @@ export default function ActivitySplitsModal({
                             <Text style={[styles.splitValue, styles.splitStepsColumn, { color: lapColor(isDark, colors) }]}>
                               {formatMetric(lap.steps ?? undefined, (value) => Math.round(value).toLocaleString())}
                             </Text>
+                            <Text style={[styles.splitValue, styles.splitCadenceColumn, { color: lapColor(isDark, colors) }]}>
+                              {formatMetric(lap.cadence_spm ?? undefined, (value) => `${Math.round(value)}`)}
+                            </Text>
                             <Feather name={isCollapsed ? 'chevron-right' : 'chevron-down'} size={18} color={colors.textSecondary} />
                           </TouchableOpacity>
                           {!isCollapsed && lap.splits?.map((split, splitIndex) => (
@@ -347,17 +363,20 @@ export default function ActivitySplitsModal({
                               key={`${lapKey}-split-${split.split_number}-${splitIndex}`}
                               style={[styles.nestedSplitRow, splitIndex < (lap.splits?.length ?? 0) - 1 && { borderBottomColor: colors.border }]}
                             >
-                              <Text style={[styles.splitValue, styles.splitLabelColumn, { color: colors.text }]}>Split {split.split_number}</Text>
+                              <Text style={[styles.splitValue, styles.splitLabelColumn, styles.nestedSplitLabel, { color: colors.text }]}>Split {split.split_number}</Text>
                               <Text style={[styles.splitValue, styles.splitDistanceColumn, { color: colors.text }]}>{formatSplitDistanceValue(split.distance_m, distanceUnit)}</Text>
                               <Text style={[styles.splitValue, styles.splitTimeColumn, { color: colors.text }]}>{formatSplitTime(split.time_s)}</Text>
                               <Text style={[styles.splitValue, styles.splitPaceColumn, { color: colors.textSecondary }]}>{formatPaceValueFromSecondsPerKm(split.pace_s_per_km, distanceUnit)}</Text>
                               <Text style={[styles.splitValue, styles.splitStepsColumn, { color: colors.textSecondary }]}>{formatMetric(split.steps ?? undefined, (value) => Math.round(value).toLocaleString())}</Text>
+                              <Text style={[styles.splitValue, styles.splitCadenceColumn, { color: colors.textSecondary }]}>{formatMetric(split.cadence_spm ?? split.average_spm ?? undefined, (value) => `${Math.round(value)}`)}</Text>
                               <View style={styles.lapChevronSpacer} />
                             </View>
                           ))}
                         </View>
                       );
                     })}
+                      </View>
+                    </ScrollView>
                   </>}
                   {recovery && <RecoveryDetails
                     recovery={recovery}
@@ -437,11 +456,12 @@ const styles = StyleSheet.create({
   inlineMetricValue: { fontSize: 13, fontWeight: '600', marginTop: 4 },
   gpsPoints: { fontSize: 14, marginTop: 18 },
   splitsTitle: { fontSize: 21, fontWeight: '700', marginTop: 23, marginBottom: 10 },
+  horizontalSplitScroll: { width: '100%' },
   splitHeaderRow: { flexDirection: 'row', alignItems: 'center', minHeight: 34, borderBottomWidth: 1 },
   splitHeader: { fontSize: 11, fontWeight: '700', letterSpacing: 0.15, textAlign: 'right' },
   splitRow: { flexDirection: 'row', alignItems: 'center', minHeight: 40, borderBottomWidth: StyleSheet.hairlineWidth },
   lapRow: { flexDirection: 'row', alignItems: 'center', minHeight: 40, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(128, 128, 128, 0.2)' },
-  nestedSplitRow: { flexDirection: 'row', alignItems: 'center', minHeight: 26, paddingLeft: 18, borderBottomWidth: StyleSheet.hairlineWidth },
+  nestedSplitRow: { flexDirection: 'row', alignItems: 'center', minHeight: 26, borderBottomWidth: StyleSheet.hairlineWidth },
   lapChevronSpacer: { width: 18, marginLeft: 4 },
   splitValue: { fontSize: 13, fontWeight: '500', textAlign: 'right' },
   splitLabelColumn: { flex: 0.8, textAlign: 'left' },
@@ -449,6 +469,8 @@ const styles = StyleSheet.create({
   splitTimeColumn: { flex: 0.8 },
   splitPaceColumn: { flex: 1.35 },
   splitStepsColumn: { flex: 0.7 },
+  splitCadenceColumn: { flex: 0.8 },
+  nestedSplitLabel: { paddingLeft: 18 },
   splitNumber: { fontWeight: '700' },
   recoveryDetails: { borderTopWidth: 1, marginTop: 20, paddingTop: 4 },
   recoveryButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

@@ -7,6 +7,7 @@ export interface ActivitySplit {
   pace_s_per_km: number;
   steps?: number | null;
   average_spm?: number | null;
+  cadence_spm?: number | null;
 }
 
 export interface ActivityLapRecord {
@@ -18,6 +19,7 @@ export interface ActivityLapRecord {
   time_s?: number;
   pace_s_per_km?: number;
   steps?: number | null;
+  cadence_spm?: number | null;
   splits?: ActivitySplit[];
 }
 

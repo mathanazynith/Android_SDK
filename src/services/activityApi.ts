@@ -336,6 +336,11 @@ const normalizeSplit = (value: unknown, index: number): ActivitySplit | null => 
     ...(split.average_spm !== undefined
       ? { average_spm: split.average_spm === null ? null : toNumber(split.average_spm) }
       : {}),
+    ...((split.cadence_spm ?? split.average_spm) === null
+      ? { cadence_spm: null }
+      : (split.cadence_spm ?? split.average_spm) !== undefined
+        ? { cadence_spm: toNumber(split.cadence_spm ?? split.average_spm) }
+        : {}),
   };
 };
 
@@ -499,6 +504,11 @@ const normalizeSegment = (value: unknown, index: number): ActivitySegmentSplits 
           ? { steps: null }
           : stepsValue !== undefined
             ? { steps: toNumber(stepsValue) }
+            : {}),
+        ...(value.cadence_spm === null
+          ? { cadence_spm: null }
+          : value.cadence_spm !== undefined
+            ? { cadence_spm: toNumber(value.cadence_spm) }
             : {}),
         splits: normalizeSplits(value.splits),
       }];
