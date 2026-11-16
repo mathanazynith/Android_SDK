@@ -202,7 +202,8 @@ export const offlineWorkoutQueue = {
         }
         lastError = errorMsg;
         console.warn(`[OfflineWorkoutQueue] Sync failed for workout ${item.id}:`, errorMsg);
-        if (error?.response?.status && error.response.status >= 400) {
+        const responseStatus = Number(error?.response?.status);
+        if (responseStatus >= 400 && responseStatus < 500) {
           console.warn(`[OfflineWorkoutQueue] Removing permanently failing workout ${item.id} from queue (status ${error.response.status})`);
           await this.remove(item.id);
         }
@@ -210,8 +211,13 @@ export const offlineWorkoutQueue = {
         const isNetwork =
           !error?.response ||
           error?.code === 'ECONNABORTED' ||
-          error?.message?.toLowerCase().includes('network');
-        if (isNetwork) {
+          error?.code === 'ETIMEDOUT' ||
+          error?.message?.toLowerCase().includes('network') ||
+          error?.message?.toLowerCase().includes('timeout');
+        if (isNetwork || responseStatus >= 500) {
+          if (responseStatus >= 500) {
+            console.warn(`[OfflineWorkoutQueue] Keeping workout ${item.id} queued after retryable server error (HTTP ${responseStatus}).`);
+          }
           break;
         }
       }

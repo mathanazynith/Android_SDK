@@ -27,6 +27,7 @@ android/keystore.properties
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+/generated-routes/
 
 # macOS
 .DS_Store
@@ -34,6 +35,7 @@ yarn-error.*
 
 # local env files
 .env*.local
+
 
 # typescript
 *.tsbuildinfo

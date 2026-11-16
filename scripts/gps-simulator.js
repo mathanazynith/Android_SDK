@@ -7,7 +7,8 @@
  * Features:
  *   - Choose your distance directly in CONFIG below or pass via command line
  *   - Auto-detects current emulator GPS location (or use your custom coordinates)
- *   - Generates realistic neighborhood loops, out-and-back routes, or 400m track runs
+ * - Uses OpenStreetMap foot routing for road-based loops and out-and-back routes
+ * - Keeps the synthetic 400m track available for track-workout testing
  *   - Authentic human running biomechanics (warm-up ease-in, cadence pulses, cornering, heart rate, elevation)
  *   - Live direct ADB streaming into Android Studio Emulator (emulator-5554)
  *   - Exports standard .gpx files ready for Android Studio Location Routes
@@ -15,7 +16,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
 const readline = require('readline');
 const { XMLParser, XMLValidator } = require('fast-xml-parser');
 
@@ -53,6 +54,10 @@ const CONFIG = {
 // GEODESIC & BIOMECHANIC CONSTANTS
 // ==========================================
 const EARTH_RADIUS_METERS = 6371000;
+const FOOT_ROUTING_URL = 'https://routing.openstreetmap.de/routed-foot/route/v1/driving';
+const ROUTING_TIMEOUT_MS = 20_000;
+const MAX_ROUTE_ATTEMPTS = 5;
+const MAX_START_SNAP_METERS = 100;
 
 function toRad(degrees) {
   return (degrees * Math.PI) / 180;
@@ -137,58 +142,8 @@ function formatDuration(totalSeconds) {
 }
 
 // ==========================================
-// ROUTE GENERATORS (Loop, Out-and-Back, Track)
+// SYNTHETIC TRACK GENERATOR
 // ==========================================
-function generateNeighborhoodLoopWaypoints(startPoint, targetDistanceMeters) {
-  const relativePolygon = [
-    { bearing: 0,   ratio: 0.28, name: 'Northbound Street' },
-    { bearing: 75,  ratio: 0.12, name: 'East Turn & Ave' },
-    { bearing: 110, ratio: 0.14, name: 'Parkside Parkway' },
-    { bearing: 180, ratio: 0.24, name: 'South Boulevard' },
-    { bearing: 250, ratio: 0.10, name: 'West Connector Road' },
-    { bearing: 295, ratio: 0.12, name: 'Home Stretch Drive' },
-  ];
-
-  const waypoints = [{ ...startPoint, isTurn: false, sectionName: 'Start Point' }];
-  let current = { ...startPoint };
-
-  for (let i = 0; i < relativePolygon.length - 1; i++) {
-    const leg = relativePolygon[i];
-    const legDist = targetDistanceMeters * leg.ratio;
-    current = movePoint(current, leg.bearing, legDist);
-    waypoints.push({
-      ...current,
-      isTurn: true,
-      sectionName: leg.name,
-    });
-  }
-
-  waypoints.push({
-    ...startPoint,
-    isTurn: false,
-    sectionName: 'Finish / Start Point',
-  });
-
-  return waypoints;
-}
-
-function generateOutAndBackWaypoints(startPoint, targetDistanceMeters) {
-  const outboundDist = (targetDistanceMeters / 2) - 15;
-  const outboundBearing = 35;
-
-  const waypoints = [{ ...startPoint, isTurn: false, sectionName: 'Outbound Start' }];
-  const midPoint = movePoint(startPoint, outboundBearing, outboundDist);
-  waypoints.push({ ...midPoint, isTurn: true, sectionName: 'Turnaround Approach' });
-
-  const turnaround1 = movePoint(midPoint, (outboundBearing + 90) % 360, 10);
-  const turnaround2 = movePoint(turnaround1, (outboundBearing + 180) % 360, 10);
-  waypoints.push({ ...turnaround1, isTurn: true, sectionName: 'Turnaround Point' });
-  waypoints.push({ ...turnaround2, isTurn: true, sectionName: 'Inbound Return' });
-  waypoints.push({ ...startPoint, isTurn: false, sectionName: 'Finish Line' });
-
-  return waypoints;
-}
-
 function generateTrackWaypoints(startPoint, targetDistanceMeters) {
   const mPerDegLat = 111320;
   const mPerDegLon = 111320 * Math.cos(toRad(startPoint.lat));
@@ -485,6 +440,246 @@ function readGpxRoute(filePath) {
   };
 }
 
+function getPolylineDistanceMeters(coordinates) {
+  return coordinates.slice(1).reduce((total, point, index) => (
+    total + haversineDistanceMeters(coordinates[index], point)
+  ), 0);
+}
+
+function trimRouteToDistance(coordinates, targetDistanceMeters) {
+  if (coordinates.length < 2) {
+    throw new Error('The road router returned fewer than two route points.');
+  }
+
+  const trimmed = [coordinates[0]];
+  let distanceMeters = 0;
+  for (let index = 1; index < coordinates.length; index += 1) {
+    const previous = coordinates[index - 1];
+    const current = coordinates[index];
+    const segmentDistance = haversineDistanceMeters(previous, current);
+    if (segmentDistance <= 0) continue;
+
+    const remaining = targetDistanceMeters - distanceMeters;
+    if (segmentDistance >= remaining) {
+      const fraction = remaining / segmentDistance;
+      trimmed.push({
+        lat: previous.lat + (current.lat - previous.lat) * fraction,
+        lon: previous.lon + (current.lon - previous.lon) * fraction,
+      });
+      return trimmed;
+    }
+
+    distanceMeters += segmentDistance;
+    trimmed.push(current);
+  }
+
+  throw new Error(
+    `The road router returned only ${Math.round(distanceMeters)}m; it could not provide the requested ${Math.round(targetDistanceMeters)}m route.`,
+  );
+}
+
+async function requestFootRoute(waypoints, anchorRadiusMeters) {
+  const coordinates = waypoints.map((point) => `${point.lon.toFixed(6)},${point.lat.toFixed(6)}`).join(';');
+  const anchorRadius = Math.max(100, Math.min(500, Math.round(anchorRadiusMeters)));
+  const radiuses = waypoints.map((_, index) => (
+    index === 0 || index === waypoints.length - 1 ? MAX_START_SNAP_METERS : anchorRadius
+  ));
+  const query = new URLSearchParams({
+    overview: 'full',
+    geometries: 'geojson',
+    steps: 'false',
+    radiuses: radiuses.join(';'),
+  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ROUTING_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(`${FOOT_ROUTING_URL}/${coordinates}?${query}`, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'Zy-Run Android GPS simulator',
+      },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    if (error?.name === 'AbortError') {
+      throw new Error('OpenStreetMap foot routing timed out. Check the network and try again.');
+    }
+    throw new Error(`Could not contact OpenStreetMap foot routing: ${reason}`);
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    throw new Error(`OpenStreetMap foot routing returned HTTP ${response.status}.`);
+  }
+
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error('OpenStreetMap foot routing returned invalid JSON.');
+  }
+  if (result.code !== 'Ok') {
+    throw new Error(
+      `OpenStreetMap could not route this location: ${result.message || result.code || 'no route found'}.`,
+    );
+  }
+
+  const snappedStartDistance = Number(result.waypoints?.[0]?.distance);
+  if (Number.isFinite(snappedStartDistance) && snappedStartDistance > MAX_START_SNAP_METERS) {
+    throw new Error(
+      `The nearest mapped foot route is ${Math.round(snappedStartDistance)}m from the start. Choose a start point within ${MAX_START_SNAP_METERS}m of a mapped road or replay a GPX file.`,
+    );
+  }
+
+  const rawCoordinates = result.routes?.[0]?.geometry?.coordinates;
+  if (!Array.isArray(rawCoordinates)) {
+    throw new Error('OpenStreetMap returned no route geometry.');
+  }
+  const routeCoordinates = rawCoordinates.map((coordinate, index) => {
+    const [lon, lat] = coordinate;
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+      throw new Error(`OpenStreetMap returned an invalid route coordinate at point ${index + 1}.`);
+    }
+    return { lat, lon };
+  });
+  if (routeCoordinates.length < 2) {
+    throw new Error('OpenStreetMap returned fewer than two route points.');
+  }
+  return routeCoordinates;
+}
+
+async function generateRoadRoute(startPoint, targetDistanceMeters, routeType) {
+  let radiusMeters = routeType === 'loop'
+    ? Math.max(50, targetDistanceMeters / (2 * Math.PI))
+    : Math.max(50, targetDistanceMeters / 4);
+  const maximumRadiusMeters = Math.max(1_000, targetDistanceMeters * 4);
+
+  for (let attempt = 0; attempt < MAX_ROUTE_ATTEMPTS; attempt += 1) {
+    const waypoints = routeType === 'loop'
+      ? [
+        startPoint,
+        movePoint(startPoint, 0, radiusMeters),
+        movePoint(startPoint, 90, radiusMeters),
+        movePoint(startPoint, 180, radiusMeters),
+        movePoint(startPoint, 270, radiusMeters),
+        startPoint,
+      ]
+      : [startPoint, movePoint(startPoint, 35, radiusMeters)];
+    let coordinates = await requestFootRoute(waypoints, radiusMeters);
+
+    if (routeType === 'out-and-back') {
+      coordinates = [...coordinates, ...coordinates.slice(0, -1).reverse()];
+    }
+
+    const routeDistanceMeters = getPolylineDistanceMeters(coordinates);
+    if (routeDistanceMeters >= targetDistanceMeters) {
+      return trimRouteToDistance(coordinates, targetDistanceMeters);
+    }
+
+    if (routeDistanceMeters <= 0) {
+      throw new Error('OpenStreetMap returned a route with no measurable distance.');
+    }
+    radiusMeters = Math.min(
+      maximumRadiusMeters,
+      Math.max(radiusMeters + 25, radiusMeters * targetDistanceMeters / routeDistanceMeters * 1.15),
+    );
+  }
+
+  throw new Error(
+    `OpenStreetMap could not find a road route long enough for ${Math.round(targetDistanceMeters)}m. Try a larger distance or replay a GPX file.`,
+  );
+}
+
+function interpolateRoadPoints(routeCoordinates, targetSpeedMps, startTimeMs) {
+  const cumulativeDistances = [0];
+  for (let index = 1; index < routeCoordinates.length; index += 1) {
+    cumulativeDistances.push(
+      cumulativeDistances[index - 1] + haversineDistanceMeters(routeCoordinates[index - 1], routeCoordinates[index]),
+    );
+  }
+  const totalDistanceMeters = cumulativeDistances.at(-1);
+  if (!Number.isFinite(totalDistanceMeters) || totalDistanceMeters <= 0) {
+    throw new Error('The routed road geometry has no measurable distance.');
+  }
+
+  const points = [];
+  let distanceCovered = 0;
+  let currentTime = startTimeMs || Date.now();
+  let secondCounter = 0;
+  let currentSplitKm = 1;
+  let segmentIndex = 0;
+
+  const startPoint = routeCoordinates[0];
+  points.push({
+    lat: parseFloat(startPoint.lat.toFixed(6)),
+    lon: parseFloat(startPoint.lon.toFixed(6)),
+    elevation: 0,
+    speed: 0,
+    bearing: parseFloat(calculateBearing(startPoint, routeCoordinates[1]).toFixed(1)),
+    heartRate: 122,
+    cadence: 0,
+    timestamp: currentTime,
+    cumulativeDistanceMeters: 0,
+    splitEvent: null,
+    sectionName: 'OpenStreetMap foot route',
+  });
+
+  while (distanceCovered < totalDistanceMeters) {
+    secondCounter += 1;
+    const warmUpFactor = secondCounter < 25
+      ? 0.75 + 0.25 * Math.sin((secondCounter / 25) * (Math.PI / 2))
+      : 1;
+    const cadencePulse = Math.sin(secondCounter * 2.93 * Math.PI) * 0.03;
+    const breathingWave = Math.sin((secondCounter / 4.5) * 2 * Math.PI) * 0.035;
+    const speedMps = Math.max(
+      2.2,
+      targetSpeedMps * warmUpFactor * (1 + cadencePulse + breathingWave + (Math.random() * 0.03 - 0.015)),
+    );
+    distanceCovered = Math.min(totalDistanceMeters, distanceCovered + speedMps);
+    currentTime += 1000;
+
+    while (
+      segmentIndex < cumulativeDistances.length - 2
+      && cumulativeDistances[segmentIndex + 1] < distanceCovered
+    ) {
+      segmentIndex += 1;
+    }
+    const segmentStartDistance = cumulativeDistances[segmentIndex];
+    const segmentEndDistance = cumulativeDistances[segmentIndex + 1];
+    const segmentLength = segmentEndDistance - segmentStartDistance;
+    const fraction = segmentLength > 0
+      ? (distanceCovered - segmentStartDistance) / segmentLength
+      : 0;
+    const segmentStart = routeCoordinates[segmentIndex];
+    const segmentEnd = routeCoordinates[segmentIndex + 1];
+
+    let splitEvent = null;
+    if (distanceCovered >= currentSplitKm * 1000) {
+      splitEvent = currentSplitKm;
+      currentSplitKm += 1;
+    }
+    const hrProgress = Math.min(1, secondCounter / 120);
+    points.push({
+      lat: parseFloat((segmentStart.lat + (segmentEnd.lat - segmentStart.lat) * fraction).toFixed(6)),
+      lon: parseFloat((segmentStart.lon + (segmentEnd.lon - segmentStart.lon) * fraction).toFixed(6)),
+      elevation: 0,
+      speed: parseFloat(speedMps.toFixed(2)),
+      bearing: parseFloat(calculateBearing(segmentStart, segmentEnd).toFixed(1)),
+      heartRate: Math.round(122 + hrProgress * 42 + Math.sin(secondCounter / 8) * 3),
+      cadence: Math.round(174 + (speedMps - targetSpeedMps) * 8 + (Math.random() * 2 - 1)),
+      timestamp: currentTime,
+      cumulativeDistanceMeters: distanceCovered,
+      splitEvent,
+      sectionName: 'OpenStreetMap foot route',
+    });
+  }
+
+  return points;
+}
+
 // ==========================================
 // ADB EMULATOR AUTO-DETECTION & STREAMING
 // ==========================================
@@ -553,6 +748,58 @@ function streamPointToEmulator(adb, lat, lon, alt) {
   }
 }
 
+function waitForWorkoutStart(adb) {
+  return new Promise((resolve, reject) => {
+    const monitorStartedAt = Date.now() / 1000;
+    const logcat = spawn(adb.path, [
+      '-s',
+      adb.serial,
+      'logcat',
+      '-v',
+      'epoch',
+      'ReactNativeJS:I',
+      '*:S',
+    ], { stdio: ['ignore', 'pipe', 'inherit'] });
+    let outputBuffer = '';
+    let settled = false;
+
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      process.removeListener('SIGINT', interrupt);
+      logcat.kill();
+      if (error) reject(error);
+      else resolve();
+    };
+    const interrupt = () => finish(new Error('Waiting for workout start was cancelled.'));
+
+    process.once('SIGINT', interrupt);
+    logcat.stdout.setEncoding('utf8');
+    logcat.stdout.on('data', (chunk) => {
+      outputBuffer += chunk;
+      const lines = outputBuffer.split(/\r?\n/);
+      outputBuffer = lines.pop() || '';
+      for (const line of lines) {
+        const timestamp = Number(line.match(/^\s*(\d+(?:\.\d+)?)/)?.[1]);
+        if (
+          Number.isFinite(timestamp)
+          && timestamp >= monitorStartedAt
+          && line.includes('[WorkoutLifecycle] SESSION_STARTED')
+        ) {
+          finish();
+          return;
+        }
+      }
+    });
+    logcat.once('error', (error) => finish(error));
+    logcat.once('exit', (code) => {
+      if (!settled) {
+        finish(new Error(`Android logcat exited before a workout started (exit code ${code ?? 'unknown'}).`));
+      }
+    });
+  });
+}
+
 // ==========================================
 // MAIN CLI RUNNER
 // ==========================================
@@ -583,8 +830,16 @@ async function main() {
   const speedMultiplier = parseInt(String(parsedArgs.speed || CONFIG.speedMultiplier).replace('x', ''), 10) || 1;
   const speedMps = parsePaceToSpeed(pace);
   const gpxInputPath = typeof parsedArgs.gpx === 'string' ? path.resolve(parsedArgs.gpx) : null;
+  const waitForStart = parsedArgs['wait-for-start'] === true;
+
+  if (!['loop', 'out-and-back', 'track'].includes(routeType)) {
+    throw new Error(`Unsupported route type "${routeType}". Choose loop, out-and-back, or track.`);
+  }
 
   const adb = getAdbConfig();
+  if (waitForStart && !adb) {
+    throw new Error('--wait-for-start requires a running Android emulator and an accessible Android SDK platform-tools\\adb executable.');
+  }
 
   let startLat = null;
   let startLon = null;
@@ -643,21 +898,22 @@ async function main() {
     }
   } else {
     const startPoint = { lat: startLat, lon: startLon };
-    let rawWaypoints = [];
-
-    if (routeType === 'out-and-back') {
-      rawWaypoints = generateOutAndBackWaypoints(startPoint, targetDistanceMeters);
-      routeName = `${distanceKm}km Out-and-Back Run`;
-    } else if (routeType === 'track') {
-      rawWaypoints = generateTrackWaypoints(startPoint, targetDistanceMeters);
+    if (routeType === 'track') {
+      const rawWaypoints = generateTrackWaypoints(startPoint, targetDistanceMeters);
+      points = interpolateBiomechanicalPoints(rawWaypoints, targetDistanceMeters, speedMps, Date.now());
       routeName = `${distanceKm}km Track Run`;
     } else {
-      rawWaypoints = generateNeighborhoodLoopWaypoints(startPoint, targetDistanceMeters);
-      routeName = `${distanceKm}km Neighborhood Road Loop`;
+      const routeCoordinates = await generateRoadRoute(startPoint, targetDistanceMeters, routeType);
+      // Start playback at the router's snapped road coordinate so the first
+      // injected fix does not jump from the emulator's off-road position.
+      startLat = routeCoordinates[0].lat;
+      startLon = routeCoordinates[0].lon;
+      points = interpolateRoadPoints(routeCoordinates, speedMps, Date.now());
+      routeName = routeType === 'out-and-back'
+        ? `${distanceKm}km Road Out-and-Back Run`
+        : `${distanceKm}km Neighborhood Road Loop`;
     }
-
-    points = interpolateBiomechanicalPoints(rawWaypoints, targetDistanceMeters, speedMps, Date.now());
-    totalMeters = points.at(-1)?.cumulativeDistanceMeters || targetDistanceMeters;
+    totalMeters = points.at(-1)?.cumulativeDistanceMeters ?? targetDistanceMeters;
     estimatedDurationSec = Math.round(targetDistanceMeters / speedMps);
   }
 
@@ -681,16 +937,18 @@ async function main() {
   if (gpxInputPath) {
     console.log(`\n📁 Replaying GPX route: ${gpxInputPath}`);
   } else {
+    const generatedRouteDirectory = path.resolve('generated-routes');
+    fs.mkdirSync(generatedRouteDirectory, { recursive: true });
     const routeFileName = `custom-run-${distanceKm}km.gpx`;
-    const gpxFilePath = path.resolve(routeFileName);
-    const testRoutePath = path.resolve('test-route.gpx');
+    const gpxFilePath = path.join(generatedRouteDirectory, routeFileName);
+    const testRoutePath = path.join(generatedRouteDirectory, 'test-route.gpx');
 
     exportGpxFile(points, routeName, gpxFilePath);
     exportGpxFile(points, routeName, testRoutePath);
 
     console.log(`\n📁 Generated Android Studio GPX Route Files:`);
-    console.log(`   - ${routeFileName}   (${distanceKm} km, ${points.length} GPS points)`);
-    console.log(`   - test-route.gpx           (Active simulation route)`);
+    console.log(`   - generated-routes\\${routeFileName}   (${distanceKm} km, ${points.length} GPS points)`);
+    console.log('   - generated-routes\\test-route.gpx           (Active simulation route)');
   }
 
   if (parsedArgs['gpx-only']) {
@@ -714,8 +972,14 @@ async function main() {
   }
 
   console.log('\n------------------------------------------------------------');
-  console.log('Controls: Press [SPACE] to Pause / Resume, [Q] to Stop');
-  console.log(`Starting ${gpxInputPath ? 'GPX replay' : 'run simulation'} on ${adb ? adb.serial : 'emulator'} in 3 seconds...\n`);
+  if (waitForStart) {
+    console.log('Waiting for you to tap Start in Zy-Run. Press Ctrl+C to cancel.');
+    await waitForWorkoutStart(adb);
+    console.log('\nWorkout start detected. Route playback begins in 3 seconds.');
+  } else {
+    console.log('Controls: Press [SPACE] to Pause / Resume, [Q] to Stop');
+    console.log(`Starting ${gpxInputPath ? 'GPX replay' : 'run simulation'} on ${adb ? adb.serial : 'emulator'} in 3 seconds...\n`);
+  }
 
   await new Promise((r) => setTimeout(r, 3000));
 

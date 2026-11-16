@@ -1,7 +1,6 @@
-import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text } from 'react-native';
 import { useAuth } from '../../service/auth';
 import { clearActiveRunJournal, readActiveRunJournal } from '../../src/services/activeRunJournal';
 import { getBackgroundLocationSession, clearBackgroundLocationSession, stopBackgroundLocationTracking, flushBackgroundLocationTask } from '../../src/services/backgroundLocationTask';
@@ -161,12 +160,11 @@ export default function WorkoutRecoveryScreen() {
   const distance = Math.max(0, Number(recovery.session.distanceKm ?? 0));
   const elapsed = Math.max(0, Number(recovery.session.elapsedSeconds ?? 0));
   return <SafeAreaView style={styles.page}>
-    <ScrollView contentContainerStyle={styles.content}>
-      <View style={styles.icon}><Feather name="corner-up-left" size={30} color="#159447" /></View>
-      <Text style={styles.eyebrow}>WORKOUT RECOVERY</Text>
-      <Text style={styles.title}>Unfinished workout found</Text>
-      <Text style={styles.description}>Your saved route and workout data are ready to review. Tracking will remain stopped.</Text>
-      <View style={styles.metrics}><View><Text style={styles.label}>Distance</Text><Text style={styles.value}>{distance.toFixed(2)} km</Text></View><View><Text style={styles.label}>Duration</Text><Text style={styles.value}>{formatDuration(elapsed)}</Text></View><View><Text style={styles.label}>GPS points</Text><Text style={styles.value}>{recovery.journal.points.length}</Text></View></View>
+    <ScrollView contentContainerStyle={styles.content} bounces={false} showsVerticalScrollIndicator={false}>
+      <Text style={styles.title}>Unfinished workout</Text>
+      <Text style={styles.description} numberOfLines={1}>
+        {distance.toFixed(2)} km  ·  {formatDuration(elapsed)}  ·  {recovery.journal.points.length} GPS points
+      </Text>
       <Pressable style={[styles.primary, busy && styles.disabled]} onPress={() => void finishAction('save')} disabled={busy}><Text style={styles.primaryText}>{busy ? 'Working…' : 'Restore and Save Workout'}</Text></Pressable>
       <Pressable style={[styles.discard, busy && styles.disabled]} onPress={() => void finishAction('discard')} disabled={busy}><Text style={styles.discardText}>Discard Workout</Text></Pressable>
       <Pressable style={styles.later} onPress={() => router.dismiss()} disabled={busy}><Text style={styles.secondary}>Not Now</Text></Pressable>
@@ -174,4 +172,17 @@ export default function WorkoutRecoveryScreen() {
   </SafeAreaView>;
 }
 
-const styles = StyleSheet.create({ page: { flex: 1, backgroundColor: '#F7F9F7' }, center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F7F9F7', gap: 16 }, content: { flexGrow: 1, padding: 24, paddingTop: 18, justifyContent: 'center' }, back: { position: 'absolute', top: 18, left: 24, flexDirection: 'row', alignItems: 'center', gap: 8 }, icon: { alignSelf: 'center', marginTop: 40, marginBottom: 20, height: 64, width: 64, borderRadius: 32, backgroundColor: '#E4F5E9', alignItems: 'center', justifyContent: 'center' }, eyebrow: { textAlign: 'center', color: '#657269', fontWeight: '700', letterSpacing: 1.3, fontSize: 12 }, title: { color: '#17221A', fontSize: 25, fontWeight: '800', textAlign: 'center', marginTop: 10 }, description: { color: '#67736A', textAlign: 'center', fontSize: 15, lineHeight: 22, marginTop: 12, marginBottom: 24 }, metrics: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#FFFFFF', borderRadius: 18, padding: 16, marginBottom: 24 }, label: { color: '#78837B', fontSize: 12, marginBottom: 6 }, value: { color: '#17221A', fontSize: 16, fontWeight: '700' }, primary: { minHeight: 54, borderRadius: 16, backgroundColor: '#159447', alignItems: 'center', justifyContent: 'center' }, primaryText: { color: '#FFFFFF', fontWeight: '800', fontSize: 16 }, discard: { minHeight: 52, alignItems: 'center', justifyContent: 'center', marginTop: 8 }, discardText: { color: '#C93636', fontWeight: '700', fontSize: 15 }, later: { minHeight: 48, alignItems: 'center', justifyContent: 'center' }, secondary: { color: '#667269', fontSize: 15 }, disabled: { opacity: 0.55 } });
+const styles = StyleSheet.create({
+  page: { flex: 1, backgroundColor: '#F7F9F7' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F7F9F7', gap: 16 },
+  content: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 22, paddingVertical: 14, gap: 6 },
+  title: { color: '#17221A', fontSize: 21, lineHeight: 26, fontWeight: '800', textAlign: 'center' },
+  description: { color: '#67736A', textAlign: 'center', fontSize: 13, lineHeight: 18, marginBottom: 10 },
+  primary: { minHeight: 48, borderRadius: 15, backgroundColor: '#159447', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+  primaryText: { color: '#FFFFFF', fontWeight: '800', fontSize: 15 },
+  discard: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  discardText: { color: '#C93636', fontWeight: '700', fontSize: 15 },
+  later: { minHeight: 42, alignItems: 'center', justifyContent: 'center' },
+  secondary: { color: '#667269', fontSize: 15 },
+  disabled: { opacity: 0.55 },
+});

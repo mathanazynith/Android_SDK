@@ -679,11 +679,11 @@ export default function MapScreen() {
     [location]
   );
 
-  const moveMapToLocation = useCallback((latitude: number, longitude: number) => {
+  const moveMapToLocation = useCallback((latitude: number, longitude: number, force = false) => {
     if (!mapRef.current || !isMapReady) return;
 
     const now = Date.now();
-    if (now - lastCameraUpdateRef.current < 700) return;
+    if (!force && now - lastCameraUpdateRef.current < 700) return;
     lastCameraUpdateRef.current = now;
 
     mapRef.current.animateCamera(
@@ -1190,9 +1190,6 @@ export default function MapScreen() {
       previousLocationRef.current = rawGps;
       if (!shouldProcessRoute) {
         previousWorkoutPointRef.current = null;
-        if (movementStateRef.current === 'MOVING') {
-          moveMapToLocation(effectiveGps.latitude, effectiveGps.longitude);
-        }
         return;
       }
 
@@ -1336,9 +1333,8 @@ export default function MapScreen() {
         }
       }
 
-      if (movementState === 'MOVING') moveMapToLocation(effectiveGps.latitude, effectiveGps.longitude);
     },
-    [addLog, appendRoutePoint, fitMapToRoute, moveMapToLocation, uploadBatch]
+    [addLog, appendRoutePoint, fitMapToRoute, uploadBatch]
   );
 
   const reconcileJournaledPoints = useCallback(async () => {
@@ -3054,6 +3050,7 @@ export default function MapScreen() {
               }
             }
           } catch (submitError: any) {
+            const responseStatus = Number(submitError?.response?.status);
             const isNetworkFailure =
               !submitError?.response &&
               (submitError?.code === 'ERR_NETWORK' ||
@@ -3062,16 +3059,20 @@ export default function MapScreen() {
                 submitError?.message?.toLowerCase().includes('network') ||
                 submitError?.message?.toLowerCase().includes('timeout') ||
                 submitError?.message?.toLowerCase().includes('abort'));
-            if (!isNetworkFailure || isIntervalWorkout) {
+            const isServerFailure = responseStatus >= 500;
+            if (!isNetworkFailure && !isServerFailure) {
               throw submitError;
             }
             offlineSubmission = true;
             console.warn('[SaveLifecycle] SAVE_API_FAILED', {
               runId: runIdRef.current,
+              status: Number.isFinite(responseStatus) ? responseStatus : null,
               message: submitError?.message ?? 'Unknown upload error',
             });
             console.warn(
-              '[MapScreen] Network unavailable or upload timed out; queuing workout locally:',
+              isServerFailure
+                ? `[MapScreen] Server error (HTTP ${responseStatus}); queuing workout locally for retry:`
+                : '[MapScreen] Network unavailable or upload timed out; queuing workout locally:',
               submitError?.message || submitError,
             );
           }
@@ -3788,7 +3789,7 @@ export default function MapScreen() {
         >
           <Pressable style={styles.mapControlButton} onPress={() => {
             if (location) {
-              moveMapToLocation(location.coords.latitude, location.coords.longitude);
+              moveMapToLocation(location.coords.latitude, location.coords.longitude, true);
             }
           }}>
             <Feather name="crosshair" size={20} color="#FFFFFF" />
