@@ -12,6 +12,7 @@
     "axios": "^1.19.0",
     "babel-preset-expo": "^57.0.2",
     "expo": "~57.0.29",
+    "expo-audio": "~57.0.5",
     "expo-auth-session": "~57.0.16",
     "expo-blur": "~57.0.3",
     "expo-constants": "~57.0.3",
@@ -72,7 +73,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "simulate-gps": "node ./scripts/gps-simulator.js"
+    "simulate-gps": "node ./scripts/gps-simulator.js",
+    "simulate-gps-on-start": "node ./scripts/gps-simulator.js --wait-for-start"
   },
   "private": true
 }

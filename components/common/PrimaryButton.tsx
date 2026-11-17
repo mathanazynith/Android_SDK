@@ -36,7 +36,7 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
   const { colors } = useTheme();
   const { spacing, fontSize } = useResponsive();
   const getBackgroundColor = () => {
-    if (disabled) return colors.surfaceRaised;
+    if (disabled) return authStyle && variant === 'primary' ? BRAND_GREEN : colors.surfaceRaised;
     if (variant === 'primary') return BRAND_GREEN;
     if (variant === 'secondary') return colors.surfaceRaised;
     if (variant === 'outline') return 'transparent';
@@ -44,7 +44,7 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
   };
 
   const getTextColor = () => {
-    if (disabled) return colors.textSecondary;
+    if (disabled) return authStyle && variant === 'primary' ? '#101510' : colors.textSecondary;
     if (variant === 'primary') return colors.background;
     if (variant === 'secondary') return colors.text;
     if (variant === 'outline') return BRAND_GREEN;
@@ -72,6 +72,7 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
           minHeight: spacing(50),
         },
         authStyle && styles.authButton,
+        authStyle && disabled && styles.authButtonDisabled,
         style,
       ]}
       onPress={onPress}
@@ -105,4 +106,5 @@ const styles = StyleSheet.create({
   },
   text: { ...Typography.button, textAlign: 'center' },
   authButton: { minHeight: 52, borderRadius: 14, borderWidth: 0 },
+  authButtonDisabled: { opacity: 0.5 },
 });

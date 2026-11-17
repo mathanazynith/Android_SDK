@@ -4,11 +4,9 @@ import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import AuthDismissHandle from "../../components/auth/AuthDismissHandle";
-import AuthModeTabs from "../../components/auth/AuthModeTabs";
+import AuthSocialButtons from "../../components/auth/AuthSocialButtons";
 import { AppInput } from "../../components/common/AppInput";
 import { PrimaryButton } from "../../components/common/PrimaryButton";
-import GoogleLoginButton from "../../components/GoogleLoginButton";
 import { LegalConsent } from "../../components/LegalConsent";
 import { BorderRadius, Colors, Spacing, Typography } from "../../constants/theme";
 import { useTheme } from "../../contexts/ThemeContext";
@@ -16,7 +14,7 @@ import { authAPI } from "../../service/api";
 import { useAuth } from "../../service/auth";
 
 export default function SignupScreen() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const { googleLogin, googleSignupData, setGoogleSignupData } = useAuth();
   const hasGoogleData = googleSignupData !== null;
@@ -127,12 +125,6 @@ export default function SignupScreen() {
       return;
     }
 
-    // Last Name
-    if (!lastName.trim()) {
-      Alert.alert("Validation Error", "Last Name is required.");
-      return;
-    }
-
     // Username
     if (!username.trim()) {
       Alert.alert("Validation Error", "Username is required.");
@@ -158,15 +150,9 @@ export default function SignupScreen() {
       return;
     }
 
-    // Phone Number
-    if (!phoneNumber.trim()) {
-      Alert.alert("Validation Error", "Phone Number is required.");
-      return;
-    }
-
     const phoneRegex = /^[6-9]\d{9}$/;
 
-    if (!phoneRegex.test(phoneNumber.trim())) {
+    if (phoneNumber.trim() && !phoneRegex.test(phoneNumber.trim())) {
       Alert.alert(
         "Validation Error",
         "Enter a valid 10-digit mobile number."
@@ -279,9 +265,8 @@ export default function SignupScreen() {
         else if (value.length < 4) error = "Minimum 4 characters";
         break;
       case "first_name": if (!value.trim()) error = "First name is required"; break;
-      case "last_name": if (!value.trim()) error = "Last name is required"; break;
       case "phone_number":
-        if (!/^[0-9]{10}$/.test(value)) error = "Enter a valid 10-digit phone number";
+        if (value && !/^[6-9]\d{9}$/.test(value)) error = "Enter a valid 10-digit phone number";
         break;
       case "password":
         if (value.length < 8) error = "Minimum 8 characters";
@@ -330,42 +315,94 @@ export default function SignupScreen() {
     }
   };
 
+  const emailIsValid = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(email.trim());
+  const passwordIsValid =
+    password.length >= 8 && /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/.test(password);
+  const usernameIsUsable =
+    isAvailable === true ||
+    (isAvailable === null && !isChecking && errorMessage.startsWith("Unable to check username"));
+  const requirementChecks = [
+    Boolean(firstName.trim()),
+    username.trim().length >= 3 && usernameIsUsable,
+    emailIsValid,
+    passwordIsValid,
+    Boolean(password2) && password2 === password,
+  ];
+  const completedRequirements = requirementChecks.filter(Boolean).length;
+  const isFormValid = completedRequirements === requirementChecks.length;
+  const passwordStrength = password.length === 0
+    ? 0
+    : [
+        password.length >= 8,
+        /[A-Z]/.test(password) && /[a-z]/.test(password),
+        /\d/.test(password),
+        /[@$!%*?&]/.test(password),
+      ].filter(Boolean).length;
+
   return (
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
     >
-      <AuthDismissHandle top={insets.top} disabled={loading || googleLoading} />
-      <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} backgroundColor={colors.background} />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <TouchableOpacity
+          style={[styles.backButton, { backgroundColor: colors.surfaceRaised }]}
+          onPress={() => router.back()}
+          disabled={loading || googleLoading}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Ionicons name="chevron-back" size={20} color={colors.text} />
+        </TouchableOpacity>
+        <View
+          style={styles.progressRow}
+          accessibilityRole="progressbar"
+          accessibilityLabel="Sign up progress"
+          accessibilityValue={{ min: 0, max: requirementChecks.length, now: completedRequirements }}
+        >
+          <View style={[styles.progressTrack, { backgroundColor: colors.surfaceRaised }]}>
+            <View
+              style={[
+                styles.progressFill,
+                { backgroundColor: colors.primary, width: `${(completedRequirements / requirementChecks.length) * 100}%` },
+              ]}
+            />
+          </View>
+          <Text style={[styles.progressText, { color: colors.textSecondary }]}>
+            {completedRequirements}/{requirementChecks.length}
+          </Text>
+        </View>
+      </View>
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 48 }]}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.authCard}>
-          <AuthModeTabs
-            mode="signup"
-            onChange={() => router.replace("/(auth)/login")}
-          />
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()} disabled={loading} accessibilityLabel="Go back">
-            <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
-          </TouchableOpacity>
-          <View style={styles.googleButtonContainer}>
-            <GoogleLoginButton
-              onPress={handleGoogleSignup}
-              loading={googleLoading}
-              disabled={loading || googleLoading}
-              authStyle
-            />
+          <View style={styles.heading}>
+            <Text style={[styles.title, { color: colors.text }]}>Create account</Text>
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Join the run club</Text>
           </View>
-          <View style={styles.emailDivider}><View style={styles.dividerLine} /><Text style={styles.emailDividerText}>Or With E-Mail</Text><View style={styles.dividerLine} /></View>
+
+          <AuthSocialButtons
+            onGooglePress={handleGoogleSignup}
+            loading={googleLoading}
+            disabled={loading}
+          />
+
+          <View style={styles.emailDivider}>
+            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+            <Text style={[styles.emailDividerText, { color: colors.textSecondary }]}>Or With E-Mail</Text>
+            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+          </View>
 
         {hasGoogleData && (
-          <View style={styles.googleInfoContainer}>
-            <Text style={styles.googleInfoText}>🔵 Signing up with Google</Text>
-            <Text style={styles.googleInfoSubtext}>
+          <View style={[styles.googleInfoContainer, { backgroundColor: colors.surfaceRaised }]}>
+            <Text style={[styles.googleInfoText, { color: colors.text }]}>Signing up with Google</Text>
+            <Text style={[styles.googleInfoSubtext, { color: colors.textSecondary }]}>
               Your email has been pre-filled from Google.
             </Text>
           </View>
@@ -374,7 +411,8 @@ export default function SignupScreen() {
         <View style={styles.row}>
           <View style={styles.halfInput}>
             <AppInput
-              placeholder="First Name *"
+              label="First Name *"
+              placeholder=""
               value={firstName}
               onChangeText={(text) => handleChange("first_name", text)}
               containerStyle={styles.inputContainer}
@@ -388,7 +426,8 @@ export default function SignupScreen() {
 
           <View style={styles.halfInput}>
             <AppInput
-              placeholder="Last Name"
+              label="Last Name"
+              placeholder=""
               value={lastName}
               onChangeText={(text) => handleChange("last_name", text)}
               containerStyle={styles.inputContainer}
@@ -402,7 +441,8 @@ export default function SignupScreen() {
         </View>
 
         <AppInput
-          placeholder="Username *"
+          label="Username *"
+          placeholder=""
           value={username}
           onChangeText={(text) => handleChange("username", text)}
           autoCapitalize="none"
@@ -426,7 +466,8 @@ export default function SignupScreen() {
         )}
 
         <AppInput
-          placeholder="Email *"
+          label="Email *"
+          placeholder="Enter Your Mail"
           value={email}
           onChangeText={(text) => handleChange("email", text)}
           autoCapitalize="none"
@@ -435,7 +476,7 @@ export default function SignupScreen() {
           containerStyle={styles.inputContainer}
           inputStyle={styles.compactInput}
           authStyle
-          icon={<Ionicons name="mail-outline" size={20} color={Colors.textSecondary} />}
+          icon={<Ionicons name="mail-outline" size={20} color={colors.textSecondary} />}
           editable={!hasGoogleData}
         />
         {!!errors.email && (
@@ -443,7 +484,8 @@ export default function SignupScreen() {
         )}
 
         <AppInput
-          placeholder="Phone Number"
+          label="Phone"
+          placeholder=""
           value={phoneNumber}
           onChangeText={(text) => {
             const value = text.replace(/[^0-9]/g, "");
@@ -462,7 +504,8 @@ export default function SignupScreen() {
         )}
 
         <AppInput
-          placeholder="Password *"
+          label="Password *"
+          placeholder=""
           value={password}
           onChangeText={(text) => handleChange("password", text)}
           secureTextEntry
@@ -473,9 +516,21 @@ export default function SignupScreen() {
         {!!errors.password && (
           <Text style={styles.errorText}>{errors.password}</Text>
         )}
+        <View style={styles.passwordStrength} accessibilityLabel={`Password strength ${passwordStrength} of 4`}>
+          {[0, 1, 2, 3].map((segment) => (
+            <View
+              key={segment}
+              style={[
+                styles.passwordStrengthSegment,
+                { backgroundColor: segment < passwordStrength ? colors.primary : colors.surfaceRaised },
+              ]}
+            />
+          ))}
+        </View>
 
         <AppInput
-          placeholder="Confirm Password *"
+          label="Confirm Password *"
+          placeholder=""
           value={password2}
           onChangeText={(text) => handleChange("password2", text)}
           secureTextEntry
@@ -487,19 +542,22 @@ export default function SignupScreen() {
           <Text style={styles.errorText}>{errors.password2}</Text>
         )}
 
-        <LegalConsent />
+        <LegalConsent align="left" />
 
         <PrimaryButton
           title="Create Account"
           onPress={handleSignup}
           loading={loading}
-          disabled={isChecking || isAvailable === false}
+          disabled={!isFormValid || isChecking || isAvailable === false}
           style={styles.signupButton}
+          rightIcon={<Ionicons name="arrow-forward" size={22} color="#101510" />}
           authStyle
         />
 
         <TouchableOpacity onPress={() => router.back()} disabled={loading}>
-          <Text style={styles.link}>Already a member? <Text style={styles.linkAccent}>Sign in</Text></Text>
+          <Text style={[styles.link, { color: colors.textSecondary }]}>
+            Already a member? <Text style={[styles.linkAccent, { color: colors.primary }]}>Sign In</Text>
+          </Text>
         </TouchableOpacity>
         </View>
       </ScrollView>
@@ -510,28 +568,61 @@ export default function SignupScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingHorizontal: 24,
+    paddingBottom: 6,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 20,
+  },
+  progressRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  progressTrack: {
+    flex: 1,
+    height: 6,
+    overflow: "hidden",
+    borderRadius: 999,
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 999,
+  },
+  progressText: {
+    minWidth: 28,
+    textAlign: "right",
+    fontSize: 12,
+    fontWeight: "600",
+    fontVariant: ["tabular-nums"],
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 20,
-    paddingTop: 6,
-    paddingBottom: 6,
+    paddingHorizontal: 24,
+    paddingBottom: 24,
+  },
+  heading: {
+    marginTop: 4,
+    marginBottom: 4,
   },
   title: {
-    ...Typography.h1,
-    color: Colors.text,
-    textAlign: "center",
-    marginTop: Spacing.lg,
+    fontSize: 24,
+    fontWeight: "700",
   },
   subtitle: {
-    ...Typography.body,
-    color: Colors.textSecondary,
-    textAlign: "center",
-    marginBottom: Spacing.lg,
+    fontSize: 13,
   },
   sectionTitle: {
     fontSize: 14,
@@ -542,18 +633,18 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: "row",
-    gap: 10,
+    gap: 12,
   },
   halfInput: {
     flex: 1,
   },
   inputContainer: {
-    marginBottom: 4,
+    marginBottom: 0,
   },
   compactInput: {
-    minHeight: 46,
-    paddingHorizontal: 12,
-    borderRadius: 12,
+    minHeight: 52,
+    paddingHorizontal: 16,
+    borderRadius: 14,
   },
   errorText: {
     ...Typography.caption,
@@ -571,7 +662,8 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   signupButton: {
-    marginTop: 8,
+    marginTop: 4,
+    marginBottom: 8,
   },
   link: {
     fontSize: 13,
@@ -581,7 +673,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   googleInfoContainer: {
-    backgroundColor: Colors.surfaceLight,
     padding: Spacing.md,
     borderRadius: BorderRadius.md,
     marginBottom: Spacing.md,
@@ -591,17 +682,15 @@ const styles = StyleSheet.create({
   googleInfoText: {
     ...Typography.bodySmall,
     fontWeight: "600",
-    color: Colors.text,
   },
   googleInfoSubtext: {
     ...Typography.caption,
-    color: Colors.textSecondary,
   },
-  authCard: { width: '100%', maxWidth: 520, alignSelf: 'center' },
-  backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 20, backgroundColor: '#202124', borderWidth: 1, borderColor: '#333538', marginBottom: 8 },
-  googleButtonContainer: { marginBottom: 8 },
-  emailDivider: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 10 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: '#202124' },
-  emailDividerText: { color: Colors.textMuted, fontSize: 13, fontWeight: '600', letterSpacing: .2 },
-  linkAccent: { color: Colors.primary, fontWeight: '700' },
+  authCard: { width: '100%', maxWidth: 520, alignSelf: 'center', gap: 10 },
+  emailDivider: { flexDirection: 'row', alignItems: 'center', marginVertical: 2, gap: 10 },
+  dividerLine: { flex: 1, height: 1 },
+  emailDividerText: { fontSize: 13, fontWeight: '600', letterSpacing: .2 },
+  passwordStrength: { flexDirection: "row", gap: 4, marginTop: -4, marginBottom: 2 },
+  passwordStrengthSegment: { flex: 1, height: 4, borderRadius: 4 },
+  linkAccent: { fontWeight: '700' },
 });

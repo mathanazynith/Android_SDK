@@ -8,18 +8,36 @@ import GlobalBottomNav, { isPrimaryTabPath } from '../../components/navigation/G
 import TabZoomTransition from '../../components/navigation/TabZoomTransition';
 import { ActiveRunProvider, useActiveRun } from '../../contexts/ActiveRunContext';
 
+const primaryTabRouteNames = new Set([
+  'activity/index',
+  'dashboard',
+  'history',
+  'home',
+  'profile',
+  'stats',
+  'training-plan',
+]);
+
 function AppLayoutContent() {
   const pathname = usePathname();
   const showBottomNav = isPrimaryTabPath(pathname);
   const activeRun = useActiveRun();
   const blurTargetRef = useRef<View | null>(null);
   const isIOS = Platform.OS === 'ios';
+  const backNavigationPending = useRef(false);
+
+  useEffect(() => {
+    backNavigationPending.current = false;
+  }, [pathname]);
 
   useEffect(() => {
     if (!showBottomNav) return;
 
     const handleBackPress = () => {
+      if (backNavigationPending.current) return true;
+
       if (pathname.replace('/(app)', '') !== '/dashboard') {
+        backNavigationPending.current = true;
         router.replace('/(app)/dashboard');
         return true;
       }
@@ -38,7 +56,14 @@ function AppLayoutContent() {
   const renderScreen = ({ route, children }: { route: { key: string; name: string }; children: React.ReactElement }) =>
     route.name === 'profile'
       ? children
-      : <TabZoomTransition key={route.key} animate={route.name !== 'screens/map'}>{children}</TabZoomTransition>;
+      : (
+        <TabZoomTransition
+          key={route.key}
+          animate={!primaryTabRouteNames.has(route.name) && route.name !== 'screens/map'}
+        >
+          {children}
+        </TabZoomTransition>
+      );
 
   const stackContent = (
     <Stack
@@ -77,6 +102,15 @@ function AppLayoutContent() {
           <Stack.Screen name="stats" options={{ animation: 'none' }} />
           <Stack.Screen name="screens/weather-details" />
           <Stack.Screen name="screens/map" options={{ gestureEnabled: !activeRun?.active }} />
+          <Stack.Screen name="workout-recovery" options={{
+            headerShown: false,
+            presentation: 'formSheet',
+            sheetAllowedDetents: [0.5],
+            sheetGrabberVisible: true,
+            sheetCornerRadius: 26,
+            contentStyle: { backgroundColor: '#F7F9F7' },
+            animation: 'slide_from_bottom',
+          }} />
           <Stack.Screen name="home" />
           <Stack.Screen name="history" />
           <Stack.Screen name="run" options={{ gestureEnabled: !activeRun?.active }} />

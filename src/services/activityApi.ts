@@ -2,6 +2,7 @@ import polyline from '@mapbox/polyline';
 import api from '../../service/api';
 import { storage } from '../../service/storage';
 import { ActivityExtraSplits, ActivityLapRecord, ActivitySegmentSplits, ActivitySplit, SPLIT_DISTANCE_METERS } from '../types/activity';
+import type { ActivitySubmissionPayload } from '../types/running';
 import { calculateDistanceMeters } from '../utils/distance';
 import { activityDistanceOverrides } from './activityDistanceOverrides';
 import { activityManualLapOverrides } from './activityManualLapOverrides';
@@ -152,6 +153,29 @@ const getLapGpsPoints = (value: Record<string, unknown>): BackendGpsPoint[] => {
   )) ?? [];
 };
 
+const isExtraDistanceFlag = (value: unknown): boolean => (
+  value === true
+  || value === 1
+  || (typeof value === 'string' && ['true', '1'].includes(value.trim().toLowerCase()))
+);
+
+const isExtraManualLapEvent = (
+  item: Record<string, unknown>,
+  points: BackendGpsPoint[],
+): boolean => {
+  if (item.is_extra_distance !== undefined && item.is_extra_distance !== null) {
+    return isExtraDistanceFlag(item.is_extra_distance);
+  }
+
+  const extraStart = points
+    .filter((point) => isExtraDistanceFlag(point.is_extra_distance))
+    .map((point) => parseTimestamp(point.timestamp))
+    .filter((timestamp): timestamp is number => timestamp !== null)
+    .sort((left, right) => left - right)[0];
+  const eventTimestamp = parseTimestamp(item.timestamp ?? item.ended_at);
+  return extraStart !== undefined && eventTimestamp !== null && eventTimestamp >= extraStart;
+};
+
 const parseTimestamp = (value: unknown): number | null => {
   const timestamp = typeof value === 'number'
     ? value
@@ -214,6 +238,7 @@ const normalizeLapRecords = (
   value: Record<string, unknown>,
   includeManualEvents = true,
   includeWorkoutLaps = true,
+  includeExtraManualEvents = false,
 ): ActivityLapRecord[] => {
   const backendLaps = includeWorkoutLaps && Array.isArray(value.laps) ? value.laps : [];
   const lapEvents = Array.isArray(value.lap_events) ? value.lap_events : [];
@@ -257,8 +282,12 @@ const normalizeLapRecords = (
   const normalizedManualLaps = lapEvents.flatMap((event, index) => {
     if (!event || typeof event !== 'object') return [];
     const item = event as Record<string, unknown>;
+    if (isExtraManualLapEvent(item, points) !== includeExtraManualEvents) return [];
     const eventTimestamp = parseTimestamp(item.timestamp ?? item.ended_at);
-    const sequence = Math.max(1, Math.floor(toNumber(item.split_number ?? item.event_number ?? item.sequence, index + 1)));
+    const sequence = Math.max(1, Math.floor(toNumber(
+      item.manual_lap_number ?? item.split_number ?? item.event_number ?? item.sequence,
+      index + 1,
+    )));
     const distance = optionalNumber(item.distance_m, item.distance_meters, item.distance)
       ?? (eventTimestamp !== null && previousBoundary !== null
         ? distanceBetweenPoints(points, previousBoundary, eventTimestamp)
@@ -300,6 +329,19 @@ const normalizeSplit = (value: unknown, index: number): ActivitySplit | null => 
     distance_m: distance,
     time_s: time,
     pace_s_per_km: toNumber(split.pace_s_per_km ?? split.pace, time / (distance / 1000)),
+    ...((split.steps !== undefined ? split.steps : split.step_count) === null
+      ? { steps: null }
+      : (split.steps !== undefined ? split.steps : split.step_count) !== undefined
+        ? { steps: toNumber(split.steps !== undefined ? split.steps : split.step_count) }
+        : {}),
+    ...(split.average_spm !== undefined
+      ? { average_spm: split.average_spm === null ? null : toNumber(split.average_spm) }
+      : {}),
+    ...((split.cadence_spm ?? split.average_spm) === null
+      ? { cadence_spm: null }
+      : (split.cadence_spm ?? split.average_spm) !== undefined
+        ? { cadence_spm: toNumber(split.cadence_spm ?? split.average_spm) }
+        : {}),
   };
 };
 
@@ -431,18 +473,6 @@ const createSplitsFromDistanceAndTime = (
   return splits;
 };
 
-const createSingleLapSplit = (distanceMeters: number, timeSeconds: number): ActivitySplit[] => {
-  if (!Number.isFinite(distanceMeters) || distanceMeters <= 0 || !Number.isFinite(timeSeconds) || timeSeconds < 0) {
-    return [];
-  }
-  return [{
-    split_number: 1,
-    distance_m: distanceMeters,
-    time_s: timeSeconds,
-    pace_s_per_km: timeSeconds / (distanceMeters / 1000),
-  }];
-};
-
 const normalizeSegment = (value: unknown, index: number): ActivitySegmentSplits | null => {
   if (!value || typeof value !== 'object') return null;
   const segment = value as Record<string, unknown>;
@@ -453,15 +483,48 @@ const normalizeSegment = (value: unknown, index: number): ActivitySegmentSplits 
   const nestedRecovery = segment.recovery && typeof segment.recovery === 'object'
     ? normalizeSegment(segment.recovery, index + 1)
     : undefined;
+  const sequence = Math.max(1, Math.floor(toNumber(segment.sequence ?? segment.segment_order, index + 1)));
+  const laps = Array.isArray(segment.laps)
+    ? segment.laps.flatMap((lap, lapIndex) => {
+      if (!lap || typeof lap !== 'object') return [];
+      const value = lap as Record<string, unknown>;
+      const lapNumber = Math.max(1, Math.floor(toNumber(value.lap_number ?? value.sequence, lapIndex + 1)));
+      const distance = optionalNumber(value.distance_m, value.distance_meters, value.distance);
+      const time = optionalNumber(value.time_s, value.duration_seconds, value.time);
+      const pace = optionalNumber(value.pace_s_per_km, value.pace_seconds_per_km, value.pace)
+        ?? (distance !== undefined && distance > 0 && time !== undefined ? time / (distance / 1000) : undefined);
+      const stepsValue = value.steps !== undefined ? value.steps : value.step_count;
+      return [{
+        sequence: lapNumber,
+        segment_sequence: sequence,
+        label: `Lap ${lapNumber}`,
+        distance_m: distance,
+        time_s: time,
+        pace_s_per_km: pace,
+        ...(stepsValue === null
+          ? { steps: null }
+          : stepsValue !== undefined
+            ? { steps: toNumber(stepsValue) }
+            : {}),
+        ...(value.cadence_spm === null
+          ? { cadence_spm: null }
+          : value.cadence_spm !== undefined
+            ? { cadence_spm: toNumber(value.cadence_spm) }
+            : {}),
+        splits: normalizeSplits(value.splits),
+      }];
+    })
+    : undefined;
   return {
     id: typeof segment.id === 'string' || typeof segment.id === 'number' ? segment.id : undefined,
-    sequence: Math.max(1, Math.floor(toNumber(segment.sequence ?? segment.segment_order, index + 1))),
+    sequence,
     type,
     planned_distance_m: toNumber(segment.planned_distance_m ?? segment.planned_distance ?? segment.rep_distance, 0) || undefined,
     completed_distance_m: toNumber(segment.completed_distance_m ?? segment.completed_distance ?? segment.distance_m, 0) || undefined,
     actual_time_s: toNumber(segment.actual_time_s ?? segment.time_s ?? segment.duration_s ?? segment.actual_time, 0) || undefined,
     actual_pace_s_per_km: toNumber(segment.actual_pace_s_per_km ?? segment.pace_s_per_km ?? segment.pace, 0) || undefined,
     splits: isRecovery(type) ? [] : normalizeSplits(segment.splits),
+    laps,
     gps_points: gpsPoints,
     recovery: nestedRecovery ? { ...nestedRecovery, splits: [] } : undefined,
   };
@@ -497,13 +560,15 @@ export const normalizeActivitySplits = (activity: unknown): {
       })
       .filter((split): split is ActivitySplit => split !== null)
     : [];
+  const activityPoints = getActivityPoints(value);
   const manualLapSplits = Array.isArray(value.lap_events)
     ? value.lap_events
       .map((event, index) => {
         if (!event || typeof event !== 'object') return null;
         const lapEvent = event as Record<string, unknown>;
+        if (isExtraManualLapEvent(lapEvent, activityPoints)) return null;
         return normalizeSplit({
-          split_number: lapEvent.split_number ?? lapEvent.event_number ?? index + 1,
+          split_number: lapEvent.split_number ?? lapEvent.manual_lap_number ?? lapEvent.event_number ?? index + 1,
           distance_m: lapEvent.distance_m,
           time_s: lapEvent.time_s,
           pace_s_per_km: lapEvent.pace_s_per_km,
@@ -517,20 +582,23 @@ export const normalizeActivitySplits = (activity: unknown): {
     value.workout_distance_meters,
     value.distance,
   );
+  const activityWorkoutDistanceMeters = optionalNumber(value.workout_distance_meters);
   const activityMovingTimeSeconds = optionalNumber(
     value.moving_time_s,
     value.moving_time,
     value.elapsed_time_s,
     value.elapsed_time,
   );
-  const activityPoints = getActivityPoints(value);
-  const generatedActivitySplits = createSplitsFromGpsPoints(
-    activityPoints.filter((point) => !point.is_extra_distance),
-    splitDistanceMeters,
-    activityDistanceMeters && activityDistanceMeters > 0 ? activityDistanceMeters : undefined,
-    activityMovingTimeSeconds && activityMovingTimeSeconds > 0 ? activityMovingTimeSeconds : undefined,
-  );
-  const generatedExtraSplits = createSplitsFromGpsPoints(activityPoints.filter((point) => point.is_extra_distance), splitDistanceMeters);
+  const hasExtraDistancePoints = activityPoints.some((point) => isExtraDistanceFlag(point.is_extra_distance));
+  const firstExtraPointIndex = activityPoints.findIndex((point) => isExtraDistanceFlag(point.is_extra_distance));
+  const workoutPoints = hasExtraDistancePoints
+    ? activityPoints.slice(0, firstExtraPointIndex)
+    : activityPoints;
+  const generatedActivitySplits = createSplitsFromGpsPoints(workoutPoints, splitDistanceMeters);
+  const extraPointsWithBoundary = hasExtraDistancePoints
+    ? activityPoints.slice(Math.max(0, firstExtraPointIndex - 1))
+    : [];
+  const generatedExtraSplits = createSplitsFromGpsPoints(extraPointsWithBoundary, splitDistanceMeters);
   const manualSegmentIndex = normalizedSegments.findIndex((segment) => (
     segment.type === 'RUN' || segment.type === 'WALK'
   )) >= 0
@@ -574,7 +642,7 @@ export const normalizeActivitySplits = (activity: unknown): {
       });
 
     let segmentSplits = segmentSplitsAreManual ? [] : segment.splits;
-    if (segmentSplits.length === 1 && segmentSplits[0].distance_m > splitDistanceMeters) {
+    if (segmentSplits.some((split) => split.distance_m > splitDistanceMeters)) {
       segmentSplits = repartitionSplits(segmentSplits, splitDistanceMeters);
     } else if (segmentSplits.length === 0) {
       if (gpsSplits.length > 0) {
@@ -649,9 +717,13 @@ export const normalizeActivitySplits = (activity: unknown): {
     const lapTime = lapSplits.reduce((total, split) => total + split.time_s, 0);
     const generatedDistance = generatedActivitySplits.reduce((total, split) => total + split.distance_m, 0);
     const generatedTime = generatedActivitySplits.reduce((total, split) => total + split.time_s, 0);
-    const completedDistance = activityDistanceMeters && activityDistanceMeters > 0
-      ? activityDistanceMeters
-      : generatedDistance || manualDistance || lapDistance;
+    const completedDistance = activityWorkoutDistanceMeters !== undefined
+      ? activityWorkoutDistanceMeters
+      : hasExtraDistancePoints
+        ? generatedDistance || manualDistance || lapDistance
+        : activityDistanceMeters && activityDistanceMeters > 0
+          ? activityDistanceMeters
+          : generatedDistance || manualDistance || lapDistance;
     const completedTime = activityMovingTimeSeconds && activityMovingTimeSeconds > 0
       ? activityMovingTimeSeconds
       : generatedTime || manualTime || lapTime;
@@ -686,10 +758,8 @@ export const normalizeActivitySplits = (activity: unknown): {
 
     let lapSplits: ActivitySplit[] = [];
     if (isManualLap) {
-      // Manual button presses define lap boundaries, so each lap's single
-      // split must match that exact dynamic lap distance (e.g. 700m or 3km).
       if (lap.distance_m !== undefined && lap.time_s !== undefined) {
-        lapSplits = createSingleLapSplit(lap.distance_m, lap.time_s);
+        lapSplits = createSplitsFromDistanceAndTime(lap.distance_m, lap.time_s, splitDistanceMeters);
       }
     } else if (lap.segment_sequence !== undefined && segment?.splits.length) {
       lapSplits = segment.splits;
@@ -711,9 +781,16 @@ export const normalizeActivitySplits = (activity: unknown): {
     const recordedLapDistance = normalizedLaps.reduce((total, lap) => total + (lap.distance_m ?? 0), 0);
     const recordedLapTime = normalizedLaps.reduce((total, lap) => total + (lap.time_s ?? 0), 0);
     const routeDistance = generatedActivitySplits.reduce((total, split) => total + split.distance_m, 0);
-    const totalDistance = activityDistanceMeters && activityDistanceMeters > 0
-      ? activityDistanceMeters
-      : routeDistance;
+    // The total activity distance may include post-workout extra distance.
+    // Use the workout-only total (or the untagged route) for the planned
+    // activity remainder so extra distance cannot create another workout lap.
+    const totalDistance = activityWorkoutDistanceMeters !== undefined
+      ? activityWorkoutDistanceMeters
+      : hasExtraDistancePoints
+        ? routeDistance
+        : activityDistanceMeters && activityDistanceMeters > 0
+          ? activityDistanceMeters
+          : routeDistance;
     const remainingDistance = Math.max(0, totalDistance - recordedLapDistance);
     const activityEnd = parseTimestamp(value.end_time ?? value.ended_at)
       ?? Date.now();
@@ -732,9 +809,11 @@ export const normalizeActivitySplits = (activity: unknown): {
             activityEnd,
           ))
         : 0;
-    const remainderSplits = manualLaps.length > 0
-      ? createSingleLapSplit(remainingDistance, remainderTime)
-      : createSplitsFromDistanceAndTime(remainingDistance, remainderTime, splitDistanceMeters);
+    const remainderSplits = createSplitsFromDistanceAndTime(
+      remainingDistance,
+      remainderTime,
+      splitDistanceMeters,
+    );
 
     if (remainingDistance > 0.5) {
       const segment = segments.find((candidate) => candidate.type === 'RUN' || candidate.type === 'WALK')
@@ -769,21 +848,61 @@ export const normalizeActivitySplits = (activity: unknown): {
         splits: segment.splits,
       }];
     });
+  const extraManualLaps = normalizeLapRecords(value, true, false, true).map((lap, index) => ({
+    ...lap,
+    sequence: index + 1,
+    label: `Lap ${index + 1}`,
+    splits: lap.distance_m !== undefined && lap.time_s !== undefined
+      ? createSplitsFromDistanceAndTime(lap.distance_m, lap.time_s, splitDistanceMeters)
+      : [],
+  }));
+  const normalizedExtraSplits = extraSegment?.splits.length
+    ? repartitionSplits(extraSegment.splits, splitDistanceMeters)
+      .map((split, index) => ({ ...split, split_number: index + 1 }))
+    : generatedExtraSplits;
+  const extraDistanceFromSplits = normalizedExtraSplits.reduce((total, split) => total + split.distance_m, 0);
+  const extraManualDistance = extraManualLaps.reduce((total, lap) => total + (lap.distance_m ?? 0), 0);
+  const extraManualTime = extraManualLaps.reduce((total, lap) => total + (lap.time_s ?? 0), 0);
+  const extraDistanceTotal = extraDistanceFromSplits
+    || extraManualDistance
+    || extraSegment?.completed_distance_m
+    || extraSegment?.planned_distance_m
+    || 0;
+  const extraTimeTotal = extraSegment?.actual_time_s ?? 0;
+  const extraLapRemainderDistance = Math.max(0, extraDistanceTotal - extraManualDistance);
+  const extraLapRemainderTime = Math.max(0, extraTimeTotal - extraManualTime);
+  const calculatedExtraLaps = [
+    ...extraManualLaps,
+    ...(extraLapRemainderDistance > 0.5
+      ? [{
+        sequence: extraManualLaps.length + 1,
+        label: `Lap ${extraManualLaps.length + 1}`,
+        distance_m: extraLapRemainderDistance,
+        time_s: extraLapRemainderTime,
+        pace_s_per_km: extraLapRemainderDistance > 0
+          ? extraLapRemainderTime / (extraLapRemainderDistance / 1000)
+          : undefined,
+        splits: createSplitsFromDistanceAndTime(extraLapRemainderDistance, extraLapRemainderTime, splitDistanceMeters),
+      }]
+      : []),
+  ];
+  const extraLaps = extraSegment?.laps?.length ? extraSegment.laps : calculatedExtraLaps;
   return {
     segments,
     laps,
-    extra: extraSegment && (extraSegment.splits.length > 0 || generatedExtraSplits.length > 0)
+    extra: (extraSegment && (extraSegment.splits.length > 0 || generatedExtraSplits.length > 0))
+      || extraManualLaps.length > 0
       ? {
-        id: extraSegment.id,
+        id: extraSegment?.id,
         type: 'EXTRA',
-        distance_m: extraSegment.completed_distance_m ?? extraSegment.planned_distance_m,
-        actual_time_s: extraSegment.actual_time_s,
-        actual_pace_s_per_km: extraSegment.actual_pace_s_per_km,
-        splits: extraSegment.splits.length > 0
-          ? (extraSegment.splits.length === 1 && extraSegment.splits[0].distance_m > splitDistanceMeters
-              ? repartitionSplits(extraSegment.splits, splitDistanceMeters)
-              : extraSegment.splits)
-          : generatedExtraSplits,
+        distance_m: extraDistanceFromSplits
+          || extraSegment?.completed_distance_m
+          || extraSegment?.planned_distance_m
+          || extraManualDistance,
+        actual_time_s: extraSegment?.actual_time_s,
+        actual_pace_s_per_km: extraSegment?.actual_pace_s_per_km,
+        splits: normalizedExtraSplits,
+        laps: extraLaps,
       }
       : null,
   };
@@ -827,6 +946,14 @@ export interface BackendActivity {
   planned_distance_km?: number | null;
   extra_distance?: number | null;
   extra_distance_km?: number | null;
+  total_steps?: number | null;
+  counted_steps?: number | null;
+  step_tracking_source?: string | null;
+  step_summary?: {
+    total_steps?: number | null;
+    counted_steps?: number | null;
+    step_tracking_source?: string | null;
+  } | null;
   avg_speed: number;
   max_speed: number;
   avg_pace: number;
@@ -884,7 +1011,12 @@ const GPX_ACTIVITY_IMPORT_PATH = (
 const ACTIVITY_HISTORY_CACHE_KEY = 'activity_history_first_page_v4';
 export const ACTIVITY_HISTORY_FIELDS = 'id,activity_type,distance,moving_time,elapsed_time,start_time,end_time,avg_pace,elevation_gain,elevation_loss,processing_status,is_processed,thumbnail_url,is_saved_to_my_routes,saved_route_id';
 
-const getActivityHistoryCacheKey = async () => {
+const getActivityHistoryCacheKey = async (requestedUserId?: string | number | null) => {
+  if (requestedUserId !== undefined) {
+    return requestedUserId === null || String(requestedUserId).trim() === ''
+      ? `${ACTIVITY_HISTORY_CACHE_KEY}_anonymous`
+      : `${ACTIVITY_HISTORY_CACHE_KEY}_user_${encodeURIComponent(String(requestedUserId))}`;
+  }
   try {
     const userJson = await storage.getItem(storage.KEYS.USER);
     const user = userJson ? JSON.parse(userJson) as { id?: string | number } : null;
@@ -895,6 +1027,51 @@ const getActivityHistoryCacheKey = async () => {
   } catch {
     return `${ACTIVITY_HISTORY_CACHE_KEY}_anonymous`;
   }
+};
+
+interface RecentSavedActivity {
+  savedAt: number;
+  activity: BackendActivity;
+}
+
+const RECENT_SAVED_ACTIVITY_TTL_MS = 24 * 60 * 60 * 1000;
+const RECENT_SAVED_ACTIVITY_LIMIT = 20;
+
+const recentSavedActivitiesKey = (historyCacheKey: string) => `${historyCacheKey}_recent_saved`;
+
+const readRecentSavedActivities = async (historyCacheKey: string): Promise<RecentSavedActivity[]> => {
+  try {
+    const raw = await storage.getItem(recentSavedActivitiesKey(historyCacheKey));
+    const items = raw ? JSON.parse(raw) as unknown : [];
+    if (!Array.isArray(items)) return [];
+    const now = Date.now();
+    return items.filter((item): item is RecentSavedActivity => (
+      item && typeof item === 'object'
+      && typeof item.savedAt === 'number'
+      && now - item.savedAt < RECENT_SAVED_ACTIVITY_TTL_MS
+      && item.activity && typeof item.activity === 'object'
+      && (typeof item.activity.id === 'string' || typeof item.activity.id === 'number')
+    ));
+  } catch {
+    return [];
+  }
+};
+
+const writeRecentSavedActivities = async (historyCacheKey: string, items: RecentSavedActivity[]) => {
+  await storage.setItem(
+    recentSavedActivitiesKey(historyCacheKey),
+    JSON.stringify(items.slice(0, RECENT_SAVED_ACTIVITY_LIMIT).map(({ activity, savedAt }) => ({
+      activity: toCachedActivity(activity),
+      savedAt,
+    }))),
+  );
+};
+
+const removeRecentSavedActivity = async (historyCacheKey: string, activityId: BackendActivity['id']) => {
+  const recent = await readRecentSavedActivities(historyCacheKey);
+  await writeRecentSavedActivities(historyCacheKey, recent.filter(
+    ({ activity }) => String(activity.id) !== String(activityId),
+  ));
 };
 
 export interface ActivityHistoryPage {
@@ -1111,6 +1288,25 @@ export const normalizeHistoryPage = async (
   };
 };
 
+const mergeRecentSavedActivities = (
+  page: ActivityHistoryPage,
+  recent: RecentSavedActivity[],
+): ActivityHistoryPage => {
+  const knownIds = new Set(page.activities.map((activity) => String(activity.id)));
+  const newlyVisible = recent
+    .map(({ activity }) => activity)
+    .filter((activity) => !knownIds.has(String(activity.id)));
+  const activities = deduplicateActivitiesById([...page.activities, ...newlyVisible])
+    .sort((left, right) => Date.parse(right.start_time) - Date.parse(left.start_time));
+  return {
+    ...page,
+    activities,
+    totalCount: page.totalCount === null
+      ? null
+      : page.totalCount + newlyVisible.length,
+  };
+};
+
 const toCachedActivity = (activity: BackendActivity): BackendActivity => ({
   id: activity.id,
   activity_type: activity.activity_type,
@@ -1120,6 +1316,10 @@ const toCachedActivity = (activity: BackendActivity): BackendActivity => ({
   moving_time: activity.moving_time,
   elapsed_time: activity.elapsed_time,
   distance: activity.distance,
+  total_steps: activity.total_steps,
+  counted_steps: activity.counted_steps,
+  step_tracking_source: activity.step_tracking_source,
+  step_summary: activity.step_summary,
   avg_speed: activity.avg_speed,
   max_speed: activity.max_speed,
   avg_pace: activity.avg_pace,
@@ -1150,26 +1350,93 @@ export const activityAPI = {
       const rawActivities = extractActivities(response.data);
     }
     const result = await normalizeHistoryPage(response.data, limit, cursor);
+    let visibleResult = result;
+    if (cursor === null) {
+      const recent = await readRecentSavedActivities(historyCacheKey!);
+      const serverIds = new Set(result.activities.map((activity) => String(activity.id)));
+      const pendingRecent = recent.filter(({ activity }) => !serverIds.has(String(activity.id)));
+      await writeRecentSavedActivities(historyCacheKey!, pendingRecent);
+      visibleResult = mergeRecentSavedActivities(result, pendingRecent);
+    }
     if (historyCacheKey) {
       await storage.setItem(historyCacheKey, JSON.stringify({
-        ...result,
-        activities: result.activities.map(toCachedActivity),
+        ...visibleResult,
+        activities: visibleResult.activities.map(toCachedActivity),
       }));
     }
-    return result;
+    return visibleResult;
   },
 
   async getCachedFirstPage(): Promise<ActivityHistoryPage | null> {
     try {
       const historyCacheKey = await getActivityHistoryCacheKey();
       const cached = await storage.getItem(historyCacheKey);
-      if (!cached) return null;
+      const recent = await readRecentSavedActivities(historyCacheKey);
+      if (!cached) {
+        return recent.length > 0
+          ? mergeRecentSavedActivities({ activities: [], hasMore: true, nextCursor: null, totalCount: 0 }, recent)
+          : null;
+      }
       const parsed = JSON.parse(cached) as ActivityHistoryPage;
       return Array.isArray(parsed.activities)
-        ? { ...parsed, activities: deduplicateActivitiesById(parsed.activities) }
+        ? mergeRecentSavedActivities(
+          { ...parsed, activities: deduplicateActivitiesById(parsed.activities) },
+          recent,
+        )
         : null;
     } catch {
       return null;
+    }
+  },
+
+  async cacheSavedWorkout(
+    activityId: string | number,
+    payload: ActivitySubmissionPayload,
+    userId?: string | number | null,
+  ): Promise<void> {
+    const historyCacheKey = await getActivityHistoryCacheKey(userId);
+    const distance = Number(payload.total_distance_meters ?? payload.distance ?? 0);
+    const movingTime = Number(payload.moving_time_s ?? payload.moving_time ?? 0);
+    const elapsedTime = Number(payload.elapsed_time_s ?? payload.elapsed_time ?? movingTime);
+    const activity: BackendActivity = {
+      id: activityId,
+      activity_id: activityId,
+      activity_type: payload.activity_type,
+      start_time: payload.start_time,
+      end_time: payload.end_time,
+      moving_time: movingTime,
+      elapsed_time: elapsedTime,
+      distance,
+      total_steps: payload.total_steps ?? null,
+      step_summary: payload.step_summary ?? null,
+      avg_speed: movingTime > 0 ? distance / movingTime : 0,
+      max_speed: 0,
+      avg_pace: Number(payload.avg_pace ?? 0),
+      calories: 0,
+      gps_points_count: payload.gps_points?.length ?? 0,
+      route_generated: (payload.gps_points?.length ?? 0) > 1,
+      processing_status: 'COMPLETED',
+      is_processed: true,
+    };
+    const recent = await readRecentSavedActivities(historyCacheKey);
+    await writeRecentSavedActivities(historyCacheKey, [
+      { activity, savedAt: Date.now() },
+      ...recent.filter((item) => String(item.activity.id) !== String(activityId)),
+    ]);
+
+    try {
+      const rawCache = await storage.getItem(historyCacheKey);
+      const cached = rawCache ? JSON.parse(rawCache) as ActivityHistoryPage : null;
+      const page = cached && Array.isArray(cached.activities)
+        ? cached
+        : { activities: [], hasMore: true, nextCursor: null, totalCount: 0 };
+      const nextPage = mergeRecentSavedActivities(page, [{ activity, savedAt: Date.now() }]);
+      await storage.setItem(historyCacheKey, JSON.stringify({
+        ...nextPage,
+        activities: nextPage.activities.slice(0, 30).map(toCachedActivity),
+      }));
+    } catch (error) {
+      console.warn('[ActivityHistory] Could not update saved workout cache', error);
     }
   },
 
@@ -1237,6 +1504,7 @@ export const activityAPI = {
     const response = await api.delete(getActivityDeletePath(activityId));
     const historyCacheKey = await getActivityHistoryCacheKey();
     await storage.removeItem(historyCacheKey).catch(() => undefined);
+    await removeRecentSavedActivity(historyCacheKey, activityId).catch(() => undefined);
     return typeof response.data?.message === 'string'
       ? response.data.message
       : 'Activity deleted successfully.';

@@ -8,6 +8,7 @@ export interface WorkoutSegment {
   type: string;
   repeats: number;
   distance: string;
+  rep_distance?: number | null;
   duration: string;
   pace: string;
   rest: string;
@@ -33,6 +34,7 @@ export interface WorkoutDetail {
   targetPace: string;
   heartRateZone: string;
   distance: string;
+  distanceMeters?: number | null;
   notes: string;
   segments: WorkoutSegment[];
   rawDate?: string;

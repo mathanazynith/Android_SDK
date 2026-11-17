@@ -3,7 +3,6 @@
 ## In-app workflow
 
 - On a workout in History, open Activity Details and tap the share icon, or open that activity's three-dot menu and select **Export GPX**, to create and share a GPX 1.1 track for that specific activity.
-- On Android History, tap **GPX** to choose a `.gpx` file using Expo FileSystem's built-in Android file picker. This avoids an additional DocumentPicker native module. The importer accepts timed `<trkpt>` tracks, `<rtept>` routes, and Xcode-style `<wpt>` waypoint sequences. It previews activity type, distance estimate, duration, and point count before sending the workout for import.
 - Import requires timestamps with time zones on every point. Coordinates are range-checked; files are limited to 10 MB, 100,000 points, and 72 hours. Time gaps longer than 15 minutes are called out before confirmation.
 - GPX latitude and longitude are mapped directly to the app's `latitude` and `longitude` fields. The app validates ranges but does not shift, swap, or otherwise "correct" valid coordinates.
 - Distance shown in the preview is a raw point-to-point estimate. The backend must compute the saved activity's canonical distance and moving time from the GPS samples; it must not trust that estimate as the final workout metric.
@@ -50,21 +49,28 @@ The endpoint should authenticate and assign ownership to the signed-in user, rev
 
 The existing `scripts/gps-simulator.js` can generate a GPX route or replay a supplied GPX file directly to a running Android emulator.
 
-1. Start an Android Studio emulator, install/run the development build, grant location permission, and start an in-app run if you want to test recording.
+1. Start an Android Studio emulator and install/run the development build. Grant Zy-Run precise location permission. The simulator will set the emulator to the route's starting coordinate before playback.
 2. Set `ANDROID_SDK_ROOT` (or `ANDROID_HOME`) if the SDK is installed outside `%LOCALAPPDATA%\Android\Sdk`. The simulator checks those SDK paths for `platform-tools\adb.exe`, so `adb` does not need to be on PowerShell `PATH`.
-3. Replay an existing file:
+3. To begin playback automatically after you tap **Start** in Zy-Run, run this from a second PowerShell terminal in the repository:
+
+   ```powershell
+   npm run simulate-gps-on-start -- --dist 1 --speed 4x
+   ```
+
+   The command waits for a new `[WorkoutLifecycle] SESSION_STARTED` event from the emulator, then streams the generated route over ADB. Tap **Start** in Zy-Run while it is waiting. The default route is a 1 km loop at the detected emulator location; set `--dist`, `--pace`, `--speed`, or `--type` (`loop`, `out-and-back`, or `track`) to customize it. Press Space to pause/resume playback, Q to stop after it starts, or Ctrl+C to cancel while waiting. The app must remain installed and signed in, and location permission must be granted.
+4. Replay an existing file:
 
    ```powershell
    npm run simulate-gps -- --gpx "C:\path\to\route.gpx" --speed 4x
    ```
 
    The command accepts `<trkpt>`, `<rtept>`, and `<wpt>` points. Use Space to pause/resume and Q to stop. Playback uses the GPX timestamps, caps an individual gap at 60 seconds, and applies the speed multiplier.
-4. Generate a test route without starting playback:
+5. Generate a test route without starting playback:
 
    ```powershell
    npm run simulate-gps -- --dist 5 --start 12.9716,77.5946 --gpx-only
    ```
 
-   The script writes `custom-run-5km.gpx` and `test-route.gpx` in the repository root. Those can also be loaded through Android Studio's Emulator Extended Controls → Location → Routes.
+   The script writes `generated-routes\custom-run-5km.gpx` and `generated-routes\test-route.gpx`. Those can also be loaded through Android Studio's Emulator Extended Controls → Location → Routes. Generated routes are ignored by Git and kept separate from the checked-in `test-route.gpx` fixture.
 
 The generated route files are test outputs; do not commit them unless they are intentionally added as fixtures.

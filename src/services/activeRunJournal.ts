@@ -2,6 +2,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 import { RawGpsPayload } from '../types/running';
 import { calculateDistanceMeters } from '../utils/distance';
+import type { ActivityStepTrackerSnapshot } from './activityStepTracker';
 
 /** Durable hand-off between the headless task and the map's existing GPS pipeline. */
 export interface ActiveRunJournal {
@@ -10,6 +11,7 @@ export interface ActiveRunJournal {
   startedAt: string;
   points: RawGpsPayload[];
   pausePoints?: (RawGpsPayload & { pauseSequence: number })[];
+  stepData?: ActivityStepTrackerSnapshot;
 }
 
 const JOURNAL_URI = `${FileSystem.documentDirectory ?? ''}zyrun-active-route.json`;
@@ -51,6 +53,15 @@ export const restoreActiveRunJournal = async (journal: ActiveRunJournal): Promis
     points: [...journal.points],
     pausePoints: [...(journal.pausePoints ?? [])],
   }));
+  return writeChain;
+};
+
+export const updateActiveRunStepData = async (stepData: ActivityStepTrackerSnapshot): Promise<void> => {
+  writeChain = writeChain.then(async () => {
+    const journal = await readActiveRunJournal();
+    if (!journal?.active) return;
+    await save({ ...journal, stepData });
+  });
   return writeChain;
 };
 

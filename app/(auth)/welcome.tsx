@@ -28,7 +28,12 @@ export default function WelcomeScreen() {
       >
         <View style={styles.brand}>
           <View style={styles.brandIcon}>
-            <Ionicons name="walk" size={20} color="#071007" />
+            <Image
+              source={require('../../assets/images/zyrun-adaptive-foreground.png')}
+              resizeMode="contain"
+              style={styles.brandIconImage}
+              accessibilityLabel="Zy-Run logo"
+            />
           </View>
           <Text style={styles.brandName}>ZY<Text style={styles.brandAccent}>-RUN</Text></Text>
           <View style={styles.brandPill}>
@@ -130,12 +135,20 @@ const styles = StyleSheet.create({
     gap: 9,
   },
   brandIcon: {
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#8BFA50',
+    backgroundColor: '#090B0A',
+    overflow: 'hidden',
+  },
+  brandIconImage: {
+    position: 'absolute',
+    width: 50,
+    height: 50,
+    left: -8,
+    top: -8,
   },
   brandName: {
     color: '#FFFFFF',

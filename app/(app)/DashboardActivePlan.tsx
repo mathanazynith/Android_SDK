@@ -6,8 +6,10 @@ import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../service/auth';
 import type { UserWorkoutResponse } from '../../service/customWorkout';
 import type { CurrentWorkout, CurrentWorkoutPlan } from '../../service/workoutPlan';
+import { formatDistanceFromMeters } from '../../src/utils/activityUnitFormatters';
 import {
   DistanceUnitType,
+  formatPaceForUnit,
   formatWorkoutDistance,
   formatWorkoutDuration,
   getPaceUnitLabel,
@@ -25,18 +27,18 @@ type DashboardActivePlanProps = {
 };
 
 const popularWorkouts = [
-  { title: '30 MIN', subtitle: 'Easy Run', tag: 'AEROBIC', color: '#30D158', icon: 'activity' as const },
-  { title: '70 MIN', subtitle: 'Long Run', tag: 'ENDURANCE', color: '#0A84FF', icon: 'clock' as const },
-  { title: '10 x 400m', subtitle: 'Interval Run', tag: 'SPEED', color: '#FF9500', icon: 'target' as const },
-  { title: '20 MIN', subtitle: 'Tempo Run', tag: 'THRESHOLD', color: '#AF52DE', icon: 'trending-up' as const },
+  { title: '30 MIN', subtitle: 'Easy Run', color: '#30D158', icon: 'activity' as const },
+  { title: '70 MIN', subtitle: 'Long Run', color: '#0A84FF', icon: 'clock' as const },
+  { title: '10 x 400m', subtitle: 'Interval Run', color: '#FF9500', icon: 'target' as const },
+  { title: '20 MIN', subtitle: 'Tempo Run', color: '#AF52DE', icon: 'trending-up' as const },
 ];
 
-const detailsFor = (workout: CurrentWorkout | null) => {
+const detailsFor = (workout: CurrentWorkout | null, unit: DistanceUnitType) => {
   if (!workout) return '';
   return [
-    workout.distance != null ? `${(workout.distance / 1000).toFixed(1)} km` : '',
+    workout.distance != null ? formatDistanceFromMeters(workout.distance, unit) : '',
     workout.duration != null ? `${Math.round(workout.duration / 60)} min` : '',
-    workout.target_pace ? `${workout.target_pace} ${workout.pace_unit || 'min/km'}`.trim() : '',
+    formatPaceForUnit(workout.target_pace, workout.pace_unit, unit),
   ].filter(Boolean).join('  ·  ');
 };
 
@@ -58,8 +60,9 @@ export default function DashboardActivePlan({
 
   const isRestDay = isRestWorkout(todayWorkout);
   const planName = plan.training_plan || plan.template_name || 'Training Plan';
-  const pace = plan.target_pace ? `${plan.target_pace}` : '—';
-  const paceUnit = plan.pace_unit || 'min/km';
+  const pace = plan.target_pace
+    ? formatPaceForUnit(plan.target_pace, plan.pace_unit, profileUnit, false)
+    : '—';
 
   // Custom workout metrics
   const customDistance = scheduledCustomWorkout
@@ -277,7 +280,7 @@ export default function DashboardActivePlan({
               (isRestDay
                 ? 'Take it easy and recharge. Recovery is when fitness adaptations are locked in.'
                 : todayWorkout
-                ? detailsFor(todayWorkout)
+                ? detailsFor(todayWorkout, profileUnit)
                 : 'Enjoy a restful recovery day ahead of your next workout.')}
           </DashboardText>
 
@@ -288,7 +291,7 @@ export default function DashboardActivePlan({
                 <View style={[styles.todayChip, { backgroundColor: colors.surface }]}>
                   <Feather name="map-pin" size={12} color={BRAND_GREEN} />
                   <DashboardText style={[styles.todayChipText, { color: colors.text }]}>
-                    {(todayWorkout.distance / 1000).toFixed(1)} km
+                    {formatDistanceFromMeters(todayWorkout.distance, profileUnit)}
                   </DashboardText>
                 </View>
               ) : null}
@@ -306,7 +309,7 @@ export default function DashboardActivePlan({
                 <View style={[styles.todayChip, { backgroundColor: colors.surface }]}>
                   <Feather name="zap" size={12} color={BRAND_GREEN} />
                   <DashboardText style={[styles.todayChipText, { color: colors.text }]}>
-                    {todayWorkout.target_pace} {todayWorkout.pace_unit || 'min/km'}
+                    {formatPaceForUnit(todayWorkout.target_pace, todayWorkout.pace_unit, profileUnit)}
                   </DashboardText>
                 </View>
               ) : null}
@@ -494,7 +497,7 @@ export default function DashboardActivePlan({
               {pace}
             </DashboardText>
             <DashboardText style={[styles.metricLabel, { color: colors.textSecondary }]}>
-              {paceUnit}
+              {paceUnitLabel}
             </DashboardText>
           </View>
         </View>
@@ -536,7 +539,7 @@ export default function DashboardActivePlan({
             Ready for a run?
           </DashboardText>
           <DashboardText style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
-            Track real-time pace, route map, splits & audio milestone alerts.
+            Track pace, route map, splits & audio alerts.
           </DashboardText>
 
           <View style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]}>
@@ -570,19 +573,24 @@ export default function DashboardActivePlan({
             ]}
             onPress={() => openPopularWorkoutSetup(workout)}
           >
-            <View style={styles.popularCardHeader}>
-              <View style={[styles.popularTagBadge, { backgroundColor: `${workout.color}16` }]}>
-                <DashboardText style={[styles.popularTagText, { color: workout.color }]}>
-                  {workout.tag}
-                </DashboardText>
-              </View>
-              <Feather name={workout.icon} size={16} color={workout.color} />
+            <View style={[styles.popularWorkoutIcon, { backgroundColor: `${workout.color}24` }]}>
+              <Feather name={workout.icon} size={12} color={workout.color} />
             </View>
 
-            <DashboardText style={[styles.popularTitle, { color: colors.text }]}>
+            <DashboardText
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+              style={[styles.popularTitle, { color: colors.text }]}
+            >
               {workout.title}
             </DashboardText>
-            <DashboardText style={[styles.popularSubtitle, { color: colors.textSecondary }]}>
+            <DashboardText
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+              style={[styles.popularSubtitle, { color: colors.textSecondary }]}
+            >
               {workout.subtitle}
             </DashboardText>
 
@@ -601,17 +609,17 @@ export default function DashboardActivePlan({
 
 const styles = StyleSheet.create({
   todayHeroCard: {
-    padding: 18,
+    padding: 14,
     borderRadius: 22,
     borderWidth: 1.5,
-    marginBottom: 16,
+    marginBottom: 12,
     gap: 12,
   },
   customWorkoutCard: {
-    padding: 18,
+    padding: 14,
     borderRadius: 22,
     borderWidth: 1.5,
-    marginBottom: 16,
+    marginBottom: 12,
     gap: 12,
   },
   todayHeaderRow: {
@@ -692,12 +700,12 @@ const styles = StyleSheet.create({
   },
   additionalWorkoutsContainer: {
     gap: 10,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   additionalWorkoutCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
+    padding: 12,
     borderRadius: 16,
     borderWidth: 1,
     gap: 12,
@@ -737,7 +745,7 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 16,
     borderWidth: 1,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   upcomingBannerLeft: {
     flexDirection: 'row',
@@ -768,11 +776,11 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   planCard: {
-    padding: 16,
+    padding: 14,
     borderRadius: 20,
     borderWidth: 1.5,
-    marginBottom: 16,
-    gap: 14,
+    marginBottom: 12,
+    gap: 12,
   },
   planHeading: {
     flexDirection: 'row',
@@ -832,8 +840,8 @@ const styles = StyleSheet.create({
   heroCard: {
     borderRadius: 22,
     borderWidth: 1.25,
-    padding: 18,
-    marginBottom: 16,
+    padding: 14,
+    marginBottom: 12,
   },
   heroContent: {
     gap: 10,
@@ -881,7 +889,7 @@ const styles = StyleSheet.create({
   },
   recordButton: {
     width: '100%',
-    minHeight: 50,
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -899,7 +907,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   sectionTitle: {
     fontSize: 14,
@@ -912,45 +920,27 @@ const styles = StyleSheet.create({
   },
   workoutRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: 12,
-    marginBottom: 16,
+    gap: 8,
   },
   popularWorkoutCard: {
-    width: '48.5%',
-    minHeight: 126,
-    padding: 14,
-    borderRadius: 18,
+    flex: 1,
+    minWidth: 0,
+    minHeight: 100,
+    padding: 10,
+    borderRadius: 14,
     borderWidth: 1,
     justifyContent: 'space-between',
   },
-  popularCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  popularTagBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  popularTagText: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
+  popularWorkoutIcon: { width: 26, height: 26, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
   popularTitle: {
-    fontSize: 17,
+    fontSize: 14,
     fontWeight: '800',
     letterSpacing: -0.2,
   },
   popularSubtitle: {
-    fontSize: 13,
+    fontSize: 10,
     fontWeight: '500',
-    marginTop: 2,
-    marginBottom: 8,
+    marginTop: 1,
   },
   popularStartRow: {
     flexDirection: 'row',
@@ -958,7 +948,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   popularStartText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
   },
 });

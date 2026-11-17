@@ -14,7 +14,14 @@ import { subscriptionAPI, type SubscriptionPlan, type SubscriptionPricing, type 
 // The backend blocks a new purchase while a mandate is authorized, even
 // before its first payment changes the status to active/trialing.
 const ACTIVE_STATUSES = new Set(['active', 'trialing', 'authenticated']);
-const intervalLabel = (count: number, unit: string) => `/${count > 1 ? `${count} ` : ''}${unit}${count > 1 ? 's' : ''}`;
+const intervalLabel = (count: number | null | undefined, unit: string | null | undefined) => {
+  if (count == null || !unit) return '';
+  const normalizedUnit = unit.trim().toLowerCase();
+  const interval = Number(count);
+  if (!Number.isFinite(interval) || interval <= 0 || !normalizedUnit) return '';
+  const label = interval === 1 ? normalizedUnit : `${normalizedUnit}s`;
+  return ` / ${interval} ${label}`;
+};
 const formatDate = (value?: string | null) => value ? new Date(value).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : null;
 const formatPrice = (price: Pick<SubscriptionPricing, 'amount' | 'currency'>) => {
   const amount = Number(price.amount);
@@ -238,7 +245,7 @@ export default function SubscriptionScreen() {
                 </View>
                 <Text style={[styles.status, { color: currentCardTone.accentColor, backgroundColor: currentCardTone.iconBackgroundColor }]}>{current.status.replaceAll('_', ' ')}</Text>
               </View>
-              <Text style={[styles.currentPrice, { color: colors.text }]}>{formatPrice({ amount: current.amount, currency: current.currency })}<Text style={[styles.period, { color: colors.textSecondary }]}>{intervalLabel(current.billing_interval || 1, current.billing_interval_unit || 'month')}</Text></Text>
+              <Text style={[styles.currentPrice, { color: colors.text }]}>{formatPrice({ amount: current.amount, currency: current.currency })}<Text style={[styles.period, { color: colors.textSecondary }]}>{intervalLabel(current.billing_interval, current.billing_interval_unit)}</Text></Text>
               {current.trial_ends_at ? <Text style={[styles.meta, { color: colors.textSecondary }]}>Trial ends {formatDate(current.trial_ends_at)}</Text> : null}
               {current.next_billing_at ? <Text style={[styles.meta, { color: colors.textSecondary }]}>Next billing {formatDate(current.next_billing_at)}</Text> : null}
               {current.current_period_end ? <Text style={[styles.meta, { color: colors.textSecondary }]}>Access through {formatDate(current.current_period_end)}</Text> : null}

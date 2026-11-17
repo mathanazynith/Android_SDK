@@ -18,20 +18,22 @@ import { getDistanceUnitCode } from '../../utils/distanceUnit';
 type DashboardNoPlanProps = {
   canStartAssessment: boolean;
   onStartAssessment: () => void;
+  showCustomWorkouts: boolean;
   scheduledCustomWorkout?: UserWorkoutResponse | null;
   scheduledCustomWorkouts?: UserWorkoutResponse[];
 };
 
 const popularWorkouts = [
-  { title: '30 MIN', subtitle: 'Easy Run', tag: 'AEROBIC', color: '#30D158', icon: 'activity' as const },
-  { title: '70 MIN', subtitle: 'Long Run', tag: 'ENDURANCE', color: '#0A84FF', icon: 'clock' as const },
-  { title: '10 x 400m', subtitle: 'Interval Run', tag: 'SPEED', color: '#FF9500', icon: 'target' as const },
-  { title: '20 MIN', subtitle: 'Tempo Run', tag: 'THRESHOLD', color: '#AF52DE', icon: 'trending-up' as const },
+  { title: '30 MIN', subtitle: 'Easy Run', color: '#30D158', icon: 'activity' as const },
+  { title: '70 MIN', subtitle: 'Long Run', color: '#0A84FF', icon: 'clock' as const },
+  { title: '10 x 400m', subtitle: 'Interval Run', color: '#FF9500', icon: 'target' as const },
+  { title: '20 MIN', subtitle: 'Tempo Run', color: '#AF52DE', icon: 'trending-up' as const },
 ];
 
 export default function DashboardNoPlan({
   canStartAssessment,
   onStartAssessment,
+  showCustomWorkouts,
   scheduledCustomWorkout,
   scheduledCustomWorkouts,
 }: DashboardNoPlanProps) {
@@ -91,7 +93,7 @@ export default function DashboardNoPlan({
   return (
     <>
       {/* 1. Today's Scheduled Custom Workout Hero Card (if user has scheduled workout for today) */}
-      {scheduledCustomWorkout ? (
+      {showCustomWorkouts && scheduledCustomWorkout ? (
         <TouchableOpacity
           activeOpacity={0.92}
           onPress={() => handleStartCustomWorkout(scheduledCustomWorkout)}
@@ -170,7 +172,7 @@ export default function DashboardNoPlan({
       ) : null}
 
       {/* Additional scheduled workouts for today if multiple */}
-      {scheduledCustomWorkouts && scheduledCustomWorkouts.length > 1 && (
+      {showCustomWorkouts && scheduledCustomWorkouts && scheduledCustomWorkouts.length > 1 && (
         <View style={styles.additionalWorkoutsContainer}>
           {scheduledCustomWorkouts.slice(1).map((w) => (
             <TouchableOpacity
@@ -243,7 +245,7 @@ export default function DashboardNoPlan({
             Ready for a run?
           </DashboardText>
           <DashboardText style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
-            Track real-time pace, route map, splits & audio milestone alerts.
+            Track pace, route map, splits & audio alerts.
           </DashboardText>
 
           <View style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]}>
@@ -256,33 +258,35 @@ export default function DashboardNoPlan({
       {/* 3. Custom Workout & Plan Assessment Action Cards (Side-by-Side) */}
       <View style={styles.actionCardsRow}>
         {/* Custom Workout Card */}
-        <TouchableOpacity
-          activeOpacity={0.88}
-          onPress={() => router.push('/(app)/custom-workout')}
-          style={[
-            styles.actionCard,
-            {
-              backgroundColor: colors.surface,
-              borderColor: isDark ? 'rgba(255, 149, 0, 0.28)' : 'rgba(255, 149, 0, 0.32)',
-            },
-          ]}
-        >
-          <View style={[styles.actionIconCircle, { backgroundColor: 'rgba(255, 149, 0, 0.15)' }]}>
-            <Feather name="sliders" size={19} color="#FF9500" />
-          </View>
-          <DashboardText style={[styles.actionCardTitle, { color: colors.text }]}>
-            Custom Workout
-          </DashboardText>
-          <DashboardText style={[styles.actionCardDesc, { color: colors.textSecondary }]}>
-            Build your own intervals, repeat blocks & pace targets.
-          </DashboardText>
-          <View style={styles.actionCardFooter}>
-            <DashboardText style={[styles.actionCardLink, { color: '#FF9500' }]}>
-              Build Workout
+        {showCustomWorkouts ? (
+          <TouchableOpacity
+            activeOpacity={0.88}
+            onPress={() => router.push('/(app)/custom-workout')}
+            style={[
+              styles.actionCard,
+              {
+                backgroundColor: colors.surface,
+                borderColor: isDark ? 'rgba(255, 149, 0, 0.28)' : 'rgba(255, 149, 0, 0.32)',
+              },
+            ]}
+          >
+            <View style={[styles.actionIconCircle, { backgroundColor: 'rgba(255, 149, 0, 0.15)' }]}>
+              <Feather name="sliders" size={19} color="#FF9500" />
+            </View>
+            <DashboardText style={[styles.actionCardTitle, { color: colors.text }]}>
+              Custom Workout
             </DashboardText>
-            <Feather name="arrow-right" size={13} color="#FF9500" />
-          </View>
-        </TouchableOpacity>
+            <DashboardText style={[styles.actionCardDesc, { color: colors.textSecondary }]}>
+              Build your own intervals, repeat blocks & pace targets.
+            </DashboardText>
+            <View style={styles.actionCardFooter}>
+              <DashboardText style={[styles.actionCardLink, { color: '#FF9500' }]}>
+                Build Workout
+              </DashboardText>
+              <Feather name="arrow-right" size={13} color="#FF9500" />
+            </View>
+          </TouchableOpacity>
+        ) : null}
 
         {/* Plan Assessment Card */}
         <TouchableOpacity
@@ -338,19 +342,24 @@ export default function DashboardNoPlan({
             ]}
             onPress={() => openWorkoutSetup(workout)}
           >
-            <View style={styles.popularCardHeader}>
-              <View style={[styles.popularTagBadge, { backgroundColor: `${workout.color}16` }]}>
-                <DashboardText style={[styles.popularTagText, { color: workout.color }]}>
-                  {workout.tag}
-                </DashboardText>
-              </View>
-              <Feather name={workout.icon} size={16} color={workout.color} />
+            <View style={[styles.popularWorkoutIcon, { backgroundColor: `${workout.color}24` }]}>
+              <Feather name={workout.icon} size={12} color={workout.color} />
             </View>
 
-            <DashboardText style={[styles.popularTitle, { color: colors.text }]}>
+            <DashboardText
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+              style={[styles.popularTitle, { color: colors.text }]}
+            >
               {workout.title}
             </DashboardText>
-            <DashboardText style={[styles.popularSubtitle, { color: colors.textSecondary }]}>
+            <DashboardText
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+              style={[styles.popularSubtitle, { color: colors.textSecondary }]}
+            >
               {workout.subtitle}
             </DashboardText>
 
@@ -371,8 +380,8 @@ const styles = StyleSheet.create({
   heroCard: {
     borderRadius: 22,
     borderWidth: 1.25,
-    padding: 18,
-    marginBottom: 16,
+    padding: 14,
+    marginBottom: 12,
   },
   heroContent: {
     gap: 10,
@@ -447,7 +456,7 @@ const styles = StyleSheet.create({
   },
   recordButton: {
     width: '100%',
-    minHeight: 50,
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -463,12 +472,12 @@ const styles = StyleSheet.create({
   },
   additionalWorkoutsContainer: {
     gap: 10,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   additionalWorkoutCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
+    padding: 12,
     borderRadius: 16,
     borderWidth: 1,
     gap: 12,
@@ -541,23 +550,23 @@ const styles = StyleSheet.create({
   actionCardsRow: {
     flexDirection: 'row',
     gap: 12,
-    marginBottom: 20,
+    marginBottom: 12,
   },
   actionCard: {
     flex: 1,
-    padding: 16,
+    padding: 12,
     borderRadius: 20,
     borderWidth: 1.25,
     justifyContent: 'space-between',
-    minHeight: 172,
+    minHeight: 140,
   },
   actionIconCircle: {
-    width: 38,
-    height: 38,
+    width: 32,
+    height: 32,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
+    marginBottom: 0,
   },
   actionCardTitle: {
     fontSize: 15,
@@ -565,10 +574,10 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   actionCardDesc: {
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 11,
+    lineHeight: 14,
     flex: 1,
-    marginBottom: 10,
+    marginBottom: 6,
   },
   actionCardFooter: {
     flexDirection: 'row',
@@ -583,7 +592,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   sectionTitle: {
     fontSize: 14,
@@ -596,45 +605,27 @@ const styles = StyleSheet.create({
   },
   workoutRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: 12,
-    marginBottom: 16,
+    gap: 8,
   },
   popularWorkoutCard: {
-    width: '48.5%',
-    minHeight: 126,
-    padding: 14,
-    borderRadius: 18,
+    flex: 1,
+    minWidth: 0,
+    minHeight: 100,
+    padding: 10,
+    borderRadius: 14,
     borderWidth: 1,
     justifyContent: 'space-between',
   },
-  popularCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  popularTagBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  popularTagText: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
+  popularWorkoutIcon: { width: 26, height: 26, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
   popularTitle: {
-    fontSize: 17,
+    fontSize: 14,
     fontWeight: '800',
     letterSpacing: -0.2,
   },
   popularSubtitle: {
-    fontSize: 13,
+    fontSize: 10,
     fontWeight: '500',
-    marginTop: 2,
-    marginBottom: 8,
+    marginTop: 1,
   },
   popularStartRow: {
     flexDirection: 'row',
@@ -642,7 +633,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   popularStartText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
   },
 });

@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { ActivitySubmissionPayload } from '../types/running';
+import { activityAPI } from './activityApi';
 import { RunningApiClient } from './runningApi';
 import { activityDistanceOverrides } from './activityDistanceOverrides';
 import { activityTimingOverrides } from './activityTimingOverrides';
@@ -28,13 +29,16 @@ export interface SyncPendingResult {
 
 const QUEUE_FILE_URI = `${FileSystem.documentDirectory ?? ''}zyrun-offline-workouts.json`;
 let queueWriteChain: Promise<void> = Promise.resolve();
-const queueListeners = new Set<(count: number) => void>();
+const queueListeners = new Set<{
+  listener: (count: number) => void;
+  userId?: string | number | null;
+}>();
 let isSyncing = false;
 
-const notifyListeners = (count: number) => {
-  queueListeners.forEach((listener) => {
+const notifyListeners = () => {
+  queueListeners.forEach(({ listener, userId }) => {
     try {
-      listener(count);
+      void offlineWorkoutQueue.getCount(userId).then(listener);
     } catch (e) {
       console.warn('[OfflineWorkoutQueue] Listener error', e);
     }
@@ -42,30 +46,34 @@ const notifyListeners = (count: number) => {
 };
 
 export const offlineWorkoutQueue = {
-  subscribe(listener: (count: number) => void): () => void {
-    queueListeners.add(listener);
-    void offlineWorkoutQueue.getCount().then(listener);
+  subscribe(listener: (count: number) => void, userId?: string | number | null): () => void {
+    const subscription = { listener, userId };
+    queueListeners.add(subscription);
+    void offlineWorkoutQueue.getCount(userId).then(listener);
     return () => {
-      queueListeners.delete(listener);
+      queueListeners.delete(subscription);
     };
   },
 
-  async getPending(): Promise<QueuedOfflineWorkout[]> {
+  async getPending(userId?: string | number | null): Promise<QueuedOfflineWorkout[]> {
     if (!QUEUE_FILE_URI) return [];
     try {
       const info = await FileSystem.getInfoAsync(QUEUE_FILE_URI);
       if (!info.exists) return [];
       const text = await FileSystem.readAsStringAsync(QUEUE_FILE_URI);
       const items = JSON.parse(text);
-      return Array.isArray(items) ? (items as QueuedOfflineWorkout[]) : [];
+      const pending = Array.isArray(items) ? (items as QueuedOfflineWorkout[]) : [];
+      if (userId === undefined) return pending;
+      if (userId === null) return [];
+      return pending.filter((item) => item.userId != null && String(item.userId) === String(userId));
     } catch (error) {
       console.warn('[OfflineWorkoutQueue] Failed to read offline workouts queue', error);
       return [];
     }
   },
 
-  async getCount(): Promise<number> {
-    const items = await this.getPending();
+  async getCount(userId?: string | number | null): Promise<number> {
+    const items = await this.getPending(userId);
     return items.length;
   },
 
@@ -84,7 +92,10 @@ export const offlineWorkoutQueue = {
     queueWriteChain = queueWriteChain.then(async () => {
       const current = await offlineWorkoutQueue.getPending();
       const existing = workout.runId
-        ? current.find((item) => item.runId === workout.runId)
+        ? current.find((item) => item.runId === workout.runId
+          && item.userId != null
+          && workout.userId != null
+          && String(item.userId) === String(workout.userId))
         : undefined;
       if (existing) {
         queuedId = existing.id;
@@ -94,7 +105,7 @@ export const offlineWorkoutQueue = {
       if (QUEUE_FILE_URI) {
         await FileSystem.writeAsStringAsync(QUEUE_FILE_URI, JSON.stringify(current));
       }
-      notifyListeners(current.length);
+      notifyListeners();
     });
 
     await queueWriteChain;
@@ -109,30 +120,37 @@ export const offlineWorkoutQueue = {
       if (QUEUE_FILE_URI) {
         await FileSystem.writeAsStringAsync(QUEUE_FILE_URI, JSON.stringify(filtered));
       }
-      notifyListeners(filtered.length);
+      notifyListeners();
     });
     await queueWriteChain;
   },
 
-  async clear(): Promise<void> {
+  async clear(userId?: string | number | null): Promise<void> {
+    if (userId === null) return;
     queueWriteChain = queueWriteChain.then(async () => {
+      const current = await offlineWorkoutQueue.getPending();
+      const remaining = userId === undefined
+        ? []
+        : current.filter((item) => item.userId == null || String(item.userId) !== String(userId));
       if (QUEUE_FILE_URI) {
-        await FileSystem.writeAsStringAsync(QUEUE_FILE_URI, JSON.stringify([]));
+        await FileSystem.writeAsStringAsync(QUEUE_FILE_URI, JSON.stringify(remaining));
       }
-      notifyListeners(0);
+      notifyListeners();
     });
     await queueWriteChain;
     console.log('[OfflineWorkoutQueue] Cleared all offline workouts.');
   },
 
   async syncPending(
-    client?: RunningApiClient
+    client?: RunningApiClient,
+    userId?: string | number | null,
   ): Promise<SyncPendingResult> {
+    if (userId == null) return { synced: 0, failed: 0 };
     if (isSyncing) {
       return { synced: 0, failed: 0 };
     }
 
-    const items = await this.getPending();
+    const items = await this.getPending(userId);
     if (items.length === 0) {
       return { synced: 0, failed: 0 };
     }
@@ -151,6 +169,9 @@ export const offlineWorkoutQueue = {
         if (submission.success) {
           const activityId = submission.activityId;
           if (activityId !== null) {
+            await activityAPI.cacheSavedWorkout(activityId, item.payload, item.userId).catch((cacheError) => {
+              console.warn('[OfflineWorkoutQueue] Could not cache synced workout in History', cacheError);
+            });
             try {
               await activityDistanceOverrides.save(activityId, item.totalDistance);
               await activityTimingOverrides.save(activityId, {
@@ -202,7 +223,8 @@ export const offlineWorkoutQueue = {
         }
         lastError = errorMsg;
         console.warn(`[OfflineWorkoutQueue] Sync failed for workout ${item.id}:`, errorMsg);
-        if (error?.response?.status && error.response.status >= 400) {
+        const responseStatus = Number(error?.response?.status);
+        if (responseStatus >= 400 && responseStatus < 500) {
           console.warn(`[OfflineWorkoutQueue] Removing permanently failing workout ${item.id} from queue (status ${error.response.status})`);
           await this.remove(item.id);
         }
@@ -210,8 +232,13 @@ export const offlineWorkoutQueue = {
         const isNetwork =
           !error?.response ||
           error?.code === 'ECONNABORTED' ||
-          error?.message?.toLowerCase().includes('network');
-        if (isNetwork) {
+          error?.code === 'ETIMEDOUT' ||
+          error?.message?.toLowerCase().includes('network') ||
+          error?.message?.toLowerCase().includes('timeout');
+        if (isNetwork || responseStatus >= 500) {
+          if (responseStatus >= 500) {
+            console.warn(`[OfflineWorkoutQueue] Keeping workout ${item.id} queued after retryable server error (HTTP ${responseStatus}).`);
+          }
           break;
         }
       }

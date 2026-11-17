@@ -39,13 +39,27 @@ const writeAll = async (recoveries: PendingWorkoutRecovery[]): Promise<void> => 
   }
 };
 
-export const listPendingWorkoutRecoveries = async (): Promise<PendingWorkoutRecovery[]> => {
+export const listPendingWorkoutRecoveries = async (
+  userId?: string | number | null,
+): Promise<PendingWorkoutRecovery[]> => {
   await writeChain;
-  return (await readAll()).sort((left, right) => left.createdAt - right.createdAt);
+  const recoveries = await readAll();
+  const scoped = userId === undefined
+    ? recoveries
+    : userId === null
+      ? []
+      : recoveries.filter((recovery) => (
+        recovery.session.userId != null
+        && String(recovery.session.userId) === String(userId)
+      ));
+  return scoped.sort((left, right) => left.createdAt - right.createdAt);
 };
 
-export const getPendingWorkoutRecovery = async (id: string): Promise<PendingWorkoutRecovery | null> => {
-  const recoveries = await listPendingWorkoutRecoveries();
+export const getPendingWorkoutRecovery = async (
+  id: string,
+  userId?: string | number | null,
+): Promise<PendingWorkoutRecovery | null> => {
+  const recoveries = await listPendingWorkoutRecoveries(userId);
   return recoveries.find((recovery) => recovery.id === id) ?? null;
 };
 
@@ -61,7 +75,12 @@ export const savePendingWorkoutRecovery = async (
   };
   writeChain = writeChain.then(async () => {
     const recoveries = await readAll();
-    const existingIndex = recoveries.findIndex((item) => item.id === recovery.id);
+    const existingIndex = recoveries.findIndex((item) => (
+      item.id === recovery.id
+      && item.session.userId != null
+      && recovery.session.userId != null
+      && String(item.session.userId) === String(recovery.session.userId)
+    ));
     if (existingIndex >= 0) recoveries[existingIndex] = { ...recoveries[existingIndex], ...recovery };
     else recoveries.push(recovery);
     await writeAll(recoveries);

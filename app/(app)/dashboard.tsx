@@ -1,8 +1,8 @@
 import { Alert } from '@/components/ThemedAlert';
-import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, AppState, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DashboardText from '../../components/common/DashboardText';
 import { RunningLoader } from '../../components/common/RunningLoader';
@@ -172,7 +172,7 @@ export default function DashboardScreen() {
       await Promise.allSettled([
         fetchWorkoutPlan(true),
         fetchCustomWorkouts(),
-        offlineWorkoutQueue.syncPending(),
+        offlineWorkoutQueue.syncPending(undefined, userId),
         (async () => {
           const freshPage = await activityAPI.listPage(null, 30);
           if (freshPage?.activities) {
@@ -183,7 +183,7 @@ export default function DashboardScreen() {
     } finally {
       setIsRefreshing(false);
     }
-  }, [fetchWorkoutPlan, fetchCustomWorkouts]);
+  }, [fetchWorkoutPlan, fetchCustomWorkouts, userId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -209,17 +209,25 @@ export default function DashboardScreen() {
   );
 
   const weeklyStats = useMemo(() => calculateWeeklySummary(activities), [activities]);
+  const hasWorkoutPlan = Boolean(workoutPlan);
+  const isConfirmedNoPlan = isWorkoutPlanLoaded && !hasWorkoutPlan && !workoutPlanError;
+  const showQuickShortcutRow = hasWorkoutPlan || isConfirmedNoPlan;
 
   useFocusEffect(
     useCallback(() => {
       let isActive = true;
       const findRecoverableWorkout = async () => {
         try {
-          let recoveries = await listPendingWorkoutRecoveries();
+          if (userId == null) {
+            setRecoverableWorkout(null);
+            return;
+          }
+          let recoveries = await listPendingWorkoutRecoveries(userId);
           if (!isActive) return;
           let recovery = recoveries.find((item) => (
             Boolean(item.session.runId)
-            && (!item.session.userId || String(item.session.userId) === String(userId ?? ''))
+            && item.session.userId != null
+            && String(item.session.userId) === String(userId)
           ));
 
           if (!recovery) {
@@ -239,12 +247,13 @@ export default function DashboardScreen() {
               && legacyJournal.runId === legacySession.runId
               && !trackingStarted
               && (legacySession.recoveryReviewRequired || isStaleCheckpoint)
-              && (!legacySession.userId || String(legacySession.userId) === String(userId ?? ''))
+              && legacySession.userId != null
+              && String(legacySession.userId) === String(userId)
             ) {
               await savePendingWorkoutRecovery(legacySession, legacyJournal);
               await clearActiveRunJournal();
               await clearBackgroundLocationSession();
-              recoveries = await listPendingWorkoutRecoveries();
+              recoveries = await listPendingWorkoutRecoveries(userId);
               recovery = recoveries.find((item) => item.id === legacySession.runId);
             }
           }
@@ -289,12 +298,12 @@ export default function DashboardScreen() {
   useEffect(() => {
     const unsubscribe = offlineWorkoutQueue.subscribe((count) => {
       setOfflinePendingCount(count);
-    });
-    void offlineWorkoutQueue.syncPending();
+    }, userId ?? null);
+    if (userId != null) void offlineWorkoutQueue.syncPending(undefined, userId);
 
     const appStateSub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
-        void offlineWorkoutQueue.syncPending();
+        if (userId != null) void offlineWorkoutQueue.syncPending(undefined, userId);
       }
     });
 
@@ -302,7 +311,7 @@ export default function DashboardScreen() {
       unsubscribe();
       appStateSub.remove();
     };
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     void fetchWorkoutPlan();
@@ -420,15 +429,20 @@ export default function DashboardScreen() {
           styles.topBar,
           {
             borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
-            minHeight: spacing(76) + insets.top,
+            minHeight: spacing(56) + insets.top,
             paddingHorizontal: spacing(20),
             paddingTop: insets.top + spacing(6),
           },
         ]}
       >
         <View style={styles.brandingGroup}>
-          <View style={[styles.brandLogoBadge, { backgroundColor: `${BRAND_GREEN}22` }]}>
-            <MaterialCommunityIcons name="run-fast" size={20} color={BRAND_GREEN} />
+          <View style={styles.brandLogoBadge}>
+            <Image
+              source={require('../../assets/images/zyrun-adaptive-foreground.png')}
+              resizeMode="contain"
+              style={styles.brandLogoImage}
+              accessibilityLabel="Zy-Run logo"
+            />
           </View>
           <View>
             <DashboardText style={[styles.brandTitle, { color: colors.text }]}>ZY-RUN</DashboardText>
@@ -465,8 +479,9 @@ export default function DashboardScreen() {
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          { paddingHorizontal: spacing(18), paddingBottom: spacing(118) },
+          { paddingHorizontal: spacing(20), paddingBottom: spacing(84) },
         ]}
+        alwaysBounceVertical={false}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -484,11 +499,9 @@ export default function DashboardScreen() {
             accessibilityLabel="Review unfinished workout"
             activeOpacity={0.85}
             onPress={() => router.push({
-              pathname: '/(app)/screens/map',
+              pathname: '/(app)/workout-recovery',
               params: {
-                recoveryReview: '1',
                 recoveryId: recoverableWorkout.id,
-                runId: recoverableWorkout.runId,
               },
             })}
             style={{
@@ -496,7 +509,7 @@ export default function DashboardScreen() {
               flexDirection: 'row',
               alignItems: 'center',
               gap: 12,
-              marginBottom: spacing(14),
+              marginBottom: spacing(12),
               paddingHorizontal: spacing(16),
               paddingVertical: spacing(12),
               borderRadius: 20,
@@ -556,85 +569,133 @@ export default function DashboardScreen() {
         </MotionEntrance>
 
         {/* 3. Quick Action Shortcuts Bar */}
-        <MotionEntrance delay={45}>
-          <View style={styles.quickShortcutsRow}>
-            <TouchableOpacity
-              style={[
-                styles.quickShortcutPill,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
-                },
-              ]}
-              onPress={() => router.push('/(app)/screens/map')}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.quickShortcutIcon, { backgroundColor: `${BRAND_GREEN}18` }]}>
-                <Feather name="play" size={13} color={BRAND_GREEN} />
-              </View>
-              <DashboardText style={[styles.quickShortcutLabel, { color: colors.text }]}>
-                Quick Run
-              </DashboardText>
-            </TouchableOpacity>
+        {showQuickShortcutRow ? (
+          <MotionEntrance delay={45}>
+            <View style={styles.quickShortcutsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.quickShortcutPill,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+                  },
+                ]}
+                onPress={() => router.push('/(app)/screens/map')}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.quickShortcutIcon, { backgroundColor: `${BRAND_GREEN}18` }]}>
+                  <Feather name="play" size={13} color={BRAND_GREEN} />
+                </View>
+                <DashboardText
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                  style={[styles.quickShortcutLabel, { color: colors.text }]}
+                >
+                  Quick Run
+                </DashboardText>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[
-                styles.quickShortcutPill,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
-                },
-              ]}
-              onPress={() => router.push('/(app)/custom-workout')}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(255, 149, 0, 0.18)' }]}>
-                <Feather name="sliders" size={13} color="#FF9500" />
-              </View>
-              <DashboardText style={[styles.quickShortcutLabel, { color: colors.text }]}>
-                Custom
-              </DashboardText>
-            </TouchableOpacity>
+              {hasWorkoutPlan ? (
+                <TouchableOpacity
+                  style={[
+                    styles.quickShortcutPill,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+                    },
+                  ]}
+                  onPress={() => router.push('/(app)/activity')}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(255, 149, 0, 0.18)' }]}>
+                    <Feather name="activity" size={13} color="#FF9500" />
+                  </View>
+                  <DashboardText
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.8}
+                    style={[styles.quickShortcutLabel, { color: colors.text }]}
+                  >
+                    History
+                  </DashboardText>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[
+                    styles.quickShortcutPill,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+                    },
+                  ]}
+                  onPress={() => router.push('/(app)/custom-workout')}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(255, 149, 0, 0.18)' }]}>
+                    <Feather name="sliders" size={13} color="#FF9500" />
+                  </View>
+                  <DashboardText
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.8}
+                    style={[styles.quickShortcutLabel, { color: colors.text }]}
+                  >
+                    Custom
+                  </DashboardText>
+                </TouchableOpacity>
+              )}
 
-            <TouchableOpacity
-              style={[
-                styles.quickShortcutPill,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
-                },
-              ]}
-              onPress={() => router.push('/(app)/training-plan')}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(10, 132, 255, 0.18)' }]}>
-                <Feather name="calendar" size={13} color="#0A84FF" />
-              </View>
-              <DashboardText style={[styles.quickShortcutLabel, { color: colors.text }]}>
-                Plan
-              </DashboardText>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.quickShortcutPill,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+                  },
+                ]}
+                onPress={() => router.push('/(app)/training-plan')}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(10, 132, 255, 0.18)' }]}>
+                  <Feather name="calendar" size={13} color="#0A84FF" />
+                </View>
+                <DashboardText
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                  style={[styles.quickShortcutLabel, { color: colors.text }]}
+                >
+                  Plan
+                </DashboardText>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[
-                styles.quickShortcutPill,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
-                },
-              ]}
-              onPress={() => router.push('/(app)/stats')}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(175, 82, 222, 0.18)' }]}>
-                <Feather name="bar-chart-2" size={13} color="#AF52DE" />
-              </View>
-              <DashboardText style={[styles.quickShortcutLabel, { color: colors.text }]}>
-                Stats
-              </DashboardText>
-            </TouchableOpacity>
-          </View>
-        </MotionEntrance>
+              <TouchableOpacity
+                style={[
+                  styles.quickShortcutPill,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+                  },
+                ]}
+                onPress={() => router.push('/(app)/stats')}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(175, 82, 222, 0.18)' }]}>
+                  <Feather name="bar-chart-2" size={13} color="#AF52DE" />
+                </View>
+                <DashboardText
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                  style={[styles.quickShortcutLabel, { color: colors.text }]}
+                >
+                  Stats
+                </DashboardText>
+              </TouchableOpacity>
+            </View>
+          </MotionEntrance>
+        ) : null}
 
         {/* Offline Workouts Pending Sync Banner */}
         {offlinePendingCount > 0 && (
@@ -642,7 +703,7 @@ export default function DashboardScreen() {
             activeOpacity={0.8}
             onPress={async () => {
               setIsSyncingOffline(true);
-              const result = await offlineWorkoutQueue.syncPending();
+              const result = await offlineWorkoutQueue.syncPending(undefined, userId);
               setIsSyncingOffline(false);
               if (result.synced > 0 && result.failed === 0) {
                 Alert.alert('Sync Successful', `Successfully synced ${result.synced} workout(s) to your account.`);
@@ -666,7 +727,7 @@ export default function DashboardScreen() {
                             {
                               text: 'Discard',
                               style: 'destructive',
-                              onPress: () => void offlineWorkoutQueue.clear(),
+                              onPress: () => void offlineWorkoutQueue.clear(userId),
                             },
                           ]
                         );
@@ -759,8 +820,6 @@ export default function DashboardScreen() {
               plan={workoutPlan}
               todayWorkout={todayWorkout}
               nextWorkout={nextWorkout}
-              scheduledCustomWorkout={todayCustomWorkout}
-              scheduledCustomWorkouts={todayCustomWorkouts}
             />
           ) : isWorkoutPlanLoading && !workoutPlanError ? (
             <View
@@ -775,8 +834,9 @@ export default function DashboardScreen() {
             <DashboardNoPlan
               canStartAssessment={canStartAssessment}
               onStartAssessment={startAssessment}
-              scheduledCustomWorkout={todayCustomWorkout}
-              scheduledCustomWorkouts={todayCustomWorkouts}
+              scheduledCustomWorkout={isConfirmedNoPlan ? todayCustomWorkout : null}
+              scheduledCustomWorkouts={isConfirmedNoPlan ? todayCustomWorkouts : []}
+              showCustomWorkouts={isConfirmedNoPlan}
             />
           )}
         </MotionEntrance>
@@ -809,11 +869,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   brandLogoBadge: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#090B0A',
+    overflow: 'hidden',
+  },
+  brandLogoImage: {
+    position: 'absolute',
+    width: 59,
+    height: 59,
+    left: -9.5,
+    top: -9.5,
   },
   brandTitle: {
     fontSize: 18,
@@ -830,10 +899,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0 },
-  content: { paddingHorizontal: 18, paddingBottom: 118 },
+  content: { flexGrow: 1, paddingTop: 8 },
   greetingCard: {
-    padding: 16,
-    marginBottom: 14,
+    padding: 14,
+    marginBottom: 12,
     borderRadius: 20,
     borderWidth: 1,
     gap: 6,
@@ -964,29 +1033,36 @@ const styles = StyleSheet.create({
   quickShortcutsRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   quickShortcutPill: {
     flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 10,
-    paddingHorizontal: 4,
+    paddingHorizontal: 2,
     borderRadius: 14,
     borderWidth: 1,
   },
   quickShortcutIcon: {
     width: 22,
     height: 22,
+    flexShrink: 0,
     borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },
   quickShortcutLabel: {
-    fontSize: 11,
-    fontWeight: '700',
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    includeFontPadding: false,
   },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#0B0E0F' },
   centerText: { color: '#F7F7F7', textAlign: 'center', marginTop: 14 },
@@ -1022,7 +1098,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 14,
     borderWidth: 1,
-    marginBottom: 16,
+    marginBottom: 12,
     gap: 10,
   },
   offlineModeLeft: {

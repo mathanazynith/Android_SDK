@@ -14,19 +14,52 @@ const MODULE_FILES = [
 
 const withVolumeSplitMainActivity = (config) => withMainActivity(config, (modConfig) => {
   let source = modConfig.modResults.contents;
-  if (!source.includes('WorkoutVolumeSplitModule.dispatchVolumeButtonPress()')) {
+  if (!source.includes('volumePressTriggeredSplit')) {
+    source = source.replace(
+      /  override fun dispatchKeyEvent\(event: KeyEvent\): Boolean \{[\s\S]*?\n  \}\n(?=\s*\})/,
+      '',
+    );
     if (!source.includes('import android.view.KeyEvent')) {
       source = source.replace('import android.os.Bundle', 'import android.os.Bundle\nimport android.view.KeyEvent');
     }
     source = source.replace(
       'class MainActivity : ReactActivity() {',
       `class MainActivity : ReactActivity() {
+  private val volumePressHandler = android.os.Handler(android.os.Looper.getMainLooper())
+  private var volumePressKeyCode: Int? = null
+  private var volumePressTriggeredSplit = false
+  private var volumePressLongPress: Runnable? = null
+
   override fun dispatchKeyEvent(event: KeyEvent): Boolean {
     val isVolumeButton = event.keyCode == KeyEvent.KEYCODE_VOLUME_UP
       || event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
-    if (WorkoutVolumeSplitModule.isEnabled && isVolumeButton) {
-      if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-        WorkoutVolumeSplitModule.dispatchVolumeButtonPress()
+    if (isVolumeButton && (WorkoutVolumeSplitModule.isEnabled || volumePressKeyCode == event.keyCode)) {
+      if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && WorkoutVolumeSplitModule.isEnabled) {
+        volumePressKeyCode = event.keyCode
+        volumePressTriggeredSplit = false
+        val longPress = Runnable {
+          if (volumePressKeyCode == event.keyCode && WorkoutVolumeSplitModule.isEnabled) {
+            volumePressTriggeredSplit = true
+            WorkoutVolumeSplitModule.dispatchVolumeButtonPress()
+          }
+        }
+        volumePressLongPress = longPress
+        volumePressHandler.postDelayed(longPress, 500L)
+      } else if (event.action == KeyEvent.ACTION_UP && volumePressKeyCode == event.keyCode) {
+        volumePressLongPress?.let(volumePressHandler::removeCallbacks)
+        if (!volumePressTriggeredSplit && WorkoutVolumeSplitModule.isEnabled) {
+          val direction = if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+            android.media.AudioManager.ADJUST_RAISE
+          } else {
+            android.media.AudioManager.ADJUST_LOWER
+          }
+          (getSystemService(AUDIO_SERVICE) as android.media.AudioManager).adjustVolume(
+            direction,
+            android.media.AudioManager.FLAG_SHOW_UI,
+          )
+        }
+        volumePressKeyCode = null
+        volumePressLongPress = null
       }
       return true
     }
