@@ -234,14 +234,13 @@ export const WorkoutShareStudioModal: React.FC<WorkoutShareStudioModalProps> = (
         result: 'tmpfile',
       });
 
-      // 2. Open native share sheet with BOTH image and formatted text in 1 click
+      // 2. Open native share sheet with the captured trading card image
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
         await Sharing.shareAsync(uri, {
           mimeType: 'image/png',
           dialogTitle: `${titleToShare} - ${distanceKm} km`,
           UTI: 'public.png',
-          message,
         });
       } else {
         await handleShareTextPost();
@@ -369,6 +368,7 @@ export const WorkoutShareStudioModal: React.FC<WorkoutShareStudioModalProps> = (
               onTitleChange={handleCustomTitleChange}
               onSubtitleChange={handleCustomSubtitleChange}
               onPressCard={handleShareImage}
+              onToggleRouteMap={() => setShowRouteThumbnail((prev) => !prev)}
             />
           </View>
 
@@ -438,6 +438,38 @@ export const WorkoutShareStudioModal: React.FC<WorkoutShareStudioModalProps> = (
                 {isSharingImage ? 'Sharing...' : 'Share'}
               </Text>
             </TouchableOpacity>
+
+            {/* Toggle Route Map on Card (Remove / Add Map) */}
+            {coordinates.length > 1 ? (
+              <TouchableOpacity
+                onPress={() => setShowRouteThumbnail((prev) => !prev)}
+                style={[
+                  styles.utilityButton,
+                  {
+                    backgroundColor: showRouteThumbnail ? 'rgba(34, 211, 238, 0.12)' : colors.surface,
+                    borderColor: showRouteThumbnail ? '#22D3EE' : colors.border,
+                  },
+                ]}
+                activeOpacity={0.8}
+              >
+                <Feather
+                  name={showRouteThumbnail ? 'slash' : 'map-pin'}
+                  size={16}
+                  color={showRouteThumbnail ? '#22D3EE' : colors.text}
+                />
+                <Text
+                  style={[
+                    styles.utilityButtonText,
+                    {
+                      color: showRouteThumbnail ? '#22D3EE' : colors.text,
+                      fontWeight: '700',
+                    },
+                  ]}
+                >
+                  {showRouteThumbnail ? 'Remove Map from Card' : 'Add Map to Card'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
 
             {/* Quick Open in Google Maps */}
             {googleMapsUrl ? (

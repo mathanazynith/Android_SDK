@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -37,6 +38,7 @@ export interface WorkoutShareCardProps {
   onTitleChange?: (text: string) => void;
   onSubtitleChange?: (text: string) => void;
   onPressCard?: () => void;
+  onToggleRouteMap?: () => void;
 }
 
 /**
@@ -168,6 +170,7 @@ export const WorkoutShareCard = React.forwardRef<View, WorkoutShareCardProps>(({
   onTitleChange,
   onSubtitleChange,
   onPressCard,
+  onToggleRouteMap,
 }, ref) => {
   const activeTheme =
     customTheme ??
@@ -397,10 +400,14 @@ export const WorkoutShareCard = React.forwardRef<View, WorkoutShareCardProps>(({
           ) : null}
         </View>
 
-        {/* 3. Small Workout Route Drawing (Lifted safely above stats box) */}
+        {/* 3. Small Workout Route Drawing (Lifted safely above stats box, tap to toggle/remove) */}
         {miniRoute && miniRoute.pathD ? (
-          <View
-            pointerEvents={onPressCard ? 'none' : 'auto'}
+          <TouchableOpacity
+            activeOpacity={0.75}
+            disabled={!onToggleRouteMap}
+            onPress={onToggleRouteMap}
+            accessibilityRole="button"
+            accessibilityLabel="Remove or toggle route map"
             style={[
               styles.miniMapContainer,
               {
@@ -455,7 +462,7 @@ export const WorkoutShareCard = React.forwardRef<View, WorkoutShareCardProps>(({
             <View style={[styles.miniMapBadge, { backgroundColor: activeMiniMapBadgeBg }]}>
               <Text style={[styles.miniMapBadgeText, { color: activeMiniMapBadgeText }]}>ROUTE</Text>
             </View>
-          </View>
+          </TouchableOpacity>
         ) : null}
 
         {/* 4. Bottom Data HUD (Styled to match the Theme Artwork Glass Capsule) */}

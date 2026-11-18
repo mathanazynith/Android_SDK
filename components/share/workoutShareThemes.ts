@@ -3,7 +3,7 @@ export interface WorkoutShareTheme {
   name: string;
   subtitle: string;
   iconName: string; // Feather icon name
-  badgeIconType: 'leaf' | 'pulse' | 'gauge' | 'mountain' | 'lotus' | 'stopwatch' | 'award' | 'trophy' | 'medal' | 'tree' | 'map-pin';
+  badgeIconType: 'leaf' | 'pulse' | 'gauge' | 'mountain' | 'lotus' | 'stopwatch' | 'award' | 'trophy' | 'medal' | 'tree' | 'map-pin' | 'sparkles';
   primaryColor: string;
   glowColor: string;
   accentGradient: [string, string, string];
@@ -162,7 +162,7 @@ export const WORKOUT_SHARE_THEMES: Record<string, WorkoutShareTheme> = {
     name: 'Recovery Run',
     subtitle: 'Slow & Steady',
     iconName: 'heart',
-    badgeIconType: 'lotus',
+    badgeIconType: 'sparkles',
     primaryColor: '#A855F7',
     glowColor: '#E9D5FF',
     accentGradient: ['#581C87', '#9333EA', '#3b0764'],
