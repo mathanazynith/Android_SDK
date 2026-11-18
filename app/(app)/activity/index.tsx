@@ -768,6 +768,7 @@ export default function ActivityScreen() {
   const [savingActivityIds, setSavingActivityIds] = useState<Set<string>>(() => new Set());
   const [exportingActivityIds, setExportingActivityIds] = useState<Set<string>>(() => new Set());
   const [pendingSaveActivity, setPendingSaveActivity] = useState<BackendActivity | null>(null);
+  const [pendingVisibilityAction, setPendingVisibilityAction] = useState<'private' | 'public' | null>(null);
   const [activityOptionsActivity, setActivityOptionsActivity] = useState<BackendActivity | null>(null);
   const [activityOptionsMessage, setActivityOptionsMessage] = useState<string | null>(null);
   const [visibleActivityIds, setVisibleActivityIds] = useState<Set<string>>(() => new Set());
@@ -1483,8 +1484,18 @@ export default function ActivityScreen() {
     || hasPendingRouteId,
   );
   const pendingVisibilityBusy = Boolean(
-    pendingSaveActivity && savingActivityIds.has(String(pendingSaveActivity.id)),
+    pendingVisibilityAction
+    || (pendingSaveActivity && savingActivityIds.has(String(pendingSaveActivity.id))),
   );
+  const handlePendingVisibilityChange = (isPublic: boolean) => {
+    if (!pendingSaveActivity || pendingVisibilityBusy || (pendingRouteIsSaved && !hasPendingRouteId)) return;
+
+    setPendingVisibilityAction(isPublic ? 'public' : 'private');
+    const operation = pendingRouteIsSaved
+      ? updateActivityRouteVisibility(pendingSaveActivity, pendingRouteId, isPublic)
+      : saveActivityRoute(pendingSaveActivity, isPublic);
+    void operation.finally(() => setPendingVisibilityAction(null));
+  };
 
   return (
     <GestureHandlerRootView style={styles.gestureRoot}>
@@ -1974,7 +1985,7 @@ export default function ActivityScreen() {
         animationType="fade"
         statusBarTranslucent
         onRequestClose={() => {
-          if (!pendingSaveActivity || savingActivityIds.has(String(pendingSaveActivity.id))) return;
+          if (!pendingSaveActivity || pendingVisibilityBusy) return;
           setPendingSaveActivity(null);
         }}
       >
@@ -1998,20 +2009,13 @@ export default function ActivityScreen() {
             <TouchableOpacity
               accessibilityRole="button"
               disabled={pendingSaveActivity === null || pendingVisibilityBusy || (pendingRouteIsSaved && !hasPendingRouteId)}
-              onPress={() => {
-                if (!pendingSaveActivity) return;
-                if (pendingRouteIsSaved && hasPendingRouteId) {
-                  void updateActivityRouteVisibility(pendingSaveActivity, pendingRouteId, false);
-                } else if (!pendingRouteIsSaved) {
-                  void saveActivityRoute(pendingSaveActivity, false);
-                }
-              }}
+              onPress={() => handlePendingVisibilityChange(false)}
               style={[styles.saveVisibilityButton, {
                 backgroundColor: pendingSaveActivity?.saved_route_is_public === false ? colors.selected : colors.surfaceRaised,
                 borderColor: pendingSaveActivity?.saved_route_is_public === false ? colors.primary : colors.border,
               }]}
             >
-              {pendingVisibilityBusy
+              {pendingVisibilityAction === 'private'
                 ? <RunningLoader size={16} fillColor={colors.text} />
                 : <Feather name="lock" size={16} color={colors.text} />}
               <Text style={[styles.saveVisibilityText, { color: colors.text }]}>
@@ -2021,20 +2025,13 @@ export default function ActivityScreen() {
             <TouchableOpacity
               accessibilityRole="button"
               disabled={pendingSaveActivity === null || pendingVisibilityBusy || (pendingRouteIsSaved && !hasPendingRouteId)}
-              onPress={() => {
-                if (!pendingSaveActivity) return;
-                if (pendingRouteIsSaved && hasPendingRouteId) {
-                  void updateActivityRouteVisibility(pendingSaveActivity, pendingRouteId, true);
-                } else if (!pendingRouteIsSaved) {
-                  void saveActivityRoute(pendingSaveActivity, true);
-                }
-              }}
+              onPress={() => handlePendingVisibilityChange(true)}
               style={[styles.saveVisibilityButton, {
                 backgroundColor: pendingSaveActivity?.saved_route_is_public === true ? colors.selected : colors.surfaceRaised,
                 borderColor: pendingSaveActivity?.saved_route_is_public === true ? colors.primary : colors.border,
               }]}
             >
-              {pendingVisibilityBusy
+              {pendingVisibilityAction === 'public'
                 ? <RunningLoader size={16} fillColor={colors.text} />
                 : <Feather name="globe" size={16} color={colors.text} />}
               <Text style={[styles.saveVisibilityText, { color: colors.text }]}>

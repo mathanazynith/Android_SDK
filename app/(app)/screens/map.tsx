@@ -49,7 +49,10 @@ import {
   getPendingWorkoutRecovery,
   removePendingWorkoutRecovery,
 } from '../../../src/services/pendingWorkoutRecoveries';
-import { RunningApiClient } from '../../../src/services/runningApi';
+import {
+  ACTIVITY_UPLOAD_PREFLIGHT_ERROR_CODE,
+  RunningApiClient,
+} from '../../../src/services/runningApi';
 import { DistanceSplitEngine, type CompletedLiveSplit } from '../../../src/services/splitEngine';
 import { StepDetectionService } from '../../../src/services/stepDetectionService';
 import voiceCoach from '../../../src/services/voiceCoach';
@@ -2449,6 +2452,7 @@ export default function MapScreen() {
     let payloadForExport: ActivitySubmissionPayload | null = null;
     let savedActivityId: string | number | null = null;
     let payloadQueuedOffline = false;
+    let offlineSubmissionReason: string | null = null;
     let pendingRecovery: Awaited<ReturnType<typeof getPendingWorkoutRecovery>> = null;
     let summaryMetrics = {
       distanceKm: recordedDistanceRef.current / 1000,
@@ -3080,10 +3084,14 @@ export default function MapScreen() {
                 submitError?.message?.toLowerCase().includes('timeout') ||
                 submitError?.message?.toLowerCase().includes('abort'));
             const isServerFailure = responseStatus >= 500;
-            if (!isNetworkFailure && !isServerFailure) {
+            const isUploadPreflightFailure = submitError?.code === ACTIVITY_UPLOAD_PREFLIGHT_ERROR_CODE;
+            if (!isNetworkFailure && !isServerFailure && !isUploadPreflightFailure) {
               throw submitError;
             }
             offlineSubmission = true;
+            offlineSubmissionReason = isUploadPreflightFailure
+              ? submitError.message
+              : null;
             console.warn('[SaveLifecycle] SAVE_API_FAILED', {
               runId: runIdRef.current,
               status: Number.isFinite(responseStatus) ? responseStatus : null,
@@ -3092,7 +3100,9 @@ export default function MapScreen() {
             console.warn(
               isServerFailure
                 ? `[MapScreen] Server error (HTTP ${responseStatus}); queuing workout locally for retry:`
-                : '[MapScreen] Network unavailable or upload timed out; queuing workout locally:',
+                : isUploadPreflightFailure
+                  ? '[MapScreen] GPS quality prevents upload; preserving workout locally:'
+                  : '[MapScreen] Network unavailable or upload timed out; queuing workout locally:',
               submitError?.message || submitError,
             );
           }
@@ -3111,7 +3121,9 @@ export default function MapScreen() {
                 pauseCount: pauseEventsRef.current.length,
               });
               payloadQueuedOffline = true;
-              addLog('Workout saved to offline queue — will sync automatically when online');
+              addLog(offlineSubmissionReason
+                ? `Workout saved locally but not uploaded: ${offlineSubmissionReason}`
+                : 'Workout saved to offline queue — will sync automatically when online');
             } catch (enqueueErr) {
               console.warn('[MapScreen] Failed to enqueue offline workout:', enqueueErr);
             }
@@ -3224,7 +3236,9 @@ export default function MapScreen() {
         ? 'No route was drawn or uploaded because the device remained stationary.'
         : activitySubmitted
           ? 'Your route has been finalized and saved to your account.'
-          : 'Your route has been saved offline and will automatically sync when connected to the internet.';
+          : offlineSubmissionReason
+            ? `Your workout is saved on this device but was not uploaded: ${offlineSubmissionReason}`
+            : 'Your route has been saved offline and will automatically sync when connected to the internet.';
       const exportPayload = (isPending: boolean) => {
         if (!payloadForExport) return;
         void shareActivityPayloadAsJson(

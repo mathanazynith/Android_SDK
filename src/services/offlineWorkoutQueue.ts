@@ -1,7 +1,10 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { ActivitySubmissionPayload } from '../types/running';
 import { activityAPI } from './activityApi';
-import { RunningApiClient } from './runningApi';
+import {
+  ACTIVITY_UPLOAD_PREFLIGHT_ERROR_CODE,
+  RunningApiClient,
+} from './runningApi';
 import { activityDistanceOverrides } from './activityDistanceOverrides';
 import { activityTimingOverrides } from './activityTimingOverrides';
 
@@ -211,7 +214,7 @@ export const offlineWorkoutQueue = {
         const responseData = error?.response?.data;
         let errorMsg: string;
         if (typeof responseData === 'string' && (responseData.includes('<html') || responseData.includes('Server Error'))) {
-          errorMsg = `Server Error (${error?.response?.status || 500}): Backend failed while processing this workout (e.g. insufficient GPS points or 0-distance test run).`;
+          errorMsg = `Server Error (${error?.response?.status || 500}): The server returned no diagnostic details. Check the backend logs for the exception.`;
         } else {
           errorMsg =
             responseData?.message ||
@@ -224,21 +227,20 @@ export const offlineWorkoutQueue = {
         lastError = errorMsg;
         console.warn(`[OfflineWorkoutQueue] Sync failed for workout ${item.id}:`, errorMsg);
         const responseStatus = Number(error?.response?.status);
-        if (responseStatus >= 400 && responseStatus < 500) {
-          console.warn(`[OfflineWorkoutQueue] Removing permanently failing workout ${item.id} from queue (status ${error.response.status})`);
-          await this.remove(item.id);
-        }
-        // If it's a network error, stop trying further items right now
+        // Keep every failed workout intact until the server confirms success.
+        // A server response for this item does not prevent attempting later
+        // queued workouts; only a connection-level failure stops this pass.
+        const isUploadPreflightFailure = error?.code === ACTIVITY_UPLOAD_PREFLIGHT_ERROR_CODE;
         const isNetwork =
           !error?.response ||
           error?.code === 'ECONNABORTED' ||
           error?.code === 'ETIMEDOUT' ||
           error?.message?.toLowerCase().includes('network') ||
           error?.message?.toLowerCase().includes('timeout');
-        if (isNetwork || responseStatus >= 500) {
-          if (responseStatus >= 500) {
-            console.warn(`[OfflineWorkoutQueue] Keeping workout ${item.id} queued after retryable server error (HTTP ${responseStatus}).`);
-          }
+        if (responseStatus >= 500) {
+          console.warn(`[OfflineWorkoutQueue] Keeping workout ${item.id} queued after retryable server error (HTTP ${responseStatus}).`);
+        }
+        if (isNetwork && !isUploadPreflightFailure) {
           break;
         }
       }

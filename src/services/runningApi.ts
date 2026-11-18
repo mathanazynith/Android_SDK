@@ -1,6 +1,13 @@
 import api from '../../service/api';
 import { ActivitySubmissionPayload, RunSessionStartPayload, RunSessionStartResponse, RunStopPayload, UploadBatchPayload } from '../types/running';
 import { calculateDistanceMeters } from '../utils/distance';
+import {
+  compactActivitySubmissionPayload,
+  filterActivityPointsForBackendAccuracy,
+  MAX_BACKEND_GPS_ACCURACY_METERS,
+  normalizeActivityPauseMetrics,
+  normalizeActivityTimestampsToSeconds,
+} from './activityPayloadCompaction';
 import { activityManualLapOverrides } from './activityManualLapOverrides';
 
 // `service/api.ts` supplies the /api/v1 base URL and authenticated Bearer
@@ -8,6 +15,17 @@ import { activityManualLapOverrides } from './activityManualLapOverrides';
 const ACTIVITY_UPLOAD_PATH = (
   process.env.EXPO_PUBLIC_ACTIVITY_UPLOAD_PATH || '/rundata/upload/'
 ).trim();
+
+export const ACTIVITY_UPLOAD_PREFLIGHT_ERROR_CODE = 'ACTIVITY_UPLOAD_PREFLIGHT_FAILED';
+
+export class ActivityUploadPreflightError extends Error {
+  readonly code = ACTIVITY_UPLOAD_PREFLIGHT_ERROR_CODE;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'ActivityUploadPreflightError';
+  }
+}
 
 const createRunId = (): string =>
   `RUN-${Date.now()}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
@@ -185,7 +203,41 @@ export class RunningApiClient {
     success: boolean;
     activityId: string | number | null;
   }> {
-    const submissionPayload = normalizeActivitySubmissionPayload(payload);
+    const accuracyFilteredPayload = filterActivityPointsForBackendAccuracy(payload);
+    if (__DEV__) {
+      console.info('[ActivityUpload] Backend GPS accuracy filter', {
+        submittedPoints: payload.gps_points.length,
+        acceptedPoints: accuracyFilteredPayload.payload.gps_points.length,
+        rejectedPoints: accuracyFilteredPayload.rejectedPointCount,
+        maxAccuracyMeters: MAX_BACKEND_GPS_ACCURACY_METERS,
+      });
+    }
+    if (accuracyFilteredPayload.payload.gps_points.length === 0) {
+      throw new ActivityUploadPreflightError(
+        `No GPS points meet the server's ${MAX_BACKEND_GPS_ACCURACY_METERS} m accuracy limit.`,
+      );
+    }
+
+    let pauseNormalizedPayload: ActivitySubmissionPayload;
+    try {
+      const secondPrecisionPayload = normalizeActivityTimestampsToSeconds(
+        accuracyFilteredPayload.payload,
+      );
+      pauseNormalizedPayload = normalizeActivityPauseMetrics(secondPrecisionPayload);
+    } catch (error) {
+      if (!(error instanceof RangeError)) throw error;
+      throw new ActivityUploadPreflightError(`Workout timing data is invalid: ${error.message}`);
+    }
+    const normalizedPayload = normalizeActivitySubmissionPayload(pauseNormalizedPayload);
+    const compactedPayload = compactActivitySubmissionPayload(normalizedPayload);
+    const submissionPayload = compactedPayload.payload;
+    if (__DEV__) {
+      console.info('[ActivityUpload] Payload compaction', {
+        originalBytes: compactedPayload.originalBytes,
+        bytes: compactedPayload.bytes,
+        toleranceMeters: compactedPayload.toleranceMeters,
+      });
+    }
     const timingPayload = {
       moving_time: submissionPayload.moving_time,
       moving_time_s: submissionPayload.moving_time_s,
