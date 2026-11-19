@@ -1,5 +1,6 @@
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '../../contexts/ThemeContext';
+import GoogleGLogo from './GoogleGLogo';
 
 interface AuthSocialButtonsProps {
   onGooglePress: () => void;
@@ -30,7 +31,7 @@ export default function AuthSocialButtons({
         {loading ? (
           <ActivityIndicator color={colors.text} />
         ) : (
-          <Text style={[styles.googleGlyph, { color: colors.text }]}>G</Text>
+          <GoogleGLogo size={24} />
         )}
       </TouchableOpacity>
     </View>
@@ -51,9 +52,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 14,
     borderWidth: 1,
-  },
-  googleGlyph: {
-    fontSize: 20,
-    fontWeight: '700',
   },
 });
