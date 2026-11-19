@@ -368,9 +368,44 @@ export const WorkoutShareStudioModal: React.FC<WorkoutShareStudioModalProps> = (
               onTitleChange={handleCustomTitleChange}
               onSubtitleChange={handleCustomSubtitleChange}
               onPressCard={handleShareImage}
-              onToggleRouteMap={() => setShowRouteThumbnail((prev) => !prev)}
             />
           </View>
+
+          {/* Dedicated Route Polyline Toggle Below Image */}
+          {coordinates.length > 1 && (
+            <View style={styles.cardQuickControls}>
+              <TouchableOpacity
+                onPress={() => setShowRouteThumbnail((prev) => !prev)}
+                style={[
+                  styles.quickPillButton,
+                  {
+                    backgroundColor: showRouteThumbnail ? 'rgba(34, 211, 238, 0.12)' : colors.surface,
+                    borderColor: showRouteThumbnail ? '#22D3EE' : colors.border,
+                  },
+                ]}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Toggle route polyline"
+              >
+                <Feather
+                  name="activity"
+                  size={15}
+                  color={showRouteThumbnail ? '#22D3EE' : colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.quickPillText,
+                    {
+                      color: showRouteThumbnail ? '#22D3EE' : colors.text,
+                      fontWeight: '700',
+                    },
+                  ]}
+                >
+                  {showRouteThumbnail ? 'Route Polyline: Shown' : 'Route Polyline: Hidden'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* THEME PICKER CAROUSEL */}
           <View style={styles.themeSection}>
@@ -453,7 +488,7 @@ export const WorkoutShareStudioModal: React.FC<WorkoutShareStudioModalProps> = (
                 activeOpacity={0.8}
               >
                 <Feather
-                  name={showRouteThumbnail ? 'slash' : 'map-pin'}
+                  name="activity"
                   size={16}
                   color={showRouteThumbnail ? '#22D3EE' : colors.text}
                 />
@@ -466,7 +501,7 @@ export const WorkoutShareStudioModal: React.FC<WorkoutShareStudioModalProps> = (
                     },
                   ]}
                 >
-                  {showRouteThumbnail ? 'Remove Map from Card' : 'Add Map to Card'}
+                  {showRouteThumbnail ? 'Hide Route Polyline' : 'Show Route Polyline'}
                 </Text>
               </TouchableOpacity>
             ) : null}
@@ -614,5 +649,25 @@ const styles = StyleSheet.create({
   utilityButtonText: {
     fontSize: 13,
     fontWeight: '600',
+  },
+  cardQuickControls: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  quickPillButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 20,
+    borderWidth: 1.5,
+  },
+  quickPillText: {
+    fontSize: 13,
   },
 });

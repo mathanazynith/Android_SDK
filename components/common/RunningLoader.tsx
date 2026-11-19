@@ -31,7 +31,7 @@ export interface RunningLoaderProps {
   unfilledColor?: string;
   /** Direction of fill: 'bottom-to-top' (liquid rising) or 'left-to-right' (charging forward). Default: 'bottom-to-top'. */
   direction?: 'bottom-to-top' | 'left-to-right';
-  /** Visual style: 'lottie' (animated athlete from Lottie JSON) | 'silhouette' (vector runner filling from inside) | 'emoji' (runner emoji). Default: 'lottie' when size > 32, 'silhouette' when size <= 32. */
+  /** Visual style: 'lottie' (animated athlete from Lottie JSON) | 'silhouette' (vector runner filling from inside) | 'emoji' (runner emoji). Default: 'lottie'. */
   mode?: 'lottie' | 'silhouette' | 'emoji';
   /** Optional label text below the runner (e.g. "Loading workout..."). */
   label?: string;
@@ -67,7 +67,7 @@ export const RunningLoader: React.FC<RunningLoaderProps> = ({
   const { isDark, colors } = useTheme();
 
   const isSmall = size <= 28;
-  const effectiveMode = mode ?? (size > 32 ? 'lottie' : 'silhouette');
+  const effectiveMode = mode ?? 'lottie';
   const isLottie = effectiveMode === 'lottie';
   const effectiveShowSpeedLines = !isLottie && showSpeedLines && !isSmall;
   const effectiveShowShadow = !isLottie && showShadow && !isSmall;
