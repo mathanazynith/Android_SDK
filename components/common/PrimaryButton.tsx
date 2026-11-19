@@ -80,7 +80,7 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
       activeOpacity={0.8}
     >
       {loading ? (
-        <RunningLoader size={22} fillColor={getTextColor()} />
+        <RunningLoader size={26} fillColor={getTextColor()} />
       ) : (
         <>
           {leftIcon && <>{leftIcon}</>}
