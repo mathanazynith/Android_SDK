@@ -1237,57 +1237,6 @@ export default function StatsScreen() {
           </View>
         </View>
 
-        {/* Recent Workouts Shortcut */}
-        {activities.length > 0 && (
-          <>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Recent Activities</Text>
-              <TouchableOpacity onPress={() => router.push('/(app)/activity')}>
-                <Text style={styles.seeAllText}>See All</Text>
-              </TouchableOpacity>
-            </View>
-
-            {activities.slice(0, 3).map((act) => (
-              <TouchableOpacity
-                key={act.id}
-                style={styles.recentCard}
-                onPress={() => router.push(`/(app)/activity/${act.id}`)}
-                activeOpacity={0.8}
-              >
-                <View
-                  style={[
-                    styles.recentBar,
-                    { backgroundColor: act.activityType === 'RUN' ? '#0A84FF' : '#30D158' },
-                  ]}
-                />
-                <View style={styles.recentContent}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.recentTitle}>
-                      {act.activityType === 'RUN' ? 'Run' : 'Walk'}
-                    </Text>
-                    <Text style={styles.recentDate}>
-                      {act.date.toLocaleDateString(undefined, {
-                        weekday: 'short',
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </Text>
-                  </View>
-
-                  <View style={styles.recentMetrics}>
-                    <Text style={styles.recentDist}>{formatKm(act.distanceKm)}</Text>
-                    <Text style={styles.recentMeta}>
-                      {formatTimeHoursMins(act.durationSeconds)} · {formatPaceMinutes(act.paceSecondsPerKm)}
-                    </Text>
-                  </View>
-
-                  <Feather name="chevron-right" size={16} color="#8E8E93" style={{ marginLeft: 8 }} />
-                </View>
-              </TouchableOpacity>
-            ))}
-          </>
-        )}
-
         {/* Empty State */}
         {activities.length === 0 && !loading && (
           <View style={styles.emptyStateCard}>

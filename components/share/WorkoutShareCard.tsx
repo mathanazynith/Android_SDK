@@ -400,14 +400,9 @@ export const WorkoutShareCard = React.forwardRef<View, WorkoutShareCardProps>(({
           ) : null}
         </View>
 
-        {/* 3. Small Workout Route Drawing (Lifted safely above stats box, tap to toggle/remove) */}
+        {/* 3. Small Workout Route Drawing (Lifted safely above stats box; controlled via buttons below image) */}
         {miniRoute && miniRoute.pathD ? (
-          <TouchableOpacity
-            activeOpacity={0.75}
-            disabled={!onToggleRouteMap}
-            onPress={onToggleRouteMap}
-            accessibilityRole="button"
-            accessibilityLabel="Remove or toggle route map"
+          <View
             style={[
               styles.miniMapContainer,
               {
@@ -462,7 +457,7 @@ export const WorkoutShareCard = React.forwardRef<View, WorkoutShareCardProps>(({
             <View style={[styles.miniMapBadge, { backgroundColor: activeMiniMapBadgeBg }]}>
               <Text style={[styles.miniMapBadgeText, { color: activeMiniMapBadgeText }]}>ROUTE</Text>
             </View>
-          </TouchableOpacity>
+          </View>
         ) : null}
 
         {/* 4. Bottom Data HUD (Styled to match the Theme Artwork Glass Capsule) */}
