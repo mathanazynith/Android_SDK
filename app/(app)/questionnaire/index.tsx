@@ -608,6 +608,7 @@ export default function QuestionnaireScreen() {
     allAnswers,
     isLoading,
     error,
+    questionnaireNotice,
     validationErrors,
     isComplete,
     computedResponses,
@@ -1364,6 +1365,11 @@ export default function QuestionnaireScreen() {
           direction={pageTransitionDirection === 'forward' ? 'right' : 'left'}
           style={styles.pageContainer}
         >
+          {questionnaireNotice ? (
+            <View style={styles.noticeBanner}>
+              <Text style={styles.noticeBannerText}>{questionnaireNotice}</Text>
+            </View>
+          ) : null}
           {error && (
             <View style={styles.validationBanner}>
               <Text style={styles.validationBannerText}>{error}</Text>
@@ -1677,6 +1683,20 @@ const styles = StyleSheet.create({
   },
   validationBannerText: {
     color: "#D93025",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  noticeBanner: {
+    backgroundColor: "rgba(48, 209, 88, 0.12)",
+    borderColor: BRAND_GREEN,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 16,
+  },
+  noticeBannerText: {
+    color: BRAND_GREEN,
     fontSize: 14,
     fontWeight: "600",
   },

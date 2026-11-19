@@ -496,6 +496,7 @@ export default function MapScreen() {
 
   const logsRef = useRef<string[]>([]);
   const [pauseMarkers, setPauseMarkers] = useState<PauseMarker[]>([]);
+  const pauseMarkerIdRef = useRef(0);
   const [location, setLocation] = useState<LocationState | null>(null);
 
   useEffect(() => {
@@ -2222,9 +2223,10 @@ export default function MapScreen() {
         resume_location: null,
       });
       if (pauseLocation) {
+        const markerId = ++pauseMarkerIdRef.current;
         setPauseMarkers((markers) => [
           ...markers,
-          { id: Date.now(), type: 'pause', coordinate: pauseLocation },
+          { id: markerId, type: 'pause', coordinate: pauseLocation },
         ]);
  
       // if (pauseLocation) {
@@ -2284,9 +2286,10 @@ export default function MapScreen() {
         }
       }
       if (resumeLocation) {
+        const markerId = ++pauseMarkerIdRef.current;
         setPauseMarkers((markers) => [
           ...markers,
-          { id: Date.now(), type: 'resume', coordinate: resumeLocation },
+          { id: markerId, type: 'resume', coordinate: resumeLocation },
         ]);
       // if (resumeLocation) {
       //   setPauseMarkers((markers) => [...markers, {
@@ -3681,7 +3684,7 @@ export default function MapScreen() {
         >
           {renderedRouteSegments.map((segment) => (
             <Polyline
-              key={segment.id}
+              key={`route-segment-${segment.id}`}
               coordinates={segment.coordinates}
               strokeWidth={3}
               strokeColor={segment.traceType === 'extra'
@@ -3707,7 +3710,7 @@ export default function MapScreen() {
             />
           )}
           {pauseMarkers.map((marker) => (
-            <Marker key={marker.id} coordinate={marker.coordinate} anchor={{ x: 0.5, y: 0.5 }}>
+            <Marker key={`pause-marker-${marker.id}`} coordinate={marker.coordinate} anchor={{ x: 0.5, y: 0.5 }}>
               <View style={[styles.pauseMarker, marker.type === 'resume' && styles.resumeMarker]} />
             </Marker>
           ))}
@@ -4140,7 +4143,7 @@ export default function MapScreen() {
                   SPLIT {lastManualSplit.splitNumber} · {Math.round(lastManualSplit.distanceMeters)} m
                 </Text>
               ) : isRunning && Platform.OS === 'android' ? (
-                <Text style={styles.manualSplitHint} numberOfLines={1}>Press either volume button to mark a split</Text>
+                <Text style={styles.manualSplitHint} numberOfLines={1}>Long press either volume button to mark a split</Text>
               ) : null}
             </View>
 

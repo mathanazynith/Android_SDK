@@ -58,7 +58,7 @@ export default function DashboardActivePlan({
     getDistanceUnitCode(user?.profile?.distance_unit) === 'mile' ? 'mi' : 'km';
   const paceUnitLabel = getPaceUnitLabel(profileUnit);
 
-  const isRestDay = isRestWorkout(todayWorkout);
+  const isRestDay = !todayWorkout || isRestWorkout(todayWorkout);
   const planName = plan.training_plan || plan.template_name || 'Training Plan';
   const pace = plan.target_pace
     ? formatPaceForUnit(plan.target_pace, plan.pace_unit, profileUnit, false)
@@ -97,7 +97,12 @@ export default function DashboardActivePlan({
   };
 
   const handleStartTodayWorkout = () => {
-    if (isRestDay || !todayWorkout) {
+    if (isRestDay) {
+      router.push('/(app)/training-plan');
+      return;
+    }
+
+    if (!todayWorkout) {
       if (scheduledCustomWorkout) {
         handleStartCustomWorkout(scheduledCustomWorkout);
         return;
@@ -316,18 +321,14 @@ export default function DashboardActivePlan({
             </View>
           ) : null}
 
-          {/* Start Button inside Today's Card */}
-          <View
-            style={[
-              styles.startTodayButton,
-              { backgroundColor: isRestDay ? '#0A84FF' : BRAND_GREEN },
-            ]}
-          >
-            <Feather name={isRestDay ? 'coffee' : 'play'} size={18} color="#081009" />
-            <DashboardText style={styles.startTodayButtonText}>
-              {isRestDay ? 'VIEW SCHEDULE' : "START TODAY'S WORKOUT"}
-            </DashboardText>
-          </View>
+          {!isRestDay ? (
+            <View style={[styles.startTodayButton, { backgroundColor: BRAND_GREEN }]}>
+              <Feather name="play" size={18} color="#081009" />
+              <DashboardText style={styles.startTodayButtonText}>
+                START TODAY&apos;S WORKOUT
+              </DashboardText>
+            </View>
+          ) : null}
         </TouchableOpacity>
       )}
 

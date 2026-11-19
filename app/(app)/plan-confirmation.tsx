@@ -3,6 +3,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   BackHandler,
   ScrollView,
   StyleSheet,
@@ -15,6 +16,13 @@ import { RunningLoader } from '../../components/common/RunningLoader';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import type { CurrentWorkout } from '../../service/workoutPlan';
+import {
+  changePlanAnswers,
+  getWorkoutPlanGenerationActions,
+  getWorkoutPlanGenerationState,
+  retryPlanLookup,
+  startNewPlanAssessment,
+} from '../../src/utils/workoutPlanGeneration';
 
 const formatPlanDate = (date: string | undefined) => {
   if (!date) return 'Not set';
@@ -47,11 +55,14 @@ export default function PlanConfirmationScreen() {
     workoutPlanError,
     isWorkoutPlanLoaded,
     isWorkoutPlanLoading,
+    isWorkoutPlanRetryable,
     fetchWorkoutPlan,
     goToPrevious,
+    reset,
     isLoading,
   } = useQuestionnaire();
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isStartingOver, setIsStartingOver] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const cancelInProgress = useRef(false);
 
@@ -76,37 +87,91 @@ export default function PlanConfirmationScreen() {
     workoutPlan,
   ]);
 
-  const handleCancel = useCallback(async () => {
+  const handleChangeAnswers = useCallback(async () => {
     if (cancelInProgress.current) return;
     cancelInProgress.current = true;
     setIsCancelling(true);
     setCancelError(null);
     try {
-      const returnedToAssessment = await goToPrevious();
+      const returnedToAssessment = await changePlanAnswers(
+        goToPrevious,
+        () => router.replace('/(app)/questionnaire'),
+      );
       if (!returnedToAssessment) {
-        setCancelError('Unable to return to the assessment. Please try again.');
-        return;
+        setCancelError(
+          'Unable to return to your answers. Try again, or start a fresh assessment.',
+        );
       }
-      router.replace('/(app)/questionnaire');
+    } catch (error) {
+      console.error('[PlanConfirmation] Failed to return to answers:', error);
+      setCancelError(
+        'Unable to return to your answers. Try again, or start a fresh assessment.',
+      );
     } finally {
       cancelInProgress.current = false;
       setIsCancelling(false);
     }
   }, [goToPrevious]);
 
+  const handleStartOver = useCallback(() => {
+    Alert.alert(
+      'Start a new assessment?',
+      'Your current answers will be cleared.',
+      [
+        { text: 'Keep my answers', style: 'cancel' },
+        {
+          text: 'Start over',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setIsStartingOver(true);
+              setCancelError(null);
+              try {
+                await startNewPlanAssessment(
+                  reset,
+                  () => router.replace('/(app)/questionnaire'),
+                );
+              } catch (error) {
+                console.error('[PlanConfirmation] Failed to restart assessment:', error);
+                Alert.alert(
+                  'Unable to start over',
+                  'Your answers could not be cleared. Please try again.',
+                );
+              } finally {
+                setIsStartingOver(false);
+              }
+            })();
+          },
+        },
+      ],
+      { cancelable: true },
+    );
+  }, [reset]);
+
   useFocusEffect(
     useCallback(() => {
       const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-        void handleCancel();
+        void handleChangeAnswers();
         return true;
       });
       return () => subscription.remove();
-    }, [handleCancel]),
+    }, [handleChangeAnswers]),
   );
 
   if (!assessmentId || !isComplete) return null;
 
-  const isLoadingPlan = !isWorkoutPlanLoaded || isWorkoutPlanLoading;
+  const planState = getWorkoutPlanGenerationState({
+    isLoaded: isWorkoutPlanLoaded,
+    isLoading: isWorkoutPlanLoading,
+    hasPlan: Boolean(workoutPlan),
+    error: workoutPlanError,
+  });
+  const actions = getWorkoutPlanGenerationActions(
+    planState,
+    isWorkoutPlanRetryable,
+    Boolean(cancelError),
+  );
+  const isLoadingPlan = planState === 'loading';
   const firstWorkout = workoutPlan ? getFirstWorkout(workoutPlan.weeks) : undefined;
   const planName = workoutPlan?.training_plan || workoutPlan?.template_name || 'Personalized running plan';
   const schedule = workoutPlan?.selected_weekdays?.length
@@ -122,16 +187,35 @@ export default function PlanConfirmationScreen() {
         <View style={[styles.headerIcon, { backgroundColor: colors.selected }]}>
           <Feather name="check-circle" size={30} color={BRAND_GREEN} />
         </View>
-        <Text style={[styles.title, { color: colors.textPrimary }]}>Your plan is ready</Text>
+        <Text style={[styles.title, { color: colors.textPrimary }]}>
+          {planState === 'loading'
+            ? 'Preparing your plan'
+            : planState === 'no_match'
+            ? 'No matching plan'
+            : planState === 'error'
+              ? 'Plan unavailable'
+              : 'Your plan is ready'}
+        </Text>
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          Review your personalized training plan. Confirm to continue, or cancel to return to your assessment and make changes.
+          {planState === 'loading'
+            ? 'Checking your selections for an available training plan.'
+            : planState === 'no_match'
+            ? 'You can change your answers or start a fresh assessment.'
+            : planState === 'error'
+              ? 'Try again, change your answers, or start a fresh assessment.'
+              : 'Review your personalized training plan, or change your answers before continuing.'}
         </Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: actions.includes('start_over') ? 230 : 140 },
+        ]}
+      >
         {isLoadingPlan ? (
           <RunningLoader size={48} label="Loading your plan..." />
-        ) : workoutPlan ? (
+        ) : planState === 'available' && workoutPlan ? (
           <>
             <View style={[styles.planCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <Text style={[styles.planLabel, { color: colors.textSecondary }]}>YOUR TRAINING PLAN</Text>
@@ -156,18 +240,16 @@ export default function PlanConfirmationScreen() {
           </>
         ) : (
           <View style={[styles.errorCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Feather name="alert-circle" size={22} color="#D32F2F" />
+            <Feather
+              name={planState === 'no_match' ? 'search' : 'alert-circle'}
+              size={22}
+              color={planState === 'no_match' ? BRAND_GREEN : '#D32F2F'}
+            />
             <Text style={[styles.errorText, { color: colors.text }]}>
-              {workoutPlanError || 'Your training plan is not available yet. Try loading it again.'}
+              {planState === 'no_match'
+                ? 'We couldn’t find a workout plan for these selections. Change your answers and try again, or start a fresh assessment.'
+                : workoutPlanError || 'We couldn’t load your workout plan. Check your connection and try again.'}
             </Text>
-            <TouchableOpacity
-              style={[styles.retryButton, { backgroundColor: colors.primary }]}
-              onPress={() => void fetchWorkoutPlan(true)}
-              disabled={isWorkoutPlanLoading}
-              accessibilityRole="button"
-            >
-              <Text style={[styles.retryText, { color: colors.primaryText }]}>Retry</Text>
-            </TouchableOpacity>
           </View>
         )}
 
@@ -177,26 +259,54 @@ export default function PlanConfirmationScreen() {
       </ScrollView>
 
       <View style={[styles.actions, { paddingBottom: Math.max(20, insets.bottom + 12) }]}>
-        <TouchableOpacity
-          style={[styles.confirmButton, (!workoutPlan || isLoadingPlan || isCancelling) && styles.disabledButton]}
-          onPress={() => router.replace('/(app)/running-plan')}
-          disabled={!workoutPlan || isLoadingPlan || isCancelling}
-          accessibilityRole="button"
-        >
-          {isCancelling ? <ActivityIndicator color="#081009" /> : <Text style={styles.confirmText}>Confirm</Text>}
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.cancelButton, { borderColor: colors.border }]}
-          onPress={() => void handleCancel()}
-          disabled={isCancelling || isLoading}
-          accessibilityRole="button"
-        >
-          {isCancelling ? (
-            <ActivityIndicator color={colors.textSecondary} />
-          ) : (
-            <Text style={[styles.cancelText, { color: colors.text }]}>Cancel</Text>
-          )}
-        </TouchableOpacity>
+        {actions.includes('confirm') ? (
+          <TouchableOpacity
+            style={[styles.confirmButton, (isLoadingPlan || isStartingOver) && styles.disabledButton]}
+            onPress={() => router.replace('/(app)/running-plan')}
+            disabled={isLoadingPlan || isStartingOver}
+            accessibilityRole="button"
+          >
+            <Text style={styles.confirmText}>Confirm</Text>
+          </TouchableOpacity>
+        ) : null}
+        {actions.includes('retry') ? (
+          <TouchableOpacity
+            style={[styles.confirmButton, (isLoadingPlan || isCancelling || isStartingOver) && styles.disabledButton]}
+            onPress={() => void retryPlanLookup(fetchWorkoutPlan)}
+            disabled={isLoadingPlan || isCancelling || isStartingOver}
+            accessibilityRole="button"
+          >
+            {isLoadingPlan ? <ActivityIndicator color="#081009" /> : <Text style={styles.confirmText}>Try again</Text>}
+          </TouchableOpacity>
+        ) : null}
+        {actions.includes('change_answers') ? (
+          <TouchableOpacity
+            style={[styles.cancelButton, { borderColor: colors.border }]}
+            onPress={() => void handleChangeAnswers()}
+            disabled={isCancelling || isStartingOver || isLoading}
+            accessibilityRole="button"
+          >
+            {isCancelling ? (
+              <ActivityIndicator color={colors.textSecondary} />
+            ) : (
+              <Text style={[styles.cancelText, { color: colors.text }]}>Change answers</Text>
+            )}
+          </TouchableOpacity>
+        ) : null}
+        {actions.includes('start_over') ? (
+          <TouchableOpacity
+            style={[styles.startOverButton, { borderColor: colors.border }]}
+            onPress={handleStartOver}
+            disabled={isCancelling || isStartingOver || isLoading}
+            accessibilityRole="button"
+          >
+            {isStartingOver ? (
+              <ActivityIndicator color="#D32F2F" />
+            ) : (
+              <Text style={styles.startOverText}>Start over</Text>
+            )}
+          </TouchableOpacity>
+        ) : null}
       </View>
     </View>
   );
@@ -231,13 +341,13 @@ const styles = StyleSheet.create({
   reasonText: { fontSize: 14, lineHeight: 21 },
   errorCard: { alignItems: 'center', borderWidth: 1, borderRadius: 16, padding: 18, gap: 12 },
   errorText: { textAlign: 'center', fontSize: 14, lineHeight: 20 },
-  retryButton: { borderRadius: 12, paddingVertical: 11, paddingHorizontal: 24 },
-  retryText: { fontWeight: '700' },
   cancelError: { color: '#D32F2F', textAlign: 'center', marginTop: 12 },
   actions: { paddingHorizontal: 20, gap: 10 },
   confirmButton: { minHeight: 52, borderRadius: 16, backgroundColor: BRAND_GREEN, alignItems: 'center', justifyContent: 'center' },
   confirmText: { color: '#081009', fontSize: 16, fontWeight: '800' },
   cancelButton: { minHeight: 50, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   cancelText: { fontSize: 15, fontWeight: '700' },
+  startOverButton: { minHeight: 46, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  startOverText: { color: '#D32F2F', fontSize: 14, fontWeight: '700' },
   disabledButton: { opacity: 0.5 },
 });
