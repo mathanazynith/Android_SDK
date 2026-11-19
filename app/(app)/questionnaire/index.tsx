@@ -11,6 +11,7 @@ import {
   View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Reanimated, { ZoomIn, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import DatePicker from "../../../app/(app)/questionnaire/QuestionTypes/DatePicker";
 import DistanceTimePaceSelector, { getDistanceInKilometers } from "../../../app/(app)/questionnaire/QuestionTypes/DistanceTimePaceSelector";
 import PlanSelection from "../../../app/(app)/questionnaire/QuestionTypes/PlanSelection";
@@ -31,11 +32,25 @@ import type { Question } from "../../../service/questionnaire/questionnaireServi
 import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import {
   getAvailableEventDate,
+  getInsufficientTrainingTimeMessage,
   getQuestionClientValidationMessages,
 } from "../../../utils/questionnaireValidation";
 import { calculatePace, timeToSeconds } from "../../../utils/validators";
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+const AnimatedAnswerOption = Reanimated.createAnimatedComponent(TouchableOpacity);
+
+const AssessmentProgressFill = ({ progress }: { progress: number }) => {
+  const reduceMotion = useReducedMotion();
+  const progressValue = useSharedValue(progress);
+
+  useEffect(() => {
+    progressValue.value = reduceMotion ? progress : withTiming(progress, { duration: 420 });
+  }, [progress, progressValue, reduceMotion]);
+
+  const animatedStyle = useAnimatedStyle(() => ({ width: `${progressValue.value}%` }));
+  return <Reanimated.View style={[styles.progressFill, animatedStyle, { backgroundColor: BRAND_GREEN }]} />;
+};
 
 const AssessmentNextButton = ({
   disabled,
@@ -109,13 +124,15 @@ const isRacePredictionResponse = (data: unknown): data is RacePrediction => {
 // SingleChoice component
 const SingleChoice = ({ options, selectedValue, onSelect, stacked = false }: any) => {
   const { colors } = useTheme();
+  const reduceMotion = useReducedMotion();
   return (
     <View style={stacked ? styles.dayOptionsContainer : styles.optionsContainer}>
       {options.map((opt: any) => {
         const selected = selectedValue === opt.value;
         return (
-        <TouchableOpacity
-          key={opt.id}
+        <AnimatedAnswerOption
+          key={`${opt.id}-${selected ? "selected" : "idle"}`}
+          entering={!reduceMotion && selected ? ZoomIn.duration(180) : undefined}
           style={[
             styles.optionButton,
             { backgroundColor: colors.surface, borderColor: colors.border },
@@ -134,7 +151,7 @@ const SingleChoice = ({ options, selectedValue, onSelect, stacked = false }: any
             <Text style={[styles.optionText, stacked && styles.optionTextFullWidth, { color: colors.text }, selected && styles.optionSelectedText]}>{opt.label}</Text>
             {selected && <Feather style={styles.optionCheck} name="check-circle" size={20} color="#0D0D0D" />}
           </View>
-        </TouchableOpacity>
+        </AnimatedAnswerOption>
         );
       })}
     </View>
@@ -161,6 +178,7 @@ const QuestionField = ({
   localValidationMessages = [],
 }: any) => {
   const { colors } = useTheme();
+  const reduceMotion = useReducedMotion();
   const {
     id,
     type: rawType,
@@ -380,8 +398,9 @@ const QuestionField = ({
             {visibleOptions.map((opt: any) => {
               const selected = Array.isArray(value) && value.includes(opt.value);
               return (
-                <TouchableOpacity
-                  key={opt.id}
+                <AnimatedAnswerOption
+                  key={`${opt.id}-${selected ? "selected" : "idle"}`}
+                  entering={!reduceMotion && selected ? ZoomIn.duration(180) : undefined}
                   style={[
                     styles.optionButton,
                     { backgroundColor: colors.surface, borderColor: colors.border },
@@ -410,7 +429,7 @@ const QuestionField = ({
                     <Text style={[styles.optionText, isRunningDaysQuestion && styles.optionTextFullWidth, { color: colors.text }, selected && styles.optionSelectedText]}>{opt.label}</Text>
                     {selected && <Feather style={styles.optionCheck} name="check-circle" size={20} color="#0D0D0D" />}
                   </View>
-                </TouchableOpacity>
+                </AnimatedAnswerOption>
               );
             })}
           </View>
@@ -504,16 +523,30 @@ const QuestionField = ({
         </View>
       );
 
-    case "date":
+    case "date": {
+      const dateMinimumText = typeof question.validation?.min === "string"
+        ? question.validation.min
+        : undefined;
+      const dateMaximumText = typeof question.validation?.max === "string"
+        ? question.validation.max
+        : undefined;
+      const dateMinimum = dateMinimumText ? new Date(`${dateMinimumText}T00:00:00`) : undefined;
+      const dateMaximum = dateMaximumText ? new Date(`${dateMaximumText}T00:00:00`) : undefined;
       return (
         <View style={[styles.questionContainer, questionSurface, { borderWidth: 1 }]}>
           <Text style={[styles.questionText, questionHeading]}>
             {questionText}
             {isRequired && <Text style={styles.requiredStar}> *</Text>}
           </Text>
-          <DatePicker value={value} onChange={(date) => onAnswer(id, date)} />
+          <DatePicker
+            value={value}
+            minimumDate={dateMinimum && !Number.isNaN(dateMinimum.getTime()) ? dateMinimum : undefined}
+            maximumDate={dateMaximum && !Number.isNaN(dateMaximum.getTime()) ? dateMaximum : undefined}
+            onChange={(date) => onAnswer(id, date)}
+          />
         </View>
       );
+    }
 
     case "recent_long_run":
       return (
@@ -1274,6 +1307,35 @@ export default function QuestionnaireScreen() {
       ?? "";
     return timeToSeconds(String(timeValue)) !== null;
   })();
+  const insufficientTrainingMessage = (() => {
+    if (!eventRegistrationGroup) return null;
+    const { eventDateQuestion, trainingStartDateQuestion, distanceQuestion } = eventRegistrationGroup;
+    if (!trainingStartDateQuestion || !distanceQuestion) return null;
+
+    const startDate = getAnswerForQuestion(trainingStartDateQuestion).value;
+    const eventDate = getAnswerForQuestion(eventDateQuestion).value;
+    const distanceAnswer = getAnswerForQuestion(distanceQuestion);
+    const selectedOption = distanceQuestion.options?.find(
+      (option) => String(option.id) === String(distanceAnswer.value)
+    );
+    let distanceKm = getDistanceInKilometers(selectedOption);
+    if (selectedOption?.requires_input) {
+      const customDistance = Number(
+        distanceAnswer.customValues?.distance ?? distanceAnswer.customValues?.targetDistance
+      );
+      if (Number.isFinite(customDistance) && customDistance > 0) {
+        distanceKm = getDistanceUnitCode(distanceAnswer.customValues?.unit) === "mile"
+          ? customDistance * 1.60934
+          : customDistance;
+      }
+    }
+
+    return getInsufficientTrainingTimeMessage(
+      typeof startDate === "string" ? startDate : null,
+      typeof eventDate === "string" ? eventDate : null,
+      distanceKm
+    );
+  })();
   const hasClientValidationErrors = currentPageQuestions.some((question) => {
     const key = String(question.backendId ?? getNumericId(question.id));
     return getQuestionClientValidationMessages(
@@ -1287,6 +1349,7 @@ export default function QuestionnaireScreen() {
   const isNextDisabled = !isPageReadyToSubmit
     || !isEventTargetTimeComplete
     || hasClientValidationErrors
+    || Boolean(insufficientTrainingMessage)
     || isRacePredictionLoading
     || Boolean(racePredictionValidationMessage)
     || isSubmitting
@@ -1350,12 +1413,7 @@ export default function QuestionnaireScreen() {
           <Text style={[styles.progressLabel, { color: colors.textSecondary }]}>{stepInfo.label}</Text>
         </View>
         <View style={[styles.progressBar, { backgroundColor: colors.surfaceRaised }]}>
-          <View
-            style={[
-              styles.progressFill,
-              { width: `${Math.min((stepInfo.current / 10) * 100, 100)}%`, backgroundColor: BRAND_GREEN },
-            ]}
-          />
+          <AssessmentProgressFill progress={Math.min((stepInfo.current / 10) * 100, 100)} />
         </View>
       </View>
 
@@ -1455,6 +1513,7 @@ export default function QuestionnaireScreen() {
                     eventRegistrationGroup.eventDateQuestion.isRequired,
                     availableEventDate
                   ),
+                  ...(insufficientTrainingMessage ? [insufficientTrainingMessage] : []),
                 ],
                 trainingStartDate: eventRegistrationGroup.trainingStartDateQuestion
                   ? [
@@ -1721,16 +1780,17 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   progressHeader: {
-    paddingHorizontal: 30,
-    paddingTop: 22,
+    paddingHorizontal: 24,
+    paddingTop: 18,
     paddingBottom: 18,
     backgroundColor: "#0B0D0E",
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   progressHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: 12,
   },
   progressHeaderText: {
     fontSize: 14,
@@ -1743,24 +1803,26 @@ const styles = StyleSheet.create({
     fontWeight: "400",
   },
   progressBar: {
-    height: 6,
-    backgroundColor: "#34373B",
-    borderRadius: 2,
+    height: 7,
+    backgroundColor: "#25282A",
+    borderRadius: 999,
     overflow: "hidden",
   },
   progressFill: {
     height: "100%",
     backgroundColor: "#34C759",
-    borderRadius: 2,
+    borderRadius: 999,
   },
   buttonContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 16,
-    paddingHorizontal: 30,
-    paddingTop: 14,
+    paddingHorizontal: 24,
+    paddingTop: 16,
     paddingBottom: 12,
     backgroundColor: "#0B0D0E",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#303236",
   },
   button: {
     flexDirection: "row",
@@ -1769,7 +1831,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 13,
     paddingHorizontal: 12,
-    borderRadius: 12,
+    borderRadius: 15,
     flex: 1,
   },
   prevButton: {
@@ -1790,14 +1852,20 @@ const styles = StyleSheet.create({
     color: "#999",
   },
   pageContainer: {
-    paddingHorizontal: 30,
-    paddingTop: 2,
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 16,
   },
   questionContainer: {
-    marginBottom: 18,
-    padding: 18,
-    borderRadius: 18,
+    marginBottom: 16,
+    padding: 20,
+    borderRadius: 20,
     backgroundColor: "#202124",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 3,
   },
   questionText: {
     fontSize: 20,
@@ -1821,8 +1889,8 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
     flexShrink: 1,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
+    paddingVertical: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "#3D4044",
     backgroundColor: "#303236",

@@ -5,7 +5,10 @@ import DatePicker from "../../QuestionTypes/DatePicker";
 import DistanceTimePaceSelector from "../../QuestionTypes/DistanceTimePaceSelector";
 import { RunningLoader } from "../../../../../components/common/RunningLoader";
 import { useTheme } from "../../../../../contexts/ThemeContext";
-import { getMinimumEventDate } from "../../../../../utils/questionnaireValidation";
+import {
+  getMinimumEventDateForDistance,
+  getTrainingStartDateMaximum,
+} from "../../../../../utils/questionnaireValidation";
 
 interface EventRegistrationProps {
   value?: {
@@ -205,7 +208,17 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       unit: "km",
     };
   }, [customValues, distanceState, targetTime]);
-  const eventDateMinimum = getMinimumEventDate(minimumEventDate);
+  const distanceKm = Number(distanceState);
+  const eventDateMinimumDetails = getMinimumEventDateForDistance(
+    Number.isFinite(distanceKm) && distanceKm > 0 ? distanceKm : 0,
+    trainingStartDate,
+    minimumEventDate
+  );
+  const eventDateMinimum = eventDateMinimumDetails.date;
+  const trainingStartMaximum = getTrainingStartDateMaximum();
+  const eventDateHint = eventDateMinimumDetails.requiredDays
+    ? `Please select a date at least ${Math.ceil(eventDateMinimumDetails.requiredDays / 7)} weeks (${eventDateMinimumDetails.requiredDays} days) from ${trainingStartDate ? "your start date" : "today"}.`
+    : null;
 
   interface EventRegistrationChange {
     eventName: string;
@@ -331,6 +344,9 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             emitChange({ eventDate: date });
           }}
         />
+        {eventDateHint ? (
+          <Text style={[styles.dateHint, { color: colors.textSecondary }]}>{eventDateHint}</Text>
+        ) : null}
         {validationMessages?.eventDate?.map((message) => (
           <Text key={message} style={styles.validationText}>{message}</Text>
         ))}
@@ -341,11 +357,16 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         <Text style={[styles.sectionLabel, { color: colors.textPrimary }]}>{labels?.trainingStartDate || "When can you start training for this event?"}</Text>
         <DatePicker
           value={trainingStartDate}
+          minimumDate={new Date()}
+          maximumDate={trainingStartMaximum}
           onChange={(date) => {
             setTrainingStartDate(date);
             emitChange({ trainingStartDate: date });
           }}
         />
+        <Text style={[styles.dateHint, { color: colors.textSecondary }]}>
+          Please select a date within the next 10 days.
+        </Text>
         {validationMessages?.trainingStartDate?.map((message) => (
           <Text key={message} style={styles.validationText}>{message}</Text>
         ))}
@@ -428,6 +449,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     lineHeight: 20,
+  },
+  dateHint: {
+    fontSize: 12,
+    lineHeight: 17,
   },
   predictionCard: { borderWidth: 1, borderRadius: 14, padding: 16, gap: 10, marginTop: 14 },
   predictionUnsupported: { borderColor: "#DC2626" },

@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { Question } from "../service/questionnaire/questionnaireService";
 import {
   getAvailableEventDate,
+  getInsufficientTrainingTimeMessage,
   getMinimumEventDate,
+  getMinimumEventDateForDistance,
   getQuestionClientValidationMessages,
+  getRequiredEventTrainingDays,
+  getTrainingStartDateMaximum,
 } from "./questionnaireValidation";
 
 const makeQuestion = (overrides: Partial<Question> = {}): Question => ({
@@ -139,5 +143,41 @@ describe("getQuestionClientValidationMessages", () => {
     const pastBackendDate = getMinimumEventDate("2026-10-01", referenceDate);
     expect(`${pastBackendDate.getFullYear()}-${String(pastBackendDate.getMonth() + 1).padStart(2, "0")}-${String(pastBackendDate.getDate()).padStart(2, "0")}`)
       .toBe("2026-10-30");
+  });
+
+  it("uses iOS-compatible distance tiers for the event date minimum", () => {
+    expect(getRequiredEventTrainingDays(5)).toBe(28);
+    expect(getRequiredEventTrainingDays(10)).toBe(56);
+    expect(getRequiredEventTrainingDays(15)).toBe(70);
+    expect(getRequiredEventTrainingDays(21.0975)).toBe(84);
+    expect(getRequiredEventTrainingDays(42.195)).toBe(98);
+
+    const result = getMinimumEventDateForDistance(
+      10,
+      "2026-11-20",
+      null,
+      new Date(2026, 10, 19)
+    );
+    expect(`${result.date.getFullYear()}-${String(result.date.getMonth() + 1).padStart(2, "0")}-${String(result.date.getDate()).padStart(2, "0")}`)
+      .toBe("2027-01-15");
+  });
+
+  it("caps training start dates to today plus nine days", () => {
+    const maximum = getTrainingStartDateMaximum(new Date(2026, 10, 19));
+    expect(`${maximum.getFullYear()}-${String(maximum.getMonth() + 1).padStart(2, "0")}-${String(maximum.getDate()).padStart(2, "0")}`)
+      .toBe("2026-11-28");
+  });
+
+  it("rejects insufficient training periods before submission", () => {
+    expect(getInsufficientTrainingTimeMessage(
+      "2026-11-20",
+      "2026-12-20",
+      10
+    )).toContain("56 days");
+    expect(getInsufficientTrainingTimeMessage(
+      "2026-11-20",
+      "2027-01-15",
+      10
+    )).toBeNull();
   });
 });

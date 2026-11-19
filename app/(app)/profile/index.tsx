@@ -12,14 +12,22 @@ import { useAuth } from "../../../service/auth";
 import { subscriptionAPI, type UserSubscription } from "../../../src/services/subscriptionApi";
 import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 
-type DetailRowProps = { label: string; value: string; multiline?: boolean };
+type DetailRowProps = { label: string; value: string; compactValue?: boolean };
 
-function DetailRow({ label, value, multiline = false }: DetailRowProps) {
+function DetailRow({ label, value, compactValue = false }: DetailRowProps) {
   const { colors } = useTheme();
   return (
     <View style={[styles.detailRow, { borderBottomColor: colors.border }]}>
-      <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{label}</Text>
-      <Text style={[styles.detailValue, { color: colors.text }]} numberOfLines={multiline ? 2 : 1}>{value}</Text>
+      <Text style={[styles.detailLabel, compactValue && styles.detailLabelCompact, { color: colors.textSecondary }]}>{label}</Text>
+      <Text
+        style={[styles.detailValue, compactValue && styles.detailValueCompact, { color: colors.text }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.78}
+        ellipsizeMode="middle"
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -111,6 +119,9 @@ export default function ProfileScreen() {
 
   const profile = user.profile as any;
   const isImperial = getDistanceUnitCode(profile?.distance_unit) === "mile";
+  const unitSystemDisplay = isImperial
+    ? "Imperial (mi / ft / in / lb)"
+    : "Standard (km / cm / kg)";
   const heightValue = Number(profile?.height_cm);
   const weightValue = Number(profile?.weight_kg);
   const totalHeightInches = Math.round(heightValue / 2.54);
@@ -231,7 +242,7 @@ export default function ProfileScreen() {
 
         <MotionEntrance delay={90} style={styles.detailsEntrance}>
         <View style={[styles.detailsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <DetailRow label="Email" value={user.email || "--"} multiline />
+          <DetailRow label="Email" value={user.email || "--"} compactValue />
           <DetailRow label="Phone Number" value={user.phone_number || profile?.phone_number || "--"} />
           <DetailRow label="Date of Birth" value={formatDate(profile?.date_of_birth)} />
           <DetailRow label="Age" value={calculateAge(profile?.date_of_birth)} />
@@ -239,6 +250,7 @@ export default function ProfileScreen() {
           <DetailRow label="Blood Group" value={profile?.blood_group || "--"} />
           <DetailRow label="Height" value={heightDisplay} />
           <DetailRow label="Weight" value={weightDisplay} />
+          <DetailRow label="Unit System" value={unitSystemDisplay} />
           <DetailRow label="Member Since" value={formatDate(memberSince)} />
         </View>
         </MotionEntrance>
@@ -324,5 +336,7 @@ const styles = StyleSheet.create({
   statusBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.4 },
   detailRow: { flexGrow: 1, minHeight: 34, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#515354" },
   detailLabel: { flex: 0.42, color: "#BDBEC0", fontSize: 13, fontWeight: "500" },
-  detailValue: { flex: 0.58, minWidth: 0, color: "#F7F7F7", fontSize: 13, fontWeight: "700", textAlign: "right", flexWrap: "wrap" },
+  detailLabelCompact: { flex: 0.32 },
+  detailValue: { flex: 0.58, minWidth: 0, color: "#F7F7F7", fontSize: 13, fontWeight: "700", textAlign: "right" },
+  detailValueCompact: { flex: 0.68, fontSize: 12 },
 });

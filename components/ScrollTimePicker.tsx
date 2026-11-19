@@ -1,10 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   View
 } from 'react-native';
+import { useAudioPlayer } from 'expo-audio';
+import * as Haptics from 'expo-haptics';
+import Animated, { useAnimatedScrollHandler } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import { useTheme } from '../contexts/ThemeContext';
 
 interface ScrollTimePickerProps {
@@ -23,6 +28,28 @@ const ITEM_HEIGHT = 50;
 const COMPACT_ITEM_HEIGHT = 46;
 const VISIBLE_ITEMS = 3;
 const SCROLL_VIEW_HEIGHT = ITEM_HEIGHT * VISIBLE_ITEMS;
+const WHEEL_FEEDBACK_INTERVAL_MS = 55;
+type WheelAxis = 'hours' | 'minutes' | 'seconds';
+interface WheelScrollContext extends Record<string, unknown> {
+  lastIndex?: number;
+}
+
+const useWheelScrollHandler = (
+  axis: WheelAxis,
+  itemHeight: number,
+  onStep: (axis: WheelAxis, index: number) => void,
+) => useAnimatedScrollHandler<WheelScrollContext>((event, context) => {
+  'worklet';
+  const index = Math.round(event.contentOffset.y / itemHeight);
+  if (context.lastIndex === undefined) {
+    context.lastIndex = index;
+    return;
+  }
+  if (context.lastIndex !== index) {
+    context.lastIndex = index;
+    scheduleOnRN(onStep, axis, index);
+  }
+}, [axis, itemHeight, onStep]);
 import {
   calculateRolloverTime,
   DEFAULT_TIME_VALUE,
@@ -101,6 +128,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
   compact = false,
 }) => {
   const { colors } = useTheme();
+  const tickPlayer = useAudioPlayer(require('../assets/audio/assessment-wheel-tick.wav'));
   const [time, setTime] = useState<TimeParts>(() => parseTimeValue(value, maxHours, allowEmpty));
   const timeRef = useRef(time);
   const didApplyDefaultRef = useRef(false);
@@ -159,12 +187,48 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
   const secondsIndexRef = useRef<number>(CENTER_CYCLE * 60 + initialTime.seconds);
   const minutesIndexRef = useRef<number>(CENTER_CYCLE * 60 + initialTime.minutes);
   const hoursIndexRef = useRef<number>(initialTime.hours);
-  const isProgrammaticScrollRef = useRef<{ minutes?: boolean; hours?: boolean }>({});
+  const isProgrammaticScrollRef = useRef<{ hours?: boolean; minutes?: boolean; seconds?: boolean }>({});
+  const lastTickedIndexRef = useRef({
+    hours: initialTime.hours,
+    minutes: Math.round(initialMinutesOffset / itemHeight),
+    seconds: Math.round(initialSecondsOffset / itemHeight),
+  });
+  const lastWheelFeedbackAtRef = useRef(0);
+
+  useEffect(() => {
+    tickPlayer.volume = 0.12;
+  }, [tickPlayer]);
 
   const scrollIndexFromOffset = useCallback((offsetY: number, length: number) => {
     const index = Math.round(offsetY / itemHeight);
     return Math.max(0, Math.min(index, length - 1));
   }, [itemHeight]);
+
+  const handleWheelStep = useCallback((axis: WheelAxis, index: number) => {
+    if (lastTickedIndexRef.current[axis] === index) return;
+    lastTickedIndexRef.current[axis] = index;
+
+    // Programmatic rollover and silent infinite-wheel recentering should not
+    // produce user feedback.
+    if (isProgrammaticScrollRef.current[axis]) return;
+
+    const now = Date.now();
+    if (now - lastWheelFeedbackAtRef.current < WHEEL_FEEDBACK_INTERVAL_MS) return;
+    lastWheelFeedbackAtRef.current = now;
+
+    const haptic = Platform.OS === 'android'
+      ? Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Segment_Frequent_Tick)
+      : Haptics.selectionAsync();
+    void haptic.catch(() => undefined);
+
+    // Reuse the preloaded local tick; never load audio or update React state
+    // from the high-frequency scroll callback.
+    void tickPlayer.seekTo(0).then(() => tickPlayer.play()).catch(() => undefined);
+  }, [tickPlayer]);
+
+  const hoursScrollHandler = useWheelScrollHandler('hours', itemHeight, handleWheelStep);
+  const minutesScrollHandler = useWheelScrollHandler('minutes', itemHeight, handleWheelStep);
+  const secondsScrollHandler = useWheelScrollHandler('seconds', itemHeight, handleWheelStep);
 
   // Helper functions to scroll to specific values
   const scrollToHour = useCallback((targetHour: number, animated: boolean = true) => {
@@ -200,6 +264,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
     secondsIndexRef.current = secIndex;
     minutesIndexRef.current = minIndex;
     hoursIndexRef.current = nextTime.hours;
+    isProgrammaticScrollRef.current = { hours: true, minutes: true, seconds: true };
 
     scrollToHour(nextTime.hours, animated);
     scrollToMinuteIndex(minIndex, animated);
@@ -214,12 +279,14 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
       setTimeout(() => {
         if (axis === 'seconds') {
           secondsIndexRef.current = recenteredIndex;
+          isProgrammaticScrollRef.current.seconds = true;
           secondsScrollRef.current?.scrollTo({
             y: recenteredIndex * itemHeight,
             animated: false,
           });
         } else {
           minutesIndexRef.current = recenteredIndex;
+          isProgrammaticScrollRef.current.minutes = true;
           minutesScrollRef.current?.scrollTo({
             y: recenteredIndex * itemHeight,
             animated: false,
@@ -257,6 +324,11 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
   }, [allowEmpty, onChange, value]);
 
   const finalizeSecondsScroll = useCallback((offsetY: number) => {
+    if (isProgrammaticScrollRef.current.seconds) {
+      isProgrammaticScrollRef.current.seconds = false;
+      return;
+    }
+
     const rawIndex = Math.round(offsetY / itemHeight);
     const newIndex = Math.max(0, Math.min(rawIndex, secondsArray.length - 1));
     const prevIndex = secondsIndexRef.current;
@@ -396,7 +468,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
 
         {/* Hours Column */}
         <View style={[styles.columnWrapper, { height: scrollViewHeight }]}>
-          <ScrollView
+          <Animated.ScrollView
             ref={hoursScrollRef}
             style={[styles.scrollColumn, { height: scrollViewHeight }]}
             contentContainerStyle={{
@@ -404,7 +476,10 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
               paddingBottom: itemHeight,
             }}
             contentOffset={{ x: 0, y: initialHoursOffset }}
+            removeClippedSubviews
             scrollEventThrottle={16}
+            onScroll={hoursScrollHandler}
+            onScrollBeginDrag={() => { isProgrammaticScrollRef.current.hours = false; }}
             onMomentumScrollEnd={(event) => finalizeHoursScroll(event.nativeEvent.contentOffset.y)}
             onScrollEndDrag={(event) => finalizeHoursScroll(event.nativeEvent.contentOffset.y)}
             scrollEnabled={true}
@@ -425,7 +500,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
                 />
               </View>
             ))}
-          </ScrollView>
+          </Animated.ScrollView>
         </View>
 
         {/* Separator */}
@@ -441,7 +516,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
 
         {/* Minutes Column */}
         <View style={[styles.columnWrapper, { height: scrollViewHeight }]}>
-          <ScrollView
+          <Animated.ScrollView
             ref={minutesScrollRef}
             style={[styles.scrollColumn, { height: scrollViewHeight }]}
             contentContainerStyle={{
@@ -449,7 +524,10 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
               paddingBottom: itemHeight,
             }}
             contentOffset={{ x: 0, y: initialMinutesOffset }}
+            removeClippedSubviews
             scrollEventThrottle={16}
+            onScroll={minutesScrollHandler}
+            onScrollBeginDrag={() => { isProgrammaticScrollRef.current.minutes = false; }}
             onMomentumScrollEnd={(event) => finalizeMinutesScroll(event.nativeEvent.contentOffset.y)}
             onScrollEndDrag={(event) => finalizeMinutesScroll(event.nativeEvent.contentOffset.y)}
             scrollEnabled={true}
@@ -470,7 +548,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
                 />
               </View>
             ))}
-          </ScrollView>
+          </Animated.ScrollView>
         </View>
 
         {/* Separator */}
@@ -486,7 +564,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
 
         {/* Seconds Column */}
         <View style={[styles.columnWrapper, { height: scrollViewHeight }]}>
-          <ScrollView
+          <Animated.ScrollView
             ref={secondsScrollRef}
             style={[styles.scrollColumn, { height: scrollViewHeight }]}
             contentContainerStyle={{
@@ -494,7 +572,10 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
               paddingBottom: itemHeight,
             }}
             contentOffset={{ x: 0, y: initialSecondsOffset }}
+            removeClippedSubviews
             scrollEventThrottle={16}
+            onScroll={secondsScrollHandler}
+            onScrollBeginDrag={() => { isProgrammaticScrollRef.current.seconds = false; }}
             onMomentumScrollEnd={(event) => finalizeSecondsScroll(event.nativeEvent.contentOffset.y)}
             onScrollEndDrag={(event) => finalizeSecondsScroll(event.nativeEvent.contentOffset.y)}
             scrollEnabled={true}
@@ -515,7 +596,7 @@ export const ScrollTimePicker: React.FC<ScrollTimePickerProps> = ({
                 />
               </View>
             ))}
-          </ScrollView>
+          </Animated.ScrollView>
         </View>
       </View>
 

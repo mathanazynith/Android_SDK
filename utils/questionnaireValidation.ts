@@ -72,6 +72,80 @@ export const getAvailableEventDate = (prediction: unknown): string | null => {
   return null;
 };
 
+const DATE_TIER_REQUIREMENTS: Array<{ km: number; days: number }> = [
+  { km: 5, days: 28 },
+  { km: 10, days: 56 },
+  { km: 15, days: 70 },
+  { km: 21.0975, days: 84 },
+  { km: 42.195, days: 98 },
+];
+
+export const getRequiredEventTrainingDays = (distanceKm: number): number => {
+  if (!Number.isFinite(distanceKm) || distanceKm <= 0) return 0;
+  const tier = DATE_TIER_REQUIREMENTS.find(({ km }) => distanceKm <= km + 0.05);
+  return tier?.days ?? 98;
+};
+
+export const getTrainingStartDateMaximum = (referenceDate = new Date()): Date => {
+  const today = new Date(
+    referenceDate.getFullYear(),
+    referenceDate.getMonth(),
+    referenceDate.getDate()
+  );
+  return new Date(today.getFullYear(), today.getMonth(), today.getDate() + 9);
+};
+
+export const getMinimumEventDateForDistance = (
+  distanceKm: number,
+  trainingStartDate?: string | null,
+  backendMinimumDate?: string | null,
+  referenceDate = new Date()
+): { date: Date; requiredDays: number } => {
+  const requiredDays = getRequiredEventTrainingDays(distanceKm);
+  const today = new Date(
+    referenceDate.getFullYear(),
+    referenceDate.getMonth(),
+    referenceDate.getDate()
+  );
+  const parsedStartDate = trainingStartDate ? parseISODate(trainingStartDate) : null;
+  const baseline = parsedStartDate
+    ? new Date(parsedStartDate.getUTCFullYear(), parsedStartDate.getUTCMonth(), parsedStartDate.getUTCDate())
+    : today;
+  const fixedMinimum = new Date(
+    baseline.getFullYear(),
+    baseline.getMonth(),
+    baseline.getDate() + requiredDays
+  );
+
+  const parsedBackendDate = backendMinimumDate ? parseISODate(backendMinimumDate) : null;
+  const backendDate = parsedBackendDate
+    ? new Date(parsedBackendDate.getUTCFullYear(), parsedBackendDate.getUTCMonth(), parsedBackendDate.getUTCDate())
+    : null;
+
+  let date = fixedMinimum > today ? fixedMinimum : today;
+  if (backendDate && backendDate > date) date = backendDate;
+  return { date, requiredDays };
+};
+
+export const getInsufficientTrainingTimeMessage = (
+  trainingStartDate?: string | null,
+  eventDate?: string | null,
+  distanceKm?: number | null
+): string | null => {
+  if (!trainingStartDate || !eventDate || !distanceKm || !Number.isFinite(distanceKm)) return null;
+  const start = parseISODate(trainingStartDate);
+  const event = parseISODate(eventDate);
+  if (!start || !event) return null;
+
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const daysAvailable = Math.round((event.getTime() - start.getTime()) / msPerDay);
+  const requiredDays = getRequiredEventTrainingDays(distanceKm);
+  if (daysAvailable >= requiredDays) return null;
+
+  const requiredWeeks = Math.ceil(requiredDays / 7);
+  return `This distance needs at least ${requiredWeeks} weeks (${requiredDays} days) of training. You currently have ${Math.max(daysAvailable, 0)} day${daysAvailable === 1 ? "" : "s"} between your start date and event date.`;
+};
+
 export const getQuestionClientValidationMessages = (
   question: Question,
   answer: { value?: any; unit?: string | null; customValues?: Record<string, any> } | undefined,
