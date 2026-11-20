@@ -17,12 +17,13 @@ import { isAssessmentProfileComplete } from '../../utils/profileEligibility';
 
 type Tab = {
   icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
-  label: 'Home' | 'History' | 'Plans' | 'Stats' | 'Profile';
-  route: '/(app)/training-plan' | '/(app)/activity' | '/(app)/dashboard' | '/(app)/stats' | '/(app)/profile';
+  label: 'Home' | 'History' | 'Feed' | 'Plans' | 'Stats' | 'Profile';
+  route: '/(app)/training-plan' | '/(app)/activity' | '/(app)/social' | '/(app)/dashboard' | '/(app)/stats' | '/(app)/profile';
 };
 
 export const PRIMARY_TAB_PATHS = [
   '/activity',
+  '/social',
   '/training-plan',
   '/dashboard',
   '/stats',
@@ -37,6 +38,7 @@ export const isPrimaryTabPath = (pathname: string) => {
 const tabs: Tab[] = [
   { icon: 'home', label: 'Home', route: '/(app)/dashboard' },
   { icon: 'history', label: 'History', route: '/(app)/activity' },
+  { icon: 'account-group', label: 'Feed', route: '/(app)/social' },
   { icon: 'calendar-month', label: 'Plans', route: '/(app)/training-plan' },
   { icon: 'chart-line', label: 'Stats', route: '/(app)/stats' },
   { icon: 'account', label: 'Profile', route: '/(app)/profile' },
@@ -91,6 +93,7 @@ const TabButton = memo(function TabButton({
 });
 
 const isTabActive = (pathname: string, route: Tab['route']) => {
+  if (route === '/(app)/social') return pathname.includes('/social');
   if (route === '/(app)/training-plan') return pathname.includes('/training-plan');
   if (route === '/(app)/activity') return pathname.includes('/activity') || pathname.includes('/history') || pathname === '/home';
   if (route === '/(app)/dashboard') return pathname.includes('/dashboard');
