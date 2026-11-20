@@ -14,6 +14,7 @@ const primaryTabRouteNames = new Set([
   'history',
   'home',
   'profile',
+  'social',
   'stats',
   'training-plan',
 ]);
@@ -75,6 +76,7 @@ function AppLayoutContent() {
       <Stack.Screen name="screens/weather-details" />
       <Stack.Screen name="home" />
       <Stack.Screen name="history" />
+      <Stack.Screen name="social" options={{ animation: 'none' }} />
       <Stack.Screen name="run" />
       <Stack.Screen name="profile/edit" />
       <Stack.Screen name="profile/subscription" />
@@ -113,6 +115,7 @@ function AppLayoutContent() {
           }} />
           <Stack.Screen name="home" />
           <Stack.Screen name="history" />
+          <Stack.Screen name="social" options={{ animation: 'none' }} />
           <Stack.Screen name="run" options={{ gestureEnabled: !activeRun?.active }} />
           <Stack.Screen name="questionnaire" options={{ headerShown: false }} />
           <Stack.Screen name="plan-confirmation" options={{ headerShown: false, gestureEnabled: false }} />

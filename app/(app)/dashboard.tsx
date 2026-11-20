@@ -140,6 +140,8 @@ export default function DashboardScreen() {
     fetchWorkoutPlan,
   } = useQuestionnaire();
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [settingsInitialPage, setSettingsInitialPage] = useState<'home' | 'privacy'>('home');
+  const reopenPrivacySettingsOnFocus = useRef(false);
   const [offlinePendingCount, setOfflinePendingCount] = useState(0);
   const [isSyncingOffline, setIsSyncingOffline] = useState(false);
   const [recoverableWorkout, setRecoverableWorkout] = useState<RecoverableWorkout | null>(null);
@@ -147,6 +149,15 @@ export default function DashboardScreen() {
   const [customWorkouts, setCustomWorkouts] = useState<UserWorkoutResponse[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const permissionRequestStarted = useRef(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!reopenPrivacySettingsOnFocus.current) return;
+      reopenPrivacySettingsOnFocus.current = false;
+      setSettingsInitialPage('privacy');
+      setSettingsVisible(true);
+    }, [])
+  );
 
   const fetchCustomWorkouts = useCallback(async () => {
     try {
@@ -406,6 +417,11 @@ export default function DashboardScreen() {
     if (option === 'Change Password' || option === 'Set Password') router.push('/(app)/screens/change-password');
     if (option === 'Notifications') router.push('/(app)/screens/notifications');
     if (option === 'Subscription') router.push('/(app)/profile/subscription');
+    if (option === 'Find Runners') {
+      reopenPrivacySettingsOnFocus.current = true;
+      router.push({ pathname: '/(app)/social', params: { findRunners: '1', returnToPrivacy: '1' } });
+      return;
+    }
     if (option === 'Logout') {
       Alert.alert('Logout', 'Are you sure you want to logout?', [
         { text: 'Cancel', style: 'cancel' },
@@ -847,6 +863,8 @@ export default function DashboardScreen() {
         onClose={() => setSettingsVisible(false)}
         onSelect={handleSettingsOption}
         hasPassword={user?.hasPassword ?? null}
+        initialPage={settingsInitialPage}
+        onInitialPageApplied={() => setSettingsInitialPage('home')}
       />
     </View>
   );
