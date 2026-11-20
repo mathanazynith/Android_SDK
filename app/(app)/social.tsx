@@ -16,6 +16,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { RunningLoader } from "../../components/common/RunningLoader";
 import { useTheme } from "../../contexts/ThemeContext";
 import { getBackendErrorMessage } from "../../service/api";
 import { Avatar } from "../../components/Avatar";
@@ -407,8 +408,7 @@ export default function SocialScreen() {
         ListEmptyComponent={
           loading ? (
             <View style={styles.emptyState}>
-              <ActivityIndicator size="large" color={colors.primary} />
-              <Text style={[styles.emptyCopy, { color: colors.textSecondary }]}>Loading your connections...</Text>
+              <RunningLoader size={64} label="Loading your connections..." />
             </View>
           ) : (
             <View style={styles.emptyState}>

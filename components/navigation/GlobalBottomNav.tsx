@@ -2,7 +2,7 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { router, usePathname } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { Platform, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import Animated, {
   cancelAnimation,
   useAnimatedStyle,
@@ -44,8 +44,10 @@ const tabs: Tab[] = [
   { icon: 'account', label: 'Profile', route: '/(app)/profile' },
 ];
 
-const ACTIVE_INDICATOR_SIZE = 44;
-const TAB_ROW_HORIZONTAL_PADDING = 6;
+const ACTIVE_INDICATOR_BASE_SIZE = 36;
+const ACTIVE_TAB_SCALE = 1.15;
+const TAB_ROW_BASE_HORIZONTAL_PADDING = 6;
+const BOTTOM_NAV_BOTTOM_GAP = 12;
 
 type TabButtonProps = {
   tab: Tab;
@@ -53,6 +55,11 @@ type TabButtonProps = {
   enabled: boolean;
   activeColor: string;
   inactiveColor: string;
+  iconSize: number;
+  iconSlotSize: number;
+  labelFontSize: number;
+  labelLineHeight: number;
+  labelMarginTop: number;
   onPress: (tab: Tab) => void;
 };
 
@@ -62,16 +69,21 @@ const TabButton = memo(function TabButton({
   enabled,
   activeColor,
   inactiveColor,
+  iconSize,
+  iconSlotSize,
+  labelFontSize,
+  labelLineHeight,
+  labelMarginTop,
   onPress,
 }: TabButtonProps) {
   const reduceMotion = useReducedMotion();
-  const contentScale = useSharedValue(active ? 1.12 : 1);
+  const contentScale = useSharedValue(active ? ACTIVE_TAB_SCALE : 1);
   const contentScaleStyle = useAnimatedStyle(() => ({
     transform: [{ scale: contentScale.value }],
   }));
 
   useEffect(() => {
-    const targetScale = active ? 1.10 : 0.7;
+    const targetScale = active ? ACTIVE_TAB_SCALE : 1;
     if (reduceMotion) {
       contentScale.value = targetScale;
       return;
@@ -88,8 +100,8 @@ const TabButton = memo(function TabButton({
       accessibilityState={{ selected: active, disabled: !enabled }}
     >
       <Animated.View style={[styles.tabContent, contentScaleStyle, active && styles.selectedTabContent]}>
-        <View style={styles.iconSlot}>
-          <MaterialCommunityIcons name={tab.icon} size={21} color={active ? activeColor : inactiveColor} />
+        <View style={[styles.iconSlot, { width: iconSlotSize, height: iconSlotSize }]}>
+          <MaterialCommunityIcons name={tab.icon} size={iconSize} color={active ? activeColor : inactiveColor} />
         </View>
         <Text
           numberOfLines={1}
@@ -97,6 +109,7 @@ const TabButton = memo(function TabButton({
           minimumFontScale={0.8}
           style={[
             styles.label,
+            { fontSize: labelFontSize, lineHeight: labelLineHeight, marginTop: labelMarginTop },
             { color: active ? activeColor : inactiveColor },
             active && styles.activeLabel,
             !enabled && styles.disabledLabel,
@@ -122,9 +135,26 @@ const isTabActive = (pathname: string, route: Tab['route']) => {
 export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject<View | null> }) {
   const pathname = usePathname();
   const { colors, isDark } = useTheme();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isAndroid = Platform.OS === 'android';
   const reduceMotion = useReducedMotion();
-  const bottomOffset = 8;
+  const layoutScale = Math.max(0.82, Math.min(1.08, windowWidth / 390, windowHeight / 760));
+  const horizontalMargin = Math.min(16, Math.max(10, windowWidth * 0.04));
+  const navWidth = Math.max(0, Math.min(windowWidth - horizontalMargin * 2, 560));
+  const navHeight = Math.round(72 * layoutScale);
+  const navRadius = navHeight / 2;
+  const bottomOffset = BOTTOM_NAV_BOTTOM_GAP;
+  const tabRowHorizontalPadding = TAB_ROW_BASE_HORIZONTAL_PADDING * layoutScale;
+  const activeIndicatorSize = ACTIVE_INDICATOR_BASE_SIZE * layoutScale;
+  const iconSlotSize = 44 * layoutScale;
+  const iconSize = 21 * layoutScale;
+  const labelFontSize = Math.min(12, Math.max(9.5, 11 * layoutScale));
+  const labelLineHeight = labelFontSize + 2 * layoutScale;
+  const labelMarginTop = 5 * layoutScale;
+  const tabContentHeight = iconSlotSize + labelMarginTop + labelLineHeight;
+  const iconCenterY = (navHeight - tabContentHeight) / 2 + iconSlotSize / 2;
+  const activeIconCenterY = navHeight / 2 + (iconCenterY - navHeight / 2) * ACTIVE_TAB_SCALE;
+  const activeIndicatorTop = activeIconCenterY - activeIndicatorSize / 2;
   const { workoutPlan, isWorkoutPlanLoaded, isWorkoutPlanLoading, fetchWorkoutPlan } = useQuestionnaire();
   const { user, isLoading: isAuthLoading } = useAuth();
   const [rowWidth, setRowWidth] = useState(0);
@@ -138,7 +168,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
     [hasActivePlan],
   );
   const activeIndex = visibleTabs.findIndex((tab) => isTabActive(pathname, tab.route));
-  const tabContentWidth = Math.max(0, rowWidth - TAB_ROW_HORIZONTAL_PADDING * 2);
+  const tabContentWidth = Math.max(0, rowWidth - tabRowHorizontalPadding * 2);
   const tabWidth = tabContentWidth > 0 ? tabContentWidth / visibleTabs.length : 0;
   const glowTranslateX = useSharedValue(0);
   const hasPositionedIndicator = useRef(false);
@@ -155,7 +185,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
   useEffect(() => {
     if (activeIndex < 0 || rowWidth <= 0) return;
 
-    const targetX = TAB_ROW_HORIZONTAL_PADDING + activeIndex * tabWidth + (tabWidth - ACTIVE_INDICATOR_SIZE) / 2;
+    const targetX = tabRowHorizontalPadding + activeIndex * tabWidth + (tabWidth - activeIndicatorSize) / 2;
     const tabCountChanged = previousTabCount.current !== visibleTabs.length;
     previousTabCount.current = visibleTabs.length;
     cancelAnimation(glowTranslateX);
@@ -165,7 +195,16 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
     } else {
       glowTranslateX.value = withSpring(targetX, { damping: 20, stiffness: 160, mass: 1 });
     }
-  }, [activeIndex, glowTranslateX, reduceMotion, rowWidth, tabWidth, visibleTabs.length]);
+  }, [
+    activeIndex,
+    activeIndicatorSize,
+    glowTranslateX,
+    reduceMotion,
+    rowWidth,
+    tabRowHorizontalPadding,
+    tabWidth,
+    visibleTabs.length,
+  ]);
 
   const glowStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: glowTranslateX.value }],
@@ -224,12 +263,21 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
   const navContent = (
     <View
       onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
-      style={styles.tabRow}
+      style={[styles.tabRow, { paddingHorizontal: tabRowHorizontalPadding }]}
     >
       {rowWidth > 0 && activeIndex >= 0 ? (
         <Animated.View
           pointerEvents="none"
-          style={[styles.activeIndicator, glowStyle]}
+          style={[
+            styles.activeIndicator,
+            {
+              top: activeIndicatorTop,
+              width: activeIndicatorSize,
+              height: activeIndicatorSize,
+              borderRadius: activeIndicatorSize / 2,
+            },
+            glowStyle,
+          ]}
         />
       ) : null}
       {visibleTabs.map((tab) => {
@@ -242,6 +290,11 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
             enabled={tab.label !== 'Plans' || hasActivePlan || !isWorkoutPlanLoading}
             activeColor={BRAND_GREEN}
             inactiveColor={colors.textSecondary}
+            iconSize={iconSize}
+            iconSlotSize={iconSlotSize}
+            labelFontSize={labelFontSize}
+            labelLineHeight={labelLineHeight}
+            labelMarginTop={labelMarginTop}
             onPress={handleTabPress}
           />
         );
@@ -264,6 +317,10 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
           styles.container,
           {
             bottom: bottomOffset,
+            left: (windowWidth - navWidth) / 2,
+            width: navWidth,
+            height: navHeight,
+            borderRadius: navRadius,
             shadowColor: '#000000',
             elevation: 8,
           },
@@ -278,8 +335,9 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
           style={[
             styles.blurSurface,
             {
-              backgroundColor: isDark ? 'rgba(28, 28, 30, 0.5)' : 'rgba(255, 255, 255, 0.48)',
-              borderColor: 'rgba(255, 255, 255, 0.12)',
+              borderRadius: navRadius,
+              backgroundColor: isDark ? 'rgba(10, 10, 10, 0.96)' : 'rgba(255, 255, 255, 0.96)',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(10, 10, 10, 0.12)',
             },
           ]}
         >
@@ -342,10 +400,6 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    left: 16,
-    right: 16,
-    height: 72,
-    borderRadius: 36,
     zIndex: 10,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.18,
@@ -353,7 +407,6 @@ const styles = StyleSheet.create({
   },
   blurSurface: {
     ...StyleSheet.absoluteFill,
-    borderRadius: 36,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
   },
@@ -361,13 +414,12 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: TAB_ROW_HORIZONTAL_PADDING,
   },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minWidth: 0, zIndex: 1 },
   tabContent: { flex: 1, alignItems: 'center', justifyContent: 'center', minWidth: 0 },
   selectedTabContent: { zIndex: 2 },
-  iconSlot: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  label: { fontSize: 11, lineHeight: 13, marginTop: 5, textAlign: 'center', includeFontPadding: false, maxWidth: '100%', fontWeight: '500' },
+  iconSlot: { alignItems: 'center', justifyContent: 'center' },
+  label: { textAlign: 'center', includeFontPadding: false, maxWidth: '100%', fontWeight: '500' },
   activeLabel: { fontWeight: '600' },
   disabledLabel: { opacity: 0.5 },
   planPrompt: {
@@ -398,10 +450,6 @@ const styles = StyleSheet.create({
   activeIndicator: {
     position: 'absolute',
     left: 0,
-    top: 4,
-    width: ACTIVE_INDICATOR_SIZE,
-    height: ACTIVE_INDICATOR_SIZE,
-    borderRadius: ACTIVE_INDICATOR_SIZE / 2,
     backgroundColor: 'rgba(34, 197, 94, 0.18)',
   },
 });

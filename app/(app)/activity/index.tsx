@@ -721,24 +721,6 @@ const ActivityCard = memo(function ActivityCard({
   );
 });
 
-function HistorySkeleton() {
-  return (
-    <View style={styles.skeletonList}>
-      {[1, 2, 3].map((item) => (
-        <View key={item} style={styles.skeletonCard}>
-          <View style={styles.skeletonMain}>
-            <View style={styles.skeletonShort} />
-            <View style={styles.skeletonTiny} />
-            <View style={styles.skeletonDistance} />
-            <View style={styles.skeletonMetrics} />
-          </View>
-          <View style={styles.skeletonMap} />
-        </View>
-      ))}
-    </View>
-  );
-}
-
 const HISTORY_PAGE_SIZE = 30;
 const MAX_EMPTY_HISTORY_PAGES = 5;
 
@@ -1540,6 +1522,19 @@ export default function ActivityScreen() {
     void operation.finally(() => setPendingVisibilityAction(null));
   };
 
+  if (loading) {
+    return (
+      <GestureHandlerRootView style={styles.gestureRoot}>
+        <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
+          <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} />
+          <View style={styles.centerState}>
+            <RunningLoader size={64} label="Loading your workout history..." />
+          </View>
+        </SafeAreaView>
+      </GestureHandlerRootView>
+    );
+  }
+
   return (
     <GestureHandlerRootView style={styles.gestureRoot}>
       <BlurTargetView ref={glassTargetRef} pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -1845,9 +1840,7 @@ export default function ActivityScreen() {
         />
       )}
 
-      {loading ? (
-        <HistorySkeleton />
-      ) : error ? (
+      {error ? (
         <View style={styles.centerState}>
           <Feather name="alert-circle" size={32} color="#FFB020" />
           <Text style={styles.stateText}>{error}</Text>
@@ -2189,13 +2182,5 @@ const styles = StyleSheet.create({
   footerLoaderPill: { alignSelf: 'center', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, marginVertical: 16, borderRadius: 999, backgroundColor: '#1A261D', borderWidth: 1, borderColor: '#2B5B3A' },
   footerCountText: { color: '#D9F9DB', fontSize: 12, fontWeight: '700', letterSpacing: 0.2 },
   endMessage: { color: '#A9ADAF', textAlign: 'center', fontSize: 13, paddingVertical: 18 },
-  skeletonList: { paddingTop: 4 },
-  skeletonCard: { minHeight: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#171A1A', borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14, marginBottom: 12, borderWidth: 1, borderColor: '#243C2B' },
-  skeletonMain: { flex: 1, minWidth: 0, paddingRight: 6 },
-  skeletonShort: { width: '55%', height: 12, borderRadius: 5, backgroundColor: '#294A32' },
-  skeletonTiny: { width: '35%', height: 8, borderRadius: 4, backgroundColor: '#26352A', marginTop: 4 },
-  skeletonDistance: { width: '48%', height: 18, borderRadius: 6, backgroundColor: '#245C32', marginTop: 7 },
-  skeletonMetrics: { width: '78%', height: 14, borderRadius: 7, backgroundColor: '#202A22', marginTop: 5 },
-  skeletonMap: { width: '34%', aspectRatio: 1, minWidth: 0, borderRadius: 18, overflow: 'hidden', backgroundColor: '#202A22' },
   empty: { color: '#A9ADAF', textAlign: 'center', fontSize: 16, marginTop: 40 },
 });

@@ -5,8 +5,11 @@ import { getGpsOptimizationConfig } from './gpsOptimizationConfig';
 
 export class LocationService {
   public static async requestForegroundPermissions(): Promise<boolean> {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    return status === 'granted';
+    const currentPermission = await Location.getForegroundPermissionsAsync();
+    if (currentPermission.granted) return true;
+
+    const requestedPermission = await Location.requestForegroundPermissionsAsync();
+    return requestedPermission.granted;
   }
 
   /** Ask Android to enable its high-accuracy provider (GPS + Wi-Fi + mobile). */

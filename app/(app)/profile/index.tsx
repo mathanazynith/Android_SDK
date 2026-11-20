@@ -4,8 +4,8 @@ import { router, useFocusEffect } from "expo-router";
 import React from "react";
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { RunningLoader } from "../../../components/common/RunningLoader";
 import MotionEntrance from "../../../components/MotionEntrance";
-import { Colors } from "../../../constants/theme";
 import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
 import { resolveApiUrl } from "../../../service/api";
 import { useAuth } from "../../../service/auth";
@@ -112,7 +112,7 @@ export default function ProfileScreen() {
   if (!user) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
-        <Text style={[styles.loadingText, { color: colors.text }]}>Loading...</Text>
+        <RunningLoader size={64} label="Loading your profile..." />
       </View>
     );
   }
@@ -298,7 +298,6 @@ const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1, justifyContent: "flex-start" },
   detailsEntrance: { flexGrow: 1 },
   loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
-  loadingText: { color: Colors.text, fontSize: 16 },
   hero: {
     minHeight: 184,
     paddingHorizontal: 18,

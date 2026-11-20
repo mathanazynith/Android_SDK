@@ -5,7 +5,7 @@ import * as Device from 'expo-device';
 import * as Location from 'expo-location';
 import { useFocusEffect, useLocalSearchParams, usePathname, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, BackHandler, Linking, Modal, NativeEventEmitter, NativeModules, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, BackHandler, Modal, NativeEventEmitter, NativeModules, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import { usePauseSettings } from '../../../contexts/PauseSettingsContext';
@@ -1864,29 +1864,6 @@ export default function MapScreen() {
       if (!permissionGranted) {
         const foregroundLocationGranted = await requestLocation();
         if (!foregroundLocationGranted) return;
-      }
-
-      // Android needs the separate background permission for reliable tracking
-      // when the runner leaves the app. Ask only after an explicit Start Run tap.
-      if (Platform.OS === 'android') {
-        try {
-          const backgroundPermission = await Location.getBackgroundPermissionsAsync();
-          if (!backgroundPermission.granted) {
-            const requestedPermission = await Location.requestBackgroundPermissionsAsync();
-            if (!requestedPermission.granted) {
-              Alert.alert(
-                'Background location is off',
-                'Zy-Run can record while open, but Android may pause tracking when you leave the app. You can allow “All the time” location access in Settings.',
-                [
-                  { text: 'Continue', style: 'default' },
-                  { text: 'Open Settings', onPress: () => { void Linking.openSettings(); } },
-                ],
-              );
-            }
-          }
-        } catch (error) {
-          console.warn('[LocationManager] Could not request Android background location permission', error);
-        }
       }
 
       let selectedWorkout: BackendWorkout | null = null;
