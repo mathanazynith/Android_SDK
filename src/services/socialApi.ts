@@ -94,6 +94,9 @@ export interface SocialComment {
   created_at: string;
 }
 
+export type ContentReportTargetType = "POST" | "COMMENT" | "USER";
+export type ContentReportReason = "SPAM" | "HARASSMENT" | "HATE" | "INAPPROPRIATE" | "DANGEROUS" | "IMPERSONATION" | "OTHER";
+
 export const extractApiResults = <T,>(payload: unknown): T[] => {
   const isRecord = (value: unknown): value is Record<string, unknown> => (
     typeof value === "object" && value !== null
@@ -121,6 +124,8 @@ export const connectionsAPI = {
     api.delete<ApiEnvelope<Record<string, unknown>>>(`/connections/requests/${userId}/`),
   getBlockedAccounts: () =>
     api.get<ApiEnvelope<Page<ConnectionUser>>>("/connections/blocked/"),
+  blockAccount: (userId: number) =>
+    api.post<ApiEnvelope<Record<string, unknown>>>(`/connections/users/${userId}/block/`),
   unblockAccount: (userId: number) =>
     api.delete<ApiEnvelope<Record<string, unknown>>>(`/connections/users/${userId}/block/`),
   getFollowers: () =>
@@ -137,6 +142,10 @@ export const connectionsAPI = {
     api.post<ApiEnvelope<{ relationship: ConnectionUser["relationship"] }>>(
       `/connections/users/${userId}/follow/`,
     ),
+  unfollow: (userId: number) =>
+    api.delete<ApiEnvelope<{ relationship: ConnectionUser["relationship"] }>>(
+      `/connections/users/${userId}/follow/`,
+    ),
 };
 
 export const socialAPI = {
@@ -144,6 +153,13 @@ export const socialAPI = {
     api.get<ApiEnvelope<Page<SocialPost>>>("/social/feed/", {
       params: { limit: 20, ...(cursor ? { cursor } : {}) },
     }),
+  getMyPosts: () => api.get<ApiEnvelope<Page<SocialPost>>>("/social/me/posts/"),
+  reportContent: (payload: {
+    target_type: ContentReportTargetType;
+    target_id: number;
+    reason: ContentReportReason;
+    details?: string;
+  }) => api.post<ApiEnvelope<Record<string, unknown>>>("/social/reports/", payload),
   likePost: (postId: number) =>
     api.post<ApiEnvelope<{ liked: boolean; like_count: number }>>(`/social/posts/${postId}/like/`),
   unlikePost: (postId: number) =>

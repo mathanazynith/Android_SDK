@@ -66,6 +66,8 @@ interface ActivityRouteMapProps {
   cropStartIndex?: number;
   cropEndIndex?: number;
   enableFullScreen?: boolean;
+  compactPreview?: boolean;
+  googleMapPreview?: boolean;
   onPress?: () => void;
   activityStats?: ActivityMapStats;
   distanceUnit?: string | null;
@@ -139,12 +141,14 @@ function ActivityRouteMap({
   cropStartIndex,
   cropEndIndex,
   enableFullScreen,
+  compactPreview = false,
+  googleMapPreview = false,
   onPress,
   activityStats,
   distanceUnit,
 }: ActivityRouteMapProps) {
   const { colors, isDark } = useTheme();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const detailMapHeight = Math.min(340, Math.max(210, windowHeight * 0.34));
   const mapRef = useRef<MapView | null>(null);
   const fullScreenMapRef = useRef<MapView | null>(null);
@@ -154,6 +158,8 @@ function ActivityRouteMap({
   const [mapType, setMapType] = useState<'standard' | 'hybrid'>('standard');
 
   const isFullScreenEnabled = enableFullScreen ?? (variant === 'detail');
+  const compactPreviewWidth = Math.min(260, Math.max(180, windowWidth - 100));
+  const previewRouteWidthScale = compactPreview ? 0.65 : 1;
 
   const routePoints = useMemo(() => {
     if (!encodedPolyline?.trim()) return [];
@@ -468,9 +474,9 @@ function ActivityRouteMap({
     useSavedRouteGroups,
   ]);
   const previewProjection = useMemo(() => {
-    const width = 140;
-    const height = 140;
-    const padding = 25;
+    const width = compactPreview ? compactPreviewWidth : 140;
+    const height = compactPreview ? 130 : 140;
+    const padding = compactPreview ? 18 : 25;
     const points = previewRouteGroups.flatMap((group) => group.coordinates);
     if (points.length < 2) return null;
 
@@ -516,7 +522,7 @@ function ActivityRouteMap({
       start: firstPoint ? project(firstPoint) : null,
       finish: lastPoint ? project(lastPoint) : null,
     };
-  }, [firstPoint, lastPoint, previewRouteGroups]);
+  }, [compactPreview, compactPreviewWidth, firstPoint, lastPoint, previewRouteGroups]);
 
   if (allRouteCoordinates.length === 0) {
     return (
@@ -534,9 +540,10 @@ function ActivityRouteMap({
             ? styles.previewMapFrame
             : [styles.mapContainer, { height: detailMapHeight }],
           variant === 'preview' && styles.previewMapContainer,
+          variant === 'preview' && compactPreview && styles.compactPreviewMapContainer,
         ]}
       >
-        {variant === 'preview' && previewProjection ? (
+        {variant === 'preview' && previewProjection && !googleMapPreview ? (
           <Svg
             width="100%"
             height="100%"
@@ -556,23 +563,27 @@ function ActivityRouteMap({
             </Defs>
             <Rect width={previewProjection.width} height={previewProjection.height} fill="url(#activityPreviewBackground)" />
             <Path
-              d="M-12 42 C18 20 40 56 70 35 S122 20 154 42 M-12 60 C18 38 40 74 70 53 S122 38 154 60 M-12 112 C18 90 40 126 70 105 S122 90 154 112"
+              d={compactPreview
+                ? `M-12 ${previewProjection.height * 0.3} C${previewProjection.width * 0.18} ${previewProjection.height * 0.12} ${previewProjection.width * 0.32} ${previewProjection.height * 0.48} ${previewProjection.width * 0.5} ${previewProjection.height * 0.3} S${previewProjection.width * 0.82} ${previewProjection.height * 0.12} ${previewProjection.width + 12} ${previewProjection.height * 0.3} M-12 ${previewProjection.height * 0.53} C${previewProjection.width * 0.18} ${previewProjection.height * 0.35} ${previewProjection.width * 0.32} ${previewProjection.height * 0.7} ${previewProjection.width * 0.5} ${previewProjection.height * 0.53} S${previewProjection.width * 0.82} ${previewProjection.height * 0.35} ${previewProjection.width + 12} ${previewProjection.height * 0.53} M-12 ${previewProjection.height * 0.82} C${previewProjection.width * 0.18} ${previewProjection.height * 0.64} ${previewProjection.width * 0.32} ${previewProjection.height} ${previewProjection.width * 0.5} ${previewProjection.height * 0.82} S${previewProjection.width * 0.82} ${previewProjection.height * 0.64} ${previewProjection.width + 12} ${previewProjection.height * 0.82}`
+                : 'M-12 42 C18 20 40 56 70 35 S122 20 154 42 M-12 60 C18 38 40 74 70 53 S122 38 154 60 M-12 112 C18 90 40 126 70 105 S122 90 154 112'}
               fill="none"
               stroke={isDark ? '#B7F7DA' : '#39856B'}
               strokeWidth={0.8}
               opacity={isDark ? 0.1 : 0.13}
             />
-            <Circle cx={116} cy={27} r={25} fill={isDark ? '#6EE7B7' : '#34D399'} opacity={0.08} />
-            <Circle cx={116} cy={27} r={17} fill="none" stroke={isDark ? '#A7F3D0' : '#047857'} strokeWidth={0.8} opacity={0.15} />
-            <Circle cx={24} cy={116} r={19} fill="none" stroke={isDark ? '#A7F3D0' : '#047857'} strokeWidth={0.8} opacity={0.12} />
-            <Path d="M0 70 H140 M70 0 V140" stroke={isDark ? '#D1FAE5' : '#166534'} strokeWidth={0.6} opacity={0.07} />
+            <Circle cx={compactPreview ? previewProjection.width * 0.82 : 116} cy={compactPreview ? previewProjection.height * 0.22 : 27} r={compactPreview ? previewProjection.height * 0.24 : 25} fill={isDark ? '#6EE7B7' : '#34D399'} opacity={0.08} />
+            <Circle cx={compactPreview ? previewProjection.width * 0.82 : 116} cy={compactPreview ? previewProjection.height * 0.22 : 27} r={compactPreview ? previewProjection.height * 0.16 : 17} fill="none" stroke={isDark ? '#A7F3D0' : '#047857'} strokeWidth={0.8} opacity={0.15} />
+            <Circle cx={compactPreview ? previewProjection.width * 0.17 : 24} cy={compactPreview ? previewProjection.height * 0.78 : 116} r={compactPreview ? previewProjection.height * 0.18 : 19} fill="none" stroke={isDark ? '#A7F3D0' : '#047857'} strokeWidth={0.8} opacity={0.12} />
+            <Path d={compactPreview
+              ? `M0 ${previewProjection.height / 2} H${previewProjection.width} M${previewProjection.width / 2} 0 V${previewProjection.height}`
+              : 'M0 70 H140 M70 0 V140'} stroke={isDark ? '#D1FAE5' : '#166534'} strokeWidth={0.6} opacity={0.07} />
             {previewProjection.routes.map((route) => (
               <Path
                 key={`${route.key}-glow`}
                 d={route.path}
                 fill="none"
                 stroke={route.color}
-                strokeWidth={13}
+                strokeWidth={13 * previewRouteWidthScale}
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 opacity={0.2}
@@ -584,7 +595,7 @@ function ActivityRouteMap({
                 d={route.path}
                 fill="none"
                 stroke={isDark ? '#0B1C1B' : '#FFFFFF'}
-                strokeWidth={8}
+                strokeWidth={8 * previewRouteWidthScale}
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 opacity={0.9}
@@ -596,23 +607,23 @@ function ActivityRouteMap({
                 d={route.path}
                 fill="none"
                 stroke={route.key.startsWith('pause-') ? route.color : 'url(#activityPreviewRoute)'}
-                strokeWidth={4.5}
+                strokeWidth={4.5 * previewRouteWidthScale}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
             ))}
             {previewProjection.start && (
               <>
-                <Circle cx={previewProjection.start.x} cy={previewProjection.start.y} r={7} fill="#FFFFFF" opacity={0.96} />
-                <Circle cx={previewProjection.start.x} cy={previewProjection.start.y} r={4.5} fill="#10B981" />
-                <SvgText x={previewProjection.start.x} y={previewProjection.start.y + 1.8} textAnchor="middle" fill="#FFFFFF" fontSize={5} fontWeight="bold">S</SvgText>
+                <Circle cx={previewProjection.start.x} cy={previewProjection.start.y} r={7 * previewRouteWidthScale} fill="#FFFFFF" opacity={0.96} />
+                <Circle cx={previewProjection.start.x} cy={previewProjection.start.y} r={4.5 * previewRouteWidthScale} fill="#10B981" />
+                <SvgText x={previewProjection.start.x} y={previewProjection.start.y + 1.8 * previewRouteWidthScale} textAnchor="middle" fill="#FFFFFF" fontSize={5 * previewRouteWidthScale} fontWeight="bold">S</SvgText>
               </>
             )}
             {previewProjection.finish && (
               <>
-                <Circle cx={previewProjection.finish.x} cy={previewProjection.finish.y} r={7} fill="#FFFFFF" opacity={0.96} />
-                <Circle cx={previewProjection.finish.x} cy={previewProjection.finish.y} r={4.5} fill="#F43F5E" />
-                <SvgText x={previewProjection.finish.x} y={previewProjection.finish.y + 1.8} textAnchor="middle" fill="#FFFFFF" fontSize={4.5} fontWeight="bold">F</SvgText>
+                <Circle cx={previewProjection.finish.x} cy={previewProjection.finish.y} r={7 * previewRouteWidthScale} fill="#FFFFFF" opacity={0.96} />
+                <Circle cx={previewProjection.finish.x} cy={previewProjection.finish.y} r={4.5 * previewRouteWidthScale} fill="#F43F5E" />
+                <SvgText x={previewProjection.finish.x} y={previewProjection.finish.y + 1.8 * previewRouteWidthScale} textAnchor="middle" fill="#FFFFFF" fontSize={4.5 * previewRouteWidthScale} fontWeight="bold">F</SvgText>
               </>
             )}
           </Svg>
@@ -628,10 +639,10 @@ function ActivityRouteMap({
             longitudeDelta: 0.015,
           }}
           onMapReady={() => setMapReady(true)}
-          scrollEnabled={!isFullScreenEnabled}
-          zoomEnabled={!isFullScreenEnabled}
-          pitchEnabled={!isFullScreenEnabled}
-          rotateEnabled={!isFullScreenEnabled}
+          scrollEnabled={!isFullScreenEnabled || googleMapPreview}
+          zoomEnabled={!isFullScreenEnabled || googleMapPreview}
+          pitchEnabled={!isFullScreenEnabled || googleMapPreview}
+          rotateEnabled={!isFullScreenEnabled || googleMapPreview}
         >
           {(useSavedRouteGroups
             ? smoothedSavedRouteGroups.filter((group) => group.type === 'running')
@@ -919,6 +930,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   previewMapContainer: { aspectRatio: 1, borderRadius: 20, overflow: 'hidden', borderColor: 'rgba(34, 197, 94, 0.38)' },
+  compactPreviewMapContainer: { width: '100%', height: 150, aspectRatio: undefined },
   previewMapFrame: { width: '100%', aspectRatio: 1 },
   map: { flex: 1 },
   emptyRoute: {
