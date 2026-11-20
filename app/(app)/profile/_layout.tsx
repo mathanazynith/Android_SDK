@@ -6,7 +6,7 @@ export default function ProfileLayout() {
     <Stack
       screenOptions={{ headerShown: false, animation: "none" }}
       screenLayout={({ route, children }) => (
-        <TabZoomTransition key={route.key}>{children}</TabZoomTransition>
+        <TabZoomTransition key={route.key} animate={route.name !== "index"}>{children}</TabZoomTransition>
       )}
     >
       <Stack.Screen

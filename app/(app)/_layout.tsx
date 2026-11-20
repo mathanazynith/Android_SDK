@@ -8,16 +8,7 @@ import GlobalBottomNav, { isPrimaryTabPath } from '../../components/navigation/G
 import TabZoomTransition from '../../components/navigation/TabZoomTransition';
 import { ActiveRunProvider, useActiveRun } from '../../contexts/ActiveRunContext';
 
-const primaryTabRouteNames = new Set([
-  'activity/index',
-  'dashboard',
-  'history',
-  'home',
-  'profile',
-  'social',
-  'stats',
-  'training-plan',
-]);
+const nestedStackRouteNames = new Set(['custom-workout', 'questionnaire']);
 
 function AppLayoutContent() {
   const pathname = usePathname();
@@ -54,17 +45,14 @@ function AppLayoutContent() {
     return () => backHandler.remove();
   }, [pathname, showBottomNav]);
 
-  const renderScreen = ({ route, children }: { route: { key: string; name: string }; children: React.ReactElement }) =>
-    route.name === 'profile'
-      ? children
-      : (
-        <TabZoomTransition
-          key={route.key}
-          animate={!primaryTabRouteNames.has(route.name) && route.name !== 'screens/map'}
-        >
-          {children}
-        </TabZoomTransition>
-      );
+  const renderScreen = ({ route, children }: { route: { key: string; name: string }; children: React.ReactElement }) => (
+    <TabZoomTransition
+      key={route.key}
+      animate={route.name !== 'screens/map' && !nestedStackRouteNames.has(route.name)}
+    >
+      {children}
+    </TabZoomTransition>
+  );
 
   const stackContent = (
     <Stack

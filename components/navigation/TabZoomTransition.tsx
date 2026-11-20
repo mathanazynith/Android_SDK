@@ -1,9 +1,6 @@
 import { type ReactNode } from 'react';
 import { StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, {
-  FadeIn,
-  FadeOut,
-  LinearTransition,
   useReducedMotion,
   ZoomIn,
   ZoomOut,
@@ -22,28 +19,18 @@ export default function TabZoomTransition({ children, style, animate = true }: T
   return (
     <Animated.View
       style={[styles.container, style]}
-      entering={shouldAnimate ? FadeIn.springify(220).damping(18) : undefined}
-      exiting={shouldAnimate ? FadeOut.duration(150) : undefined}
-      layout={shouldAnimate ? LinearTransition.springify(220).damping(18) : undefined}
+      entering={shouldAnimate
+        ? ZoomIn.withInitialValues({ transform: [{ scale: 0.97 }] }).springify(220).damping(18)
+        : undefined}
+      exiting={shouldAnimate ? ZoomOut.duration(150) : undefined}
     >
-      <Animated.View
-        style={styles.content}
-        entering={shouldAnimate
-          ? ZoomIn.withInitialValues({ transform: [{ scale: 0.95 }] }).springify(220).damping(18)
-          : undefined}
-        exiting={shouldAnimate ? ZoomOut.duration(150) : undefined}
-      >
-        {children}
-      </Animated.View>
+      {children}
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-  },
-  content: {
     flex: 1,
   },
 });

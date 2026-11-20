@@ -1,14 +1,14 @@
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { router, usePathname } from 'expo-router';
-import { memo, useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, {
-    cancelAnimation,
-    useAnimatedStyle,
-    useReducedMotion,
-    useSharedValue,
-    withSpring,
+  cancelAnimation,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withSpring,
 } from 'react-native-reanimated';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
@@ -64,6 +64,21 @@ const TabButton = memo(function TabButton({
   inactiveColor,
   onPress,
 }: TabButtonProps) {
+  const reduceMotion = useReducedMotion();
+  const contentScale = useSharedValue(active ? 1.12 : 1);
+  const contentScaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: contentScale.value }],
+  }));
+
+  useEffect(() => {
+    const targetScale = active ? 1.10 : 0.7;
+    if (reduceMotion) {
+      contentScale.value = targetScale;
+      return;
+    }
+    contentScale.value = withSpring(targetScale, { damping: 18, stiffness: 260, mass: 0.7 });
+  }, [active, contentScale, reduceMotion]);
+
   return (
     <TouchableOpacity
       style={styles.tab}
@@ -72,22 +87,24 @@ const TabButton = memo(function TabButton({
       accessibilityRole="tab"
       accessibilityState={{ selected: active, disabled: !enabled }}
     >
-      <View style={styles.iconSlot}>
-        <MaterialCommunityIcons name={tab.icon} size={21} color={active ? activeColor : inactiveColor} />
-      </View>
-      <Text
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.8}
-        style={[
-          styles.label,
-          { color: active ? activeColor : inactiveColor },
-          active && styles.activeLabel,
-          !enabled && styles.disabledLabel,
-        ]}
-      >
-        {tab.label}
-      </Text>
+      <Animated.View style={[styles.tabContent, contentScaleStyle, active && styles.selectedTabContent]}>
+        <View style={styles.iconSlot}>
+          <MaterialCommunityIcons name={tab.icon} size={21} color={active ? activeColor : inactiveColor} />
+        </View>
+        <Text
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.8}
+          style={[
+            styles.label,
+            { color: active ? activeColor : inactiveColor },
+            active && styles.activeLabel,
+            !enabled && styles.disabledLabel,
+          ]}
+        >
+          {tab.label}
+        </Text>
+      </Animated.View>
     </TouchableOpacity>
   );
 });
@@ -115,11 +132,17 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
   const tabNavigationPending = useRef(false);
   const isProfileComplete = isAssessmentProfileComplete(user);
   const isPlanPromptVisible = planPrompt !== null;
-  const activeIndex = tabs.findIndex((tab) => isTabActive(pathname, tab.route));
+  const hasActivePlan = isWorkoutPlanLoaded && Boolean(workoutPlan?.weeks?.length);
+  const visibleTabs = useMemo(
+    () => hasActivePlan ? tabs : tabs.filter((tab) => tab.label !== 'Plans'),
+    [hasActivePlan],
+  );
+  const activeIndex = visibleTabs.findIndex((tab) => isTabActive(pathname, tab.route));
   const tabContentWidth = Math.max(0, rowWidth - TAB_ROW_HORIZONTAL_PADDING * 2);
-  const tabWidth = tabContentWidth > 0 ? tabContentWidth / tabs.length : 0;
+  const tabWidth = tabContentWidth > 0 ? tabContentWidth / visibleTabs.length : 0;
   const glowTranslateX = useSharedValue(0);
   const hasPositionedIndicator = useRef(false);
+  const previousTabCount = useRef(visibleTabs.length);
 
   useEffect(() => {
     if (!isWorkoutPlanLoaded && !isWorkoutPlanLoading) void fetchWorkoutPlan();
@@ -133,20 +156,21 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
     if (activeIndex < 0 || rowWidth <= 0) return;
 
     const targetX = TAB_ROW_HORIZONTAL_PADDING + activeIndex * tabWidth + (tabWidth - ACTIVE_INDICATOR_SIZE) / 2;
+    const tabCountChanged = previousTabCount.current !== visibleTabs.length;
+    previousTabCount.current = visibleTabs.length;
     cancelAnimation(glowTranslateX);
-    if (reduceMotion || !hasPositionedIndicator.current) {
+    if (reduceMotion || tabCountChanged || !hasPositionedIndicator.current) {
       glowTranslateX.value = targetX;
       hasPositionedIndicator.current = true;
     } else {
       glowTranslateX.value = withSpring(targetX, { damping: 20, stiffness: 160, mass: 1 });
     }
-  }, [activeIndex, glowTranslateX, reduceMotion, rowWidth, tabWidth]);
+  }, [activeIndex, glowTranslateX, reduceMotion, rowWidth, tabWidth, visibleTabs.length]);
 
   const glowStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: glowTranslateX.value }],
   }));
 
-  const hasActivePlan = isWorkoutPlanLoaded && Boolean(workoutPlan?.weeks?.length);
   const handleTabPress = useCallback((tab: Tab) => {
     if (tab.label === 'Plans') {
       if (isWorkoutPlanLoading) return;
@@ -208,7 +232,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
           style={[styles.activeIndicator, glowStyle]}
         />
       ) : null}
-      {tabs.map((tab) => {
+      {visibleTabs.map((tab) => {
         const active = isTabActive(pathname, tab.route);
         return (
           <TabButton
@@ -340,6 +364,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: TAB_ROW_HORIZONTAL_PADDING,
   },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minWidth: 0, zIndex: 1 },
+  tabContent: { flex: 1, alignItems: 'center', justifyContent: 'center', minWidth: 0 },
+  selectedTabContent: { zIndex: 2 },
   iconSlot: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   label: { fontSize: 11, lineHeight: 13, marginTop: 5, textAlign: 'center', includeFontPadding: false, maxWidth: '100%', fontWeight: '500' },
   activeLabel: { fontWeight: '600' },

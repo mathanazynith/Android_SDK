@@ -410,6 +410,14 @@ export default function DashboardScreen() {
     router.push('/(app)/questionnaire');
   };
 
+  const handlePlanShortcutPress = () => {
+    if (hasWorkoutPlan) {
+      router.push('/(app)/training-plan');
+      return;
+    }
+    startAssessment();
+  };
+
   const handleSettingsOption = (option: string) => {
     setSettingsVisible(false);
     if (option === 'Activities') router.push('/(app)/activity');
@@ -670,7 +678,7 @@ export default function DashboardScreen() {
                     borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
                   },
                 ]}
-                onPress={() => router.push('/(app)/training-plan')}
+                onPress={handlePlanShortcutPress}
                 activeOpacity={0.8}
               >
                 <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(10, 132, 255, 0.18)' }]}>

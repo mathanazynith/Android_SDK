@@ -1,6 +1,6 @@
 import { Alert } from '@/components/ThemedAlert';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PanResponder, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RunningLoader } from '../../../components/common/RunningLoader';
@@ -213,12 +213,11 @@ export default function TrainingPlanScreen() {
     getDistanceUnitCode(user?.profile?.distance_unit) === 'mile' ? 'mi' : 'km';
   const params = useLocalSearchParams<{ selectedWeek?: string; selectedDate?: string }>();
   const { workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan, endWorkoutPlan } = useQuestionnaire();
-  const [selectedWeekIndex, setSelectedWeekIndex] = useState(() => {
-    const requestedWeek = Number.parseInt(String(params.selectedWeek ?? ''), 10);
-    return Number.isFinite(requestedWeek) && requestedWeek > 0 ? requestedWeek - 1 : 0;
-  });
-  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
-  const [initializedSelectionKey, setInitializedSelectionKey] = useState<string | null>(null);
+  const [savedSelection, setSavedSelection] = useState<{
+    key: string;
+    weekIndex: number;
+    dateKey: string | null;
+  } | null>(null);
   const [isEndPlanModalVisible, setIsEndPlanModalVisible] = useState(false);
   const [benchmarkAssignments, setBenchmarkAssignments] = useState<Record<string, PlanBenchmarkAssignment>>({});
   const [dbPlanWorkouts, setDbPlanWorkouts] = useState<UserWorkoutResponse[]>([]);
@@ -316,39 +315,38 @@ export default function TrainingPlanScreen() {
       today: localDateKey(new Date()),
     });
   }, [params.selectedDate, params.selectedWeek, plan]);
-  const selectionInitialized = selectionKey !== null && initializedSelectionKey === selectionKey;
-  const weekIndexForRender = selectionInitialized
-    ? selectedWeekIndex
-    : defaultSelection?.weekIndex ?? 0;
-  const dateKeyForRender = selectionInitialized
-    ? selectedDateKey
-    : defaultSelection?.dateKey ?? null;
+  const currentSelection = selectionKey !== null && savedSelection?.key === selectionKey
+    ? savedSelection
+    : defaultSelection;
+  const weekIndexForRender = currentSelection?.weekIndex ?? 0;
+  const dateKeyForRender = currentSelection?.dateKey ?? null;
   const safeWeekIndex = plan ? Math.min(weekIndexForRender, Math.max(0, plan.weeks.length - 1)) : 0;
   const selectedWeek = plan?.weeks[safeWeekIndex] ?? null;
   const selectedWorkoutIndex = selectedWeek?.workouts.findIndex((workout) => workout.rawDate === dateKeyForRender) ?? -1;
   const selectedDayIndex = selectedWorkoutIndex >= 0 ? selectedWorkoutIndex : 0;
   const selectedDay = selectedWeek?.workouts[selectedDayIndex] ?? selectedWeek?.workouts[0] ?? null;
 
-  useEffect(() => {
-    if (!defaultSelection || !selectionKey || initializedSelectionKey === selectionKey) return;
-    setInitializedSelectionKey(selectionKey);
-    setSelectedWeekIndex(defaultSelection.weekIndex);
-    setSelectedDateKey(defaultSelection.dateKey);
-  }, [defaultSelection, initializedSelectionKey, selectionKey]);
-
   const changeWeek = (direction: -1 | 1) => {
-    if (!plan) return;
+    if (!plan || !selectionKey) return;
     const nextIndex = Math.max(0, Math.min(plan.weeks.length - 1, safeWeekIndex + direction));
     const nextWeek = plan.weeks[nextIndex];
     const today = localDateKey(new Date());
     const nextSelection = nextWeek?.workouts.find((workout) => workout.rawDate === today) ?? nextWeek?.workouts[0];
-    setSelectedWeekIndex(nextIndex);
-    setSelectedDateKey(nextSelection?.rawDate ?? null);
+    setSavedSelection({
+      key: selectionKey,
+      weekIndex: nextIndex,
+      dateKey: nextSelection?.rawDate ?? null,
+    });
   };
 
   const changeDay = (direction: -1 | 1) => {
+    if (!selectionKey) return;
     const nextIndex = Math.max(0, Math.min(6, selectedDayIndex + direction));
-    setSelectedDateKey(selectedWeek?.workouts[nextIndex]?.rawDate ?? null);
+    setSavedSelection({
+      key: selectionKey,
+      weekIndex: safeWeekIndex,
+      dateKey: selectedWeek?.workouts[nextIndex]?.rawDate ?? null,
+    });
   };
 
   const handleConfirmEndPlan = async (reason: string) => {
@@ -417,8 +415,15 @@ export default function TrainingPlanScreen() {
             <Timeline
               workouts={selectedWeek?.workouts ?? []}
               selectedWorkoutId={selectedDay?.id}
+              animateItems={false}
               onSelectWorkout={(workout) => {
-                setSelectedDateKey(workout.rawDate ?? null);
+                if (selectionKey) {
+                  setSavedSelection({
+                    key: selectionKey,
+                    weekIndex: safeWeekIndex,
+                    dateKey: workout.rawDate ?? null,
+                  });
+                }
                 router.push({
                   pathname: '/(app)/training-plan/workout-details',
                   params: { workout: JSON.stringify(workout) },

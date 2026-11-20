@@ -10,32 +10,42 @@ interface TimelineProps {
   onSelectWorkout: (workout: WorkoutDetail) => void;
   onSwapWorkout?: (workout: WorkoutDetail) => void;
   selectedWorkoutId?: string;
+  animateItems?: boolean;
 }
 
-export default function Timeline({ workouts, onSelectWorkout, onSwapWorkout, selectedWorkoutId }: TimelineProps) {
+export default function Timeline({
+  workouts,
+  onSelectWorkout,
+  onSwapWorkout,
+  selectedWorkoutId,
+  animateItems = true,
+}: TimelineProps) {
   const { colors } = useTheme();
   return (
     <View style={styles.container}>
-      {workouts.map((workout, index) => (
-        <MotionEntrance key={workout.id} delay={Math.min(index, 5) * 35}>
-          <View style={styles.row}>
+      {workouts.map((workout, index) => {
+        const row = (
+          <View key={workout.id} style={styles.row}>
             <View style={styles.leftRail}>
-                <View style={[styles.dot, { backgroundColor: workout.accentColor }]}>
-                  <Ionicons name={workout.iconName} size={15} color="#FFFFFF" />
-                </View>
+              <View style={[styles.dot, { backgroundColor: workout.accentColor }]}>
+                <Ionicons name={workout.iconName} size={15} color="#FFFFFF" />
+              </View>
               {index < workouts.length - 1 && <View style={[styles.line, { backgroundColor: colors.border }]} />}
             </View>
             <View style={styles.cardWrapper}>
-                <WorkoutCard
-                  workout={workout}
-                  onPress={onSelectWorkout}
-                  onSwap={onSwapWorkout}
-                  isSelected={workout.id === selectedWorkoutId}
-                />
+              <WorkoutCard
+                workout={workout}
+                onPress={onSelectWorkout}
+                onSwap={onSwapWorkout}
+                isSelected={workout.id === selectedWorkoutId}
+              />
             </View>
           </View>
-        </MotionEntrance>
-      ))}
+        );
+        return animateItems
+          ? <MotionEntrance key={`motion-${workout.id}`} delay={Math.min(index, 5) * 35}>{row}</MotionEntrance>
+          : row;
+      })}
     </View>
   );
 }
