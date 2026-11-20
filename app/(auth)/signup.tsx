@@ -349,7 +349,7 @@ export default function SignupScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <TouchableOpacity
           style={[styles.backButton, { backgroundColor: colors.surfaceRaised }]}
-          onPress={() => router.back()}
+          onPress={() => router.replace('/(auth)/login')}
           disabled={loading || googleLoading}
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -554,7 +554,7 @@ export default function SignupScreen() {
           authStyle
         />
 
-        <TouchableOpacity onPress={() => router.back()} disabled={loading}>
+        <TouchableOpacity onPress={() => router.replace('/(auth)/login')} disabled={loading}>
           <Text style={[styles.link, { color: colors.textSecondary }]}>
             Already a member? <Text style={[styles.linkAccent, { color: colors.primary }]}>Sign In</Text>
           </Text>

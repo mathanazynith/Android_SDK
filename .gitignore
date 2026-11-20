@@ -46,6 +46,13 @@ example
 /ios
 /android
 
+# Keep the Android Gradle JDK requirement reproducible while ignoring generated native files.
+!/android/
+/android/*
+!/android/gradle/
+/android/gradle/*
+!/android/gradle/gradle-daemon-jvm.properties
+
 # Gradle & Android build artifacts
 .gradle/
 build/

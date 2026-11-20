@@ -5,7 +5,6 @@ import { PanResponder, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import EndActivePlanModal from '../../../components/EndActivePlanModal';
-import MotionEntrance from '../../../components/MotionEntrance';
 import { useQuestionnaire } from '../../../contexts/QuestionnaireContext';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useAuth } from '../../../service/auth';
@@ -17,6 +16,7 @@ import {
 import { formatDistanceFromMeters } from '../../../src/utils/activityUnitFormatters';
 import { formatDistanceMeters } from '../../../src/utils/distance';
 import { formatPaceForUnit, type DistanceUnitType } from '../../../src/utils/workoutCalculations';
+import { resolvePlanWeekSelection } from '../../../src/utils/trainingPlanSelection';
 import { getDistanceUnitCode } from '../../../utils/distanceUnit';
 import Timeline from '../calendar/components/Timeline';
 import TrainingCalendarCard from '../calendar/components/TrainingCalendarCard';
@@ -218,14 +218,14 @@ export default function TrainingPlanScreen() {
     return Number.isFinite(requestedWeek) && requestedWeek > 0 ? requestedWeek - 1 : 0;
   });
   const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
-  const initializedSelection = useRef<string | null>(null);
+  const [initializedSelectionKey, setInitializedSelectionKey] = useState<string | null>(null);
   const [isEndPlanModalVisible, setIsEndPlanModalVisible] = useState(false);
   const [benchmarkAssignments, setBenchmarkAssignments] = useState<Record<string, PlanBenchmarkAssignment>>({});
   const [dbPlanWorkouts, setDbPlanWorkouts] = useState<UserWorkoutResponse[]>([]);
 
   useFocusEffect(
     useCallback(() => {
-      void fetchWorkoutPlan(true);
+      void fetchWorkoutPlan();
     }, [fetchWorkoutPlan]),
   );
 
@@ -305,42 +305,36 @@ export default function TrainingPlanScreen() {
     };
   }, [workoutPlan, benchmarkAssignments, dbPlanWorkouts, distanceUnit]);
 
-  const safeWeekIndex = plan ? Math.min(selectedWeekIndex, Math.max(0, plan.weeks.length - 1)) : 0;
+  const selectionKey = plan && workoutPlan
+    ? `${workoutPlan.id}:${String(params.selectedWeek ?? '')}:${String(params.selectedDate ?? '')}`
+    : null;
+  const defaultSelection = useMemo(() => {
+    if (!plan) return null;
+    return resolvePlanWeekSelection(plan.weeks, {
+      selectedWeek: params.selectedWeek,
+      selectedDate: params.selectedDate,
+      today: localDateKey(new Date()),
+    });
+  }, [params.selectedDate, params.selectedWeek, plan]);
+  const selectionInitialized = selectionKey !== null && initializedSelectionKey === selectionKey;
+  const weekIndexForRender = selectionInitialized
+    ? selectedWeekIndex
+    : defaultSelection?.weekIndex ?? 0;
+  const dateKeyForRender = selectionInitialized
+    ? selectedDateKey
+    : defaultSelection?.dateKey ?? null;
+  const safeWeekIndex = plan ? Math.min(weekIndexForRender, Math.max(0, plan.weeks.length - 1)) : 0;
   const selectedWeek = plan?.weeks[safeWeekIndex] ?? null;
-  const selectedWorkoutIndex = selectedWeek?.workouts.findIndex((workout) => workout.rawDate === selectedDateKey) ?? -1;
+  const selectedWorkoutIndex = selectedWeek?.workouts.findIndex((workout) => workout.rawDate === dateKeyForRender) ?? -1;
   const selectedDayIndex = selectedWorkoutIndex >= 0 ? selectedWorkoutIndex : 0;
   const selectedDay = selectedWeek?.workouts[selectedDayIndex] ?? selectedWeek?.workouts[0] ?? null;
 
   useEffect(() => {
-    if (!plan || !workoutPlan) return;
-    const selectionKey = `${workoutPlan.id}:${String(params.selectedWeek ?? '')}:${String(params.selectedDate ?? '')}`;
-    if (initializedSelection.current === selectionKey) return;
-
-    const requestedDate = String(params.selectedDate ?? '').slice(0, 10);
-    const requestedDateWeek = requestedDate
-      ? plan.weeks.findIndex((week) => week.workouts.some((workout) => workout.rawDate === requestedDate))
-      : -1;
-    const requestedWeek = Number.parseInt(String(params.selectedWeek ?? ''), 10);
-    const today = localDateKey(new Date());
-    const currentWeek = plan.weeks.findIndex((week) => week.workouts.some((workout) => workout.rawDate === today));
-    const weekIndex = requestedDateWeek >= 0
-      ? requestedDateWeek
-      : Number.isFinite(requestedWeek) && requestedWeek > 0
-        ? Math.min(requestedWeek - 1, plan.weeks.length - 1)
-        : currentWeek >= 0
-          ? currentWeek
-          : 0;
-    const week = plan.weeks[weekIndex];
-    const preferredDate = requestedDateWeek >= 0
-      ? requestedDate
-      : week?.workouts.some((workout) => workout.rawDate === today)
-        ? today
-        : week?.workouts[0]?.rawDate;
-
-    initializedSelection.current = selectionKey;
-    setSelectedWeekIndex(weekIndex);
-    setSelectedDateKey(preferredDate ?? null);
-  }, [params.selectedDate, params.selectedWeek, plan, workoutPlan]);
+    if (!defaultSelection || !selectionKey || initializedSelectionKey === selectionKey) return;
+    setInitializedSelectionKey(selectionKey);
+    setSelectedWeekIndex(defaultSelection.weekIndex);
+    setSelectedDateKey(defaultSelection.dateKey);
+  }, [defaultSelection, initializedSelectionKey, selectionKey]);
 
   const changeWeek = (direction: -1 | 1) => {
     if (!plan) return;
@@ -401,10 +395,9 @@ export default function TrainingPlanScreen() {
     <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <MotionEntrance delay={55}>
         <View {...weekSwipeResponder.panHandlers}>
           <TrainingCalendarCard
-            weekLabel={selectedWeek?.label ?? `Week ${selectedWeekIndex + 1}`}
+            weekLabel={selectedWeek?.label ?? `Week ${safeWeekIndex + 1}`}
             rangeLabel={selectedWeek?.dateRange ?? ''}
             statusText={selectedWeek?.statusText ?? ''}
             totalWeeks={plan.totalWeeks}
@@ -437,7 +430,6 @@ export default function TrainingPlanScreen() {
             />
           </View>
         </View>
-        </MotionEntrance>
         <View style={styles.legend}>
           <LegendItem label="Long Run" color="#F28C28" />
           <LegendItem label="Tempo Run" color="#1596E8" />

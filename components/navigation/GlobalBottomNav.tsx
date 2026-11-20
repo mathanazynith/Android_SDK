@@ -166,10 +166,6 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
       router.replace('/(app)/dashboard');
       return;
     }
-    if (tab.label === 'Plans') {
-      router.replace({ pathname: tab.route, params: { selectedWeek: '1' } });
-      return;
-    }
     router.replace(tab.route);
   }, [fetchWorkoutPlan, hasActivePlan, isWorkoutPlanLoaded, isWorkoutPlanLoading, pathname]);
 
@@ -250,7 +246,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
           intensity={55}
           tint={isDark ? 'dark' : 'light'}
           blurTarget={blurTarget}
-          blurMethod={isAndroid ? 'dimezisBlurViewSdk31Plus' : undefined}
+          blurMethod={isAndroid ? 'none' : undefined}
           blurReductionFactor={isAndroid ? (isDark ? 3 : 2) : undefined}
           style={[
             styles.blurSurface,

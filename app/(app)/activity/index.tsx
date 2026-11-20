@@ -335,6 +335,7 @@ const ActivityCard = memo(function ActivityCard({
   const [routeActivity, setRouteActivity] = useState<BackendActivity | null>(() => activityDetails.get(activityCacheKey) ?? null);
   const [failedThumbnailUri, setFailedThumbnailUri] = useState<string | null>(null);
   const thumbnailFailed = thumbnailUri !== null && failedThumbnailUri === thumbnailUri;
+  const needsRouteFallback = thumbnailUri ? thumbnailFailed : isVisible;
   const longPressHandledRef = useRef(false);
   const longPressRecognizedRef = useRef(false);
   const longPressProgressFinishedRef = useRef(false);
@@ -343,18 +344,29 @@ const ActivityCard = memo(function ActivityCard({
   const [isLongPressProgressVisible, setIsLongPressProgressVisible] = useState(false);
   const [longPressProgress] = useState(() => new Animated.Value(0));
   const [selectionScale] = useState(() => new Animated.Value(1));
+  const hasAnimatedSelectionRef = useRef(false);
   const [selectionControlOpacity] = useState(() => new Animated.Value(0));
   const [selectionControlScale] = useState(() => new Animated.Value(0.78));
   useEffect(() => () => longPressProgress.stopAnimation(), [longPressProgress]);
 
   useEffect(() => {
-    Animated.spring(selectionScale, {
-      toValue: selected ? 0.99 : 1,
+    const toValue = selected ? 0.99 : 1;
+    if (reduceMotion || (!hasAnimatedSelectionRef.current && !selected)) {
+      selectionScale.setValue(toValue);
+      hasAnimatedSelectionRef.current = true;
+      return;
+    }
+
+    hasAnimatedSelectionRef.current = true;
+    const animation = Animated.spring(selectionScale, {
+      toValue,
       damping: 18,
       stiffness: 220,
       useNativeDriver: true,
-    }).start();
-  }, [selected, selectionScale]);
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [reduceMotion, selected, selectionScale]);
 
   useEffect(() => {
     if (!selectionMode) {
@@ -384,7 +396,7 @@ const ActivityCard = memo(function ActivityCard({
   }, [reduceMotion, selectionControlOpacity, selectionControlScale, selectionMode]);
 
   useEffect(() => {
-    if (!isVisible || routeActivity || (thumbnailUri && !thumbnailFailed)) return;
+    if (!needsRouteFallback || routeActivity) return;
     let cancelled = false;
     let activeRequest: Promise<BackendActivity> | null = null;
     const loadRoute = async () => {
@@ -414,7 +426,7 @@ const ActivityCard = memo(function ActivityCard({
     };
     void loadRoute();
     return () => { cancelled = true; };
-  }, [activityCacheKey, activityId, isVisible, routeActivity, thumbnailFailed, thumbnailUri]);
+  }, [activityCacheKey, activityId, needsRouteFallback, routeActivity]);
 
   const handleCardPress = () => {
     if (longPressHandledRef.current) {
@@ -518,7 +530,7 @@ const ActivityCard = memo(function ActivityCard({
         intensity={40}
         tint={isDark ? 'dark' : 'light'}
         blurTarget={blurTarget ?? undefined}
-        blurMethod={Platform.OS === 'android' ? 'dimezisBlurViewSdk31Plus' : undefined}
+        blurMethod={Platform.OS === 'android' ? 'none' : undefined}
         blurReductionFactor={Platform.OS === 'android' ? 3 : undefined}
         style={[
           StyleSheet.absoluteFill,
@@ -772,6 +784,9 @@ export default function ActivityScreen() {
   const [activityOptionsActivity, setActivityOptionsActivity] = useState<BackendActivity | null>(null);
   const [activityOptionsMessage, setActivityOptionsMessage] = useState<string | null>(null);
   const [visibleActivityIds, setVisibleActivityIds] = useState<Set<string>>(() => new Set());
+  const visibleActivityIdsRef = useRef(visibleActivityIds);
+  const pendingVisibleActivityIdsRef = useRef<Set<string>>(new Set());
+  const visibleActivityFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedActivityIds, setSelectedActivityIds] = useState<Set<string>>(() => new Set());
   const [pendingDeleteActivities, setPendingDeleteActivities] = useState<BackendActivity[] | null>(null);
@@ -833,9 +848,15 @@ export default function ActivityScreen() {
     dateFilterAutoLoadKeyRef.current = null;
     activityDetails.clear();
     activityDetailRequests.clear();
+    visibleActivityIdsRef.current = new Set();
+    pendingVisibleActivityIdsRef.current.clear();
+    if (visibleActivityFlushTimerRef.current) {
+      clearTimeout(visibleActivityFlushTimerRef.current);
+      visibleActivityFlushTimerRef.current = null;
+    }
 
     setActivities([]);
-    setVisibleActivityIds(new Set());
+    setVisibleActivityIds(visibleActivityIdsRef.current);
     setSelectedActivityIds(new Set());
     setSelectionMode(false);
     setTotalHistoryCount(null);
@@ -937,12 +958,34 @@ export default function ActivityScreen() {
   }, []);
 
   const handleViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
-    const nextVisibleIds = new Set(viewableItems.flatMap(({ item }) => {
+    const newlyVisibleFallbackIds = viewableItems.flatMap(({ item }) => {
       const row = item as ActivityListRow;
-      return row.type === 'activity' ? [String(row.activity.id)] : [];
-    }));
-    setVisibleActivityIds((current) => current.size === nextVisibleIds.size
-      && [...current].every((id) => nextVisibleIds.has(id)) ? current : nextVisibleIds);
+      return row.type === 'activity' && !resolveApiUrl(row.activity.thumbnail_url)
+        ? [String(row.activity.id)]
+        : [];
+    });
+    if (newlyVisibleFallbackIds.length === 0) return;
+
+    newlyVisibleFallbackIds.forEach((id) => {
+      if (!visibleActivityIdsRef.current.has(id)) pendingVisibleActivityIdsRef.current.add(id);
+    });
+    if (pendingVisibleActivityIdsRef.current.size === 0 || visibleActivityFlushTimerRef.current) return;
+
+    // Group visibility changes during a fling so FlatList does not reconcile once per newly seen row.
+    visibleActivityFlushTimerRef.current = setTimeout(() => {
+      visibleActivityFlushTimerRef.current = null;
+      const pendingIds = pendingVisibleActivityIdsRef.current;
+      if (pendingIds.size === 0) return;
+      const next = new Set(visibleActivityIdsRef.current);
+      pendingIds.forEach((id) => next.add(id));
+      pendingIds.clear();
+      visibleActivityIdsRef.current = next;
+      setVisibleActivityIds(next);
+    }, 100);
+  }, []);
+
+  useEffect(() => () => {
+    if (visibleActivityFlushTimerRef.current) clearTimeout(visibleActivityFlushTimerRef.current);
   }, []);
 
   useEffect(() => {
