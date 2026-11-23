@@ -37,6 +37,7 @@ import {
 import ActiveRunBanner from './navigation/ActiveRunBanner';
 import { CustomSlider } from './CustomSlider';
 import { useResponsive } from '../utils/responsive';
+import { openLegalPage } from '../src/utils/legalLinks';
 import ENV from '../env';
 
 interface SettingsMenuProps {
@@ -139,6 +140,10 @@ export default function SettingsMenu({
     { value: 'light', label: 'Light', icon: 'white-balance-sunny' },
     { value: 'dark', label: 'Dark', icon: 'moon-waning-crescent' },
   ] as const;
+  const handleOpenLegalPage = () => {
+    onClose();
+    void openLegalPage();
+  };
 
   useEffect(() => {
     if (!visible || page !== 'privacy') return;
@@ -869,6 +874,19 @@ export default function SettingsMenu({
                       thumbColor={colors.surface}
                     />
                   </View>
+                </View>
+                <Text style={[styles.androidSectionTitle, styles.androidSectionSpaced, { color: colors.textTertiary }]}>LEGAL</Text>
+                <View style={[styles.optionGroup, { backgroundColor: isDark ? colors.surfaceRaised : '#F3F4F4', borderColor: 'transparent' }]}>
+                  {renderAndroidRow({
+                    label: 'Terms and Conditions',
+                    icon: 'file-text',
+                    onPress: handleOpenLegalPage,
+                  })}
+                  {renderAndroidRow({
+                    label: 'Privacy Policy',
+                    icon: 'shield',
+                    onPress: handleOpenLegalPage,
+                  })}
                 </View>
                 <Text style={[styles.androidSectionTitle, styles.androidSectionSpaced, { color: colors.textTertiary }]}>SESSION</Text>
                 <View style={[styles.optionGroup, { backgroundColor: isDark ? colors.surfaceRaised : '#F3F4F4', borderColor: 'transparent' }]}>
