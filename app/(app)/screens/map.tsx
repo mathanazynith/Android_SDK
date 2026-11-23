@@ -813,6 +813,26 @@ export default function MapScreen() {
     try {
       setLoading(true);
 
+      const foregroundStatus = await Location.getForegroundPermissionsAsync();
+      if (!foregroundStatus.granted) {
+        const userAgreed = await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            'Location Access for Workout Tracking',
+            'Zy-Run collects location data to enable real-time GPS tracking of your runs, route mapping, distance measurement, and pace calculation even when the app is in the background or the screen is locked during an active workout.\n\nYour location is stored securely and never shared without your permission.',
+            [
+              { text: 'Not Now', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Continue', style: 'default', onPress: () => resolve(true) },
+            ],
+            { cancelable: false }
+          );
+        });
+
+        if (!userAgreed) {
+          setPermissionGranted(false);
+          return false;
+        }
+      }
+
       const granted = await LocationService.requestForegroundPermissions();
       if (!granted) {
         setPermissionGranted(false);

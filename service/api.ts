@@ -248,6 +248,8 @@ export const authAPI = {
 
   logout: (data: { refresh?: string }) => api.post("/auth/logout/", data),
 
+  deleteAccount: () => api.delete("/auth/profile/"),
+
   adminLogin: (data: { identifier: string; password: string }) =>
     api.post("/auth/admin-login/", data),
 };

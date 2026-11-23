@@ -578,6 +578,15 @@ export default function SettingsMenu({
                     <Feather name="log-out" size={spacing(21)} color={isDark ? '#F87171' : '#D46A70'} style={styles.androidOptionIcon} />
                     <Text style={[styles.androidOptionLabel, { color: isDark ? '#F87171' : '#D46A70', fontSize: fontSize(16, 14, 17) }]}>Logout</Text>
                   </TouchableOpacity>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete your account"
+                    onPress={() => onSelect('Delete Account')}
+                    style={[styles.androidOptionRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}
+                  >
+                    <Feather name="trash-2" size={spacing(21)} color="#EF4444" style={styles.androidOptionIcon} />
+                    <Text style={[styles.androidOptionLabel, { color: '#EF4444', fontSize: fontSize(16, 14, 17) }]}>Delete Account</Text>
+                  </TouchableOpacity>
                 </View>
               </>
             ) : page === 'pause' ? (
