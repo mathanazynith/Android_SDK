@@ -22,7 +22,7 @@
       ],
       "predictiveBackGestureEnabled": false,
       "package": "com.zyapp",
-      "versionCode": 1
+      "versionCode": 4
     },
     "web": {
       "output": "static",
@@ -50,12 +50,12 @@
           "motionUsagePermission": "Allow this app to detect whether you are walking or running while recording a workout."
         }
       ],
-       [
-    "react-native-maps",
-    {
-      "androidGoogleMapsApiKey": "AIzaSyCbfFEhN28i6_DmvgUdRN6FUH9UVaTJoAk"
-    }
-  ],
+      [
+        "react-native-maps",
+        {
+          "androidGoogleMapsApiKey": "AIzaSyCbfFEhN28i6_DmvgUdRN6FUH9UVaTJoAk"
+        }
+      ],
       [
         "expo-splash-screen",
         {

@@ -312,6 +312,21 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
           style={StyleSheet.absoluteFill}
         />
       )}
+      {isAndroid && (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.androidHalo,
+            {
+              bottom: bottomOffset - 2,
+              left: (windowWidth - navWidth) / 2 - 2,
+              width: navWidth + 4,
+              height: navHeight + 4,
+              borderRadius: navRadius + 2,
+            },
+          ]}
+        />
+      )}
       <View
         style={[
           styles.container,
@@ -321,7 +336,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
             width: navWidth,
             height: navHeight,
             borderRadius: navRadius,
-            shadowColor: '#000000',
+            shadowColor: BRAND_GREEN,
             elevation: 8,
           },
         ]}
@@ -337,7 +352,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
             {
               borderRadius: navRadius,
               backgroundColor: isDark ? 'rgba(10, 10, 10, 0.96)' : 'rgba(255, 255, 255, 0.96)',
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(10, 10, 10, 0.12)',
+              borderColor: isDark ? 'rgba(34, 197, 94, 0.36)' : 'rgba(22, 163, 74, 0.32)',
             },
           ]}
         >
@@ -401,14 +416,20 @@ const styles = StyleSheet.create({
   container: {
     position: 'absolute',
     zIndex: 10,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+  },
+  androidHalo: {
+    position: 'absolute',
+    zIndex: 9,
+    borderWidth: 2,
+    borderColor: 'rgba(34, 197, 94, 0.12)',
   },
   blurSurface: {
     ...StyleSheet.absoluteFill,
     overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
   },
   tabRow: {
     flex: 1,
