@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import ActivitySplitsModal from '../../../components/ActivitySplitsModal';
+import { WorkoutFlyover3DModal } from '../../../components/flyover/WorkoutFlyover3DModal';
 import { WorkoutShareStudioModal } from '../../../components/share/WorkoutShareStudioModal';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
@@ -88,6 +89,7 @@ export default function ActivityDetailScreen() {
   const [deleting, setDeleting] = useState(false);
   const [exportingGpx, setExportingGpx] = useState(false);
   const [shareCardVisible, setShareCardVisible] = useState(false);
+  const [flyoverVisible, setFlyoverVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [splitsVisible, setSplitsVisible] = useState(false);
   const [splitsLoading, setSplitsLoading] = useState(false);
@@ -340,7 +342,18 @@ export default function ActivityDetailScreen() {
       ) : activity ? (
         <View style={styles.activityBody}>
           <View style={styles.routePanel}>
-            <Text style={[styles.sectionTitle, styles.routeTitle, { color: colors.text }]}>Route</Text>
+            <View style={styles.routeHeaderRow}>
+              <Text style={[styles.sectionTitle, styles.routeTitle, { color: colors.text }]}>Route</Text>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="3D Flyover Video"
+                onPress={() => setFlyoverVisible(true)}
+                style={styles.routeFlyoverPill}
+              >
+                <Feather name="play" size={12} color="#22C55E" />
+                <Text style={styles.routeFlyoverPillText}>3D Flyover</Text>
+              </TouchableOpacity>
+            </View>
             <ActivityRouteMap
               encodedPolyline={activity.encoded_polyline}
               plannedEncodedPolyline={activity.planned_encoded_polyline}
@@ -440,6 +453,18 @@ export default function ActivityDetailScreen() {
         activity={activity}
         distanceUnit={distanceUnit}
       />
+      <WorkoutFlyover3DModal
+        visible={flyoverVisible}
+        onClose={() => setFlyoverVisible(false)}
+        activity={activity}
+        points={activity?.route?.points ?? activity?.gps_points ?? activity?.points ?? []}
+        encodedPolyline={activity?.encoded_polyline}
+        title={activity?.activity_type?.toUpperCase() === 'WALK' ? 'Walk 3D Flyover' : 'Run 3D Flyover'}
+        totalDistanceMeters={activity?.distance}
+        totalDurationSeconds={activity?.moving_time || activity?.elapsed_time}
+        elevationGainMeters={activity?.elevation_gain ?? undefined}
+        avatarUrl={user?.profile?.profile_picture_url || user?.profile?.profile_picture}
+      />
     </SafeAreaView>
   );
 }
@@ -456,11 +481,29 @@ const styles = StyleSheet.create({
   cropButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
   splitButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
   exportButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
+  flyoverButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
   deleteButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '700' },
   headerSpacer: { width: 36 },
   activityBody: { flex: 1, minHeight: 0 },
   routePanel: { flexShrink: 0, paddingTop: 12 },
+  routeHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  routeFlyoverPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.35)',
+  },
+  routeFlyoverPillText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#22C55E',
+  },
   routeTitle: { marginTop: 0 },
   routeVisibilityRow: { minHeight: 60, flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10, paddingHorizontal: 12, borderWidth: 1, borderRadius: 10 },
   routeVisibilityCopy: { flex: 1, minWidth: 0 },
