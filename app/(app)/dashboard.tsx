@@ -17,6 +17,7 @@ import {
 import { useNotifications } from '../../contexts/NotificationContext';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
+import { authAPI } from '../../service/api';
 import { useAuth } from '../../service/auth';
 import { customWorkoutAPI, type UserWorkoutResponse } from '../../service/customWorkout';
 import { getFcmToken } from '../../service/fcmService';
@@ -471,6 +472,28 @@ export default function DashboardScreen() {
           },
         },
       ]);
+    }
+    if (option === 'Delete Account') {
+      Alert.alert(
+        'Delete Account',
+        'Are you sure you want to permanently delete your account? All your runs, stats, and personal data will be deleted. This action cannot be undone.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await authAPI.deleteAccount();
+              } catch (error) {
+                console.warn('Account deletion request failed on backend:', error);
+              }
+              await logout();
+              router.replace('/(auth)/welcome' as any);
+            },
+          },
+        ]
+      );
     }
   };
 

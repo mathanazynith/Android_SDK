@@ -687,8 +687,20 @@ function ActivityRouteMap({
               <View style={[styles.pauseMarker, variant === 'preview' && styles.previewPauseMarker]} />
             </Marker>
           ))}
-          {firstPoint && <Marker coordinate={firstPoint} pinColor="#35C72B" title="Start" />}
-          {lastPoint && <Marker coordinate={lastPoint} pinColor="#FF5B5B" title="Finish" />}
+          {firstPoint && (
+            <Marker coordinate={firstPoint} anchor={{ x: 0.5, y: 0.5 }} title="Start">
+              <View style={styles.startDotMarker}>
+                <View style={styles.startDotInner} />
+              </View>
+            </Marker>
+          )}
+          {lastPoint && (
+            <Marker coordinate={lastPoint} anchor={{ x: 0.5, y: 0.5 }} title="Finish">
+              <View style={styles.finishDotMarker}>
+                <View style={styles.finishDotInner} />
+              </View>
+            </Marker>
+          )}
         </MapView>
         )}
 
@@ -792,8 +804,20 @@ function ActivityRouteMap({
                   <View style={styles.pauseMarker} />
                 </Marker>
               ))}
-              {firstPoint && <Marker coordinate={firstPoint} pinColor="#35C72B" title="Start" />}
-              {lastPoint && <Marker coordinate={lastPoint} pinColor="#FF5B5B" title="Finish" />}
+              {firstPoint && (
+                <Marker coordinate={firstPoint} anchor={{ x: 0.5, y: 0.5 }} title="Start">
+                  <View style={styles.startDotMarker}>
+                    <View style={styles.startDotInner} />
+                  </View>
+                </Marker>
+              )}
+              {lastPoint && (
+                <Marker coordinate={lastPoint} anchor={{ x: 0.5, y: 0.5 }} title="Finish">
+                  <View style={styles.finishDotMarker}>
+                    <View style={styles.finishDotInner} />
+                  </View>
+                </Marker>
+              )}
             </MapView>
 
             <SafeAreaView edges={['top']} style={styles.fullScreenTopSafeArea}>
@@ -951,6 +975,48 @@ const styles = StyleSheet.create({
     borderColor: '#D1D5DB',
   },
   previewPauseMarker: { width: 10, height: 10, borderWidth: 1 },
+  startDotMarker: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#22C55E',
+    borderWidth: 2.5,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  startDotInner: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#FFFFFF',
+  },
+  finishDotMarker: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#EF4444',
+    borderWidth: 2.5,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  finishDotInner: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#FFFFFF',
+  },
   expandOverlay: {
     ...StyleSheet.absoluteFill,
     justifyContent: 'flex-start',

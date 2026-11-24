@@ -326,8 +326,12 @@ export default function CropActivityModal({
                       longitude: gpsPoints[startIndex].longitude,
                     }}
                     title="Start Point"
-                    pinColor="#20D000"
-                  />
+                    anchor={{ x: 0.5, y: 0.5 }}
+                  >
+                    <View style={styles.startDotMarker}>
+                      <View style={styles.startDotInner} />
+                    </View>
+                  </Marker>
                 )}
 
                 {/* End marker */}
@@ -338,8 +342,12 @@ export default function CropActivityModal({
                       longitude: gpsPoints[endIndex].longitude,
                     }}
                     title="End Point"
-                    pinColor="#FF6B6B"
-                  />
+                    anchor={{ x: 0.5, y: 0.5 }}
+                  >
+                    <View style={styles.finishDotMarker}>
+                      <View style={styles.finishDotInner} />
+                    </View>
+                  </Marker>
                 )}
               </MapView>
             </View>
@@ -629,5 +637,47 @@ const styles = StyleSheet.create({
     color: '#0B0E0F',
     fontSize: 16,
     fontWeight: '700',
+  },
+  startDotMarker: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#22C55E',
+    borderWidth: 2.5,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  startDotInner: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#FFFFFF',
+  },
+  finishDotMarker: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#EF4444',
+    borderWidth: 2.5,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  finishDotInner: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#FFFFFF',
   },
 });
