@@ -2,9 +2,10 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import ActivitySplitsModal from '../../../components/ActivitySplitsModal';
@@ -49,6 +50,16 @@ const formatActivityDate = (value: string) => {
     : `${date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} at ${date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
 };
 
+type ShareOptionsPosition = {
+  left: number;
+  top: number;
+  width: number;
+  originXPercent: number;
+  originYPercent: number;
+  originScaleX: number;
+  originScaleY: number;
+};
+
 function DetailMetric({
   label,
   value,
@@ -79,6 +90,9 @@ function DetailMetric({
 export default function ActivityDetailScreen() {
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const reduceMotion = useReducedMotion();
   const distanceUnit = user?.profile?.distance_unit;
   const { id, cropStart, cropEnd, savedRouteId: savedRouteIdParam, autoOpenSplits } = useLocalSearchParams<{
     id: string;
@@ -99,6 +113,21 @@ export default function ActivityDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [exportingGpx, setExportingGpx] = useState(false);
+  const [shareOptionsVisible, setShareOptionsVisible] = useState(false);
+  const [shareOptionsPosition, setShareOptionsPosition] = useState<ShareOptionsPosition>({
+    left: 12,
+    top: 72,
+    width: 240,
+    originXPercent: 50,
+    originYPercent: 50,
+    originScaleX: 0.02,
+    originScaleY: 0.02,
+  });
+  const [shareOptionsScaleX] = useState(() => new Animated.Value(0.82));
+  const [shareOptionsScaleY] = useState(() => new Animated.Value(0.82));
+  const [shareOptionsOpacity] = useState(() => new Animated.Value(0));
+  const shareOptionsAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const shareOptionsClosingRef = useRef(false);
   const [shareCardVisible, setShareCardVisible] = useState(false);
   const [shareCardLaunchOrigin, setShareCardLaunchOrigin] = useState<DashboardLaunchOrigin>();
   const [postWorkoutVisible, setPostWorkoutVisible] = useState(false);
@@ -120,6 +149,10 @@ export default function ActivityDetailScreen() {
   const cropStartIndex = cropStart === undefined ? undefined : Number(cropStart);
   const cropEndIndex = cropEnd === undefined ? undefined : Number(cropEnd);
   const extraDistanceMeters = getActivityExtraDistanceMeters(activity);
+
+  useEffect(() => () => {
+    shareOptionsAnimationRef.current?.stop();
+  }, []);
 
   const loadActivity = useCallback(async () => {
     if (!id) {
@@ -180,6 +213,131 @@ export default function ActivityDetailScreen() {
       setExportingGpx(false);
     }
   }, [activity]);
+
+  const closeShareOptions = useCallback((afterClose?: () => void) => {
+    if (!shareOptionsVisible) {
+      afterClose?.();
+      return;
+    }
+    if (shareOptionsClosingRef.current) return;
+
+    shareOptionsClosingRef.current = true;
+    shareOptionsAnimationRef.current?.stop();
+
+    const finishClose = ({ finished }: { finished: boolean }) => {
+      if (!finished) return;
+      shareOptionsClosingRef.current = false;
+      setShareOptionsVisible(false);
+      afterClose?.();
+    };
+
+    if (reduceMotion) {
+      finishClose({ finished: true });
+      return;
+    }
+
+    const animation = Animated.parallel([
+      Animated.timing(shareOptionsScaleX, {
+        toValue: shareOptionsPosition.originScaleX,
+        duration: 160,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(shareOptionsScaleY, {
+        toValue: shareOptionsPosition.originScaleY,
+        duration: 160,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(shareOptionsOpacity, {
+        toValue: 0,
+        duration: 140,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
+    shareOptionsAnimationRef.current = animation;
+    animation.start(finishClose);
+  }, [reduceMotion, shareOptionsOpacity, shareOptionsPosition.originScaleX, shareOptionsPosition.originScaleY, shareOptionsScaleX, shareOptionsScaleY, shareOptionsVisible]);
+
+  const shareWorkoutImage = useCallback(() => {
+    closeShareOptions(() => launchFromView(shareCardButtonRef.current, (origin) => {
+      setShareCardLaunchOrigin(origin);
+      setShareCardVisible(true);
+    }));
+  }, [closeShareOptions]);
+
+  const shareWorkoutGpx = useCallback(() => {
+    closeShareOptions(() => void exportActivityGpx());
+  }, [closeShareOptions, exportActivityGpx]);
+
+  const openShareOptions = useCallback(() => {
+    if (shareOptionsVisible) {
+      closeShareOptions();
+      return;
+    }
+
+    shareCardButtonRef.current?.measureInWindow((x, y, width, height) => {
+      const menuWidth = Math.min(256, windowWidth - insets.left - insets.right - 24);
+      const menuHeight = 112;
+      const leftLimit = insets.left + 12;
+      const rightLimit = windowWidth - insets.right - 12;
+      const left = Math.max(leftLimit, Math.min(x + width - menuWidth, rightLimit - menuWidth));
+      const topLimit = insets.top + 8;
+      const bottomLimit = windowHeight - insets.bottom - 8;
+      const below = y + height + 4;
+      const top = below + menuHeight <= bottomLimit
+        ? below
+        : Math.max(topLimit, y - menuHeight - 4);
+      const anchorCenterX = x + width / 2;
+      const anchorCenterY = y + height / 2;
+      const originXPercent = ((anchorCenterX - left) / menuWidth) * 100;
+      const originYPercent = ((anchorCenterY - top) / menuHeight) * 100;
+      const originScaleX = Math.min(1, width / menuWidth);
+      const originScaleY = Math.min(1, height / menuHeight);
+
+      shareOptionsAnimationRef.current?.stop();
+      shareOptionsClosingRef.current = false;
+      shareOptionsScaleX.setValue(reduceMotion ? 1 : originScaleX);
+      shareOptionsScaleY.setValue(reduceMotion ? 1 : originScaleY);
+      shareOptionsOpacity.setValue(reduceMotion ? 1 : 0);
+      setShareOptionsPosition({ left, top, width: menuWidth, originXPercent, originYPercent, originScaleX, originScaleY });
+      setShareOptionsVisible(true);
+    });
+  }, [insets.bottom, insets.left, insets.right, insets.top, reduceMotion, shareOptionsOpacity, shareOptionsScaleX, shareOptionsScaleY, shareOptionsVisible, closeShareOptions, windowHeight, windowWidth]);
+
+  const animateShareOptionsIn = useCallback(() => {
+    shareOptionsAnimationRef.current?.stop();
+    shareOptionsClosingRef.current = false;
+    if (reduceMotion) {
+      shareOptionsScaleX.setValue(1);
+      shareOptionsScaleY.setValue(1);
+      shareOptionsOpacity.setValue(1);
+      return;
+    }
+    const animation = Animated.parallel([
+      Animated.timing(shareOptionsScaleX, {
+        toValue: 1,
+        duration: 200,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(shareOptionsScaleY, {
+        toValue: 1,
+        duration: 200,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(shareOptionsOpacity, {
+        toValue: 1,
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
+    shareOptionsAnimationRef.current = animation;
+    animation.start();
+  }, [reduceMotion, shareOptionsOpacity, shareOptionsScaleX, shareOptionsScaleY]);
 
   const openPostWorkout = () => {
     setPostWorkoutError(null);
@@ -334,7 +492,14 @@ export default function ActivityDetailScreen() {
         <TouchableOpacity accessibilityLabel="Back to workout history" onPress={handleBack} style={styles.backButton}>
           <Feather name="arrow-left" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Activity Details</Text>
+        <Text
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+          style={[styles.headerTitle, { color: colors.text }]}
+        >
+          Activity Details
+        </Text>
         {activity ? (
           <View style={styles.headerButtonsContainer}>
             <TouchableOpacity
@@ -367,25 +532,16 @@ export default function ActivityDetailScreen() {
             <TouchableOpacity
               ref={shareCardButtonRef}
               accessibilityRole="button"
-              accessibilityLabel="Share workout card"
-              onPress={() => launchFromView(shareCardButtonRef.current, (origin) => {
-                setShareCardLaunchOrigin(origin);
-                setShareCardVisible(true);
-              })}
-              style={styles.exportButton}
-            >
-              <Feather name="share-2" size={20} color={colors.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Export workout as GPX"
+              accessibilityLabel="Share"
+              accessibilityHint="Open workout image and GPX sharing options."
+              accessibilityState={{ expanded: shareOptionsVisible }}
               disabled={exportingGpx}
-              onPress={() => void exportActivityGpx()}
+              onPress={openShareOptions}
               style={styles.exportButton}
             >
               {exportingGpx
                 ? <RunningLoader size={18} fillColor={colors.primary} />
-                : <Feather name="share" size={20} color={colors.primary} />}
+                : <Feather name="share-2" size={20} color={colors.primary} />}
             </TouchableOpacity>
             <TouchableOpacity
               accessibilityLabel="Delete workout"
@@ -529,6 +685,64 @@ export default function ActivityDetailScreen() {
           </ScrollView>
         </View>
       ) : null}
+      <Modal
+        visible={shareOptionsVisible}
+        transparent
+        animationType="none"
+        statusBarTranslucent
+        onShow={animateShareOptionsIn}
+        onRequestClose={() => closeShareOptions()}
+      >
+        <Animated.View style={[styles.shareOptionsBackdrop, { opacity: shareOptionsOpacity }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close share options"
+            onPress={() => closeShareOptions()}
+            style={[StyleSheet.absoluteFill, { backgroundColor: colors.overlay }]}
+          />
+          <Animated.View
+            style={[
+              styles.shareOptionsMenu,
+              {
+                left: shareOptionsPosition.left,
+                top: shareOptionsPosition.top,
+                width: shareOptionsPosition.width,
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+                transformOrigin: [
+                  `${shareOptionsPosition.originXPercent}%`,
+                  `${shareOptionsPosition.originYPercent}%`,
+                  0,
+                ],
+                transform: [{ scaleX: shareOptionsScaleX }, { scaleY: shareOptionsScaleY }],
+              },
+            ]}
+          >
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Share workout image"
+              onPress={shareWorkoutImage}
+              style={styles.shareOptionsMenuItem}
+            >
+              <Feather name="image" size={17} color={colors.textSecondary} />
+              <Text style={[styles.shareOptionsMenuText, { color: colors.text }]}>Share Image</Text>
+            </TouchableOpacity>
+            <View style={[styles.shareOptionsDivider, { backgroundColor: colors.border }]} />
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Share workout GPX file"
+              disabled={exportingGpx}
+              onPress={shareWorkoutGpx}
+              style={styles.shareOptionsMenuItem}
+            >
+              {exportingGpx
+                ? <RunningLoader size={16} fillColor={colors.text} />
+                : <Feather name="upload" size={17} color={colors.textSecondary} />}
+              <Text style={[styles.shareOptionsMenuText, { color: colors.text }]}>Share GPX</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Animated.View>
+      </Modal>
       <OriginZoomModal
         visible={postWorkoutVisible}
         transparent
@@ -645,15 +859,20 @@ const styles = StyleSheet.create({
     paddingTop: 0,
   },
   header: { height: 68, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  backButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
-  headerButtonsContainer: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  cropButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
-  splitButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
-  exportButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
+  backButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
+  headerButtonsContainer: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  cropButton: { width: 32, height: 42, justifyContent: 'center', alignItems: 'center' },
+  splitButton: { width: 32, height: 42, justifyContent: 'center', alignItems: 'center' },
+  exportButton: { width: 32, height: 42, justifyContent: 'center', alignItems: 'center' },
   flyoverButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
-  deleteButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: '700' },
+  deleteButton: { width: 32, height: 42, justifyContent: 'center', alignItems: 'center' },
+  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', textAlign: 'center' },
   headerSpacer: { width: 36 },
+  shareOptionsBackdrop: { flex: 1 },
+  shareOptionsMenu: { position: 'absolute', borderWidth: 1, borderRadius: 14, padding: 6, elevation: 18, shadowColor: '#000000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.2, shadowRadius: 14 },
+  shareOptionsMenuItem: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 10, borderRadius: 9 },
+  shareOptionsMenuText: { fontSize: 14, fontWeight: '600' },
+  shareOptionsDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 8, marginVertical: 4 },
   activityBody: { flex: 1, minHeight: 0 },
   routePanel: { flexShrink: 0, paddingTop: 12 },
   routeHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
