@@ -30,7 +30,9 @@ import { getBackendErrorMessage } from '../service/api';
 import {
   connectionsAPI,
   extractApiResults,
+  getOnlyMeDefaultAudience,
   socialAPI,
+  setOnlyMeDefaultAudience,
   type ConnectionUser,
   type PrivacyZone,
   type RoutePrivacySettings,
@@ -160,10 +162,18 @@ export default function SettingsMenu({
       socialAPI.getSharingSettings(),
       socialAPI.getRoutePrivacy(),
     ])
-      .then(([privacyResponse, sharingResponse, routeResponse]) => {
+      .then(async ([privacyResponse, sharingResponse, routeResponse]) => {
         if (!active) return;
         setPrivateAccount(privacyResponse.data.data.is_private);
-        setSharingSettings(sharingResponse.data.data);
+        const onlyMeDefault = await getOnlyMeDefaultAudience();
+        if (!active) return;
+        const settings = sharingResponse.data.data;
+        setSharingSettings({
+          ...settings,
+          default_audience: settings.default_audience === 'NONE' && onlyMeDefault
+            ? 'ONLY_ME'
+            : settings.default_audience,
+        });
         setRoutePrivacy(routeResponse.data.data);
       })
       .catch((error) => {
@@ -199,8 +209,20 @@ export default function SettingsMenu({
     setSharingDialogError(null);
     setSavingAudience(audience);
     try {
-      const response = await socialAPI.setDefaultAudience(audience);
-      setSharingSettings(response.data.data);
+      const onlyMeDefault = audience === 'ONLY_ME';
+      const previousOnlyMeDefault = await getOnlyMeDefaultAudience();
+      await setOnlyMeDefaultAudience(onlyMeDefault);
+      try {
+        const backendAudience = audience === 'ONLY_ME' ? 'NONE' : audience;
+        const response = await socialAPI.setDefaultAudience(backendAudience);
+        setSharingSettings({
+          ...response.data.data,
+          default_audience: onlyMeDefault ? 'ONLY_ME' : response.data.data.default_audience,
+        });
+      } catch (error) {
+        await setOnlyMeDefaultAudience(previousOnlyMeDefault);
+        throw error;
+      }
       setSharingDialogVisible(false);
     } catch (error) {
       setSharingDialogError(getBackendErrorMessage(error));
@@ -211,18 +233,23 @@ export default function SettingsMenu({
   }, []);
 
   const handleRoutePrivacyChange = useCallback(async (changes: Partial<Pick<RoutePrivacySettings, 'hide_map' | 'hide_radius_m'>>) => {
+    const previousRoutePrivacy = routePrivacy;
+    if (previousRoutePrivacy) {
+      setRoutePrivacy({ ...previousRoutePrivacy, ...changes });
+    }
     setPrivacySaving(true);
     try {
       const response = await socialAPI.setRoutePrivacy(changes);
       setRoutePrivacy(response.data.data);
       return true;
     } catch (error) {
+      if (previousRoutePrivacy) setRoutePrivacy(previousRoutePrivacy);
       Alert.alert('Unable to update route privacy', getBackendErrorMessage(error));
       return false;
     } finally {
       setPrivacySaving(false);
     }
-  }, []);
+  }, [routePrivacy]);
 
   const handleRadiusChange = useCallback(() => {
     const currentRadius = routePrivacy?.hide_radius_m ?? routePrivacy?.effective_hide_radius_m ?? DEFAULT_ZONE_RADIUS_M;
@@ -581,7 +608,10 @@ export default function SettingsMenu({
   }, []);
 
   const audienceLabel = (audience: SharingSettings['default_audience'] | undefined) => (
-    audience === 'ALL' ? 'Everyone' : audience === 'NONE' ? "Don't share" : 'Followers'
+    audience === 'ALL' ? 'Everyone'
+      : audience === 'ONLY_ME' ? 'Only me'
+        : audience === 'NONE' ? "Don't share"
+          : 'Followers'
   );
   const openPrivacySettings = () => {
     setPrivacyLoading(true);
@@ -1059,7 +1089,7 @@ export default function SettingsMenu({
                     })}
                   </View>
                   <Text style={[styles.androidSettingsNote, { color: colors.textTertiary }]}>
-                    Other people never see hidden parts of your routes. You always see your full route. These settings apply to old and new workouts.
+                    You always see your full route. Followers see routes with the selected start and finish areas removed; very short routes may have no map left to show. Set Hide start & finish to Off to show the full route. These settings apply to old and new workouts.
                   </Text>
 
                   <Text style={[styles.androidSectionTitle, styles.androidSectionSpaced, { color: colors.textTertiary }]}>CONNECTIONS</Text>
@@ -1282,20 +1312,20 @@ export default function SettingsMenu({
               </View>
               <Text style={[styles.radiusDialogCopy, { color: colors.textSecondary }]}>This applies to new workouts. You can adjust sharing for a workout later.</Text>
               {([
-                { value: null, label: 'Only me', description: 'Private feed posts are not supported by this backend yet.', icon: 'lock' },
                 { value: 'FOLLOWERS', label: 'Followers', description: 'Show posts to your followers.', icon: 'users' },
                 { value: 'ALL', label: 'Everyone', description: 'Show posts to everyone in Connections.', icon: 'globe' },
+                  { value: 'ONLY_ME', label: 'Only me', description: 'Keep the post on your Posts page, out of the Connections feed.', icon: 'lock' },
                 { value: 'NONE', label: "Don't share", description: 'Save workouts without creating a feed post.', icon: 'eye-off' },
               ] as const).map((option) => {
                 const selected = sharingSettings?.default_audience === option.value;
                 return (
                   <TouchableOpacity
                     key={option.value}
-                    accessibilityRole={option.value ? 'radio' : undefined}
-                    accessibilityState={option.value ? { checked: selected, disabled: privacySaving } : { disabled: true }}
-                    disabled={privacySaving || option.value === null}
-                    onPress={() => { if (option.value) void handleAudienceSelect(option.value); }}
-                    style={[styles.sharingOption, { borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? (isDark ? 'rgba(16,185,129,0.12)' : '#E8F7EE') : 'transparent', opacity: option.value ? 1 : 0.62 }]}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selected, disabled: privacySaving }}
+                    disabled={privacySaving}
+                    onPress={() => void handleAudienceSelect(option.value)}
+                    style={[styles.sharingOption, { borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? (isDark ? 'rgba(16,185,129,0.12)' : '#E8F7EE') : 'transparent' }]}
                   >
                     <View style={[styles.sharingOptionIcon, { backgroundColor: isDark ? colors.surfaceRaised : '#E8F7EE' }]}>
                       <Feather name={option.icon} size={16} color={colors.primary} />
@@ -1304,7 +1334,7 @@ export default function SettingsMenu({
                       <Text style={[styles.sharingOptionTitle, { color: colors.text }]}>{option.label}</Text>
                       <Text style={[styles.sharingOptionDescription, { color: colors.textSecondary }]}>{option.description}</Text>
                     </View>
-                    {option.value && savingAudience === option.value ? <ActivityIndicator size="small" color={colors.primary} /> : <Feather name={selected ? 'check-circle' : option.value ? 'circle' : 'minus-circle'} size={18} color={selected ? colors.primary : colors.textTertiary} />}
+                    {savingAudience === option.value ? <ActivityIndicator size="small" color={colors.primary} /> : <Feather name={selected ? 'check-circle' : 'circle'} size={18} color={selected ? colors.primary : colors.textTertiary} />}
                   </TouchableOpacity>
                 );
               })}

@@ -1,4 +1,29 @@
 import api from "../../service/api";
+import { storage } from "../../service/storage";
+
+const ONLY_ME_DEFAULT_AUDIENCE_KEY = "social_default_audience_only_me";
+
+const getOnlyMePreferenceKey = async () => {
+  try {
+    const rawUser = await storage.getItem(storage.KEYS.USER);
+    const user = rawUser ? JSON.parse(rawUser) as { id?: string | number } : null;
+    return `${ONLY_ME_DEFAULT_AUDIENCE_KEY}_${user?.id ?? "anonymous"}`;
+  } catch {
+    return `${ONLY_ME_DEFAULT_AUDIENCE_KEY}_anonymous`;
+  }
+};
+
+export const getOnlyMeDefaultAudience = async () => {
+  try {
+    return (await storage.getItem(await getOnlyMePreferenceKey())) === "true";
+  } catch {
+    return false;
+  }
+};
+
+export const setOnlyMeDefaultAudience = async (enabled: boolean) => (
+  storage.setItem(await getOnlyMePreferenceKey(), enabled ? "true" : "false")
+);
 
 export interface ApiEnvelope<T> {
   success: boolean;
@@ -61,7 +86,7 @@ export interface PrivacySettings {
 }
 
 export interface SharingSettings {
-  default_audience: "ALL" | "FOLLOWERS" | "NONE";
+  default_audience: "ALL" | "FOLLOWERS" | "ONLY_ME" | "NONE";
   is_private: boolean;
 }
 
@@ -96,6 +121,8 @@ export interface SocialComment {
 
 export type ContentReportTargetType = "POST" | "COMMENT" | "USER";
 export type ContentReportReason = "SPAM" | "HARASSMENT" | "HATE" | "INAPPROPRIATE" | "DANGEROUS" | "IMPERSONATION" | "OTHER";
+export type SocialPostVisibility = "PUBLIC" | "FOLLOWERS" | "ONLY_ME";
+export type ActivityShareAudience = "ALL" | "FOLLOWERS" | "NONE";
 
 export const extractApiResults = <T,>(payload: unknown): T[] => {
   const isRecord = (value: unknown): value is Record<string, unknown> => (
@@ -154,6 +181,22 @@ export const socialAPI = {
       params: { limit: 20, ...(cursor ? { cursor } : {}) },
     }),
   getMyPosts: () => api.get<ApiEnvelope<Page<SocialPost>>>("/social/me/posts/"),
+  deletePost: (postId: number) =>
+    api.delete<ApiEnvelope<Record<string, unknown>>>(`/social/posts/${postId}/`),
+  sharePost: (postId: number, channel: "USER" | "LINK" | "EXTERNAL", recipient_id?: number) =>
+    api.post<ApiEnvelope<{ share_count: number; url: string | null; deep_link: string }>>(
+      `/social/posts/${postId}/share/`,
+      { channel, ...(recipient_id ? { recipient_id } : {}) },
+    ),
+  createWorkoutPost: (payload: { activity_id: number; visibility: SocialPostVisibility; caption?: string }) =>
+    api.post<ApiEnvelope<SocialPost>>("/social/posts/", payload),
+  updateWorkoutPost: (postId: number, payload: { visibility: SocialPostVisibility }) =>
+    api.patch<ApiEnvelope<SocialPost>>(`/social/posts/${postId}/`, payload),
+  setWorkoutPostAudience: (activityId: number, audience: ActivityShareAudience) =>
+    api.put<ApiEnvelope<{ audience: ActivityShareAudience; post: SocialPost | null }>>(
+      `/social/activities/${activityId}/share/`,
+      { audience },
+    ),
   reportContent: (payload: {
     target_type: ContentReportTargetType;
     target_id: number;
@@ -173,7 +216,7 @@ export const socialAPI = {
     ),
   getSharingSettings: () =>
     api.get<ApiEnvelope<SharingSettings>>("/social/me/sharing/"),
-  setDefaultAudience: (default_audience: SharingSettings["default_audience"]) =>
+  setDefaultAudience: (default_audience: Exclude<SharingSettings["default_audience"], "ONLY_ME">) =>
     api.patch<ApiEnvelope<SharingSettings>>("/social/me/sharing/", { default_audience }),
   getRoutePrivacy: () =>
     api.get<ApiEnvelope<RoutePrivacySettings>>("/social/me/route-privacy/"),

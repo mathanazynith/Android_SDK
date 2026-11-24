@@ -9,6 +9,7 @@ import {
   normalizeActivityTimestampsToSeconds,
 } from './activityPayloadCompaction';
 import { activityManualLapOverrides } from './activityManualLapOverrides';
+import { getOnlyMeDefaultAudience, socialAPI } from './socialApi';
 
 // `service/api.ts` supplies the /api/v1 base URL and authenticated Bearer
 // token, so this resolves to POST /api/v1/rundata/upload/ by default.
@@ -307,6 +308,18 @@ export class RunningApiClient {
     const normalizedActivityId = typeof activityId === 'string' || typeof activityId === 'number'
       ? activityId
       : null;
+    if (normalizedActivityId !== null && await getOnlyMeDefaultAudience()) {
+      try {
+        await socialAPI.createWorkoutPost({
+          activity_id: Number(normalizedActivityId),
+          visibility: 'ONLY_ME',
+        });
+      } catch (postError) {
+        // The activity upload is already committed; a post failure must not
+        // turn a successful workout save into a failed upload or retry.
+        console.warn('[WorkoutSharing] Private post creation failed', postError);
+      }
+    }
     if (normalizedActivityId !== null && submissionPayload.lap_events?.length) {
       try {
         await activityManualLapOverrides.save(normalizedActivityId, submissionPayload.lap_events);

@@ -990,6 +990,8 @@ export interface BackendActivity {
   is_saved_to_my_routes?: boolean;
   saved_route_id?: number | null;
   saved_route_is_public?: boolean;
+  share_audience?: "ALL" | "FOLLOWERS" | "ONLY_ME" | "NONE" | string;
+  post_id?: number | null;
   segments?: ActivitySegmentSplits[];
   extra?: ActivityExtraSplits | null;
 }
