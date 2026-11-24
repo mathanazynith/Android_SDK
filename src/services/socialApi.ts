@@ -41,6 +41,14 @@ export interface ConnectionUser {
   mutual_count?: number;
 }
 
+export interface ConnectionProfile extends ConnectionUser {
+  is_blocked_by_me: boolean;
+  is_private: boolean;
+  followers_count: number;
+  following_count: number;
+  can_view_details: boolean;
+}
+
 export interface SocialActivity {
   id: number;
   activity_type: string;
@@ -60,7 +68,7 @@ export interface SocialPost {
   author: ConnectionUser;
   activity: SocialActivity;
   caption: string;
-  visibility: "ALL" | "FOLLOWERS" | "NONE" | string;
+  visibility: SocialPostVisibility | "ALL" | "NONE" | string;
   like_count: number;
   comment_count: number;
   share_count: number;
@@ -77,6 +85,7 @@ export interface Page<T> {
   next?: string | null;
   next_cursor?: string | null;
   has_more?: boolean;
+  locked?: boolean;
 }
 
 export interface PrivacySettings {
@@ -141,6 +150,16 @@ export const extractApiResults = <T,>(payload: unknown): T[] => {
 export const connectionsAPI = {
   getPrivacy: () =>
     api.get<ApiEnvelope<PrivacySettings>>("/connections/me/privacy/"),
+  getUserProfile: (userId: number) =>
+    api.get<ApiEnvelope<ConnectionProfile>>(`/connections/users/${userId}/`),
+  getUserFollowers: (userId: number, cursor?: string | null) =>
+    api.get<ApiEnvelope<Page<ConnectionUser>>>(`/connections/users/${userId}/followers/`, {
+      params: { limit: 20, ...(cursor ? { cursor } : {}) },
+    }),
+  getUserFollowing: (userId: number, cursor?: string | null) =>
+    api.get<ApiEnvelope<Page<ConnectionUser>>>(`/connections/users/${userId}/following/`, {
+      params: { limit: 20, ...(cursor ? { cursor } : {}) },
+    }),
   setPrivacy: (is_private: boolean) =>
     api.patch<ApiEnvelope<PrivacySettings>>("/connections/me/privacy/", { is_private }),
   getFollowRequests: () =>
@@ -181,6 +200,10 @@ export const socialAPI = {
       params: { limit: 20, ...(cursor ? { cursor } : {}) },
     }),
   getMyPosts: () => api.get<ApiEnvelope<Page<SocialPost>>>("/social/me/posts/"),
+  getUserPosts: (userId: number, cursor?: string | null) =>
+    api.get<ApiEnvelope<Page<SocialPost>>>(`/social/users/${userId}/posts/`, {
+      params: { limit: 20, ...(cursor ? { cursor } : {}) },
+    }),
   deletePost: (postId: number) =>
     api.delete<ApiEnvelope<Record<string, unknown>>>(`/social/posts/${postId}/`),
   sharePost: (postId: number, channel: "USER" | "LINK" | "EXTERNAL", recipient_id?: number) =>
@@ -190,7 +213,12 @@ export const socialAPI = {
     ),
   createWorkoutPost: (payload: { activity_id: number; visibility: SocialPostVisibility; caption?: string }) =>
     api.post<ApiEnvelope<SocialPost>>("/social/posts/", payload),
-  updateWorkoutPost: (postId: number, payload: { visibility: SocialPostVisibility }) =>
+  updateWorkoutPost: (postId: number, payload: {
+    caption?: string;
+    visibility?: SocialPostVisibility;
+    comments_enabled?: boolean;
+    hide_map?: boolean;
+  }) =>
     api.patch<ApiEnvelope<SocialPost>>(`/social/posts/${postId}/`, payload),
   setWorkoutPostAudience: (activityId: number, audience: ActivityShareAudience) =>
     api.put<ApiEnvelope<{ audience: ActivityShareAudience; post: SocialPost | null }>>(

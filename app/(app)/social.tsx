@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, FontAwesome } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -116,6 +116,7 @@ function ConnectionCard({
   onDetails,
   onShare,
   onMore,
+  onAuthorPress,
 }: {
   post: SocialPost;
   colors: ReturnType<typeof useTheme>["colors"];
@@ -125,17 +126,20 @@ function ConnectionCard({
   onDetails: () => void;
   onShare: () => void;
   onMore: (anchor: { x: number; y: number; width: number; height: number }) => void;
+  onAuthorPress: () => void;
 }) {
   const name = post.author.full_name || post.author.username;
   const distance = Number(post.activity?.distance_km);
   return (
     <View style={[styles.postCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <View style={styles.postHeader}>
-        <Avatar name={name} imageUrl={post.author.avatar_url || undefined} size={34} />
-        <View style={styles.authorInfo}>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${name}'s profile`} onPress={onAuthorPress}>
+          <Avatar name={name} imageUrl={post.author.avatar_url || undefined} size={34} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.authorInfo} accessibilityRole="button" accessibilityLabel={`Open ${name}'s profile`} onPress={onAuthorPress}>
           <Text style={[styles.authorName, { color: colors.text }]} numberOfLines={1}>{name}</Text>
           <Text style={[styles.username, { color: colors.textSecondary }]} numberOfLines={1}>@{post.author.username}</Text>
-        </View>
+        </TouchableOpacity>
         <Text style={[styles.postTime, { color: colors.textTertiary }]}>{formatRelativeTime(post.created_at)}</Text>
         {!post.is_mine && post.visibility === "ALL" && post.share_url ? (
           <TouchableOpacity
@@ -184,6 +188,7 @@ function ConnectionCard({
             variant="preview"
             compactPreview
             googleMapPreview
+            routeOnly
           />
         </View>
       ) : null}
@@ -199,7 +204,7 @@ function ConnectionCard({
           onPress={onLike}
           style={styles.actionButton}
         >
-          <Feather name="heart" size={15} color={post.liked_by_me ? "#E5484D" : colors.text} />
+          <FontAwesome name={post.liked_by_me ? "heart" : "heart-o"} size={15} color={post.liked_by_me ? "#E5484D" : colors.text} />
           <Text style={[styles.actionCount, { color: colors.text }]}>{post.like_count}</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -252,6 +257,13 @@ export default function SocialScreen() {
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [sendingComment, setSendingComment] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const [editingPost, setEditingPost] = useState<SocialPost | null>(null);
+  const [editCaption, setEditCaption] = useState("");
+  const [editVisibility, setEditVisibility] = useState<SocialPostVisibility>("PUBLIC");
+  const [editCommentsEnabled, setEditCommentsEnabled] = useState(true);
+  const [editHideMap, setEditHideMap] = useState(false);
+  const [editPostBusy, setEditPostBusy] = useState(false);
+  const [editPostError, setEditPostError] = useState<string | null>(null);
   const [moderationTarget, setModerationTarget] = useState<{
     user: ConnectionUser;
     kind: "runner" | "workout" | "comment";
@@ -335,6 +347,45 @@ export default function SocialScreen() {
       ],
     );
   }, []);
+
+  const openEditPost = useCallback((post: SocialPost) => {
+    setModerationTarget(null);
+    setEditCaption(post.caption || "");
+    setEditVisibility(post.visibility === "FOLLOWERS" ? "FOLLOWERS"
+      : post.visibility === "ONLY_ME" || post.visibility === "NONE" ? "ONLY_ME" : "PUBLIC");
+    setEditCommentsEnabled(post.comments_enabled !== false);
+    setEditHideMap(post.hide_map === true);
+    setEditPostError(null);
+    setEditingPost(post);
+  }, []);
+
+  const savePostEdits = useCallback(async () => {
+    if (!editingPost || editPostBusy) return;
+    setEditPostBusy(true);
+    setEditPostError(null);
+    try {
+      const response = await socialAPI.updateWorkoutPost(editingPost.id, {
+        caption: editCaption,
+        visibility: editVisibility,
+        comments_enabled: editCommentsEnabled,
+        hide_map: editHideMap,
+      });
+      const updatedPost = { ...response.data.data, is_mine: true };
+      const updatePost = (items: SocialPost[]) => items.map((item) => item.id === updatedPost.id ? updatedPost : item);
+      if (editVisibility === "ONLY_ME") {
+        setPosts((current) => current.filter((item) => item.id !== updatedPost.id));
+      } else {
+        setPosts(updatePost);
+      }
+      setMyPosts(updatePost);
+      setDetailsPost((current) => current?.id === updatedPost.id ? updatedPost : current);
+      setEditingPost(null);
+    } catch (error) {
+      setEditPostError(getBackendErrorMessage(error, "Could not update this post."));
+    } finally {
+      setEditPostBusy(false);
+    }
+  }, [editCaption, editCommentsEnabled, editHideMap, editPostBusy, editVisibility, editingPost]);
 
   const sharePost = useCallback(async (post: SocialPost) => {
     if (post.is_mine) {
@@ -639,6 +690,7 @@ export default function SocialScreen() {
       onDetails={() => setDetailsPost(item)}
       onShare={() => void sharePost(item)}
       onMore={(anchor) => openPostActions(item, anchor)}
+      onAuthorPress={() => router.push({ pathname: "/(app)/runner/[id]", params: { id: String(item.author.id) } })}
     />
   ), [colors, handleLike, likingPostIds, openComments, openPostActions, sharePost]);
 
@@ -954,6 +1006,90 @@ export default function SocialScreen() {
       </Modal>
 
       <Modal
+        visible={editingPost !== null}
+        animationType="slide"
+        onRequestClose={() => setEditingPost(null)}
+      >
+        <SafeAreaView edges={["top", "left", "right", "bottom"]} style={[styles.modalScreen, { backgroundColor: colors.background }]}>
+          <KeyboardAvoidingView
+            style={styles.keyboardAvoiding}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={0}
+          >
+          <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Cancel editing" onPress={() => setEditingPost(null)} style={styles.modalBack}>
+              <Feather name="x" size={22} color={colors.text} />
+            </TouchableOpacity>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Edit post</Text>
+            <View style={styles.modalBack} />
+          </View>
+          <ScrollView
+            style={styles.editPostScroll}
+            contentContainerStyle={styles.editPostContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+          >
+            <Text style={[styles.editPostLabel, { color: colors.text }]}>Caption</Text>
+            <TextInput
+              value={editCaption}
+              onChangeText={setEditCaption}
+              placeholder="Add a caption..."
+              placeholderTextColor={colors.textTertiary}
+              maxLength={2200}
+              multiline
+              style={[styles.editPostCaptionInput, { color: colors.text, backgroundColor: colors.surface, borderColor: colors.border }]}
+            />
+            <Text style={[styles.editPostLabel, { color: colors.text, marginTop: 20 }]}>Who can see this workout?</Text>
+            {([
+              ["PUBLIC", "Everyone"],
+              ["FOLLOWERS", "Followers"],
+              ["ONLY_ME", "Only me"],
+            ] as const).map(([visibility, label]) => {
+              const selected = editVisibility === visibility;
+              return (
+                <TouchableOpacity
+                  key={visibility}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  onPress={() => setEditVisibility(visibility)}
+                  style={[styles.editPostOption, { borderColor: selected ? colors.primary : colors.border, backgroundColor: colors.surface }]}
+                >
+                  <Text style={[styles.editPostOptionText, { color: colors.text }]}>{label}</Text>
+                  <Feather name={selected ? "check-circle" : "circle"} size={19} color={selected ? colors.primary : colors.textTertiary} />
+                </TouchableOpacity>
+              );
+            })}
+            <Text style={[styles.editPostLabel, { color: colors.text, marginTop: 20 }]}>Post options</Text>
+            <TouchableOpacity onPress={() => setEditCommentsEnabled((value) => !value)} style={[styles.editPostToggle, { borderColor: colors.border }]}>
+              <View style={styles.editPostToggleCopy}>
+                <Text style={[styles.editPostOptionText, { color: colors.text }]}>Allow comments</Text>
+                <Text style={[styles.editPostHint, { color: colors.textSecondary }]}>Let people comment on this workout.</Text>
+              </View>
+              <Feather name={editCommentsEnabled ? "toggle-right" : "toggle-left"} size={25} color={editCommentsEnabled ? colors.primary : colors.textTertiary} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setEditHideMap((value) => !value)} style={[styles.editPostToggle, { borderColor: colors.border }]}>
+              <View style={styles.editPostToggleCopy}>
+                <Text style={[styles.editPostOptionText, { color: colors.text }]}>Hide route map</Text>
+                <Text style={[styles.editPostHint, { color: colors.textSecondary }]}>Hide the map on this post.</Text>
+              </View>
+              <Feather name={editHideMap ? "toggle-right" : "toggle-left"} size={25} color={editHideMap ? colors.primary : colors.textTertiary} />
+            </TouchableOpacity>
+            {editPostError ? <Text style={[styles.editPostError, { color: "#E5484D" }]}>{editPostError}</Text> : null}
+            <TouchableOpacity
+              accessibilityRole="button"
+              disabled={editPostBusy}
+              onPress={() => void savePostEdits()}
+              style={[styles.editPostSave, { backgroundColor: colors.primary, opacity: editPostBusy ? 0.6 : 1 }]}
+            >
+              {editPostBusy ? <ActivityIndicator size="small" color={colors.primaryText} /> : <Text style={[styles.editPostSaveText, { color: colors.primaryText }]}>Save changes</Text>}
+            </TouchableOpacity>
+          </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Modal>
+
+      <Modal
         visible={moderationTarget !== null}
         transparent
         animationType="fade"
@@ -993,6 +1129,16 @@ export default function SocialScreen() {
               {moderationTarget.step === "actions" ? (
                 moderationTarget.isOwnPost ? (
                   <>
+                    {moderationTarget.post ? (
+                      <TouchableOpacity
+                        style={[styles.moderationAction, { borderColor: colors.border }]}
+                        onPress={() => openEditPost(moderationTarget.post!)}
+                      >
+                        <Feather name="edit-2" size={16} color={colors.primary} />
+                        <Text style={[styles.moderationActionText, { color: colors.text }]}>Edit post</Text>
+                        <Feather name="chevron-right" size={16} color={colors.textTertiary} />
+                      </TouchableOpacity>
+                    ) : null}
                     <TouchableOpacity
                       style={[styles.moderationAction, { borderColor: colors.border }]}
                       onPress={() => {
@@ -1120,6 +1266,18 @@ const styles = StyleSheet.create({
   modalHeader: { height: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12 },
   modalBack: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   modalTitle: { fontSize: 17, fontWeight: "700" },
+  editPostScroll: { flex: 1 },
+  editPostContent: { padding: 16, paddingBottom: 30 },
+  editPostLabel: { fontSize: 14, fontWeight: "700", marginBottom: 9 },
+  editPostCaptionInput: { minHeight: 104, borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, padding: 12, fontSize: 14, textAlignVertical: "top" },
+  editPostOption: { minHeight: 48, borderWidth: StyleSheet.hairlineWidth, borderRadius: 11, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 7 },
+  editPostOptionText: { fontSize: 13, fontWeight: "600" },
+  editPostToggle: { minHeight: 58, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  editPostToggleCopy: { flex: 1 },
+  editPostHint: { fontSize: 11, marginTop: 3 },
+  editPostError: { fontSize: 12, lineHeight: 17, marginTop: 12 },
+  editPostSave: { minHeight: 46, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 22 },
+  editPostSaveText: { fontSize: 14, fontWeight: "700" },
   searchBox: { minHeight: 44, marginHorizontal: 16, marginTop: 14, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
   searchInput: { flex: 1, minHeight: 42, fontSize: 14 },
   searchSectionTitle: { fontSize: 10, fontWeight: "700", letterSpacing: 0.8, marginHorizontal: 18, marginTop: 20, marginBottom: 4 },
