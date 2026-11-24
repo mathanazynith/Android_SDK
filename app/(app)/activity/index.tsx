@@ -33,6 +33,11 @@ import ThemedCalendarPicker from '../../../components/common/ThemedCalendarPicke
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
+import {
+  getActivityLaunchParams,
+  launchFromView,
+  type DashboardLaunchOrigin,
+} from '../../../components/navigation/dashboardLaunchTransition';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage, resolveApiUrl } from '../../../service/api';
 import { useAuth } from '../../../service/auth';
@@ -74,8 +79,15 @@ const getNormalizedActivityType = (activityType: string): 'Run' | 'Walk' =>
 type ActivityGroupMode = 'month' | 'week';
 type FilterPopover = 'type' | 'date' | 'distance';
 type ActivityMenuAnchor = { x: number; y: number; width: number; height: number };
-type ActivityMenuPosition = { left: number; top: number; width: number };
-type FilterPopoverPosition = { left: number; top: number; width: number; maxHeight: number; placement: 'above' | 'below' | 'center'; caretLeft: number; originXPercent: number; originYPercent: number };
+type ActivityMenuPosition = {
+  left: number;
+  top: number;
+  width: number;
+  originXPercent: number;
+  originYPercent: number;
+};
+type FilterPopoverPlacement = 'above' | 'below' | 'center';
+type FilterPopoverPosition = { left: number; top: number; width: number; maxHeight: number; originXPercent: number; originYPercent: number };
 
 type ActivityListRow =
   | { type: 'section'; key: string; title: string; activities: BackendActivity[] }
@@ -251,7 +263,7 @@ interface ActivityCardProps {
   accountId: string | null;
   blurTarget: RefObject<View | null> | null;
   distanceUnit?: string | null;
-  onPress: (activity: BackendActivity) => void;
+  onPress: (activity: BackendActivity, origin?: DashboardLaunchOrigin) => void;
   onRouteMenu: (activity: BackendActivity, anchor: ActivityMenuAnchor) => void;
   onStartSelection: (activityId: BackendActivity['id']) => void;
   reduceMotion: boolean;
@@ -336,6 +348,7 @@ const ActivityCard = memo(function ActivityCard({
   const [failedThumbnailUri, setFailedThumbnailUri] = useState<string | null>(null);
   const thumbnailFailed = thumbnailUri !== null && failedThumbnailUri === thumbnailUri;
   const needsRouteFallback = thumbnailUri ? thumbnailFailed : isVisible;
+  const cardContentRef = useRef<View>(null);
   const longPressHandledRef = useRef(false);
   const longPressRecognizedRef = useRef(false);
   const longPressProgressFinishedRef = useRef(false);
@@ -433,7 +446,11 @@ const ActivityCard = memo(function ActivityCard({
       longPressHandledRef.current = false;
       return;
     }
-    onPress(activity);
+    if (selectionMode) {
+      onPress(activity);
+      return;
+    }
+    launchFromView(cardContentRef.current, (origin) => onPress(activity, origin));
   };
 
   const handleStartSelection = useCallback(() => {
@@ -490,7 +507,7 @@ const ActivityCard = memo(function ActivityCard({
     });
   }, [longPressProgress]);
 
-  /* eslint-disable react-hooks/immutability, react-hooks/refs */
+  /* eslint-disable react-hooks/refs */
   const selectionGesture = useMemo(
     () => Gesture.LongPress()
       .enabled(!busy && !selectionMode)
@@ -507,7 +524,7 @@ const ActivityCard = memo(function ActivityCard({
       }),
     [beginLongPressProgress, busy, finishLongPressProgress, handleLongPressRecognition, selectionMode],
   );
-  /* eslint-enable react-hooks/immutability, react-hooks/refs */
+  /* eslint-enable react-hooks/refs */
 
   return (
     <GestureDetector gesture={selectionGesture}>
@@ -542,6 +559,7 @@ const ActivityCard = memo(function ActivityCard({
         ]}
       />
       <TouchableOpacity
+        ref={cardContentRef}
         style={[styles.cardContent, styles.cardContentWithMenu]}
         accessibilityRole="button"
         accessibilityLabel={`${activityName} activity, ${formatDistanceFromMeters(activity.distance, distanceUnit)}, ${formatDuration(duration)}, ${formatPaceFromSecondsPerKm(activity.avg_pace, distanceUnit)}, elevation gain ${formatElevationFromMeters(activity.elevation_gain, distanceUnit)}, elevation loss ${formatElevationFromMeters(activity.elevation_loss, distanceUnit)}`}
@@ -799,10 +817,21 @@ export default function ActivityScreen() {
   const [selectionToolbarOpacity] = useState(() => new Animated.Value(0));
   const [selectionToolbarTranslateY] = useState(() => new Animated.Value(8));
   const [activeFilterPopover, setActiveFilterPopover] = useState<FilterPopover | null>(null);
-  const [filterPopoverPosition, setFilterPopoverPosition] = useState<FilterPopoverPosition>({ left: 12, top: 72, width: 280, maxHeight: 420, placement: 'below', caretLeft: 24, originXPercent: 50, originYPercent: 50 });
-  const [activityOptionsPosition, setActivityOptionsPosition] = useState<ActivityMenuPosition>({ left: 12, top: 72, width: 240 });
-  const filterPopoverScale = useRef(new Animated.Value(0.78)).current;
-  const filterPopoverOffset = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const [filterPopoverPosition, setFilterPopoverPosition] = useState<FilterPopoverPosition>({ left: 12, top: 72, width: 280, maxHeight: 420, originXPercent: 50, originYPercent: 50 });
+  const [activityOptionsPosition, setActivityOptionsPosition] = useState<ActivityMenuPosition>({
+    left: 12,
+    top: 72,
+    width: 240,
+    originXPercent: 50,
+    originYPercent: 50,
+  });
+  const [filterPopoverScale] = useState(() => new Animated.Value(0.02));
+  const filterPopoverAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const filterPopoverClosingRef = useRef(false);
+  const [activityOptionsScale] = useState(() => new Animated.Value(0.82));
+  const [activityOptionsOpacity] = useState(() => new Animated.Value(0));
+  const activityOptionsAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const activityOptionsClosingRef = useRef(false);
   const typeFilterAnchorRef = useRef<View>(null);
   const dateFilterAnchorRef = useRef<View>(null);
   const distanceFilterAnchorRef = useRef<View>(null);
@@ -860,7 +889,7 @@ export default function ActivityScreen() {
       const availableAbove = Math.max(0, y - topLimit - 8);
       const availableBelow = Math.max(0, bottomLimit - (y + anchorHeight) - 8);
       const available = Math.max(availableAbove, availableBelow);
-      let placement: FilterPopoverPosition['placement'] = availableBelow >= availableAbove ? 'below' : 'above';
+      let placement: FilterPopoverPlacement = availableBelow >= availableAbove ? 'below' : 'above';
       const maxHeight = Math.max(180, Math.min(contentHeight, available || windowHeight - insets.top - insets.bottom - 32));
       let top = placement === 'below' ? y + anchorHeight + 8 : y - maxHeight - 8;
 
@@ -873,58 +902,59 @@ export default function ActivityScreen() {
 
       const anchorCenterX = x + anchorWidth / 2;
       const anchorCenterY = y + anchorHeight / 2;
-      const modalCenterX = left + width / 2;
-      const modalCenterY = top + maxHeight / 2;
-      const startTranslateX = (anchorCenterX - modalCenterX) * 1.08;
-      const startTranslateY = (anchorCenterY - modalCenterY) * 1.08;
       const originXPercent = Math.min(88, Math.max(12, ((anchorCenterX - left) / width) * 100));
       const originYPercent = Math.min(88, Math.max(12, ((anchorCenterY - top) / maxHeight) * 100));
-      const caretLeft = Math.max(12, Math.min(anchorCenterX - left - 8, width - 12));
 
-      filterPopoverScale.setValue(0.94);
-      filterPopoverOffset.setValue({ x: startTranslateX, y: startTranslateY });
+      filterPopoverAnimationRef.current?.stop();
+      filterPopoverClosingRef.current = false;
+      filterPopoverScale.setValue(reduceMotion ? 1 : 0.02);
 
-      Animated.parallel([
-        Animated.timing(filterPopoverScale, {
-          toValue: 1,
-          duration: reduceMotion ? 0 : 160,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(filterPopoverOffset.x, {
-          toValue: 0,
-          duration: reduceMotion ? 0 : 160,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(filterPopoverOffset.y, {
-          toValue: 0,
-          duration: reduceMotion ? 0 : 160,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]).start();
+      const animation = Animated.timing(filterPopoverScale, {
+        toValue: 1,
+        duration: reduceMotion ? 0 : 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      });
 
       setFilterPopoverPosition({
         left,
         top,
         width,
         maxHeight,
-        placement,
-        caretLeft,
         originXPercent,
         originYPercent,
       });
       setActiveFilterPopover(filter);
+      filterPopoverAnimationRef.current = animation;
+      animation.start();
     });
-  }, [filterPopoverOffset, filterPopoverScale, insets.bottom, insets.left, insets.right, insets.top, reduceMotion, windowHeight, windowWidth]);
+  }, [filterPopoverScale, insets.bottom, insets.left, insets.right, insets.top, reduceMotion, windowHeight, windowWidth]);
 
-  useEffect(() => {
-    if (!activeFilterPopover) {
-      filterPopoverScale.setValue(0.94);
-      filterPopoverOffset.setValue({ x: 0, y: 0 });
+  const closeFilterPopover = useCallback(() => {
+    if (!activeFilterPopover || filterPopoverClosingRef.current) return;
+    filterPopoverClosingRef.current = true;
+    filterPopoverAnimationRef.current?.stop();
+
+    const finishClose = ({ finished }: { finished: boolean }) => {
+      if (!finished) return;
+      filterPopoverClosingRef.current = false;
+      setActiveFilterPopover(null);
+    };
+
+    if (reduceMotion) {
+      finishClose({ finished: true });
+      return;
     }
-  }, [activeFilterPopover, filterPopoverOffset, filterPopoverScale]);
+
+    const animation = Animated.timing(filterPopoverScale, {
+      toValue: 0.02,
+      duration: 180,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    });
+    filterPopoverAnimationRef.current = animation;
+    animation.start(finishClose);
+  }, [activeFilterPopover, filterPopoverScale, reduceMotion]);
 
   const showSelectionToast = useCallback((message: string) => {
     if (selectionToastTimerRef.current) clearTimeout(selectionToastTimerRef.current);
@@ -937,6 +967,8 @@ export default function ActivityScreen() {
 
   useEffect(() => () => {
     if (selectionToastTimerRef.current) clearTimeout(selectionToastTimerRef.current);
+    filterPopoverAnimationRef.current?.stop();
+    activityOptionsAnimationRef.current?.stop();
   }, []);
 
   const handleViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
@@ -1267,17 +1299,54 @@ export default function ActivityScreen() {
     }
   }, [exportingActivityIds]);
 
-  const closeActivityOptions = useCallback(() => {
-    setActivityOptionsActivity(null);
-    setActivityOptionsMessage(null);
-  }, []);
+  const closeActivityOptions = useCallback((afterClose?: () => void) => {
+    if (!activityOptionsActivity) {
+      afterClose?.();
+      return;
+    }
+    if (activityOptionsClosingRef.current) return;
+
+    activityOptionsClosingRef.current = true;
+    activityOptionsAnimationRef.current?.stop();
+
+    const finishClose = ({ finished }: { finished: boolean }) => {
+      if (!finished) return;
+      activityOptionsClosingRef.current = false;
+      setActivityOptionsActivity(null);
+      setActivityOptionsMessage(null);
+      afterClose?.();
+    };
+
+    if (reduceMotion) {
+      finishClose({ finished: true });
+      return;
+    }
+
+    const animation = Animated.parallel([
+      Animated.timing(activityOptionsScale, {
+        toValue: 0.82,
+        duration: 130,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(activityOptionsOpacity, {
+        toValue: 0,
+        duration: 110,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
+    activityOptionsAnimationRef.current = animation;
+    animation.start(finishClose);
+  }, [activityOptionsActivity, activityOptionsOpacity, activityOptionsScale, reduceMotion]);
 
   const openActivityRouteMenu = useCallback((activity: BackendActivity, anchor: ActivityMenuAnchor) => {
     const routeId = Number(activity.saved_route_id);
     const hasRouteId = Number.isInteger(routeId) && routeId > 0;
     const menuWidth = Math.min(256, windowWidth - insets.left - insets.right - 24);
     const hasRouteAction = !activity.is_saved_to_my_routes || hasRouteId;
-    const menuHeight = hasRouteAction ? 112 : 96;
+    const hasMissingRouteId = activity.is_saved_to_my_routes && !hasRouteId;
+    const menuHeight = (hasRouteAction ? 112 : 96) + (hasMissingRouteId ? 32 : 0);
     const leftLimit = insets.left + 12;
     const rightLimit = windowWidth - insets.right - 12;
     const left = Math.max(leftLimit, Math.min(anchor.x + anchor.width - menuWidth, rightLimit - menuWidth));
@@ -1287,18 +1356,43 @@ export default function ActivityScreen() {
     const top = below + menuHeight <= bottomLimit
       ? below
       : Math.max(topLimit, anchor.y - menuHeight - 4);
-    setActivityOptionsPosition({ left, top, width: menuWidth });
+    const anchorCenterX = anchor.x + anchor.width / 2;
+    const anchorCenterY = anchor.y + anchor.height / 2;
+    const originXPercent = Math.min(90, Math.max(10, ((anchorCenterX - left) / menuWidth) * 100));
+    const originYPercent = Math.min(90, Math.max(10, ((anchorCenterY - top) / menuHeight) * 100));
+    activityOptionsAnimationRef.current?.stop();
+    activityOptionsClosingRef.current = false;
+    activityOptionsScale.setValue(reduceMotion ? 1 : 0.82);
+    activityOptionsOpacity.setValue(reduceMotion ? 1 : 0);
+    setActivityOptionsPosition({ left, top, width: menuWidth, originXPercent, originYPercent });
     setActivityOptionsMessage(
-      activity.is_saved_to_my_routes && !hasRouteId
+      hasMissingRouteId
         ? 'This route is saved, but its route ID is missing from the History response.'
         : null,
     );
     setActivityOptionsActivity(activity);
-  }, [insets.bottom, insets.left, insets.right, insets.top, windowHeight, windowWidth]);
+    if (reduceMotion) return;
+
+    const animation = Animated.parallel([
+      Animated.timing(activityOptionsScale, {
+        toValue: 1,
+        duration: 170,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(activityOptionsOpacity, {
+        toValue: 1,
+        duration: 150,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
+    activityOptionsAnimationRef.current = animation;
+    animation.start();
+  }, [activityOptionsOpacity, activityOptionsScale, insets.bottom, insets.left, insets.right, insets.top, reduceMotion, windowHeight, windowWidth]);
 
   const changeActivityRouteVisibility = useCallback((activity: BackendActivity) => {
-    closeActivityOptions();
-    setPendingSaveActivity(activity);
+    closeActivityOptions(() => setPendingSaveActivity(activity));
   }, [closeActivityOptions]);
 
   const deleteActivities = useCallback(async (targets: BackendActivity[]) => {
@@ -1390,7 +1484,7 @@ export default function ActivityScreen() {
     confirmDeleteActivities(selectedActivities);
   }, [confirmDeleteActivities, selectedActivities]);
 
-  const handleActivityPress = useCallback((activity: BackendActivity) => {
+  const handleActivityPress = useCallback((activity: BackendActivity, origin?: DashboardLaunchOrigin) => {
     if (selectionMode) {
       toggleActivitySelection(activity.id);
       return;
@@ -1400,6 +1494,7 @@ export default function ActivityScreen() {
       params: {
         id: String(activity.id),
         ...(activity.saved_route_id ? { savedRouteId: String(activity.saved_route_id) } : {}),
+        ...(getActivityLaunchParams(origin) ?? {}),
       },
     } as any);
   }, [selectionMode, toggleActivitySelection]);
@@ -1668,19 +1763,15 @@ export default function ActivityScreen() {
         </Animated.View>
       )}
 
-      <Modal transparent visible={activeFilterPopover === 'type'} animationType="fade" onRequestClose={() => setActiveFilterPopover(null)}>
+      <Modal transparent visible={activeFilterPopover === 'type'} animationType="fade" onRequestClose={closeFilterPopover}>
         <View style={styles.filterPopoverBackdrop}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Close activity type filter" onPress={() => setActiveFilterPopover(null)} style={StyleSheet.absoluteFill} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Close activity type filter" onPress={closeFilterPopover} style={StyleSheet.absoluteFill} />
           <Animated.View style={{
             position: 'absolute',
             left: filterPopoverPosition.left,
             top: filterPopoverPosition.top,
             width: filterPopoverPosition.width,
             maxHeight: filterPopoverPosition.maxHeight,
-            transform: [
-              { translateX: filterPopoverOffset.x },
-              { translateY: filterPopoverOffset.y },
-            ],
           }}>
             <Animated.View style={{
               width: filterPopoverPosition.width,
@@ -1702,7 +1793,7 @@ export default function ActivityScreen() {
                       activeOpacity={0.8}
                       onPress={() => {
                         setSelectedType(option.value);
-                        setActiveFilterPopover(null);
+                        closeFilterPopover();
                       }}
                       style={[styles.optionRow, { backgroundColor: active ? colors.selected : 'transparent' }]}
                     >
@@ -1712,28 +1803,21 @@ export default function ActivityScreen() {
                   );
                 })}
               </ScrollView>
-              {filterPopoverPosition.placement !== 'center' ? (
-                <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
-              ) : null}
               </View>
             </Animated.View>
           </Animated.View>
         </View>
       </Modal>
 
-      <Modal transparent visible={activeFilterPopover === 'date'} animationType="fade" onRequestClose={() => setActiveFilterPopover(null)}>
+      <Modal transparent visible={activeFilterPopover === 'date'} animationType="fade" onRequestClose={closeFilterPopover}>
         <View style={styles.filterPopoverBackdrop}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Close date filter" onPress={() => setActiveFilterPopover(null)} style={StyleSheet.absoluteFill} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Close date filter" onPress={closeFilterPopover} style={StyleSheet.absoluteFill} />
           <Animated.View style={{
             position: 'absolute',
             left: filterPopoverPosition.left,
             top: filterPopoverPosition.top,
             width: filterPopoverPosition.width,
             maxHeight: filterPopoverPosition.maxHeight,
-            transform: [
-              { translateX: filterPopoverOffset.x },
-              { translateY: filterPopoverOffset.y },
-            ],
           }}>
             <Animated.View style={{
               width: filterPopoverPosition.width,
@@ -1761,7 +1845,7 @@ export default function ActivityScreen() {
                         activeOpacity={0.8}
                         onPress={() => {
                           setSelectedDateFilter(option.value);
-                          setActiveFilterPopover(null);
+                          closeFilterPopover();
                         }}
                         style={[styles.optionRow, { backgroundColor: active ? colors.selected : 'transparent' }]}
                       >
@@ -1771,28 +1855,21 @@ export default function ActivityScreen() {
                     );
                   })}
                 </ScrollView>
-                {filterPopoverPosition.placement !== 'center' ? (
-                  <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
-                ) : null}
               </View>
             </Animated.View>
           </Animated.View>
         </View>
       </Modal>
 
-      <Modal transparent visible={activeFilterPopover === 'distance'} animationType="fade" onRequestClose={() => setActiveFilterPopover(null)}>
+      <Modal transparent visible={activeFilterPopover === 'distance'} animationType="fade" onRequestClose={closeFilterPopover}>
         <View style={styles.filterPopoverBackdrop}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Close distance filter" onPress={() => setActiveFilterPopover(null)} style={StyleSheet.absoluteFill} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Close distance filter" onPress={closeFilterPopover} style={StyleSheet.absoluteFill} />
           <Animated.View style={{
             position: 'absolute',
             left: filterPopoverPosition.left,
             top: filterPopoverPosition.top,
             width: filterPopoverPosition.width,
             maxHeight: filterPopoverPosition.maxHeight,
-            transform: [
-              { translateX: filterPopoverOffset.x },
-              { translateY: filterPopoverOffset.y },
-            ],
           }}>
             <Animated.View style={{
               width: filterPopoverPosition.width,
@@ -1814,7 +1891,7 @@ export default function ActivityScreen() {
                       activeOpacity={0.8}
                       onPress={() => {
                         setSelectedDistanceRange(option.value);
-                        setActiveFilterPopover(null);
+                        closeFilterPopover();
                       }}
                       style={[styles.optionRow, { backgroundColor: active ? colors.selected : 'transparent' }]}
                     >
@@ -1824,9 +1901,6 @@ export default function ActivityScreen() {
                   );
                 })}
               </ScrollView>
-              {filterPopoverPosition.placement !== 'center' ? (
-                <View style={[styles.filterPopoverCaret, filterPopoverPosition.placement === 'above' ? styles.filterPopoverCaretBelow : styles.filterPopoverCaretAbove, { left: filterPopoverPosition.caretLeft, backgroundColor: colors.surface }]} />
-              ) : null}
               </View>
             </Animated.View>
           </Animated.View>
@@ -1900,30 +1974,38 @@ export default function ActivityScreen() {
       <Modal
         visible={optionsActivity !== null}
         transparent
-        animationType="fade"
+        animationType="none"
         statusBarTranslucent
-        onRequestClose={closeActivityOptions}
+        onRequestClose={() => closeActivityOptions()}
       >
-        <View style={styles.activityOptionsBackdrop}>
+        <Animated.View style={[styles.activityOptionsBackdrop, { opacity: activityOptionsOpacity }]}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close activity options"
-            onPress={closeActivityOptions}
+            onPress={() => closeActivityOptions()}
             style={[StyleSheet.absoluteFill, { backgroundColor: colors.overlay }]}
           />
           {optionsActivity && (
-            <View style={[styles.activityOptionsMenu, {
-              left: activityOptionsPosition.left,
-              top: activityOptionsPosition.top,
-              width: activityOptionsPosition.width,
-              backgroundColor: colors.surface,
-              borderColor: colors.border,
-            }]}>
+            <Animated.View style={[
+              styles.activityOptionsMenu,
+              {
+                left: activityOptionsPosition.left,
+                top: activityOptionsPosition.top,
+                width: activityOptionsPosition.width,
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+                transformOrigin: [
+                  `${activityOptionsPosition.originXPercent}%`,
+                  `${activityOptionsPosition.originYPercent}%`,
+                  0,
+                ],
+                transform: [{ scale: activityOptionsScale }],
+              },
+            ]}>
               <TouchableOpacity
                 accessibilityRole="button"
                 onPress={() => {
-                  closeActivityOptions();
-                  void exportActivityGpx(optionsActivity);
+                  closeActivityOptions(() => void exportActivityGpx(optionsActivity));
                 }}
                 style={styles.activityOptionsMenuItem}
               >
@@ -1950,14 +2032,15 @@ export default function ActivityScreen() {
                   <TouchableOpacity
                     accessibilityRole="button"
                     onPress={() => {
-                      closeActivityOptions();
-                      const routeProcessingComplete = optionsActivity.is_processed === true
-                        || (optionsActivity.is_processed == null && optionsActivity.processing_status.toUpperCase() === 'COMPLETED');
-                      if (!routeProcessingComplete || !optionsActivity.route_generated) {
-                        Alert.alert('Route not ready', 'This activity needs to finish processing its route before it can be saved.');
-                        return;
-                      }
-                      setPendingSaveActivity(optionsActivity);
+                      closeActivityOptions(() => {
+                        const routeProcessingComplete = optionsActivity.is_processed === true
+                          || (optionsActivity.is_processed == null && optionsActivity.processing_status.toUpperCase() === 'COMPLETED');
+                        if (!routeProcessingComplete || !optionsActivity.route_generated) {
+                          Alert.alert('Route not ready', 'This activity needs to finish processing its route before it can be saved.');
+                          return;
+                        }
+                        setPendingSaveActivity(optionsActivity);
+                      });
                     }}
                     style={styles.activityOptionsMenuItem}
                   >
@@ -1971,9 +2054,9 @@ export default function ActivityScreen() {
                   {activityOptionsMessage}
                 </Text>
               )}
-            </View>
+            </Animated.View>
           )}
-        </View>
+        </Animated.View>
       </Modal>
       <Modal
         visible={pendingDeleteActivities !== null}
@@ -2121,9 +2204,6 @@ const styles = StyleSheet.create({
   filterPopoverCard: { position: 'absolute', borderWidth: 1, borderRadius: 14, padding: 8, overflow: 'visible', elevation: 18, shadowColor: '#000000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.18, shadowRadius: 14 },
   filterPopoverScroll: { flexGrow: 0, flexShrink: 1 },
   filterPopoverScrollContent: { flexGrow: 0 },
-  filterPopoverCaret: { position: 'absolute', width: 14, height: 14, zIndex: 2, transform: [{ rotate: '45deg' }] },
-  filterPopoverCaretAbove: { bottom: -6 },
-  filterPopoverCaretBelow: { top: -6 },
   filterBarText: { flexShrink: 1, fontSize: 12, fontWeight: '600' },
   optionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 2 },
   optionText: { fontSize: 14, fontWeight: '600' },

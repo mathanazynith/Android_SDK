@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react';
 import { StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, {
+  Easing,
   useReducedMotion,
   ZoomIn,
   ZoomOut,
@@ -33,11 +34,12 @@ export default function TabZoomTransition({
       ]}
       entering={shouldAnimate
         ? launchOrigin
-          ? ZoomIn.withInitialValues({ transform: [{ scale: 0.02 }] }).duration(320)
+          ? ZoomIn.withInitialValues({ scale: 0.02 }).duration(320).easing(Easing.out(Easing.cubic))
           : ZoomIn.withInitialValues({ transform: [{ scale: 0.97 }] }).springify(220).damping(18)
         : undefined}
       exiting={shouldAnimate
         ? ZoomOut.duration(launchOrigin ? 320 : 150)
+          .easing(Easing.in(Easing.cubic))
         : undefined}
     >
       {children}

@@ -11,6 +11,10 @@ import ActivitySplitsModal from '../../../components/ActivitySplitsModal';
 import { WorkoutShareStudioModal } from '../../../components/share/WorkoutShareStudioModal';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
+import {
+  getActivityLaunchParams,
+  launchFromView,
+} from '../../../components/navigation/dashboardLaunchTransition';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage } from '../../../service/api';
 import { useAuth } from '../../../service/auth';
@@ -80,6 +84,7 @@ export default function ActivityDetailScreen() {
     autoOpenSplits?: string;
   }>();
   const autoOpenedSplitsRef = useRef(false);
+  const cropButtonRef = useRef<View>(null);
   const [activity, setActivity] = useState<BackendActivity | null>(null);
   const [savedRouteId, setSavedRouteId] = useState<number | null>(null);
   const [savedRouteIsPublic, setSavedRouteIsPublic] = useState<boolean | null>(null);
@@ -279,8 +284,17 @@ export default function ActivityDetailScreen() {
         {activity ? (
           <View style={styles.headerButtonsContainer}>
             <TouchableOpacity
+              ref={cropButtonRef}
               accessibilityLabel="Crop workout"
-              onPress={() => router.push(`/activity/crop/${activity.id}`)}
+              onPress={() => launchFromView(cropButtonRef.current, (origin) => {
+                router.push({
+                  pathname: '/(app)/activity/crop/[id]',
+                  params: {
+                    id: String(activity.id),
+                    ...(getActivityLaunchParams(origin) ?? {}),
+                  },
+                } as any);
+              })}
               style={styles.cropButton}
             >
               <Feather name="scissors" size={20} color="#FFB020" />

@@ -13,6 +13,11 @@ import Animated, {
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../service/auth';
+import {
+  getTabLaunchParams,
+  launchFromView,
+  type DashboardLaunchOrigin,
+} from './dashboardLaunchTransition';
 import { isAssessmentProfileComplete } from '../../utils/profileEligibility';
 
 type Tab = {
@@ -60,7 +65,7 @@ type TabButtonProps = {
   labelFontSize: number;
   labelLineHeight: number;
   labelMarginTop: number;
-  onPress: (tab: Tab) => void;
+  onPress: (tab: Tab, origin?: DashboardLaunchOrigin) => void;
 };
 
 const TabButton = memo(function TabButton({
@@ -77,6 +82,7 @@ const TabButton = memo(function TabButton({
   onPress,
 }: TabButtonProps) {
   const reduceMotion = useReducedMotion();
+  const buttonRef = useRef<View>(null);
   const contentScale = useSharedValue(active ? ACTIVE_TAB_SCALE : 1);
   const contentScaleStyle = useAnimatedStyle(() => ({
     transform: [{ scale: contentScale.value }],
@@ -94,7 +100,8 @@ const TabButton = memo(function TabButton({
   return (
     <TouchableOpacity
       style={styles.tab}
-      onPress={() => onPress(tab)}
+      ref={buttonRef}
+      onPress={() => launchFromView(buttonRef.current, (origin) => onPress(tab, origin))}
       disabled={!enabled}
       accessibilityRole="tab"
       accessibilityState={{ selected: active, disabled: !enabled }}
@@ -210,7 +217,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
     transform: [{ translateX: glowTranslateX.value }],
   }));
 
-  const handleTabPress = useCallback((tab: Tab) => {
+  const handleTabPress = useCallback((tab: Tab, origin?: DashboardLaunchOrigin) => {
     if (tab.label === 'Plans') {
       if (isWorkoutPlanLoading) return;
       if (!isWorkoutPlanLoaded) {
@@ -228,11 +235,10 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
     if (tabNavigationPending.current) return;
     tabNavigationPending.current = true;
 
-    if (tab.label === 'Home') {
-      router.replace('/(app)/dashboard');
-      return;
-    }
-    router.replace(tab.route);
+    router.replace({
+      pathname: tab.route,
+      params: getTabLaunchParams(origin),
+    });
   }, [fetchWorkoutPlan, hasActivePlan, isWorkoutPlanLoaded, isWorkoutPlanLoading, pathname]);
 
   const handleGetPlan = useCallback(() => {

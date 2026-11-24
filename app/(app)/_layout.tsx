@@ -6,7 +6,11 @@ import { BackHandler, Platform, View } from 'react-native';
 import ActiveRunBanner from '../../components/navigation/ActiveRunBanner';
 import GlobalBottomNav, { isPrimaryTabPath } from '../../components/navigation/GlobalBottomNav';
 import TabZoomTransition from '../../components/navigation/TabZoomTransition';
-import { getDashboardLaunchOrigin } from '../../components/navigation/dashboardLaunchTransition';
+import {
+  getActivityLaunchOrigin,
+  getDashboardLaunchOrigin,
+  getTabLaunchOrigin,
+} from '../../components/navigation/dashboardLaunchTransition';
 import { ActiveRunProvider, useActiveRun } from '../../contexts/ActiveRunContext';
 
 const nestedStackRouteNames = new Set(['custom-workout', 'questionnaire']);
@@ -59,7 +63,9 @@ function AppLayoutContent() {
     route: { key: string; name: string; params?: object };
     children: React.ReactElement;
   }) => {
-    const launchOrigin = getDashboardLaunchOrigin(route.params);
+    const launchOrigin = getDashboardLaunchOrigin(route.params)
+      ?? getTabLaunchOrigin(route.params)
+      ?? getActivityLaunchOrigin(route.params);
     return (
       <TabZoomTransition
         key={route.key}
