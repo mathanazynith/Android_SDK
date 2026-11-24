@@ -2,7 +2,7 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -15,6 +15,7 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage } from '../../../service/api';
 import { useAuth } from '../../../service/auth';
 import { activityAPI, BackendActivity, normalizeActivitySplits, runRouteAPI } from '../../../src/services/activityApi';
+import { socialAPI, type SocialPostVisibility } from '../../../src/services/socialApi';
 import { shareActivityAsGpx } from '../../../src/services/gpxFileExport';
 import { ActivityExtraSplits, ActivityLapRecord, ActivitySegmentSplits } from '../../../src/types/activity';
 import {
@@ -88,6 +89,11 @@ export default function ActivityDetailScreen() {
   const [deleting, setDeleting] = useState(false);
   const [exportingGpx, setExportingGpx] = useState(false);
   const [shareCardVisible, setShareCardVisible] = useState(false);
+  const [postWorkoutVisible, setPostWorkoutVisible] = useState(false);
+  const [postWorkoutBusy, setPostWorkoutBusy] = useState(false);
+  const [postWorkoutError, setPostWorkoutError] = useState<string | null>(null);
+  const [postWorkoutComplete, setPostWorkoutComplete] = useState(false);
+  const [postVisibilityDraft, setPostVisibilityDraft] = useState<SocialPostVisibility | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [splitsVisible, setSplitsVisible] = useState(false);
   const [splitsLoading, setSplitsLoading] = useState(false);
@@ -159,6 +165,41 @@ export default function ActivityDetailScreen() {
       setExportingGpx(false);
     }
   }, [activity]);
+
+  const openPostWorkout = () => {
+    setPostWorkoutError(null);
+    setPostWorkoutComplete(false);
+    const existingPostId = Number(activity?.post_id);
+    setPostVisibilityDraft(Number.isInteger(existingPostId) && existingPostId > 0
+      ? activity?.share_audience === 'ALL' ? 'PUBLIC'
+        : activity?.share_audience === 'FOLLOWERS' ? 'FOLLOWERS'
+        : 'ONLY_ME'
+      : null);
+    setPostWorkoutVisible(true);
+  };
+
+  const postSavedWorkout = async (visibility: SocialPostVisibility) => {
+    if (!activity || postWorkoutBusy) return;
+    setPostVisibilityDraft(visibility);
+    setPostWorkoutBusy(true);
+    setPostWorkoutError(null);
+    try {
+      const existingPostId = Number(activity.post_id);
+      const response = Number.isInteger(existingPostId) && existingPostId > 0
+        ? await socialAPI.updateWorkoutPost(existingPostId, { visibility })
+        : await socialAPI.createWorkoutPost({ activity_id: Number(activity.id), visibility });
+      setActivity((current) => current ? {
+        ...current,
+        post_id: response.data.data.id,
+        share_audience: visibility === 'PUBLIC' ? 'ALL' : visibility === 'FOLLOWERS' ? 'FOLLOWERS' : 'NONE',
+      } : current);
+      setPostWorkoutComplete(true);
+    } catch (requestError) {
+      setPostWorkoutError(getBackendErrorMessage(requestError, 'Could not post this workout.'));
+    } finally {
+      setPostWorkoutBusy(false);
+    }
+  };
 
   useEffect(() => {
     // The request applies its state updates asynchronously after the screen mounts.
@@ -394,6 +435,26 @@ export default function ActivityDetailScreen() {
               </Text>
             </View>
 
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={activity.post_id ? 'Change workout post audience' : 'Post saved workout to Connections'}
+              onPress={openPostWorkout}
+              style={[styles.postWorkoutButton, { backgroundColor: colors.primary }]}
+            >
+              <Feather name={activity.post_id ? 'users' : 'send'} size={17} color={colors.primaryText} />
+              <View style={styles.postWorkoutButtonCopy}>
+                <Text style={[styles.postWorkoutButtonTitle, { color: colors.primaryText }]}>
+                  {activity.post_id ? 'Change post audience' : 'Post to Connections'}
+                </Text>
+                <Text style={[styles.postWorkoutButtonSubtitle, { color: colors.primaryText }]}>
+                  {activity.post_id
+                    ? `Currently ${activity.share_audience === 'ALL' ? 'Everyone' : activity.share_audience === 'FOLLOWERS' ? 'Followers' : 'Only me'}`
+                    : 'Post this saved workout to My Posts or Connections'}
+                </Text>
+              </View>
+              <Feather name="chevron-right" size={18} color={colors.primaryText} />
+            </TouchableOpacity>
+
             <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <DetailMetric label="Distance" value={formatDistanceFromMeters(activity.distance, distanceUnit)} />
               <DetailMetric label="Moving time" value={formatDuration(activity.moving_time)} />
@@ -421,6 +482,75 @@ export default function ActivityDetailScreen() {
           </ScrollView>
         </View>
       ) : null}
+      <Modal
+        visible={postWorkoutVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !postWorkoutBusy && setPostWorkoutVisible(false)}
+      >
+        <View style={styles.postAudienceBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} disabled={postWorkoutBusy} onPress={() => setPostWorkoutVisible(false)} />
+          <View style={[styles.postAudienceDialog, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={styles.postAudienceHeader}>
+              <View style={[styles.postAudienceIcon, { backgroundColor: colors.background }]}>
+                <Feather name={postWorkoutComplete ? 'check' : 'send'} size={19} color={colors.primary} />
+              </View>
+              <View style={styles.postAudienceHeaderCopy}>
+                <Text style={[styles.postAudienceTitle, { color: colors.text }]}>
+                  {postWorkoutComplete ? 'Workout posted' : 'Post saved workout'}
+                </Text>
+                <Text style={[styles.postAudienceSubtitle, { color: colors.textSecondary }]}>
+                  {postWorkoutComplete
+                    ? `${postVisibilityDraft === 'ONLY_ME' ? 'Only you' : postVisibilityDraft === 'FOLLOWERS' ? 'Your followers' : 'Everyone'} can see this workout.`
+                    : 'Choose who can see this workout post.'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Close post options"
+                disabled={postWorkoutBusy}
+                onPress={() => setPostWorkoutVisible(false)}
+                style={styles.postAudienceClose}
+              >
+                <Feather name="x" size={19} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            {!postWorkoutComplete ? ([
+              { value: 'ONLY_ME' as const, label: 'Only me', description: 'Keep the post on My Posts, out of the Connections feed.', icon: 'lock' as const },
+              { value: 'FOLLOWERS' as const, label: 'Followers', description: 'Visible to people who follow you.', icon: 'users' as const },
+              { value: 'PUBLIC' as const, label: 'Everyone', description: 'Visible to everyone in Connections.', icon: 'globe' as const },
+            ].map((option) => {
+              const selected = postVisibilityDraft === option.value;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: selected, disabled: postWorkoutBusy }}
+                  disabled={postWorkoutBusy}
+                  onPress={() => void postSavedWorkout(option.value)}
+                  style={[styles.postAudienceOption, { borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? (isDark ? 'rgba(16,185,129,0.12)' : '#E8F7EE') : colors.background, opacity: postWorkoutBusy && !selected ? 0.55 : 1 }]}
+                >
+                  <View style={[styles.postAudienceOptionIcon, { backgroundColor: isDark ? colors.surfaceRaised : '#E8F7EE' }]}>
+                    <Feather name={option.icon} size={16} color={colors.primary} />
+                  </View>
+                  <View style={styles.postAudienceOptionCopy}>
+                    <Text style={[styles.postAudienceOptionTitle, { color: colors.text }]}>{option.label}</Text>
+                    <Text style={[styles.postAudienceOptionDescription, { color: colors.textSecondary }]}>{option.description}</Text>
+                  </View>
+                  {postWorkoutBusy && selected
+                    ? <ActivityIndicator size="small" color={colors.primary} />
+                    : <Feather name={selected ? 'check-circle' : 'circle'} size={18} color={selected ? colors.primary : colors.textTertiary} />}
+                </TouchableOpacity>
+              );
+            })) : (
+              <TouchableOpacity onPress={() => setPostWorkoutVisible(false)} style={[styles.postAudienceDone, { backgroundColor: colors.primary }]}>
+                <Text style={[styles.postAudienceDoneText, { color: colors.primaryText }]}>Done</Text>
+              </TouchableOpacity>
+            )}
+            {postWorkoutError ? <Text style={styles.postAudienceError}>{postWorkoutError}</Text> : null}
+          </View>
+        </View>
+      </Modal>
       <ActivitySplitsModal
         visible={splitsVisible}
         loading={splitsLoading}
@@ -473,6 +603,10 @@ const styles = StyleSheet.create({
   workoutTypeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 24 },
   workoutType: { fontSize: 20, fontWeight: '700' },
   workoutStatus: { fontSize: 14, fontWeight: '700' },
+  postWorkoutButton: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 15, marginTop: 16, paddingHorizontal: 14 },
+  postWorkoutButtonCopy: { flex: 1, minWidth: 0, gap: 2 },
+  postWorkoutButtonTitle: { fontSize: 13, fontWeight: '800' },
+  postWorkoutButtonSubtitle: { fontSize: 10, opacity: 0.86 },
   summaryCard: { borderRadius: 22, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 8, marginTop: 26 },
   sectionTitle: { fontSize: 21, fontWeight: '700', marginTop: 26, marginBottom: 12 },
   metricsCard: { borderRadius: 22, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 8 },
@@ -487,4 +621,20 @@ const styles = StyleSheet.create({
   stateText: { fontSize: 16, textAlign: 'center', marginTop: 13 },
   retryButton: { borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, marginTop: 18 },
   retryText: { fontSize: 16, fontWeight: '700' },
+  postAudienceBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
+  postAudienceDialog: { width: '100%', maxWidth: 400, alignSelf: 'center', borderWidth: StyleSheet.hairlineWidth, borderRadius: 22, padding: 16, gap: 9 },
+  postAudienceHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 5 },
+  postAudienceIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  postAudienceHeaderCopy: { flex: 1, minWidth: 0, gap: 3 },
+  postAudienceTitle: { fontSize: 16, fontWeight: '800' },
+  postAudienceSubtitle: { fontSize: 11, lineHeight: 15 },
+  postAudienceClose: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  postAudienceOption: { minHeight: 62, borderWidth: StyleSheet.hairlineWidth, borderRadius: 13, paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  postAudienceOptionIcon: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  postAudienceOptionCopy: { flex: 1, minWidth: 0, gap: 2 },
+  postAudienceOptionTitle: { fontSize: 13, lineHeight: 17, fontWeight: '700' },
+  postAudienceOptionDescription: { fontSize: 10, lineHeight: 14 },
+  postAudienceError: { fontSize: 11, lineHeight: 16, marginTop: 2, color: '#D9424A' },
+  postAudienceDone: { minHeight: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  postAudienceDoneText: { fontSize: 13, fontWeight: '700' },
 });

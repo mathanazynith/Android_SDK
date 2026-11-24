@@ -1,6 +1,6 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { BlurTargetView, BlurView } from 'expo-blur';
+import { BlurTargetView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { Image as ExpoImage } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
@@ -29,6 +29,7 @@ import { useReducedMotion } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 import ThemedCalendarPicker from '../../../components/common/ThemedCalendarPicker';
+import AppBlurView from '../../../components/common/AppBlurView';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import { RunningLoader } from '../../../components/common/RunningLoader';
@@ -514,7 +515,7 @@ const ActivityCard = memo(function ActivityCard({
           },
         ]}
       >
-      <BlurView
+      <AppBlurView
         intensity={40}
         tint={isDark ? 'dark' : 'light'}
         blurTarget={blurTarget ?? undefined}

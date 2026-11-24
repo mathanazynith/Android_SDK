@@ -1,5 +1,4 @@
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import { router, usePathname } from 'expo-router';
 import { memo, useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -14,6 +13,7 @@ import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../service/auth';
 import { isAssessmentProfileComplete } from '../../utils/profileEligibility';
+import AppBlurView from '../common/AppBlurView';
 
 type Tab = {
   icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -249,7 +249,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
           },
         ]}
       >
-        <BlurView
+        <AppBlurView
           intensity={55}
           tint={isDark ? 'dark' : 'light'}
           blurTarget={blurTarget}
@@ -264,7 +264,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
           ]}
         >
           {navContent}
-        </BlurView>
+        </AppBlurView>
       </View>
       {isPlanPromptVisible && (
         <View

@@ -29,12 +29,14 @@ import ActivityRouteMap from "../../components/ActivityRouteMap";
 import {
   connectionsAPI,
   extractApiResults,
+  getOnlyMeDefaultAudience,
   socialAPI,
   type ConnectionUser,
   type ContentReportReason,
   type ContentReportTargetType,
   type SocialComment,
   type SocialPost,
+  type SocialPostVisibility,
 } from "../../src/services/socialApi";
 
 const formatDistance = (distanceKm: number) => `${Number(distanceKm || 0).toFixed(2)} km`;
@@ -67,12 +69,13 @@ const formatPace = (pace: number) => {
 const formatRelativeTime = (value: string) => {
   const timestamp = new Date(value).getTime();
   if (!Number.isFinite(timestamp)) return "";
-  const elapsedHours = Math.max(0, Math.floor((Date.now() - timestamp) / 3_600_000));
-  if (elapsedHours < 1) return "just now";
+  const elapsedMinutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
+  if (elapsedMinutes < 1) return "just now";
+  if (elapsedMinutes < 60) return `${elapsedMinutes} min ago`;
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
   if (elapsedHours < 24) return `${elapsedHours} ${elapsedHours === 1 ? "hour" : "hours"} ago`;
   const elapsedDays = Math.floor(elapsedHours / 24);
-  if (elapsedDays === 1) return "yesterday";
-  if (elapsedDays < 7) return `${elapsedDays} days ago`;
+  if (elapsedDays < 7) return `${elapsedDays} ${elapsedDays === 1 ? "day" : "days"} ago`;
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(timestamp);
 };
 
@@ -134,9 +137,22 @@ function ConnectionCard({
           <Text style={[styles.username, { color: colors.textSecondary }]} numberOfLines={1}>@{post.author.username}</Text>
         </View>
         <Text style={[styles.postTime, { color: colors.textTertiary }]}>{formatRelativeTime(post.created_at)}</Text>
-        {!post.is_mine ? (
-          <AnchoredMoreButton label="Workout options" color={colors.textSecondary} style={styles.moreButton} onPress={onMore} />
+        {!post.is_mine && post.visibility === "ALL" && post.share_url ? (
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Share workout"
+            onPress={onShare}
+            style={styles.topShareButton}
+          >
+            <Feather name="share" size={17} color={colors.primary} />
+          </TouchableOpacity>
         ) : null}
+        <AnchoredMoreButton
+          label={post.is_mine ? "Post options" : "Workout options"}
+          color={colors.textSecondary}
+          style={styles.moreButton}
+          onPress={onMore}
+        />
       </View>
 
       <View style={[styles.workoutCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
@@ -201,15 +217,10 @@ function ConnectionCard({
         <TouchableOpacity accessibilityRole="button" onPress={onDetails} style={styles.actionLink}>
           <Text style={[styles.actionLinkText, { color: colors.primary }]}>Details</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel="Share workout"
-          onPress={onShare}
-          style={styles.shareButton}
-        >
-          <Feather name="share" size={15} color={colors.text} />
+        <View style={styles.shareCount}>
+          <Feather name="share" size={13} color={colors.textTertiary} />
           <Text style={[styles.actionCount, { color: colors.text }]}>{post.share_count}</Text>
-        </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -247,20 +258,19 @@ export default function SocialScreen() {
     targetType: ContentReportTargetType;
     targetId: number;
     anchor: { x: number; y: number; width: number; height: number };
-    step: "actions" | "block" | "report" | "reported";
+    step: "actions" | "report" | "reported";
+    isOwnPost: boolean;
+    post: SocialPost | null;
   } | null>(null);
   const [moderationBusy, setModerationBusy] = useState(false);
   const [moderationError, setModerationError] = useState<string | null>(null);
   const [reportReason, setReportReason] = useState<ContentReportReason | null>(null);
   const [reportDetails, setReportDetails] = useState("");
+  const [, setRelativeTimeTick] = useState(0);
 
-  const hideBlockedUserLocally = useCallback((userId: number) => {
-    setBlockedIds((current) => new Set(current).add(userId));
-    setPosts((current) => current.filter((post) => post.author.id !== userId));
-    setComments((current) => current.filter((comment) => comment.author.id !== userId));
-    setSuggestions((current) => current.filter((user) => user.id !== userId));
-    setSearchResults((current) => current.filter((user) => user.id !== userId));
-    setCommentPost((current) => current?.author.id === userId ? null : current);
+  useEffect(() => {
+    const timer = setInterval(() => setRelativeTimeTick((tick) => tick + 1), 60_000);
+    return () => clearInterval(timer);
   }, []);
 
   const openModeration = useCallback((
@@ -269,12 +279,16 @@ export default function SocialScreen() {
     targetType: ContentReportTargetType,
     targetId: number,
     anchor: { x: number; y: number; width: number; height: number },
+    isOwnPost = false,
+    post: SocialPost | null = null,
   ) => {
     setModerationError(null);
     setReportReason(null);
     setReportDetails("");
-    setModerationTarget({ user, kind, targetType, targetId, anchor, step: "actions" });
+    setModerationTarget({ user, kind, targetType, targetId, anchor, step: "actions", isOwnPost, post });
   }, []);
+
+  const openRunnerActions = useCallback((runner: ConnectionUser, anchor: { x: number; y: number; width: number; height: number }) => openModeration(runner, "runner", "USER", runner.id, anchor), [openModeration]);
 
   const submitContentReport = useCallback(async () => {
     if (!moderationTarget || !reportReason) return;
@@ -295,23 +309,64 @@ export default function SocialScreen() {
     }
   }, [moderationTarget, reportDetails, reportReason]);
 
-  const confirmBlock = useCallback(async () => {
-    if (!moderationTarget) return;
-    setModerationBusy(true);
-    setModerationError(null);
-    try {
-      await connectionsAPI.blockAccount(moderationTarget.user.id);
-      hideBlockedUserLocally(moderationTarget.user.id);
-      setModerationTarget(null);
-    } catch (error) {
-      setModerationError(getBackendErrorMessage(error));
-    } finally {
-      setModerationBusy(false);
-    }
-  }, [hideBlockedUserLocally, moderationTarget]);
+  const deleteOwnPost = useCallback((postId: number) => {
+    setModerationTarget(null);
+    Alert.alert(
+      "Delete post?",
+      "This removes the post from Connections and My Posts. The workout will remain in your history.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              try {
+                await socialAPI.deletePost(postId);
+                setPosts((current) => current.filter((post) => post.id !== postId));
+                setMyPosts((current) => current.filter((post) => post.id !== postId));
+                setDetailsPost((current) => current?.id === postId ? null : current);
+              } catch (error) {
+                Alert.alert("Unable to delete post", getBackendErrorMessage(error));
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, []);
 
-  const openRunnerActions = useCallback((runner: ConnectionUser, anchor: { x: number; y: number; width: number; height: number }) => openModeration(runner, "runner", "USER", runner.id, anchor), [openModeration]);
-  const openPostActions = useCallback((post: SocialPost, anchor: { x: number; y: number; width: number; height: number }) => openModeration(post.author, "workout", "POST", post.id, anchor), [openModeration]);
+  const sharePost = useCallback(async (post: SocialPost) => {
+    if (post.is_mine) {
+      Alert.alert("Sharing unavailable", "You can share your own workout using its audience setting.");
+      return;
+    }
+    // The backend owns the account privacy and audience rules. Ask it to
+    // validate posts that do not include an externally shareable URL instead
+    // of guessing from the feed's visibility value (which can differ by API).
+    if (!post.share_url) {
+      try {
+        await socialAPI.sharePost(post.id, "EXTERNAL");
+        Alert.alert("Sharing unavailable", "This workout does not have an external share link.");
+      } catch (error) {
+        Alert.alert("Unable to share post", getBackendErrorMessage(error));
+      }
+      return;
+    }
+    const description = `${post.author.full_name || post.author.username}'s ${formatDistance(post.activity.distance_km)} workout`;
+    try {
+      const result = await Share.share({ message: `${description}\n${post.share_url}` });
+      if (result.action !== Share.sharedAction) return;
+      const response = await socialAPI.sharePost(post.id, "EXTERNAL");
+      const updateShareCount = (items: SocialPost[]) => items.map((item) => item.id === post.id
+        ? { ...item, share_count: response.data.data.share_count }
+        : item);
+      setPosts(updateShareCount);
+      setMyPosts(updateShareCount);
+    } catch (error) {
+      Alert.alert("Unable to share post", getBackendErrorMessage(error));
+    }
+  }, []);
 
   const closeRunnerSearch = useCallback(() => {
     if (returnToPrivacy === "1") {
@@ -336,7 +391,11 @@ export default function SocialScreen() {
     setLoadError(null);
     try {
       const response = await socialAPI.getFeed();
-      setPosts(extractApiResults<SocialPost>(response.data).filter((post) => !blockedIds.has(post.author.id)));
+      setPosts(extractApiResults<SocialPost>(response.data).filter((post) => (
+        !blockedIds.has(post.author.id)
+        && post.visibility !== "ONLY_ME"
+        && post.visibility !== "NONE"
+      )));
     } catch (error) {
       const message = getBackendErrorMessage(error, "Unable to load the Connections feed.");
       setLoadError(message);
@@ -362,6 +421,48 @@ export default function SocialScreen() {
       setMyPostsLoading(false);
     }
   }, [blockedIds]);
+
+  const updateWorkoutAudience = useCallback(async (post: SocialPost) => {
+    setModerationBusy(true);
+    setModerationError(null);
+    try {
+      const settingsResponse = await socialAPI.getSharingSettings();
+      const defaultAudience = settingsResponse.data.data.default_audience;
+      const onlyMeSelected = defaultAudience === "ONLY_ME"
+        || (defaultAudience === "NONE" && await getOnlyMeDefaultAudience());
+      const visibility: SocialPostVisibility | null = onlyMeSelected
+        ? "ONLY_ME"
+        : defaultAudience === "ALL"
+          ? "PUBLIC"
+          : defaultAudience === "FOLLOWERS"
+            ? "FOLLOWERS"
+            : null;
+      if (!visibility) {
+        setModerationTarget(null);
+        Alert.alert(
+          "Sharing is turned off",
+          "Your Settings are set to Don't share. Choose Followers, Everyone, or Only me in Settings to share this workout.",
+        );
+        return;
+      }
+      const response = await socialAPI.updateWorkoutPost(post.id, { visibility });
+      const updatedPost = response.data.data;
+      if (visibility === "ONLY_ME") {
+        setPosts((current) => current.filter((item) => item.id !== post.id));
+      } else {
+        setPosts((current) => current.some((item) => item.id === post.id)
+          ? current.map((item) => item.id === post.id ? updatedPost : item)
+          : [updatedPost, ...current]);
+      }
+      setMyPosts((current) => current.map((item) => item.id === post.id ? updatedPost : item));
+      setModerationTarget(null);
+    } catch (error) {
+      setModerationTarget(null);
+      Alert.alert("Unable to share workout", getBackendErrorMessage(error, "Could not update this workout's audience."));
+    } finally {
+      setModerationBusy(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (myPostsVisible) void loadMyPosts();
@@ -495,6 +596,7 @@ export default function SocialScreen() {
   }, []);
 
   const reportComment = useCallback((comment: SocialComment, anchor: { x: number; y: number; width: number; height: number }) => openModeration(comment.author, "comment", "COMMENT", comment.id, anchor), [openModeration]);
+  const openPostActions = useCallback((post: SocialPost, anchor: { x: number; y: number; width: number; height: number }) => openModeration(post.author, "workout", "POST", post.id, anchor, post.is_mine, post), [openModeration]);
 
   const renderRunner = useCallback(({ item }: { item: ConnectionUser }) => {
     const isFollowing = item.relationship === "FOLLOWING";
@@ -535,13 +637,10 @@ export default function SocialScreen() {
       onLike={() => void handleLike(item)}
       onComments={() => void openComments(item)}
       onDetails={() => setDetailsPost(item)}
-      onShare={() => {
-        const description = `${item.author.full_name || item.author.username}'s ${formatDistance(item.activity.distance_km)} workout`;
-        void Share.share({ message: item.share_url ? `${description}\n${item.share_url}` : description });
-      }}
+      onShare={() => void sharePost(item)}
       onMore={(anchor) => openPostActions(item, anchor)}
     />
-  ), [colors, handleLike, likingPostIds, openComments, openPostActions]);
+  ), [colors, handleLike, likingPostIds, openComments, openPostActions, sharePost]);
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -876,13 +975,12 @@ export default function SocialScreen() {
               ]}
             >
               <View style={styles.moderationHeading}>
-                <View style={[styles.moderationIcon, { backgroundColor: colors.background }]}>
-                  <Feather name={moderationTarget.step === "block" ? "user-x" : moderationTarget.step === "report" ? "flag" : "shield"} size={17} color={moderationTarget.step === "block" ? "#E5484D" : colors.primary} />
-                </View>
                 <View style={styles.moderationHeadingText}>
-                  <Text style={[styles.moderationTitle, { color: colors.text }]}>
-                    {moderationTarget.step === "block" ? "Block runner?" : moderationTarget.step === "report" ? `Report ${moderationTarget.kind}` : moderationTarget.step === "reported" ? "Report sent" : "Runner options"}
-                  </Text>
+                  {moderationTarget.step !== "actions" ? (
+                    <Text style={[styles.moderationTitle, { color: colors.text }]}>
+                      {moderationTarget.step === "report" ? `Report ${moderationTarget.kind}` : "Report sent"}
+                    </Text>
+                  ) : null}
                   <Text style={[styles.moderationSubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
                     {moderationTarget.user.full_name || moderationTarget.user.username}
                   </Text>
@@ -893,18 +991,51 @@ export default function SocialScreen() {
               </View>
 
               {moderationTarget.step === "actions" ? (
-                <>
-                  <TouchableOpacity style={[styles.moderationAction, { borderColor: colors.border }]} onPress={() => { setModerationError(null); setModerationTarget((current) => current ? { ...current, step: "report" } : null); }}>
-                    <Feather name="flag" size={16} color={colors.textSecondary} />
-                    <Text style={[styles.moderationActionText, { color: colors.text }]}>Report {moderationTarget.kind === "runner" ? "runner" : moderationTarget.kind}</Text>
-                    <Feather name="chevron-right" size={16} color={colors.textTertiary} />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.moderationAction, { borderColor: colors.border }]} onPress={() => { setModerationError(null); setModerationTarget((current) => current ? { ...current, step: "block" } : null); }}>
-                    <Feather name="user-x" size={16} color="#E5484D" />
-                    <Text style={[styles.moderationActionText, { color: "#E5484D" }]}>Block runner</Text>
-                    <Feather name="chevron-right" size={16} color={colors.textTertiary} />
-                  </TouchableOpacity>
-                </>
+                moderationTarget.isOwnPost ? (
+                  <>
+                    <TouchableOpacity
+                      style={[styles.moderationAction, { borderColor: colors.border }]}
+                      onPress={() => {
+                        if (moderationTarget.post) void updateWorkoutAudience(moderationTarget.post);
+                      }}
+                    >
+                      <Feather name="share" size={16} color={colors.primary} />
+                      <Text style={[styles.moderationActionText, { color: colors.text }]}>Share the workout</Text>
+                      <Feather name="chevron-right" size={16} color={colors.textTertiary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.moderationAction, { borderColor: colors.border }]}
+                      onPress={() => deleteOwnPost(moderationTarget.targetId)}
+                    >
+                      <Feather name="trash-2" size={16} color="#E5484D" />
+                      <Text style={[styles.moderationActionText, { color: "#E5484D" }]}>Delete post</Text>
+                      <Feather name="chevron-right" size={16} color={colors.textTertiary} />
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    {moderationTarget.kind === "workout"
+                      && !moderationTarget.post?.is_mine ? (
+                      <TouchableOpacity
+                        style={[styles.moderationAction, { borderColor: colors.border }]}
+                        onPress={() => {
+                          const post = moderationTarget.post;
+                          setModerationTarget(null);
+                          if (post) void sharePost(post);
+                        }}
+                      >
+                        <Feather name="share" size={16} color={colors.primary} />
+                        <Text style={[styles.moderationActionText, { color: colors.text }]}>Share the workout</Text>
+                        <Feather name="chevron-right" size={16} color={colors.textTertiary} />
+                      </TouchableOpacity>
+                    ) : null}
+                    <TouchableOpacity style={[styles.moderationAction, { borderColor: colors.border }]} onPress={() => { setModerationError(null); setModerationTarget((current) => current ? { ...current, step: "report" } : null); }}>
+                      <Feather name="flag" size={16} color={colors.textSecondary} />
+                      <Text style={[styles.moderationActionText, { color: colors.text }]}>Report {moderationTarget.kind === "runner" ? "runner" : moderationTarget.kind}</Text>
+                      <Feather name="chevron-right" size={16} color={colors.textTertiary} />
+                    </TouchableOpacity>
+                  </>
+                )
               ) : moderationTarget.step === "report" ? (
                 <>
                   <Text style={[styles.moderationSectionLabel, { color: colors.textSecondary }]}>Choose a reason</Text>
@@ -931,17 +1062,6 @@ export default function SocialScreen() {
                   {moderationError ? <Text style={[styles.moderationError, { color: "#E5484D" }]}>{moderationError}</Text> : null}
                   <TouchableOpacity disabled={!reportReason || moderationBusy} onPress={() => void submitContentReport()} style={[styles.moderationPrimary, { backgroundColor: colors.primary, opacity: !reportReason || moderationBusy ? 0.55 : 1 }]}>
                     {moderationBusy ? <ActivityIndicator size="small" color={colors.primaryText} /> : <Text style={[styles.moderationPrimaryText, { color: colors.primaryText }]}>Send report</Text>}
-                  </TouchableOpacity>
-                </>
-              ) : moderationTarget.step === "block" ? (
-                <>
-                  <Text style={[styles.moderationBody, { color: colors.textSecondary }]}>You and this runner will no longer see each other in Connections.</Text>
-                  {moderationError ? <Text style={[styles.moderationError, { color: "#E5484D" }]}>{moderationError}</Text> : null}
-                  <TouchableOpacity disabled={moderationBusy} onPress={() => void confirmBlock()} style={[styles.moderationPrimary, { backgroundColor: "#E5484D", opacity: moderationBusy ? 0.7 : 1 }]}>
-                    {moderationBusy ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.moderationPrimaryText}>Block runner</Text>}
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setModerationTarget((current) => current ? { ...current, step: "actions" } : null)} style={styles.moderationCancel}>
-                    <Text style={[styles.moderationCancelText, { color: colors.textSecondary }]}>Back</Text>
                   </TouchableOpacity>
                 </>
               ) : (
@@ -972,6 +1092,7 @@ const styles = StyleSheet.create({
   authorName: { fontSize: 13, fontWeight: "700" },
   username: { fontSize: 10, marginTop: 1 },
   postTime: { fontSize: 10 },
+  topShareButton: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
   workoutCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, padding: 9 },
   workoutMap: { marginTop: 8 },
   workoutHeading: { flexDirection: "row", alignItems: "center", gap: 7 },
@@ -986,7 +1107,7 @@ const styles = StyleSheet.create({
   actionCount: { fontSize: 11 },
   actionLink: { minHeight: 26, justifyContent: "center" },
   actionLinkText: { fontSize: 10, fontWeight: "500" },
-  shareButton: { flexDirection: "row", alignItems: "center", gap: 5, marginLeft: "auto" },
+  shareCount: { flexDirection: "row", alignItems: "center", gap: 5, marginLeft: "auto" },
   emptyState: { flex: 1, minHeight: 310, alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
   emptyTitle: { fontSize: 17, fontWeight: "700", marginTop: 14, textAlign: "center" },
   emptyCopy: { fontSize: 13, lineHeight: 19, textAlign: "center", marginTop: 8, paddingHorizontal: 12 },
