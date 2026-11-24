@@ -149,6 +149,7 @@ export default function DashboardScreen() {
   const [settingsLaunchOrigin, setSettingsLaunchOrigin] = useState<DashboardLaunchOrigin>();
   const notificationsShortcutRef = useRef<View | null>(null);
   const settingsShortcutRef = useRef<View | null>(null);
+  const historyShortcutRef = useRef<View | null>(null);
   const reopenPrivacySettingsOnFocus = useRef(false);
   const [offlinePendingCount, setOfflinePendingCount] = useState(0);
   const [isSyncingOffline, setIsSyncingOffline] = useState(false);
@@ -438,14 +439,24 @@ export default function DashboardScreen() {
 
   const handleSettingsOption = (option: string) => {
     setSettingsVisible(false);
-    if (option === 'Activities') router.push('/(app)/activity');
-    if (option === 'Edit Profile') router.push('/(app)/profile/edit');
-    if (option === 'Change Password' || option === 'Set Password') router.push('/(app)/screens/change-password');
-    if (option === 'Notifications') router.push('/(app)/screens/notifications');
-    if (option === 'Subscription') router.push('/(app)/profile/subscription');
+    const launchParams = getDashboardLaunchParams(settingsLaunchOrigin);
+    if (option === 'Activities') router.push({ pathname: '/(app)/activity', params: launchParams });
+    if (option === 'Edit Profile') router.push({ pathname: '/(app)/profile/edit', params: launchParams });
+    if (option === 'Change Password' || option === 'Set Password') {
+      router.push({ pathname: '/(app)/screens/change-password', params: launchParams });
+    }
+    if (option === 'Notifications') {
+      router.push({ pathname: '/(app)/screens/notifications', params: launchParams });
+    }
+    if (option === 'Subscription') {
+      router.push({ pathname: '/(app)/profile/subscription', params: launchParams });
+    }
     if (option === 'Find Runners') {
       reopenPrivacySettingsOnFocus.current = true;
-      router.push({ pathname: '/(app)/social', params: { findRunners: '1', returnToPrivacy: '1' } });
+      router.push({
+        pathname: '/(app)/social',
+        params: { ...launchParams, findRunners: '1', returnToPrivacy: '1' },
+      });
       return;
     }
     if (option === 'Logout') {
@@ -655,6 +666,7 @@ export default function DashboardScreen() {
 
               {hasWorkoutPlan ? (
                 <TouchableOpacity
+                  ref={historyShortcutRef}
                   style={[
                     styles.quickShortcutPill,
                     {
@@ -662,7 +674,12 @@ export default function DashboardScreen() {
                       borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
                     },
                   ]}
-                  onPress={() => router.push('/(app)/activity')}
+                  onPress={() => launchFromView(historyShortcutRef.current, (origin) =>
+                    router.push({
+                      pathname: '/(app)/activity',
+                      params: getDashboardLaunchParams(origin),
+                    })
+                  )}
                   activeOpacity={0.8}
                 >
                   <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(255, 149, 0, 0.18)' }]}>

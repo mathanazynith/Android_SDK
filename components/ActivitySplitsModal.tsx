@@ -1,7 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import {
-    Modal,
     ScrollView,
     StatusBar,
     StyleSheet,
@@ -20,6 +19,8 @@ import {
 import { formatSplitTime } from '../src/utils/splitFormatters';
 import { getDistanceUnitCode, getDistanceUnitDisplayLabel } from '../utils/distanceUnit';
 import { RunningLoader } from './common/RunningLoader';
+import OriginZoomModal from './navigation/OriginZoomModal';
+import type { DashboardLaunchOrigin } from './navigation/dashboardLaunchTransition';
 
 interface ActivitySplitsModalProps {
   visible: boolean;
@@ -33,6 +34,8 @@ interface ActivitySplitsModalProps {
   distanceUnit?: string | null;
   onClose: () => void;
   onRetry: () => void;
+  launchOrigin?: DashboardLaunchOrigin;
+  onExitComplete?: () => void;
 }
 
 const typePresentation = (type: string, isDark: boolean, colors: ThemeColors) =>
@@ -108,6 +111,8 @@ export default function ActivitySplitsModal({
   distanceUnit,
   onClose,
   onRetry,
+  launchOrigin,
+  onExitComplete,
 }: ActivitySplitsModalProps) {
   const { isDark, colors } = useTheme();
   const splitTableWidth = 560;
@@ -166,8 +171,8 @@ export default function ActivitySplitsModal({
   const [collapsedLaps, setCollapsedLaps] = useState<Set<string>>(new Set());
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <OriginZoomModal visible={visible} launchOrigin={launchOrigin} onExitComplete={onExitComplete} onRequestClose={onClose}>
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <Text style={[styles.title, { color: colors.text }]}>Breakdown</Text>
@@ -409,8 +414,8 @@ export default function ActivitySplitsModal({
             })}
           </ScrollView>
         )}
-      </SafeAreaView>
-    </Modal>
+        </SafeAreaView>
+    </OriginZoomModal>
   );
 }
 

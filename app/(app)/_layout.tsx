@@ -13,7 +13,7 @@ import {
 } from '../../components/navigation/dashboardLaunchTransition';
 import { ActiveRunProvider, useActiveRun } from '../../contexts/ActiveRunContext';
 
-const nestedStackRouteNames = new Set(['custom-workout', 'questionnaire']);
+const nestedStackRouteNames = new Set(['custom-workout']);
 
 function AppLayoutContent() {
   const pathname = usePathname();

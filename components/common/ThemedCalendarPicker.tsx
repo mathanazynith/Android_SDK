@@ -1,10 +1,13 @@
 import { Feather } from "@expo/vector-icons";
-import { useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BRAND_GREEN, useTheme } from "../../contexts/ThemeContext";
+import OriginZoomModal from "../navigation/OriginZoomModal";
+import type { DashboardLaunchOrigin } from "../navigation/dashboardLaunchTransition";
 
 interface ThemedCalendarPickerProps {
+  visible?: boolean;
   value: Date;
   title: string;
   onCancel: () => void;
@@ -13,6 +16,8 @@ interface ThemedCalendarPickerProps {
   clearLabel?: string;
   minimumDate?: Date;
   maximumDate?: Date;
+  launchOrigin?: DashboardLaunchOrigin;
+  onExitComplete?: () => void;
 }
 
 const weekdayLabels = ["S", "M", "T", "W", "T", "F", "S"];
@@ -27,12 +32,19 @@ const clampToBounds = (date: Date, minimumDate?: Date, maximumDate?: Date) => {
   return day;
 };
 
-export default function ThemedCalendarPicker({ value, title, onCancel, onConfirm, onClear, clearLabel, minimumDate, maximumDate }: ThemedCalendarPickerProps) {
+export default function ThemedCalendarPicker({ visible = true, value, title, onCancel, onConfirm, onClear, clearLabel, minimumDate, maximumDate, launchOrigin, onExitComplete }: ThemedCalendarPickerProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [selectedDate, setSelectedDate] = useState(() => clampToBounds(value, minimumDate, maximumDate));
   const [displayMonth, setDisplayMonth] = useState(() => startOfMonth(clampToBounds(value, minimumDate, maximumDate)));
   const [showYears, setShowYears] = useState(false);
+
+  useEffect(() => {
+    if (!visible) return;
+    const nextDate = clampToBounds(value, minimumDate, maximumDate);
+    setSelectedDate(nextDate);
+    setDisplayMonth(startOfMonth(nextDate));
+  }, [maximumDate, minimumDate, value, visible]);
 
   const year = displayMonth.getFullYear();
   const month = displayMonth.getMonth();
@@ -57,7 +69,13 @@ export default function ThemedCalendarPicker({ value, title, onCancel, onConfirm
   };
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onCancel}>
+    <OriginZoomModal
+      visible={visible}
+      transparent
+      launchOrigin={launchOrigin}
+      onExitComplete={onExitComplete}
+      onRequestClose={onCancel}
+    >
       <View style={[styles.overlay, { backgroundColor: colors.overlay }]}>
         <Pressable accessibilityRole="button" accessibilityLabel="Close calendar" onPress={onCancel} style={StyleSheet.absoluteFill} />
         <View style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: Math.max(insets.bottom, 16) }]}>
@@ -156,7 +174,7 @@ export default function ThemedCalendarPicker({ value, title, onCancel, onConfirm
           </View>
         </View>
       </View>
-    </Modal>
+    </OriginZoomModal>
   );
 }
 

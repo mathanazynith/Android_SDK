@@ -28,6 +28,8 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-g
 import { useReducedMotion } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
+import OriginZoomView from '../../../components/navigation/OriginZoomView';
+import OriginZoomModal from '../../../components/navigation/OriginZoomModal';
 import ThemedCalendarPicker from '../../../components/common/ThemedCalendarPicker';
 import AppBlurView from '../../../components/common/AppBlurView';
 
@@ -86,9 +88,11 @@ type ActivityMenuPosition = {
   width: number;
   originXPercent: number;
   originYPercent: number;
+  originScaleX: number;
+  originScaleY: number;
 };
 type FilterPopoverPlacement = 'above' | 'below' | 'center';
-type FilterPopoverPosition = { left: number; top: number; width: number; maxHeight: number; originXPercent: number; originYPercent: number };
+type FilterPopoverPosition = { left: number; top: number; width: number; maxHeight: number; originXPercent: number; originYPercent: number; originScaleX: number; originScaleY: number };
 
 type ActivityListRow =
   | { type: 'section'; key: string; title: string; activities: BackendActivity[] }
@@ -781,6 +785,8 @@ export default function ActivityScreen() {
   const [savingActivityIds, setSavingActivityIds] = useState<Set<string>>(() => new Set());
   const [exportingActivityIds, setExportingActivityIds] = useState<Set<string>>(() => new Set());
   const [pendingSaveActivity, setPendingSaveActivity] = useState<BackendActivity | null>(null);
+  const [saveRouteDialogVisible, setSaveRouteDialogVisible] = useState(false);
+  const [saveRouteLaunchOrigin, setSaveRouteLaunchOrigin] = useState<DashboardLaunchOrigin>();
   const [pendingVisibilityAction, setPendingVisibilityAction] = useState<'private' | 'public' | null>(null);
   const [activityOptionsActivity, setActivityOptionsActivity] = useState<BackendActivity | null>(null);
   const [activityOptionsMessage, setActivityOptionsMessage] = useState<string | null>(null);
@@ -791,6 +797,8 @@ export default function ActivityScreen() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedActivityIds, setSelectedActivityIds] = useState<Set<string>>(() => new Set());
   const [pendingDeleteActivities, setPendingDeleteActivities] = useState<BackendActivity[] | null>(null);
+  const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
+  const [deleteDialogLaunchOrigin, setDeleteDialogLaunchOrigin] = useState<DashboardLaunchOrigin>();
   const groupMode: ActivityGroupMode = 'month';
   const [selectionToast, setSelectionToast] = useState<string | null>(null);
   const [deletingActivityIds, setDeletingActivityIds] = useState<Set<string>>(() => new Set());
@@ -800,6 +808,7 @@ export default function ActivityScreen() {
   const [filterDate, setFilterDate] = useState(() => new Date());
   const [selectedDistanceRange, setSelectedDistanceRange] = useState<ActivityDistanceFilter>('all');
   const [showNativeDatePicker, setShowNativeDatePicker] = useState(false);
+  const [datePickerLaunchOrigin, setDatePickerLaunchOrigin] = useState<DashboardLaunchOrigin>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
@@ -818,18 +827,24 @@ export default function ActivityScreen() {
   const [selectionToolbarOpacity] = useState(() => new Animated.Value(0));
   const [selectionToolbarTranslateY] = useState(() => new Animated.Value(8));
   const [activeFilterPopover, setActiveFilterPopover] = useState<FilterPopover | null>(null);
-  const [filterPopoverPosition, setFilterPopoverPosition] = useState<FilterPopoverPosition>({ left: 12, top: 72, width: 280, maxHeight: 420, originXPercent: 50, originYPercent: 50 });
+  const [filterPopoverPosition, setFilterPopoverPosition] = useState<FilterPopoverPosition>({ left: 12, top: 72, width: 280, maxHeight: 420, originXPercent: 50, originYPercent: 50, originScaleX: 0.02, originScaleY: 0.02 });
   const [activityOptionsPosition, setActivityOptionsPosition] = useState<ActivityMenuPosition>({
     left: 12,
     top: 72,
     width: 240,
     originXPercent: 50,
     originYPercent: 50,
+    originScaleX: 0.02,
+    originScaleY: 0.02,
   });
-  const [filterPopoverScale] = useState(() => new Animated.Value(0.02));
+  const [filterPopoverScaleX] = useState(() => new Animated.Value(0.02));
+  const [filterPopoverScaleY] = useState(() => new Animated.Value(0.02));
+  const [filterPopoverOpacity] = useState(() => new Animated.Value(0));
   const filterPopoverAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const filterPopoverClosingRef = useRef(false);
-  const [activityOptionsScale] = useState(() => new Animated.Value(0.82));
+  const filterPopoverRequestIdRef = useRef(0);
+  const [activityOptionsScaleX] = useState(() => new Animated.Value(0.82));
+  const [activityOptionsScaleY] = useState(() => new Animated.Value(0.82));
   const [activityOptionsOpacity] = useState(() => new Animated.Value(0));
   const activityOptionsAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const activityOptionsClosingRef = useRef(false);
@@ -837,6 +852,8 @@ export default function ActivityScreen() {
   const dateFilterAnchorRef = useRef<View>(null);
   const distanceFilterAnchorRef = useRef<View>(null);
   const datePickerAnchorRef = useRef<View>(null);
+  const deleteSelectedButtonRef = useRef<View>(null);
+  const saveRouteActionRef = useRef<View>(null);
   const activityTypeOptions = useMemo(() => [
     { label: 'All types', value: 'All types' },
     ...Array.from(new Set(activities.map((activity) => getNormalizedActivityType(activity.activity_type))))
@@ -879,7 +896,9 @@ export default function ActivityScreen() {
   }, [userId]);
 
   const openFilterPopover = useCallback((filter: FilterPopover, anchorRef: { current: View | null }, contentHeight: number) => {
+    const requestId = ++filterPopoverRequestIdRef.current;
     anchorRef.current?.measureInWindow((x, y, anchorWidth, anchorHeight) => {
+      if (requestId !== filterPopoverRequestIdRef.current) return;
       const horizontalMargin = 12;
       const leftLimit = insets.left + horizontalMargin;
       const rightLimit = windowWidth - insets.right - horizontalMargin;
@@ -903,19 +922,16 @@ export default function ActivityScreen() {
 
       const anchorCenterX = x + anchorWidth / 2;
       const anchorCenterY = y + anchorHeight / 2;
-      const originXPercent = Math.min(88, Math.max(12, ((anchorCenterX - left) / width) * 100));
-      const originYPercent = Math.min(88, Math.max(12, ((anchorCenterY - top) / maxHeight) * 100));
+      const originXPercent = ((anchorCenterX - left) / width) * 100;
+      const originYPercent = ((anchorCenterY - top) / maxHeight) * 100;
+      const originScaleX = Math.min(1, anchorWidth / width);
+      const originScaleY = Math.min(1, anchorHeight / maxHeight);
 
       filterPopoverAnimationRef.current?.stop();
       filterPopoverClosingRef.current = false;
-      filterPopoverScale.setValue(reduceMotion ? 1 : 0.02);
-
-      const animation = Animated.timing(filterPopoverScale, {
-        toValue: 1,
-        duration: reduceMotion ? 0 : 220,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      });
+      filterPopoverScaleX.setValue(reduceMotion ? 1 : originScaleX);
+      filterPopoverScaleY.setValue(reduceMotion ? 1 : originScaleY);
+      filterPopoverOpacity.setValue(reduceMotion ? 1 : 0);
 
       setFilterPopoverPosition({
         left,
@@ -924,15 +940,49 @@ export default function ActivityScreen() {
         maxHeight,
         originXPercent,
         originYPercent,
+        originScaleX,
+        originScaleY,
       });
       setActiveFilterPopover(filter);
-      filterPopoverAnimationRef.current = animation;
-      animation.start();
     });
-  }, [filterPopoverScale, insets.bottom, insets.left, insets.right, insets.top, reduceMotion, windowHeight, windowWidth]);
+  }, [filterPopoverOpacity, filterPopoverScaleX, filterPopoverScaleY, insets.bottom, insets.left, insets.right, insets.top, reduceMotion, windowHeight, windowWidth]);
+
+  const animateFilterPopoverIn = useCallback(() => {
+    filterPopoverAnimationRef.current?.stop();
+    filterPopoverClosingRef.current = false;
+    if (reduceMotion) {
+      filterPopoverScaleX.setValue(1);
+      filterPopoverScaleY.setValue(1);
+      filterPopoverOpacity.setValue(1);
+      return;
+    }
+    const animation = Animated.parallel([
+      Animated.timing(filterPopoverScaleX, {
+        toValue: 1,
+        duration: 250,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(filterPopoverScaleY, {
+        toValue: 1,
+        duration: 250,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(filterPopoverOpacity, {
+        toValue: 1,
+        duration: 200,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
+    filterPopoverAnimationRef.current = animation;
+    animation.start();
+  }, [filterPopoverOpacity, filterPopoverScaleX, filterPopoverScaleY, reduceMotion]);
 
   const closeFilterPopover = useCallback(() => {
     if (!activeFilterPopover || filterPopoverClosingRef.current) return;
+    filterPopoverRequestIdRef.current += 1;
     filterPopoverClosingRef.current = true;
     filterPopoverAnimationRef.current?.stop();
 
@@ -947,15 +997,29 @@ export default function ActivityScreen() {
       return;
     }
 
-    const animation = Animated.timing(filterPopoverScale, {
-      toValue: 0.02,
-      duration: 180,
-      easing: Easing.in(Easing.cubic),
-      useNativeDriver: true,
-    });
+    const animation = Animated.parallel([
+      Animated.timing(filterPopoverScaleX, {
+        toValue: filterPopoverPosition.originScaleX,
+        duration: 210,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(filterPopoverScaleY, {
+        toValue: filterPopoverPosition.originScaleY,
+        duration: 210,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(filterPopoverOpacity, {
+        toValue: 0,
+        duration: 180,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
     filterPopoverAnimationRef.current = animation;
     animation.start(finishClose);
-  }, [activeFilterPopover, filterPopoverScale, reduceMotion]);
+  }, [activeFilterPopover, filterPopoverOpacity, filterPopoverPosition.originScaleX, filterPopoverPosition.originScaleY, filterPopoverScaleX, filterPopoverScaleY, reduceMotion]);
 
   const showSelectionToast = useCallback((message: string) => {
     if (selectionToastTimerRef.current) clearTimeout(selectionToastTimerRef.current);
@@ -1213,7 +1277,7 @@ export default function ActivityScreen() {
         setActivities((current) => current.map((item) => String(item.id) === activityKey
           ? { ...item, is_saved_to_my_routes: true }
           : item));
-        setPendingSaveActivity(null);
+        setSaveRouteDialogVisible(false);
         Alert.alert(
           'Route saved privately',
           'The route was saved, but the server did not return its route ID, so it could not be published.'
@@ -1228,7 +1292,7 @@ export default function ActivityScreen() {
           setActivities((current) => current.map((item) => String(item.id) === activityKey
             ? { ...item, is_saved_to_my_routes: true, saved_route_id: routeId }
             : item));
-          setPendingSaveActivity(null);
+          setSaveRouteDialogVisible(false);
           Alert.alert(
             'Route saved privately',
             `The route was saved, but could not be published. ${getBackendErrorMessage(visibilityError, 'Try again from My Routes.')}`
@@ -1240,7 +1304,7 @@ export default function ActivityScreen() {
       setActivities((current) => current.map((item) => String(item.id) === activityKey
         ? { ...item, is_saved_to_my_routes: true, saved_route_id: routeId }
         : item));
-      setPendingSaveActivity(null);
+      setSaveRouteDialogVisible(false);
       showSelectionToast(`Route saved ${isPublic ? 'publicly' : 'privately'} to My Routes.`);
     } catch (requestError) {
       Alert.alert('Could not save route', getBackendErrorMessage(requestError, 'Please try again.'));
@@ -1266,7 +1330,7 @@ export default function ActivityScreen() {
       setActivities((current) => current.map((item) => String(item.id) === activityKey
         ? { ...item, is_saved_to_my_routes: true, saved_route_id: routeId, saved_route_is_public: isPublic }
         : item));
-      setPendingSaveActivity(null);
+      setSaveRouteDialogVisible(false);
       showSelectionToast(`Route made ${isPublic ? 'public' : 'private'}.`);
     } catch (requestError) {
       Alert.alert('Could not change route visibility', getBackendErrorMessage(requestError, 'Please try again.'));
@@ -1324,22 +1388,28 @@ export default function ActivityScreen() {
     }
 
     const animation = Animated.parallel([
-      Animated.timing(activityOptionsScale, {
-        toValue: 0.82,
-        duration: 130,
+      Animated.timing(activityOptionsScaleX, {
+        toValue: activityOptionsPosition.originScaleX,
+        duration: 160,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(activityOptionsScaleY, {
+        toValue: activityOptionsPosition.originScaleY,
+        duration: 160,
         easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(activityOptionsOpacity, {
         toValue: 0,
-        duration: 110,
+        duration: 140,
         easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }),
     ]);
     activityOptionsAnimationRef.current = animation;
     animation.start(finishClose);
-  }, [activityOptionsActivity, activityOptionsOpacity, activityOptionsScale, reduceMotion]);
+  }, [activityOptionsActivity, activityOptionsOpacity, activityOptionsPosition.originScaleX, activityOptionsPosition.originScaleY, activityOptionsScaleX, activityOptionsScaleY, reduceMotion]);
 
   const openActivityRouteMenu = useCallback((activity: BackendActivity, anchor: ActivityMenuAnchor) => {
     const routeId = Number(activity.saved_route_id);
@@ -1359,42 +1429,76 @@ export default function ActivityScreen() {
       : Math.max(topLimit, anchor.y - menuHeight - 4);
     const anchorCenterX = anchor.x + anchor.width / 2;
     const anchorCenterY = anchor.y + anchor.height / 2;
-    const originXPercent = Math.min(90, Math.max(10, ((anchorCenterX - left) / menuWidth) * 100));
-    const originYPercent = Math.min(90, Math.max(10, ((anchorCenterY - top) / menuHeight) * 100));
+    const originXPercent = ((anchorCenterX - left) / menuWidth) * 100;
+    const originYPercent = ((anchorCenterY - top) / menuHeight) * 100;
+    const originScaleX = Math.min(1, anchor.width / menuWidth);
+    const originScaleY = Math.min(1, anchor.height / menuHeight);
     activityOptionsAnimationRef.current?.stop();
     activityOptionsClosingRef.current = false;
-    activityOptionsScale.setValue(reduceMotion ? 1 : 0.82);
+    activityOptionsScaleX.setValue(reduceMotion ? 1 : originScaleX);
+    activityOptionsScaleY.setValue(reduceMotion ? 1 : originScaleY);
     activityOptionsOpacity.setValue(reduceMotion ? 1 : 0);
-    setActivityOptionsPosition({ left, top, width: menuWidth, originXPercent, originYPercent });
+    setActivityOptionsPosition({ left, top, width: menuWidth, originXPercent, originYPercent, originScaleX, originScaleY });
     setActivityOptionsMessage(
       hasMissingRouteId
         ? 'This route is saved, but its route ID is missing from the History response.'
         : null,
     );
     setActivityOptionsActivity(activity);
-    if (reduceMotion) return;
+  }, [activityOptionsOpacity, activityOptionsScaleX, activityOptionsScaleY, insets.bottom, insets.left, insets.right, insets.top, reduceMotion, windowHeight, windowWidth]);
 
+  const animateActivityOptionsIn = useCallback(() => {
+    activityOptionsAnimationRef.current?.stop();
+    activityOptionsClosingRef.current = false;
+    if (reduceMotion) {
+      activityOptionsScaleX.setValue(1);
+      activityOptionsScaleY.setValue(1);
+      activityOptionsOpacity.setValue(1);
+      return;
+    }
     const animation = Animated.parallel([
-      Animated.timing(activityOptionsScale, {
+      Animated.timing(activityOptionsScaleX, {
         toValue: 1,
-        duration: 170,
+        duration: 200,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(activityOptionsScaleY, {
+        toValue: 1,
+        duration: 200,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(activityOptionsOpacity, {
         toValue: 1,
-        duration: 150,
+        duration: 180,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
     ]);
     activityOptionsAnimationRef.current = animation;
     animation.start();
-  }, [activityOptionsOpacity, activityOptionsScale, insets.bottom, insets.left, insets.right, insets.top, reduceMotion, windowHeight, windowWidth]);
+  }, [activityOptionsOpacity, activityOptionsScaleX, activityOptionsScaleY, reduceMotion]);
+
+  const openSaveRouteDialog = useCallback((activity: BackendActivity, validateRouteReady = false) => {
+    launchFromView(saveRouteActionRef.current, (origin) => {
+      closeActivityOptions(() => {
+        const routeProcessingComplete = activity.is_processed === true
+          || (activity.is_processed == null && activity.processing_status.toUpperCase() === 'COMPLETED');
+        if (validateRouteReady && (!routeProcessingComplete || !activity.route_generated)) {
+          Alert.alert('Route not ready', 'This activity needs to finish processing its route before it can be saved.');
+          return;
+        }
+        setSaveRouteLaunchOrigin(origin);
+        setPendingSaveActivity(activity);
+        setSaveRouteDialogVisible(true);
+      });
+    });
+  }, [closeActivityOptions]);
 
   const changeActivityRouteVisibility = useCallback((activity: BackendActivity) => {
-    closeActivityOptions(() => setPendingSaveActivity(activity));
-  }, [closeActivityOptions]);
+    openSaveRouteDialog(activity);
+  }, [openSaveRouteDialog]);
 
   const deleteActivities = useCallback(async (targets: BackendActivity[]) => {
     if (targets.length === 0 || isDeletingActivities) return;
@@ -1478,7 +1582,11 @@ export default function ActivityScreen() {
       showSelectionToast('Please select at least one activity to delete.');
       return;
     }
-    setPendingDeleteActivities(targets);
+    launchFromView(deleteSelectedButtonRef.current, (origin) => {
+      setDeleteDialogLaunchOrigin(origin);
+      setPendingDeleteActivities(targets);
+      setDeleteDialogVisible(true);
+    });
   }, [showSelectionToast]);
 
   const confirmDeleteSelected = useCallback(() => {
@@ -1704,7 +1812,10 @@ export default function ActivityScreen() {
             <FilterTile
               label={formatDateLabel(filterDate)}
               icon="calendar-month"
-              onPress={() => setShowNativeDatePicker(true)}
+              onPress={() => launchFromView(datePickerAnchorRef.current, (origin) => {
+                setDatePickerLaunchOrigin(origin);
+                setShowNativeDatePicker(true);
+              })}
               anchorRef={datePickerAnchorRef}
               accentColor={colors.primary}
               surfaceColor={colors.surface}
@@ -1746,6 +1857,7 @@ export default function ActivityScreen() {
           </View>
           {selectedActivities.length > 0 && (
             <TouchableOpacity
+              ref={deleteSelectedButtonRef}
               accessibilityRole="button"
               accessibilityLabel={`Delete ${selectedActivities.length} selected workouts`}
               accessibilityState={{ disabled: isDeletingActivities, busy: isDeletingActivities }}
@@ -1764,8 +1876,8 @@ export default function ActivityScreen() {
         </Animated.View>
       )}
 
-      <Modal transparent visible={activeFilterPopover === 'type'} animationType="fade" onRequestClose={closeFilterPopover}>
-        <View style={styles.filterPopoverBackdrop}>
+      <Modal transparent visible={activeFilterPopover === 'type'} animationType="none" onShow={animateFilterPopoverIn} onRequestClose={closeFilterPopover}>
+        <Animated.View style={[styles.filterPopoverBackdrop, { opacity: filterPopoverOpacity }]}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close activity type filter" onPress={closeFilterPopover} style={StyleSheet.absoluteFill} />
           <Animated.View style={{
             position: 'absolute',
@@ -1777,7 +1889,7 @@ export default function ActivityScreen() {
             <Animated.View style={{
               width: filterPopoverPosition.width,
               maxHeight: filterPopoverPosition.maxHeight,
-              transform: [{ scale: filterPopoverScale }],
+              transform: [{ scaleX: filterPopoverScaleX }, { scaleY: filterPopoverScaleY }],
               transformOrigin: [
                 `${filterPopoverPosition.originXPercent}%`,
                 `${filterPopoverPosition.originYPercent}%`,
@@ -1807,11 +1919,11 @@ export default function ActivityScreen() {
               </View>
             </Animated.View>
           </Animated.View>
-        </View>
+        </Animated.View>
       </Modal>
 
-      <Modal transparent visible={activeFilterPopover === 'date'} animationType="fade" onRequestClose={closeFilterPopover}>
-        <View style={styles.filterPopoverBackdrop}>
+      <Modal transparent visible={activeFilterPopover === 'date'} animationType="none" onShow={animateFilterPopoverIn} onRequestClose={closeFilterPopover}>
+        <Animated.View style={[styles.filterPopoverBackdrop, { opacity: filterPopoverOpacity }]}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close date filter" onPress={closeFilterPopover} style={StyleSheet.absoluteFill} />
           <Animated.View style={{
             position: 'absolute',
@@ -1823,7 +1935,7 @@ export default function ActivityScreen() {
             <Animated.View style={{
               width: filterPopoverPosition.width,
               maxHeight: filterPopoverPosition.maxHeight,
-              transform: [{ scale: filterPopoverScale }],
+              transform: [{ scaleX: filterPopoverScaleX }, { scaleY: filterPopoverScaleY }],
               transformOrigin: [
                 `${filterPopoverPosition.originXPercent}%`,
                 `${filterPopoverPosition.originYPercent}%`,
@@ -1859,11 +1971,11 @@ export default function ActivityScreen() {
               </View>
             </Animated.View>
           </Animated.View>
-        </View>
+        </Animated.View>
       </Modal>
 
-      <Modal transparent visible={activeFilterPopover === 'distance'} animationType="fade" onRequestClose={closeFilterPopover}>
-        <View style={styles.filterPopoverBackdrop}>
+      <Modal transparent visible={activeFilterPopover === 'distance'} animationType="none" onShow={animateFilterPopoverIn} onRequestClose={closeFilterPopover}>
+        <Animated.View style={[styles.filterPopoverBackdrop, { opacity: filterPopoverOpacity }]}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close distance filter" onPress={closeFilterPopover} style={StyleSheet.absoluteFill} />
           <Animated.View style={{
             position: 'absolute',
@@ -1875,7 +1987,7 @@ export default function ActivityScreen() {
             <Animated.View style={{
               width: filterPopoverPosition.width,
               maxHeight: filterPopoverPosition.maxHeight,
-              transform: [{ scale: filterPopoverScale }],
+              transform: [{ scaleX: filterPopoverScaleX }, { scaleY: filterPopoverScaleY }],
               transformOrigin: [
                 `${filterPopoverPosition.originXPercent}%`,
                 `${filterPopoverPosition.originYPercent}%`,
@@ -1905,20 +2017,21 @@ export default function ActivityScreen() {
               </View>
             </Animated.View>
           </Animated.View>
-        </View>
+        </Animated.View>
       </Modal>
 
-      {showNativeDatePicker && (
-        <ThemedCalendarPicker
-          title="Select activity date"
-          value={filterDate}
-          onCancel={() => setShowNativeDatePicker(false)}
-          onConfirm={(selectedDate) => {
-            setShowNativeDatePicker(false);
-            setFilterDate(selectedDate);
-          }}
-        />
-      )}
+      <ThemedCalendarPicker
+        visible={showNativeDatePicker}
+        title="Select activity date"
+        value={filterDate}
+        launchOrigin={datePickerLaunchOrigin}
+        onExitComplete={() => setDatePickerLaunchOrigin(undefined)}
+        onCancel={() => setShowNativeDatePicker(false)}
+        onConfirm={(selectedDate) => {
+          setShowNativeDatePicker(false);
+          setFilterDate(selectedDate);
+        }}
+      />
 
       {error ? (
         <View style={styles.centerState}>
@@ -1977,6 +2090,7 @@ export default function ActivityScreen() {
         transparent
         animationType="none"
         statusBarTranslucent
+        onShow={animateActivityOptionsIn}
         onRequestClose={() => closeActivityOptions()}
       >
         <Animated.View style={[styles.activityOptionsBackdrop, { opacity: activityOptionsOpacity }]}>
@@ -2000,7 +2114,7 @@ export default function ActivityScreen() {
                   `${activityOptionsPosition.originYPercent}%`,
                   0,
                 ],
-                transform: [{ scale: activityOptionsScale }],
+                transform: [{ scaleX: activityOptionsScaleX }, { scaleY: activityOptionsScaleY }],
               },
             ]}>
               <TouchableOpacity
@@ -2019,6 +2133,7 @@ export default function ActivityScreen() {
                 <>
                   <View style={[styles.activityOptionsDivider, { backgroundColor: colors.border }]} />
                   <TouchableOpacity
+                    ref={saveRouteActionRef}
                     accessibilityRole="button"
                     onPress={() => changeActivityRouteVisibility(optionsActivity)}
                     style={styles.activityOptionsMenuItem}
@@ -2031,18 +2146,9 @@ export default function ActivityScreen() {
                 <>
                   <View style={[styles.activityOptionsDivider, { backgroundColor: colors.border }]} />
                   <TouchableOpacity
+                    ref={saveRouteActionRef}
                     accessibilityRole="button"
-                    onPress={() => {
-                      closeActivityOptions(() => {
-                        const routeProcessingComplete = optionsActivity.is_processed === true
-                          || (optionsActivity.is_processed == null && optionsActivity.processing_status.toUpperCase() === 'COMPLETED');
-                        if (!routeProcessingComplete || !optionsActivity.route_generated) {
-                          Alert.alert('Route not ready', 'This activity needs to finish processing its route before it can be saved.');
-                          return;
-                        }
-                        setPendingSaveActivity(optionsActivity);
-                      });
-                    }}
+                    onPress={() => openSaveRouteDialog(optionsActivity, true)}
                     style={styles.activityOptionsMenuItem}
                   >
                     <Feather name="bookmark" size={17} color={colors.textSecondary} />
@@ -2059,18 +2165,22 @@ export default function ActivityScreen() {
           )}
         </Animated.View>
       </Modal>
-      <Modal
-        visible={pendingDeleteActivities !== null}
+      <OriginZoomModal
+        visible={deleteDialogVisible}
         transparent
-        animationType="slide"
         statusBarTranslucent
-        onRequestClose={() => setPendingDeleteActivities(null)}
+        launchOrigin={deleteDialogLaunchOrigin}
+        onExitComplete={() => {
+          setPendingDeleteActivities(null);
+          setDeleteDialogLaunchOrigin(undefined);
+        }}
+        onRequestClose={() => setDeleteDialogVisible(false)}
       >
         <View style={[styles.actionSheetBackdrop, { backgroundColor: colors.overlay, paddingBottom: Math.max(insets.bottom, 12) }]}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Cancel delete confirmation"
-            onPress={() => setPendingDeleteActivities(null)}
+            onPress={() => setDeleteDialogVisible(false)}
             style={StyleSheet.absoluteFill}
           />
           <View style={[styles.deleteConfirmationSheet, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -2085,7 +2195,7 @@ export default function ActivityScreen() {
               onPress={() => {
                 if (!pendingDeleteActivities) return;
                 const targets = pendingDeleteActivities;
-                setPendingDeleteActivities(null);
+                setDeleteDialogVisible(false);
                 void deleteActivities(targets);
               }}
               style={styles.deleteConfirmationAction}
@@ -2096,22 +2206,26 @@ export default function ActivityScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               accessibilityRole="button"
-              onPress={() => setPendingDeleteActivities(null)}
+              onPress={() => setDeleteDialogVisible(false)}
               style={[styles.deleteConfirmationCancel, { backgroundColor: colors.surfaceRaised }]}
             >
               <Text style={[styles.deleteConfirmationCancelText, { color: colors.text }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
-      <Modal
-        visible={pendingSaveActivity !== null}
+      </OriginZoomModal>
+      <OriginZoomModal
+        visible={saveRouteDialogVisible}
         transparent
-        animationType="fade"
         statusBarTranslucent
+        launchOrigin={saveRouteLaunchOrigin}
+        onExitComplete={() => {
+          setPendingSaveActivity(null);
+          setSaveRouteLaunchOrigin(undefined);
+        }}
         onRequestClose={() => {
           if (!pendingSaveActivity || pendingVisibilityBusy) return;
-          setPendingSaveActivity(null);
+          setSaveRouteDialogVisible(false);
         }}
       >
         <View style={[styles.saveRouteBackdrop, { backgroundColor: colors.overlay, paddingBottom: Math.max(insets.bottom, 16) }]}>
@@ -2119,7 +2233,7 @@ export default function ActivityScreen() {
             accessibilityRole="button"
             accessibilityLabel="Close route visibility options"
             disabled={pendingVisibilityBusy}
-            onPress={() => setPendingSaveActivity(null)}
+            onPress={() => setSaveRouteDialogVisible(false)}
             style={StyleSheet.absoluteFill}
           />
           <View style={[styles.saveRouteDialog, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -2166,14 +2280,14 @@ export default function ActivityScreen() {
             <TouchableOpacity
               accessibilityRole="button"
               disabled={pendingVisibilityBusy}
-              onPress={() => setPendingSaveActivity(null)}
+              onPress={() => setSaveRouteDialogVisible(false)}
               style={styles.saveRouteCancel}
             >
               <Text style={[styles.saveRouteCancelText, { color: colors.textSecondary }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
+      </OriginZoomModal>
       </View>
     </SafeAreaView>
     </GestureHandlerRootView>

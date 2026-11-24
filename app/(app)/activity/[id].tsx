@@ -2,7 +2,7 @@ import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -11,9 +11,11 @@ import ActivitySplitsModal from '../../../components/ActivitySplitsModal';
 import { WorkoutShareStudioModal } from '../../../components/share/WorkoutShareStudioModal';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
+import OriginZoomModal from '../../../components/navigation/OriginZoomModal';
 import {
   getActivityLaunchParams,
   launchFromView,
+  type DashboardLaunchOrigin,
 } from '../../../components/navigation/dashboardLaunchTransition';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage } from '../../../service/api';
@@ -86,6 +88,9 @@ export default function ActivityDetailScreen() {
   }>();
   const autoOpenedSplitsRef = useRef(false);
   const cropButtonRef = useRef<View>(null);
+  const splitsButtonRef = useRef<View>(null);
+  const shareCardButtonRef = useRef<View>(null);
+  const postWorkoutButtonRef = useRef<View>(null);
   const [activity, setActivity] = useState<BackendActivity | null>(null);
   const [savedRouteId, setSavedRouteId] = useState<number | null>(null);
   const [savedRouteIsPublic, setSavedRouteIsPublic] = useState<boolean | null>(null);
@@ -94,13 +99,16 @@ export default function ActivityDetailScreen() {
   const [deleting, setDeleting] = useState(false);
   const [exportingGpx, setExportingGpx] = useState(false);
   const [shareCardVisible, setShareCardVisible] = useState(false);
+  const [shareCardLaunchOrigin, setShareCardLaunchOrigin] = useState<DashboardLaunchOrigin>();
   const [postWorkoutVisible, setPostWorkoutVisible] = useState(false);
+  const [postWorkoutLaunchOrigin, setPostWorkoutLaunchOrigin] = useState<DashboardLaunchOrigin>();
   const [postWorkoutBusy, setPostWorkoutBusy] = useState(false);
   const [postWorkoutError, setPostWorkoutError] = useState<string | null>(null);
   const [postWorkoutComplete, setPostWorkoutComplete] = useState(false);
   const [postVisibilityDraft, setPostVisibilityDraft] = useState<SocialPostVisibility | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [splitsVisible, setSplitsVisible] = useState(false);
+  const [splitsLaunchOrigin, setSplitsLaunchOrigin] = useState<DashboardLaunchOrigin>();
   const [splitsLoading, setSplitsLoading] = useState(false);
   const [splitsError, setSplitsError] = useState<string | null>(null);
   const [splitSegments, setSplitSegments] = useState<ActivitySegmentSplits[]>([]);
@@ -180,7 +188,10 @@ export default function ActivityDetailScreen() {
         : activity?.share_audience === 'FOLLOWERS' ? 'FOLLOWERS'
         : 'ONLY_ME'
       : null);
-    setPostWorkoutVisible(true);
+    launchFromView(postWorkoutButtonRef.current, (origin) => {
+      setPostWorkoutLaunchOrigin(origin);
+      setPostWorkoutVisible(true);
+    });
   };
 
   const postSavedWorkout = async (visibility: SocialPostVisibility) => {
@@ -341,16 +352,24 @@ export default function ActivityDetailScreen() {
               <Feather name="scissors" size={20} color="#FFB020" />
             </TouchableOpacity>
             <TouchableOpacity
+              ref={splitsButtonRef}
               accessibilityLabel="Open split details"
-              onPress={() => void loadSplits()}
+              onPress={() => launchFromView(splitsButtonRef.current, (origin) => {
+                setSplitsLaunchOrigin(origin);
+                void loadSplits();
+              })}
               style={styles.splitButton}
             >
               <Feather name="list" size={20} color={colors.primary} />
             </TouchableOpacity>
             <TouchableOpacity
+              ref={shareCardButtonRef}
               accessibilityRole="button"
               accessibilityLabel="Share workout card"
-              onPress={() => setShareCardVisible(true)}
+              onPress={() => launchFromView(shareCardButtonRef.current, (origin) => {
+                setShareCardLaunchOrigin(origin);
+                setShareCardVisible(true);
+              })}
               style={styles.exportButton}
             >
               <Feather name="share-2" size={20} color={colors.primary} />
@@ -450,6 +469,7 @@ export default function ActivityDetailScreen() {
             </View>
 
             <TouchableOpacity
+              ref={postWorkoutButtonRef}
               accessibilityRole="button"
               accessibilityLabel={activity.post_id ? 'Change workout post audience' : 'Post saved workout to Connections'}
               onPress={openPostWorkout}
@@ -496,10 +516,11 @@ export default function ActivityDetailScreen() {
           </ScrollView>
         </View>
       ) : null}
-      <Modal
+      <OriginZoomModal
         visible={postWorkoutVisible}
         transparent
-        animationType="fade"
+        launchOrigin={postWorkoutLaunchOrigin}
+        onExitComplete={() => setPostWorkoutLaunchOrigin(undefined)}
         onRequestClose={() => !postWorkoutBusy && setPostWorkoutVisible(false)}
       >
         <View style={styles.postAudienceBackdrop}>
@@ -564,7 +585,7 @@ export default function ActivityDetailScreen() {
             {postWorkoutError ? <Text style={styles.postAudienceError}>{postWorkoutError}</Text> : null}
           </View>
         </View>
-      </Modal>
+      </OriginZoomModal>
       <ActivitySplitsModal
         visible={splitsVisible}
         loading={splitsLoading}
@@ -575,6 +596,8 @@ export default function ActivityDetailScreen() {
         extraLaps={extraLapRecords}
         extraDistanceMeters={extraDistanceMeters}
         distanceUnit={distanceUnit}
+        launchOrigin={splitsLaunchOrigin}
+        onExitComplete={() => setSplitsLaunchOrigin(undefined)}
         onClose={() => setSplitsVisible(false)}
         onRetry={() => void loadSplits()}
       />
@@ -583,6 +606,8 @@ export default function ActivityDetailScreen() {
         onClose={() => setShareCardVisible(false)}
         activity={activity}
         distanceUnit={distanceUnit}
+        launchOrigin={shareCardLaunchOrigin}
+        onExitComplete={() => setShareCardLaunchOrigin(undefined)}
       />
     </SafeAreaView>
   );

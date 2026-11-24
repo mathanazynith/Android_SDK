@@ -3,7 +3,6 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Animated, { useReducedMotion, ZoomIn, ZoomOut } from 'react-native-reanimated';
 import { type DashboardLaunchOrigin } from './navigation/dashboardLaunchTransition';
 import {
   ActivityIndicator,
@@ -39,6 +38,7 @@ import {
   type SharingSettings,
 } from '../src/services/socialApi';
 import ActiveRunBanner from './navigation/ActiveRunBanner';
+import OriginZoomModal from './navigation/OriginZoomModal';
 import { CustomSlider } from './CustomSlider';
 import { useResponsive } from '../utils/responsive';
 import { openLegalPage } from '../src/utils/legalLinks';
@@ -88,7 +88,6 @@ export default function SettingsMenu({
   onDismiss,
 }: SettingsMenuProps) {
   const { colors, isDark, preference, setPreference } = useTheme();
-  const reduceMotion = useReducedMotion();
   const activeRun = useActiveRun();
   const [navigateToRunAfterDismiss, setNavigateToRunAfterDismiss] = useState(false);
   const [runToNavigateTo, setRunToNavigateTo] = useState<BackgroundLocationSessionState | null>(null);
@@ -109,6 +108,7 @@ export default function SettingsMenu({
   const [sharingDialogVisible, setSharingDialogVisible] = useState(false);
   const [sharingDialogError, setSharingDialogError] = useState<string | null>(null);
   const [savingAudience, setSavingAudience] = useState<SharingSettings['default_audience'] | null>(null);
+
   const [routePrivacy, setRoutePrivacy] = useState<RoutePrivacySettings | null>(null);
   const [followRequests, setFollowRequests] = useState<ConnectionUser[]>([]);
   const [blockedAccounts, setBlockedAccounts] = useState<ConnectionUser[]>([]);
@@ -796,9 +796,9 @@ export default function SettingsMenu({
     && selectedZoneLongitude <= 180;
 
   return (
-    <Modal
+    <OriginZoomModal
       visible={visible}
-      animationType={launchOrigin && !reduceMotion ? 'fade' : 'slide'}
+      launchOrigin={launchOrigin}
       onShow={() => {
         setPage(initialPage);
         onInitialPageApplied?.();
@@ -819,17 +819,11 @@ export default function SettingsMenu({
         });
       }}
     >
-      <Animated.View
-        key={visible ? `${launchOrigin?.x ?? 'center'}:${launchOrigin?.y ?? 'center'}` : 'hidden'}
+      <View
         style={[
           styles.fullPage,
           { backgroundColor: isDark ? colors.background : '#FFFFFF', paddingTop: insets.top, paddingBottom: insets.bottom },
-          launchOrigin && { transformOrigin: [launchOrigin.x, launchOrigin.y, 0] },
         ]}
-        entering={launchOrigin && !reduceMotion
-          ? ZoomIn.withInitialValues({ transform: [{ scale: 0.02 }] }).duration(320)
-          : undefined}
-        exiting={launchOrigin && !reduceMotion ? ZoomOut.duration(320) : undefined}
       >
           <View {...swipeDismissResponder.panHandlers} style={[styles.pageHeader, page === 'home' && styles.homePageHeader]}>
           {page === 'home' ? (
@@ -1557,8 +1551,8 @@ export default function SettingsMenu({
             </View>
           </View>
         </Modal>
-      </Animated.View>
-    </Modal>
+      </View>
+    </OriginZoomModal>
   );
 }
 

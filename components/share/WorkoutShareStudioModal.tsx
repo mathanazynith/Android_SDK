@@ -3,7 +3,6 @@ import {
   Clipboard,
   Dimensions,
   Linking,
-  Modal,
   Platform,
   ScrollView,
   Share,
@@ -26,12 +25,16 @@ import { decodePolyline } from '../../src/utils/polylineDecoder';
 import { formatDurationMmSs as formatDuration } from '../../src/utils/splitFormatters';
 import { WorkoutShareCard } from './WorkoutShareCard';
 import { WORKOUT_SHARE_THEMES, WorkoutShareTheme } from './workoutShareThemes';
+import OriginZoomModal from '../navigation/OriginZoomModal';
+import type { DashboardLaunchOrigin } from '../navigation/dashboardLaunchTransition';
 
 export interface WorkoutShareStudioModalProps {
   visible: boolean;
   onClose: () => void;
   activity: BackendActivity | null;
   distanceUnit?: string | null;
+  launchOrigin?: DashboardLaunchOrigin;
+  onExitComplete?: () => void;
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -61,6 +64,8 @@ export const WorkoutShareStudioModal: React.FC<WorkoutShareStudioModalProps> = (
   visible,
   onClose,
   activity,
+  launchOrigin,
+  onExitComplete,
 }) => {
   const { colors, isDark } = useTheme();
 
@@ -316,13 +321,14 @@ export const WorkoutShareStudioModal: React.FC<WorkoutShareStudioModalProps> = (
   const themeList = Object.values(WORKOUT_SHARE_THEMES);
 
   return (
-    <Modal
+    <OriginZoomModal
       visible={visible}
-      animationType="slide"
       transparent={false}
       onRequestClose={onClose}
+      launchOrigin={launchOrigin}
+      onExitComplete={onExitComplete}
     >
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <StatusBar
           barStyle={isDark ? 'light-content' : 'dark-content'}
           backgroundColor={colors.background}
@@ -540,8 +546,8 @@ export const WorkoutShareStudioModal: React.FC<WorkoutShareStudioModalProps> = (
             </TouchableOpacity>
           </View>
         </ScrollView>
-      </SafeAreaView>
-    </Modal>
+        </SafeAreaView>
+    </OriginZoomModal>
   );
 };
 

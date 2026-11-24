@@ -1,51 +1,62 @@
 import type { View } from 'react-native';
 
-export type DashboardLaunchOrigin = { x: number; y: number };
+export type DashboardLaunchOrigin = {
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+};
+
+const getOriginParams = (origin?: DashboardLaunchOrigin, prefix = 'launchOrigin') =>
+  origin
+    ? {
+        [`${prefix}X`]: String(origin.x),
+        [`${prefix}Y`]: String(origin.y),
+        ...(origin.width && origin.height
+          ? {
+              [`${prefix}Width`]: String(origin.width),
+              [`${prefix}Height`]: String(origin.height),
+            }
+          : {}),
+      }
+    : undefined;
+
+const parseOrigin = (params: object | undefined, prefix: string): DashboardLaunchOrigin | undefined => {
+  const values = params as Record<string, unknown> | undefined;
+  const rawX = values?.[`${prefix}X`];
+  const rawY = values?.[`${prefix}Y`];
+  if (typeof rawX !== 'string' || typeof rawY !== 'string') return undefined;
+
+  const x = Number(rawX);
+  const y = Number(rawY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return undefined;
+
+  const rawWidth = values?.[`${prefix}Width`];
+  const rawHeight = values?.[`${prefix}Height`];
+  const width = typeof rawWidth === 'string' ? Number(rawWidth) : undefined;
+  const height = typeof rawHeight === 'string' ? Number(rawHeight) : undefined;
+  return width && height && Number.isFinite(width) && Number.isFinite(height)
+    ? { x, y, width, height }
+    : { x, y };
+};
 
 export const getDashboardLaunchParams = (origin?: DashboardLaunchOrigin) =>
-  origin
-    ? { launchOriginX: String(origin.x), launchOriginY: String(origin.y) }
-    : undefined;
+  getOriginParams(origin);
 
 export const getTabLaunchParams = (origin?: DashboardLaunchOrigin) =>
-  origin
-    ? { tabLaunchOriginX: String(origin.x), tabLaunchOriginY: String(origin.y) }
-    : undefined;
+  getOriginParams(origin, 'tabLaunchOrigin');
 
 export const getActivityLaunchParams = (origin?: DashboardLaunchOrigin) =>
-  origin
-    ? { activityLaunchOriginX: String(origin.x), activityLaunchOriginY: String(origin.y) }
-    : undefined;
+  getOriginParams(origin, 'activityLaunchOrigin');
 
-export const getDashboardLaunchOrigin = (params?: object): DashboardLaunchOrigin | undefined => {
-  const rawX = params && 'launchOriginX' in params ? params.launchOriginX : undefined;
-  const rawY = params && 'launchOriginY' in params ? params.launchOriginY : undefined;
-  if (typeof rawX !== 'string' || typeof rawY !== 'string') return undefined;
+export const getDashboardLaunchOrigin = (params?: object): DashboardLaunchOrigin | undefined =>
+  parseOrigin(params, 'launchOrigin');
 
-  const x = Number(rawX);
-  const y = Number(rawY);
-  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : undefined;
-};
+export const getTabLaunchOrigin = (params?: object): DashboardLaunchOrigin | undefined =>
+  parseOrigin(params, 'tabLaunchOrigin');
 
-export const getTabLaunchOrigin = (params?: object): DashboardLaunchOrigin | undefined => {
-  const rawX = params && 'tabLaunchOriginX' in params ? params.tabLaunchOriginX : undefined;
-  const rawY = params && 'tabLaunchOriginY' in params ? params.tabLaunchOriginY : undefined;
-  if (typeof rawX !== 'string' || typeof rawY !== 'string') return undefined;
-
-  const x = Number(rawX);
-  const y = Number(rawY);
-  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : undefined;
-};
-
-export const getActivityLaunchOrigin = (params?: object): DashboardLaunchOrigin | undefined => {
-  const rawX = params && 'activityLaunchOriginX' in params ? params.activityLaunchOriginX : undefined;
-  const rawY = params && 'activityLaunchOriginY' in params ? params.activityLaunchOriginY : undefined;
-  if (typeof rawX !== 'string' || typeof rawY !== 'string') return undefined;
-
-  const x = Number(rawX);
-  const y = Number(rawY);
-  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : undefined;
-};
+export const getActivityLaunchOrigin = (params?: object): DashboardLaunchOrigin | undefined =>
+  parseOrigin(params, 'activityLaunchOrigin');
 
 export const launchFromView = (
   source: View | null,
@@ -62,6 +73,6 @@ export const launchFromView = (
       return;
     }
 
-    navigate({ x: x + width / 2, y: y + height / 2 });
+    navigate({ x: x + width / 2, y: y + height / 2, width, height });
   });
 };
