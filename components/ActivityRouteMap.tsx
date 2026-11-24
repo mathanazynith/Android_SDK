@@ -68,6 +68,7 @@ interface ActivityRouteMapProps {
   enableFullScreen?: boolean;
   compactPreview?: boolean;
   googleMapPreview?: boolean;
+  routeOnly?: boolean;
   onPress?: () => void;
   activityStats?: ActivityMapStats;
   distanceUnit?: string | null;
@@ -143,6 +144,7 @@ function ActivityRouteMap({
   enableFullScreen,
   compactPreview = false,
   googleMapPreview = false,
+  routeOnly = false,
   onPress,
   activityStats,
   distanceUnit,
@@ -543,7 +545,7 @@ function ActivityRouteMap({
           variant === 'preview' && compactPreview && styles.compactPreviewMapContainer,
         ]}
       >
-        {variant === 'preview' && previewProjection && !googleMapPreview ? (
+        {variant === 'preview' && previewProjection && (routeOnly || !googleMapPreview) ? (
           <Svg
             width="100%"
             height="100%"
@@ -561,22 +563,30 @@ function ActivityRouteMap({
                 <Stop offset="1" stopColor="#10B981" />
               </LinearGradient>
             </Defs>
-            <Rect width={previewProjection.width} height={previewProjection.height} fill="url(#activityPreviewBackground)" />
-            <Path
-              d={compactPreview
-                ? `M-12 ${previewProjection.height * 0.3} C${previewProjection.width * 0.18} ${previewProjection.height * 0.12} ${previewProjection.width * 0.32} ${previewProjection.height * 0.48} ${previewProjection.width * 0.5} ${previewProjection.height * 0.3} S${previewProjection.width * 0.82} ${previewProjection.height * 0.12} ${previewProjection.width + 12} ${previewProjection.height * 0.3} M-12 ${previewProjection.height * 0.53} C${previewProjection.width * 0.18} ${previewProjection.height * 0.35} ${previewProjection.width * 0.32} ${previewProjection.height * 0.7} ${previewProjection.width * 0.5} ${previewProjection.height * 0.53} S${previewProjection.width * 0.82} ${previewProjection.height * 0.35} ${previewProjection.width + 12} ${previewProjection.height * 0.53} M-12 ${previewProjection.height * 0.82} C${previewProjection.width * 0.18} ${previewProjection.height * 0.64} ${previewProjection.width * 0.32} ${previewProjection.height} ${previewProjection.width * 0.5} ${previewProjection.height * 0.82} S${previewProjection.width * 0.82} ${previewProjection.height * 0.64} ${previewProjection.width + 12} ${previewProjection.height * 0.82}`
-                : 'M-12 42 C18 20 40 56 70 35 S122 20 154 42 M-12 60 C18 38 40 74 70 53 S122 38 154 60 M-12 112 C18 90 40 126 70 105 S122 90 154 112'}
-              fill="none"
-              stroke={isDark ? '#B7F7DA' : '#39856B'}
-              strokeWidth={0.8}
-              opacity={isDark ? 0.1 : 0.13}
+            <Rect
+              width={previewProjection.width}
+              height={previewProjection.height}
+              fill={routeOnly ? (isDark ? '#111827' : '#F3F4F6') : 'url(#activityPreviewBackground)'}
             />
-            <Circle cx={compactPreview ? previewProjection.width * 0.82 : 116} cy={compactPreview ? previewProjection.height * 0.22 : 27} r={compactPreview ? previewProjection.height * 0.24 : 25} fill={isDark ? '#6EE7B7' : '#34D399'} opacity={0.08} />
-            <Circle cx={compactPreview ? previewProjection.width * 0.82 : 116} cy={compactPreview ? previewProjection.height * 0.22 : 27} r={compactPreview ? previewProjection.height * 0.16 : 17} fill="none" stroke={isDark ? '#A7F3D0' : '#047857'} strokeWidth={0.8} opacity={0.15} />
-            <Circle cx={compactPreview ? previewProjection.width * 0.17 : 24} cy={compactPreview ? previewProjection.height * 0.78 : 116} r={compactPreview ? previewProjection.height * 0.18 : 19} fill="none" stroke={isDark ? '#A7F3D0' : '#047857'} strokeWidth={0.8} opacity={0.12} />
-            <Path d={compactPreview
-              ? `M0 ${previewProjection.height / 2} H${previewProjection.width} M${previewProjection.width / 2} 0 V${previewProjection.height}`
-              : 'M0 70 H140 M70 0 V140'} stroke={isDark ? '#D1FAE5' : '#166534'} strokeWidth={0.6} opacity={0.07} />
+            {!routeOnly ? (
+              <>
+                <Path
+                  d={compactPreview
+                    ? `M-12 ${previewProjection.height * 0.3} C${previewProjection.width * 0.18} ${previewProjection.height * 0.12} ${previewProjection.width * 0.32} ${previewProjection.height * 0.48} ${previewProjection.width * 0.5} ${previewProjection.height * 0.3} S${previewProjection.width * 0.82} ${previewProjection.height * 0.12} ${previewProjection.width + 12} ${previewProjection.height * 0.3} M-12 ${previewProjection.height * 0.53} C${previewProjection.width * 0.18} ${previewProjection.height * 0.35} ${previewProjection.width * 0.32} ${previewProjection.height * 0.7} ${previewProjection.width * 0.5} ${previewProjection.height * 0.53} S${previewProjection.width * 0.82} ${previewProjection.height * 0.35} ${previewProjection.width + 12} ${previewProjection.height * 0.53} M-12 ${previewProjection.height * 0.82} C${previewProjection.width * 0.18} ${previewProjection.height * 0.64} ${previewProjection.width * 0.32} ${previewProjection.height} ${previewProjection.width * 0.5} ${previewProjection.height * 0.82} S${previewProjection.width * 0.82} ${previewProjection.height * 0.64} ${previewProjection.width + 12} ${previewProjection.height * 0.82}`
+                    : 'M-12 42 C18 20 40 56 70 35 S122 20 154 42 M-12 60 C18 38 40 74 70 53 S122 38 154 60 M-12 112 C18 90 40 126 70 105 S122 90 154 112'}
+                  fill="none"
+                  stroke={isDark ? '#B7F7DA' : '#39856B'}
+                  strokeWidth={0.8}
+                  opacity={isDark ? 0.1 : 0.13}
+                />
+                <Circle cx={compactPreview ? previewProjection.width * 0.82 : 116} cy={compactPreview ? previewProjection.height * 0.22 : 27} r={compactPreview ? previewProjection.height * 0.24 : 25} fill={isDark ? '#6EE7B7' : '#34D399'} opacity={0.08} />
+                <Circle cx={compactPreview ? previewProjection.width * 0.82 : 116} cy={compactPreview ? previewProjection.height * 0.22 : 27} r={compactPreview ? previewProjection.height * 0.16 : 17} fill="none" stroke={isDark ? '#A7F3D0' : '#047857'} strokeWidth={0.8} opacity={0.15} />
+                <Circle cx={compactPreview ? previewProjection.width * 0.17 : 24} cy={compactPreview ? previewProjection.height * 0.78 : 116} r={compactPreview ? previewProjection.height * 0.18 : 19} fill="none" stroke={isDark ? '#A7F3D0' : '#047857'} strokeWidth={0.8} opacity={0.12} />
+                <Path d={compactPreview
+                  ? `M0 ${previewProjection.height / 2} H${previewProjection.width} M${previewProjection.width / 2} 0 V${previewProjection.height}`
+                  : 'M0 70 H140 M70 0 V140'} stroke={isDark ? '#D1FAE5' : '#166534'} strokeWidth={0.6} opacity={0.07} />
+              </>
+            ) : null}
             {previewProjection.routes.map((route) => (
               <Path
                 key={`${route.key}-glow`}
@@ -631,6 +641,7 @@ function ActivityRouteMap({
         <MapView
           ref={mapRef}
           provider={PROVIDER_GOOGLE}
+          mapType={routeOnly ? 'none' : mapType}
           style={styles.map}
           initialRegion={{
             latitude: firstPoint.latitude,
