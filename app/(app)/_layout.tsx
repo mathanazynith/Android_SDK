@@ -1,17 +1,20 @@
 import { Alert } from '@/components/ThemedAlert';
 import { BlurTargetView } from 'expo-blur';
-import { router, Stack, usePathname } from 'expo-router';
+import { router, Stack, useGlobalSearchParams, usePathname } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { BackHandler, Platform, View } from 'react-native';
 import ActiveRunBanner from '../../components/navigation/ActiveRunBanner';
 import GlobalBottomNav, { isPrimaryTabPath } from '../../components/navigation/GlobalBottomNav';
 import TabZoomTransition from '../../components/navigation/TabZoomTransition';
+import { getDashboardLaunchOrigin } from '../../components/navigation/dashboardLaunchTransition';
 import { ActiveRunProvider, useActiveRun } from '../../contexts/ActiveRunContext';
 
 const nestedStackRouteNames = new Set(['custom-workout', 'questionnaire']);
 
 function AppLayoutContent() {
   const pathname = usePathname();
+  const globalParams = useGlobalSearchParams();
+  const hasDashboardLaunchOrigin = Boolean(getDashboardLaunchOrigin(globalParams));
   const showBottomNav = isPrimaryTabPath(pathname);
   const activeRun = useActiveRun();
   const blurTargetRef = useRef<View | null>(null);
@@ -30,7 +33,11 @@ function AppLayoutContent() {
 
       if (pathname.replace('/(app)', '') !== '/dashboard') {
         backNavigationPending.current = true;
-        router.replace('/(app)/dashboard');
+        if (hasDashboardLaunchOrigin && router.canGoBack()) {
+          router.back();
+        } else {
+          router.replace('/(app)/dashboard');
+        }
         return true;
       }
 
@@ -43,16 +50,26 @@ function AppLayoutContent() {
 
     const backHandler = BackHandler.addEventListener('hardwareBackPress', handleBackPress);
     return () => backHandler.remove();
-  }, [pathname, showBottomNav]);
+  }, [hasDashboardLaunchOrigin, pathname, showBottomNav]);
 
-  const renderScreen = ({ route, children }: { route: { key: string; name: string }; children: React.ReactElement }) => (
-    <TabZoomTransition
-      key={route.key}
-      animate={route.name !== 'screens/map' && !nestedStackRouteNames.has(route.name)}
-    >
-      {children}
-    </TabZoomTransition>
-  );
+  const renderScreen = ({
+    route,
+    children,
+  }: {
+    route: { key: string; name: string; params?: object };
+    children: React.ReactElement;
+  }) => {
+    const launchOrigin = getDashboardLaunchOrigin(route.params);
+    return (
+      <TabZoomTransition
+        key={route.key}
+        launchOrigin={launchOrigin}
+        animate={Boolean(launchOrigin) || (route.name !== 'screens/map' && !nestedStackRouteNames.has(route.name))}
+      >
+        {children}
+      </TabZoomTransition>
+    );
+  };
 
   const stackContent = (
     <Stack

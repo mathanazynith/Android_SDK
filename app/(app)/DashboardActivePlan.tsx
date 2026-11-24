@@ -1,7 +1,13 @@
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { useRef } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import DashboardText from '../../components/common/DashboardText';
+import {
+  getDashboardLaunchParams,
+  launchFromView,
+  type DashboardLaunchOrigin,
+} from '../../components/navigation/dashboardLaunchTransition';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../service/auth';
 import type { UserWorkoutResponse } from '../../service/customWorkout';
@@ -57,6 +63,12 @@ export default function DashboardActivePlan({
   const profileUnit: DistanceUnitType =
     getDistanceUnitCode(user?.profile?.distance_unit) === 'mile' ? 'mi' : 'km';
   const paceUnitLabel = getPaceUnitLabel(profileUnit);
+  const planCardRef = useRef<View | null>(null);
+  const scheduledWorkoutStartRef = useRef<View | null>(null);
+  const customHeroStartRef = useRef<View | null>(null);
+  const scheduledCustomStartRef = useRef<View | null>(null);
+  const quickStartRecordRef = useRef<View | null>(null);
+  const popularWorkoutRefs = useRef<Record<string, View | null>>({});
 
   const isRestDay = !todayWorkout || isRestWorkout(todayWorkout);
   const planName = plan.training_plan || plan.template_name || 'Training Plan';
@@ -75,7 +87,10 @@ export default function DashboardActivePlan({
     ? getTargetPace(scheduledCustomWorkout, profileUnit)
     : '--:--';
 
-  const handleStartCustomWorkout = (workout: UserWorkoutResponse) => {
+  const handleStartCustomWorkout = (
+    workout: UserWorkoutResponse,
+    origin?: DashboardLaunchOrigin,
+  ) => {
     const planSteps = buildWorkoutExecutionPlan(workout);
     router.push({
       pathname: '/(app)/screens/map',
@@ -85,6 +100,7 @@ export default function DashboardActivePlan({
         assignedRoute: workout.assigned_route
           ? JSON.stringify(workout.assigned_route)
           : undefined,
+        ...(getDashboardLaunchParams(origin) ?? {}),
       },
     });
   };
@@ -96,18 +112,24 @@ export default function DashboardActivePlan({
     });
   };
 
-  const handleStartTodayWorkout = () => {
+  const handleStartTodayWorkout = (origin?: DashboardLaunchOrigin) => {
     if (isRestDay) {
-      router.push('/(app)/training-plan');
+      router.push({
+        pathname: '/(app)/training-plan',
+        params: getDashboardLaunchParams(origin),
+      });
       return;
     }
 
     if (!todayWorkout) {
       if (scheduledCustomWorkout) {
-        handleStartCustomWorkout(scheduledCustomWorkout);
+        handleStartCustomWorkout(scheduledCustomWorkout, origin);
         return;
       }
-      router.push('/(app)/screens/map');
+      router.push({
+        pathname: '/(app)/screens/map',
+        params: getDashboardLaunchParams(origin),
+      });
       return;
     }
 
@@ -121,11 +143,15 @@ export default function DashboardActivePlan({
         distance: todayWorkout.distance ? String(todayWorkout.distance) : undefined,
         planSegments: todayWorkout.segments?.length ? JSON.stringify(todayWorkout.segments) : undefined,
         workoutDbId: todayWorkout.id ? String(todayWorkout.id) : undefined,
+        ...getDashboardLaunchParams(origin),
       },
     });
   };
 
-  const openPopularWorkoutSetup = (workout: (typeof popularWorkouts)[0]) => {
+  const openPopularWorkoutSetup = (
+    workout: (typeof popularWorkouts)[0],
+    origin?: DashboardLaunchOrigin,
+  ) => {
     let presetId = 'preset-easy-run-30';
     if (workout.subtitle === 'Interval Run') presetId = 'preset-interval-10x400';
     if (workout.subtitle === 'Long Run') presetId = 'preset-long-run-70';
@@ -134,7 +160,11 @@ export default function DashboardActivePlan({
 
     router.push({
       pathname: '/(app)/workout-setup',
-      params: { presetId, workoutTitle: `${workout.title} ${workout.subtitle}` },
+      params: {
+        presetId,
+        workoutTitle: `${workout.title} ${workout.subtitle}`,
+        ...(getDashboardLaunchParams(origin) ?? {}),
+      },
     });
   };
 
@@ -148,7 +178,9 @@ export default function DashboardActivePlan({
       {showCustomInHero && scheduledCustomWorkout ? (
         <TouchableOpacity
           activeOpacity={0.92}
-          onPress={() => handleStartCustomWorkout(scheduledCustomWorkout)}
+          onPress={() => launchFromView(customHeroStartRef.current, (origin) =>
+            handleStartCustomWorkout(scheduledCustomWorkout, origin)
+          )}
           style={[
             styles.todayHeroCard,
             {
@@ -213,7 +245,7 @@ export default function DashboardActivePlan({
             )}
           </View>
 
-          <View style={[styles.startTodayButton, { backgroundColor: BRAND_GREEN }]}>
+          <View ref={customHeroStartRef} style={[styles.startTodayButton, { backgroundColor: BRAND_GREEN }]}>
             <Feather name="play" size={18} color="#081009" />
             <DashboardText style={styles.startTodayButtonText}>
               START TODAY&apos;S WORKOUT
@@ -223,7 +255,7 @@ export default function DashboardActivePlan({
       ) : (
         <TouchableOpacity
           activeOpacity={0.92}
-          onPress={handleStartTodayWorkout}
+          onPress={() => launchFromView(scheduledWorkoutStartRef.current, handleStartTodayWorkout)}
           style={[
             styles.todayHeroCard,
             {
@@ -322,7 +354,7 @@ export default function DashboardActivePlan({
           ) : null}
 
           {!isRestDay ? (
-            <View style={[styles.startTodayButton, { backgroundColor: BRAND_GREEN }]}>
+            <View ref={scheduledWorkoutStartRef} style={[styles.startTodayButton, { backgroundColor: BRAND_GREEN }]}>
               <Feather name="play" size={18} color="#081009" />
               <DashboardText style={styles.startTodayButtonText}>
                 START TODAY&apos;S WORKOUT
@@ -336,7 +368,9 @@ export default function DashboardActivePlan({
       {!showCustomInHero && scheduledCustomWorkout ? (
         <TouchableOpacity
           activeOpacity={0.92}
-          onPress={() => handleStartCustomWorkout(scheduledCustomWorkout)}
+          onPress={() => launchFromView(scheduledCustomStartRef.current, (origin) =>
+            handleStartCustomWorkout(scheduledCustomWorkout, origin)
+          )}
           style={[
             styles.customWorkoutCard,
             {
@@ -402,7 +436,7 @@ export default function DashboardActivePlan({
             )}
           </View>
 
-          <View style={[styles.startTodayButton, { backgroundColor: BRAND_GREEN, marginTop: 12 }]}>
+          <View ref={scheduledCustomStartRef} style={[styles.startTodayButton, { backgroundColor: BRAND_GREEN, marginTop: 12 }]}>
             <Feather name="play" size={18} color="#081009" />
             <DashboardText style={styles.startTodayButtonText}>
               START CUSTOM WORKOUT
@@ -455,10 +489,16 @@ export default function DashboardActivePlan({
 
       {/* 3. Your Training Plan Overview Card */}
       <TouchableOpacity
+        ref={planCardRef}
         activeOpacity={0.9}
         accessibilityRole="button"
         accessibilityLabel={`View ${planName} training plan`}
-        onPress={() => router.push('/(app)/training-plan')}
+        onPress={() => launchFromView(planCardRef.current, (origin) =>
+          router.push({
+            pathname: '/(app)/training-plan',
+            params: getDashboardLaunchParams(origin),
+          })
+        )}
         style={[styles.planCard, { backgroundColor: colors.surface, borderColor: `${BRAND_GREEN}44` }]}
       >
         <View style={styles.planHeading}>
@@ -515,7 +555,12 @@ export default function DashboardActivePlan({
       {/* 4. Open Run Shortcut */}
       <TouchableOpacity
         activeOpacity={0.9}
-        onPress={() => router.push('/(app)/screens/map')}
+        onPress={() => launchFromView(quickStartRecordRef.current, (origin) =>
+          router.push({
+            pathname: '/(app)/screens/map',
+            params: getDashboardLaunchParams(origin),
+          })
+        )}
         style={[
           styles.heroCard,
           {
@@ -543,7 +588,7 @@ export default function DashboardActivePlan({
             Track pace, route map, splits & audio alerts.
           </DashboardText>
 
-          <View style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]}>
+          <View ref={quickStartRecordRef} style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]}>
             <Feather name="play" size={19} color="#081009" />
             <DashboardText style={styles.recordText}>RECORD WORKOUT</DashboardText>
           </View>
@@ -564,6 +609,9 @@ export default function DashboardActivePlan({
         {popularWorkouts.map((workout) => (
           <TouchableOpacity
             key={workout.subtitle}
+            ref={(view) => {
+              popularWorkoutRefs.current[workout.subtitle] = view;
+            }}
             activeOpacity={0.85}
             style={[
               styles.popularWorkoutCard,
@@ -572,7 +620,9 @@ export default function DashboardActivePlan({
                 borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
               },
             ]}
-            onPress={() => openPopularWorkoutSetup(workout)}
+            onPress={() => launchFromView(popularWorkoutRefs.current[workout.subtitle], (origin) =>
+              openPopularWorkoutSetup(workout, origin)
+            )}
           >
             <View style={[styles.popularWorkoutIcon, { backgroundColor: `${workout.color}24` }]}>
               <Feather name={workout.icon} size={12} color={workout.color} />

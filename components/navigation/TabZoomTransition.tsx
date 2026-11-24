@@ -10,19 +10,35 @@ interface TabZoomTransitionProps {
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
   animate?: boolean;
+  launchOrigin?: { x: number; y: number };
 }
 
-export default function TabZoomTransition({ children, style, animate = true }: TabZoomTransitionProps) {
+export default function TabZoomTransition({
+  children,
+  style,
+  animate = true,
+  launchOrigin,
+}: TabZoomTransitionProps) {
   const reduceMotion = useReducedMotion();
   const shouldAnimate = animate && !reduceMotion;
 
   return (
     <Animated.View
-      style={[styles.container, style]}
+      style={[
+        styles.container,
+        style,
+        launchOrigin && {
+          transformOrigin: [launchOrigin.x, launchOrigin.y, 0],
+        },
+      ]}
       entering={shouldAnimate
-        ? ZoomIn.withInitialValues({ transform: [{ scale: 0.97 }] }).springify(220).damping(18)
+        ? launchOrigin
+          ? ZoomIn.withInitialValues({ transform: [{ scale: 0.02 }] }).duration(320)
+          : ZoomIn.withInitialValues({ transform: [{ scale: 0.97 }] }).springify(220).damping(18)
         : undefined}
-      exiting={shouldAnimate ? ZoomOut.duration(150) : undefined}
+      exiting={shouldAnimate
+        ? ZoomOut.duration(launchOrigin ? 320 : 150)
+        : undefined}
     >
       {children}
     </Animated.View>

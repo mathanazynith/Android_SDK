@@ -2061,8 +2061,8 @@ export default function MapScreen() {
       const queue = new LocationQueue();
       queueRef.current = queue;
 
-
       isRunningRef.current = true;
+      isFollowingLiveLocationRef.current = true;
       setIsRunning(true);
       if (voiceAlertsEnabledRef.current) {
         setVoiceCoachNoticeVisible(true);

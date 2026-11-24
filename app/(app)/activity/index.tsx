@@ -295,16 +295,16 @@ const FilterTile = memo(function FilterTile({
       style={[
         styles.filterBarButton,
         {
-          backgroundColor: surfaceColor,
+          backgroundColor: isActive ? accentColor : surfaceColor,
           borderColor: isActive ? accentColor : borderColor,
         },
       ]}
     >
-      <MaterialCommunityIcons name={icon} size={14} color={isActive ? accentColor : primaryTextColor} />
-      <Text numberOfLines={1} style={[styles.filterBarText, { color: primaryTextColor }]}>
+      <MaterialCommunityIcons name={icon} size={14} color={isActive ? '#000000' : primaryTextColor} />
+      <Text numberOfLines={1} style={[styles.filterBarText, { color: isActive ? '#000000' : primaryTextColor }]}>
         {label}
       </Text>
-      {showChevron && <Feather name="chevron-down" size={14} color={primaryTextColor} />}
+      {showChevron && <Feather name="chevron-down" size={14} color={isActive ? '#000000' : primaryTextColor} />}
     </TouchableOpacity>
   );
 });
@@ -1565,7 +1565,12 @@ export default function ActivityScreen() {
       </View>
 
       <MotionEntrance delay={45}>
-        <View style={styles.filterRowBar}>
+        <ScrollView
+          horizontal
+          style={styles.filterRowScroll}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRowBar}
+        >
           <FilterTile
             label={activityTypeOptions.find((option) => option.value === selectedType)?.label ?? 'All types'}
             icon="run"
@@ -1613,7 +1618,7 @@ export default function ActivityScreen() {
               showChevron={false}
             />
           )}
-        </View>
+        </ScrollView>
       </MotionEntrance>
 
       {selectionMode && (
@@ -2109,8 +2114,9 @@ const styles = StyleSheet.create({
   selectionCount: { fontSize: 13, fontWeight: '500' },
   deleteSelectedButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#E53935' },
   deleteSelectedButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
-  filterRowBar: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 10 },
-  filterBarButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, borderWidth: 1, minHeight: 36 },
+  filterRowScroll: { marginBottom: 10 },
+  filterRowBar: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: 6, paddingRight: 2 },
+  filterBarButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 7, borderRadius: 10, borderWidth: 1, minHeight: 36 },
   filterPopoverBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.12)' },
   filterPopoverCard: { position: 'absolute', borderWidth: 1, borderRadius: 14, padding: 8, overflow: 'visible', elevation: 18, shadowColor: '#000000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.18, shadowRadius: 14 },
   filterPopoverScroll: { flexGrow: 0, flexShrink: 1 },
@@ -2118,7 +2124,7 @@ const styles = StyleSheet.create({
   filterPopoverCaret: { position: 'absolute', width: 14, height: 14, zIndex: 2, transform: [{ rotate: '45deg' }] },
   filterPopoverCaretAbove: { bottom: -6 },
   filterPopoverCaretBelow: { top: -6 },
-  filterBarText: { flexShrink: 1, fontSize: 13, fontWeight: '600' },
+  filterBarText: { flexShrink: 1, fontSize: 12, fontWeight: '600' },
   optionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 2 },
   optionText: { fontSize: 14, fontWeight: '600' },
   scrollContent: { paddingBottom: 118 },

@@ -3,6 +3,8 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Animated, { useReducedMotion, ZoomIn, ZoomOut } from 'react-native-reanimated';
+import { type DashboardLaunchOrigin } from './navigation/dashboardLaunchTransition';
 import {
   ActivityIndicator,
   Alert,
@@ -47,6 +49,8 @@ interface SettingsMenuProps {
   hasPassword: boolean | null;
   initialPage?: 'home' | 'privacy';
   onInitialPageApplied?: () => void;
+  launchOrigin?: DashboardLaunchOrigin;
+  onDismiss?: () => void;
 }
 
 type SettingsPage = 'home' | 'pause' | 'appearance' | 'privacy' | 'requests' | 'blocked' | 'followers' | 'following' | 'zones';
@@ -78,8 +82,11 @@ export default function SettingsMenu({
   hasPassword,
   initialPage = 'home',
   onInitialPageApplied,
+  launchOrigin,
+  onDismiss,
 }: SettingsMenuProps) {
   const { colors, isDark, preference, setPreference } = useTheme();
+  const reduceMotion = useReducedMotion();
   const activeRun = useActiveRun();
   const [navigateToRunAfterDismiss, setNavigateToRunAfterDismiss] = useState(false);
   const [runToNavigateTo, setRunToNavigateTo] = useState<BackgroundLocationSessionState | null>(null);
@@ -761,13 +768,14 @@ export default function SettingsMenu({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
+      animationType={launchOrigin && !reduceMotion ? 'fade' : 'slide'}
       onShow={() => {
         setPage(initialPage);
         onInitialPageApplied?.();
       }}
       onRequestClose={handleBack}
       onDismiss={() => {
+        onDismiss?.();
         if (!navigateToRunAfterDismiss) return;
         setNavigateToRunAfterDismiss(false);
         const run = runToNavigateTo ?? activeRun;
@@ -781,7 +789,18 @@ export default function SettingsMenu({
         });
       }}
     >
-      <View style={[styles.fullPage, { backgroundColor: isDark ? colors.background : '#FFFFFF', paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <Animated.View
+        key={visible ? `${launchOrigin?.x ?? 'center'}:${launchOrigin?.y ?? 'center'}` : 'hidden'}
+        style={[
+          styles.fullPage,
+          { backgroundColor: isDark ? colors.background : '#FFFFFF', paddingTop: insets.top, paddingBottom: insets.bottom },
+          launchOrigin && { transformOrigin: [launchOrigin.x, launchOrigin.y, 0] },
+        ]}
+        entering={launchOrigin && !reduceMotion
+          ? ZoomIn.withInitialValues({ transform: [{ scale: 0.02 }] }).duration(320)
+          : undefined}
+        exiting={launchOrigin && !reduceMotion ? ZoomOut.duration(320) : undefined}
+      >
           <View {...swipeDismissResponder.panHandlers} style={[styles.pageHeader, page === 'home' && styles.homePageHeader]}>
           {page === 'home' ? (
             <View style={styles.homeHeader}>
@@ -1508,7 +1527,7 @@ export default function SettingsMenu({
             </View>
           </View>
         </Modal>
-      </View>
+      </Animated.View>
     </Modal>
   );
 }

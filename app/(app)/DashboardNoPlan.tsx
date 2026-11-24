@@ -1,7 +1,13 @@
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { useRef } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import DashboardText from '../../components/common/DashboardText';
+import {
+  getDashboardLaunchParams,
+  launchFromView,
+  type DashboardLaunchOrigin,
+} from '../../components/navigation/dashboardLaunchTransition';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../service/auth';
 import type { UserWorkoutResponse } from '../../service/customWorkout';
@@ -17,7 +23,7 @@ import { getDistanceUnitCode } from '../../utils/distanceUnit';
 
 type DashboardNoPlanProps = {
   canStartAssessment: boolean;
-  onStartAssessment: () => void;
+  onStartAssessment: (origin?: DashboardLaunchOrigin) => void;
   showCustomWorkouts: boolean;
   scheduledCustomWorkout?: UserWorkoutResponse | null;
   scheduledCustomWorkouts?: UserWorkoutResponse[];
@@ -42,6 +48,11 @@ export default function DashboardNoPlan({
   const profileUnit: DistanceUnitType =
     getDistanceUnitCode(user?.profile?.distance_unit) === 'mile' ? 'mi' : 'km';
   const paceUnitLabel = getPaceUnitLabel(profileUnit);
+  const customWorkoutShortcutRef = useRef<View | null>(null);
+  const adaptivePlanShortcutRef = useRef<View | null>(null);
+  const scheduledWorkoutStartRef = useRef<View | null>(null);
+  const freeRunRecordRef = useRef<View | null>(null);
+  const popularWorkoutRefs = useRef<Record<string, View | null>>({});
 
   const customDistance = scheduledCustomWorkout
     ? formatWorkoutDistance(scheduledCustomWorkout, profileUnit)
@@ -53,7 +64,10 @@ export default function DashboardNoPlan({
     ? getTargetPace(scheduledCustomWorkout, profileUnit)
     : '--:--';
 
-  const handleStartCustomWorkout = (workout: UserWorkoutResponse) => {
+  const handleStartCustomWorkout = (
+    workout: UserWorkoutResponse,
+    origin?: DashboardLaunchOrigin,
+  ) => {
     const plan = buildWorkoutExecutionPlan(workout);
     router.push({
       pathname: '/(app)/screens/map',
@@ -63,6 +77,7 @@ export default function DashboardNoPlan({
         assignedRoute: workout.assigned_route
           ? JSON.stringify(workout.assigned_route)
           : undefined,
+        ...(getDashboardLaunchParams(origin) ?? {}),
       },
     });
   };
@@ -74,7 +89,10 @@ export default function DashboardNoPlan({
     });
   };
 
-  const openWorkoutSetup = (workout: (typeof popularWorkouts)[0]) => {
+  const openWorkoutSetup = (
+    workout: (typeof popularWorkouts)[0],
+    origin?: DashboardLaunchOrigin,
+  ) => {
     let presetId = 'preset-easy-run-30';
     if (workout.subtitle === 'Interval Run') presetId = 'preset-interval-10x400';
     if (workout.subtitle === 'Long Run') presetId = 'preset-long-run-70';
@@ -86,6 +104,7 @@ export default function DashboardNoPlan({
       params: {
         presetId,
         workoutTitle: `${workout.title} ${workout.subtitle}`,
+        ...(getDashboardLaunchParams(origin) ?? {}),
       },
     });
   };
@@ -96,7 +115,9 @@ export default function DashboardNoPlan({
       {showCustomWorkouts && scheduledCustomWorkout ? (
         <TouchableOpacity
           activeOpacity={0.92}
-          onPress={() => handleStartCustomWorkout(scheduledCustomWorkout)}
+          onPress={() => launchFromView(scheduledWorkoutStartRef.current, (origin) =>
+            handleStartCustomWorkout(scheduledCustomWorkout, origin)
+          )}
           style={[
             styles.heroCard,
             {
@@ -163,7 +184,7 @@ export default function DashboardNoPlan({
               )}
             </View>
 
-            <View style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]}>
+            <View ref={scheduledWorkoutStartRef} style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]}>
               <Feather name="play" size={19} color="#081009" />
               <DashboardText style={styles.recordText}>START WORKOUT</DashboardText>
             </View>
@@ -216,7 +237,12 @@ export default function DashboardNoPlan({
       {/* 2. Quick Start Hero Card (Free run) */}
       <TouchableOpacity
         activeOpacity={0.9}
-        onPress={() => router.push('/(app)/screens/map')}
+        onPress={() => launchFromView(freeRunRecordRef.current, (origin) =>
+          router.push({
+            pathname: '/(app)/screens/map',
+            params: getDashboardLaunchParams(origin),
+          })
+        )}
         style={[
           styles.heroCard,
           {
@@ -248,7 +274,7 @@ export default function DashboardNoPlan({
             Track pace, route map, splits & audio alerts.
           </DashboardText>
 
-          <View style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]}>
+          <View ref={freeRunRecordRef} style={[styles.recordButton, { backgroundColor: BRAND_GREEN }]}>
             <Feather name="play" size={19} color="#081009" />
             <DashboardText style={styles.recordText}>RECORD WORKOUT</DashboardText>
           </View>
@@ -260,8 +286,14 @@ export default function DashboardNoPlan({
         {/* Custom Workout Card */}
         {showCustomWorkouts ? (
           <TouchableOpacity
+            ref={customWorkoutShortcutRef}
             activeOpacity={0.88}
-            onPress={() => router.push('/(app)/custom-workout')}
+            onPress={() => launchFromView(customWorkoutShortcutRef.current, (origin) =>
+              router.push({
+                pathname: '/(app)/custom-workout',
+                params: getDashboardLaunchParams(origin),
+              })
+            )}
             style={[
               styles.actionCard,
               {
@@ -290,8 +322,9 @@ export default function DashboardNoPlan({
 
         {/* Plan Assessment Card */}
         <TouchableOpacity
+          ref={adaptivePlanShortcutRef}
           activeOpacity={0.88}
-          onPress={onStartAssessment}
+          onPress={() => launchFromView(adaptivePlanShortcutRef.current, onStartAssessment)}
           style={[
             styles.actionCard,
             {
@@ -332,6 +365,9 @@ export default function DashboardNoPlan({
         {popularWorkouts.map((workout) => (
           <TouchableOpacity
             key={workout.subtitle}
+            ref={(view) => {
+              popularWorkoutRefs.current[workout.subtitle] = view;
+            }}
             activeOpacity={0.85}
             style={[
               styles.popularWorkoutCard,
@@ -340,7 +376,9 @@ export default function DashboardNoPlan({
                 borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
               },
             ]}
-            onPress={() => openWorkoutSetup(workout)}
+            onPress={() => launchFromView(popularWorkoutRefs.current[workout.subtitle], (origin) =>
+              openWorkoutSetup(workout, origin)
+            )}
           >
             <View style={[styles.popularWorkoutIcon, { backgroundColor: `${workout.color}24` }]}>
               <Feather name={workout.icon} size={12} color={workout.color} />

@@ -9,6 +9,11 @@ import { RunningLoader } from '../../components/common/RunningLoader';
 import MotionEntrance from '../../components/MotionEntrance';
 import NotificationBell from '../../components/NotificationBell';
 import SettingsMenu from '../../components/SettingsMenu';
+import {
+  getDashboardLaunchParams,
+  launchFromView,
+  type DashboardLaunchOrigin,
+} from '../../components/navigation/dashboardLaunchTransition';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { useQuestionnaire } from '../../contexts/QuestionnaireContext';
 import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
@@ -141,6 +146,9 @@ export default function DashboardScreen() {
   } = useQuestionnaire();
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [settingsInitialPage, setSettingsInitialPage] = useState<'home' | 'privacy'>('home');
+  const [settingsLaunchOrigin, setSettingsLaunchOrigin] = useState<DashboardLaunchOrigin>();
+  const notificationsShortcutRef = useRef<View | null>(null);
+  const settingsShortcutRef = useRef<View | null>(null);
   const reopenPrivacySettingsOnFocus = useRef(false);
   const [offlinePendingCount, setOfflinePendingCount] = useState(0);
   const [isSyncingOffline, setIsSyncingOffline] = useState(false);
@@ -149,6 +157,10 @@ export default function DashboardScreen() {
   const [customWorkouts, setCustomWorkouts] = useState<UserWorkoutResponse[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const permissionRequestStarted = useRef(false);
+  const quickRunShortcutRef = useRef<View | null>(null);
+  const customShortcutRef = useRef<View | null>(null);
+  const planShortcutRef = useRef<View | null>(null);
+  const statsShortcutRef = useRef<View | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -399,7 +411,7 @@ export default function DashboardScreen() {
 
   const todayCustomWorkout = todayCustomWorkouts[0] ?? null;
 
-  const startAssessment = () => {
+  const startAssessment = (origin?: DashboardLaunchOrigin) => {
     if (!canStartAssessment) {
       Alert.alert('Complete Your Profile', 'Please complete your profile before starting the assessment.', [
         { text: 'Cancel', style: 'cancel' },
@@ -407,15 +419,21 @@ export default function DashboardScreen() {
       ]);
       return;
     }
-    router.push('/(app)/questionnaire');
+    router.push({
+      pathname: '/(app)/questionnaire',
+      params: getDashboardLaunchParams(origin),
+    });
   };
 
-  const handlePlanShortcutPress = () => {
+  const handlePlanShortcutPress = (origin?: DashboardLaunchOrigin) => {
     if (hasWorkoutPlan) {
-      router.push('/(app)/training-plan');
+      router.push({
+        pathname: '/(app)/training-plan',
+        params: getDashboardLaunchParams(origin),
+      });
       return;
     }
-    startAssessment();
+    startAssessment(origin);
   };
 
   const handleSettingsOption = (option: string) => {
@@ -478,7 +496,13 @@ export default function DashboardScreen() {
 
         <View style={styles.headerActions}>
           <NotificationBell
-            onPress={() => router.push('/(app)/screens/notifications')}
+            ref={notificationsShortcutRef}
+            onPress={() => launchFromView(notificationsShortcutRef.current, (origin) =>
+              router.push({
+                pathname: '/(app)/screens/notifications',
+                params: getDashboardLaunchParams(origin),
+              })
+            )}
             badgeCount={unreadCount ?? 0}
           />
           <TouchableOpacity
@@ -492,7 +516,10 @@ export default function DashboardScreen() {
                 borderColor: colors.border,
               },
             ]}
-            onPress={() => setSettingsVisible(true)}
+            onPress={() => launchFromView(settingsShortcutRef.current, (origin) => {
+              setSettingsLaunchOrigin(origin);
+              setSettingsVisible(true);
+            })}
             accessibilityLabel="Open settings"
           >
             <Feather name="settings" size={spacing(20)} color={colors.textSecondary} />
@@ -597,6 +624,7 @@ export default function DashboardScreen() {
           <MotionEntrance delay={45}>
             <View style={styles.quickShortcutsRow}>
               <TouchableOpacity
+                ref={quickRunShortcutRef}
                 style={[
                   styles.quickShortcutPill,
                   {
@@ -604,7 +632,12 @@ export default function DashboardScreen() {
                     borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
                   },
                 ]}
-                onPress={() => router.push('/(app)/screens/map')}
+                onPress={() => launchFromView(quickRunShortcutRef.current, (origin) =>
+                  router.push({
+                    pathname: '/(app)/screens/map',
+                    params: getDashboardLaunchParams(origin),
+                  })
+                )}
                 activeOpacity={0.8}
               >
                 <View style={[styles.quickShortcutIcon, { backgroundColor: `${BRAND_GREEN}18` }]}>
@@ -646,6 +679,7 @@ export default function DashboardScreen() {
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
+                  ref={customShortcutRef}
                   style={[
                     styles.quickShortcutPill,
                     {
@@ -653,7 +687,12 @@ export default function DashboardScreen() {
                       borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
                     },
                   ]}
-                  onPress={() => router.push('/(app)/custom-workout')}
+                  onPress={() => launchFromView(customShortcutRef.current, (origin) =>
+                    router.push({
+                      pathname: '/(app)/custom-workout',
+                      params: getDashboardLaunchParams(origin),
+                    })
+                  )}
                   activeOpacity={0.8}
                 >
                   <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(255, 149, 0, 0.18)' }]}>
@@ -671,6 +710,7 @@ export default function DashboardScreen() {
               )}
 
               <TouchableOpacity
+                ref={planShortcutRef}
                 style={[
                   styles.quickShortcutPill,
                   {
@@ -678,7 +718,7 @@ export default function DashboardScreen() {
                     borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
                   },
                 ]}
-                onPress={handlePlanShortcutPress}
+                onPress={() => launchFromView(planShortcutRef.current, handlePlanShortcutPress)}
                 activeOpacity={0.8}
               >
                 <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(10, 132, 255, 0.18)' }]}>
@@ -695,6 +735,7 @@ export default function DashboardScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
+                ref={statsShortcutRef}
                 style={[
                   styles.quickShortcutPill,
                   {
@@ -702,7 +743,12 @@ export default function DashboardScreen() {
                     borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
                   },
                 ]}
-                onPress={() => router.push('/(app)/stats')}
+                onPress={() => launchFromView(statsShortcutRef.current, (origin) =>
+                  router.push({
+                    pathname: '/(app)/stats',
+                    params: getDashboardLaunchParams(origin),
+                  })
+                )}
                 activeOpacity={0.8}
               >
                 <View style={[styles.quickShortcutIcon, { backgroundColor: 'rgba(175, 82, 222, 0.18)' }]}>
@@ -873,6 +919,8 @@ export default function DashboardScreen() {
         hasPassword={user?.hasPassword ?? null}
         initialPage={settingsInitialPage}
         onInitialPageApplied={() => setSettingsInitialPage('home')}
+        launchOrigin={settingsLaunchOrigin}
+        onDismiss={() => setSettingsLaunchOrigin(undefined)}
       />
     </View>
   );
