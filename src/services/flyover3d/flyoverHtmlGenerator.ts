@@ -270,6 +270,9 @@ export function generateFlyoverHtml(options: FlyoverOptions): string {
     }
 
     let smoothBearing = 0;
+    let occlusionOffset = 0;
+    let targetOcclusionOffset = 0;
+    let lastOcclusionCheckTime = 0;
     let smoothCamLng = 0;
     let smoothCamLat = 0;
     let lastProgressNotifyTime = 0;
@@ -296,19 +299,17 @@ export function generateFlyoverHtml(options: FlyoverOptions): string {
     const altSpan = (maxAlt > minAlt && minAlt !== 999999) ? (maxAlt - minAlt) : (ELEVATION_GAIN || 0);
     const isMountainRoute = altSpan > 120 || ELEVATION_GAIN > 150;
 
-    // Strava / FATMAP style average panoramic zoom:
-    // Mountain & long routes zoom to 13.8-14.6 so full peaks, ridges & switchbacks are clearly visible at a calm speed.
-    // Short road runs stay around 15.6-16.0 to see streets and houses clearly.
+    // Close-focus zoom locked tightly onto the moving polyline point while keeping calm 30-58s pacing
     function computeOptimalZoom(dist, mountain) {
       if (mountain) {
-        if (dist <= 5000) return 14.6;
-        if (dist <= 15000) return 14.2;
-        return 13.8;
+        if (dist <= 5000) return 15.4;
+        if (dist <= 15000) return 15.0;
+        return 14.7;
       }
-      if (dist <= 2000) return 16.0;
-      if (dist <= 6000) return 15.4;
-      if (dist <= 15000) return 14.8;
-      return 14.2;
+      if (dist <= 2000) return 17.2;
+      if (dist <= 6000) return 16.6;
+      if (dist <= 15000) return 16.0;
+      return 15.4;
     }
 
     function computeOptimalPitch(mountain) {
@@ -342,10 +343,13 @@ export function generateFlyoverHtml(options: FlyoverOptions): string {
     const OPTIMAL_ZOOM = computeOptimalZoom(totalComputedDistance, isMountainRoute);
     const OPTIMAL_PITCH = computeOptimalPitch(isMountainRoute);
     const BASE_DURATION_MS = computeDurationMs(totalComputedDistance);
+    const INITIAL_ORBIT_BEARING = validPoints.length > 1
+      ? getBearing(validPoints[0].latitude, validPoints[0].longitude, validPoints[1].latitude, validPoints[1].longitude)
+      : 0;
 
-    // Smooth lookahead & lead distances scaled for calm, readable polyline tracking
-    const LOOKAHEAD_DIST = Math.max(60, Math.min(200, totalComputedDistance * 0.025));
-    const CAM_LEAD_DIST = Math.max(30, Math.min(95, totalComputedDistance * 0.01));
+    // Tight lead distance keeps the camera focused directly on the moving polyline tip
+    const LOOKAHEAD_DIST = Math.max(40, Math.min(120, totalComputedDistance * 0.015));
+    const CAM_LEAD_DIST = Math.max(8, Math.min(20, totalComputedDistance * 0.002));
 
     // Map style configuration with Genuine 3D Terrain DEM & Satellite Imagery
     // Priority: MapTiler (if key set) -> Mapbox (if token set) -> Mapterhorn + Esri/CARTO (free, no key)
@@ -783,13 +787,130 @@ export function generateFlyoverHtml(options: FlyoverOptions): string {
     let savedPlaybackSpeed = 1.0;
     let recCanvas = null;
     let recCtx = null;
+    let recAvatarImg = null;
+    let recAvatarReady = false;
+
+    function preloadRecorderAvatar() {
+      recAvatarImg = null;
+      recAvatarReady = false;
+      if (!USER_AVATAR || USER_AVATAR.trim().length === 0 || typeof Image === 'undefined') return;
+      try {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = function() {
+          recAvatarImg = img;
+          recAvatarReady = true;
+        };
+        img.onerror = function() {
+          recAvatarImg = null;
+          recAvatarReady = false;
+        };
+        img.src = USER_AVATAR;
+      } catch (e) {}
+    }
+
+    function drawEndpointDotOnCanvas(ctx, px, py, fillColor, glowColor) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(px, py, 14, 0, Math.PI * 2);
+      ctx.fillStyle = glowColor;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(px, py, 9, 0, Math.PI * 2);
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.stroke();
+      ctx.restore();
+    }
 
     function copyFrameToRecorderCanvas() {
       if (!isRecordingExport || !recCtx || !recCanvas || !map) return;
       try {
         const mapCanvas = map.getCanvas();
-        if (mapCanvas && mapCanvas.width > 0 && mapCanvas.height > 0) {
-          recCtx.drawImage(mapCanvas, 0, 0, recCanvas.width, recCanvas.height);
+        if (!mapCanvas || mapCanvas.width <= 0 || mapCanvas.height <= 0) return;
+
+        const w = recCanvas.width;
+        const h = recCanvas.height;
+        recCtx.drawImage(mapCanvas, 0, 0, w, h);
+
+        // Composite Start Dot, Finish Dot & Runner Avatar onto the exported video canvas
+        if (typeof map.project === 'function' && validPoints.length >= 2) {
+          const cssW = mapCanvas.clientWidth || (mapCanvas.width / (window.devicePixelRatio || 1)) || w;
+          const cssH = mapCanvas.clientHeight || (mapCanvas.height / (window.devicePixelRatio || 1)) || h;
+          const scaleX = w / cssW;
+          const scaleY = h / cssH;
+
+          const startPt = validPoints[0];
+          const endPt = validPoints[validPoints.length - 1];
+          const startProj = map.project([startPt.longitude, startPt.latitude]);
+          const endProj = map.project([endPt.longitude, endPt.latitude]);
+
+          if (startProj && isFinite(startProj.x) && isFinite(startProj.y)) {
+            drawEndpointDotOnCanvas(recCtx, startProj.x * scaleX, startProj.y * scaleY, '#22C55E', 'rgba(34, 197, 94, 0.35)');
+          }
+          if (endProj && isFinite(endProj.x) && isFinite(endProj.y)) {
+            drawEndpointDotOnCanvas(recCtx, endProj.x * scaleX, endProj.y * scaleY, '#EF4444', 'rgba(239, 68, 68, 0.35)');
+          }
+
+          // Runner Avatar at current moving polyline tip
+          const runnerState = getPointAtDistance(progress * totalComputedDistance);
+          const runnerProj = map.project([runnerState.longitude, runnerState.latitude]);
+          if (runnerProj && isFinite(runnerProj.x) && isFinite(runnerProj.y)) {
+            const rx = runnerProj.x * scaleX;
+            const bounce = Math.abs(Math.sin(Date.now() / 220)) * 5;
+            const ry = runnerProj.y * scaleY - bounce;
+
+            recCtx.save();
+            // Ground shadow
+            recCtx.beginPath();
+            recCtx.ellipse(rx, runnerProj.y * scaleY + 14, 14, 5, 0, 0, Math.PI * 2);
+            recCtx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+            recCtx.fill();
+
+            // Outer neon halo
+            const haloGrad = recCtx.createRadialGradient(rx, ry, 10, rx, ry, 30);
+            haloGrad.addColorStop(0, 'rgba(34, 197, 94, 0.55)');
+            haloGrad.addColorStop(1, 'rgba(34, 197, 94, 0)');
+            recCtx.beginPath();
+            recCtx.arc(rx, ry, 30, 0, Math.PI * 2);
+            recCtx.fillStyle = haloGrad;
+            recCtx.fill();
+
+            // Disc background
+            recCtx.beginPath();
+            recCtx.arc(rx, ry, 19, 0, Math.PI * 2);
+            recCtx.fillStyle = '#16A34A';
+            recCtx.fill();
+
+            // Clipped user avatar photo (when CORS allows) or crisp athlete dot
+            if (recAvatarReady && recAvatarImg) {
+              try {
+                recCtx.save();
+                recCtx.beginPath();
+                recCtx.arc(rx, ry, 17, 0, Math.PI * 2);
+                recCtx.clip();
+                recCtx.drawImage(recAvatarImg, rx - 17, ry - 17, 34, 34);
+                recCtx.restore();
+              } catch (imgErr) {}
+            } else {
+              // Crisp inner runner badge dot
+              recCtx.beginPath();
+              recCtx.arc(rx, ry, 7, 0, Math.PI * 2);
+              recCtx.fillStyle = '#FFFFFF';
+              recCtx.fill();
+            }
+
+            // White border ring
+            recCtx.beginPath();
+            recCtx.arc(rx, ry, 19, 0, Math.PI * 2);
+            recCtx.lineWidth = 3;
+            recCtx.strokeStyle = '#FFFFFF';
+            recCtx.stroke();
+            recCtx.restore();
+          }
         }
       } catch (e) {}
     }
@@ -835,42 +956,94 @@ export function generateFlyoverHtml(options: FlyoverOptions): string {
       const currentDistance = prog * totalComputedDistance;
       const runnerState = getPointAtDistance(currentDistance);
 
-      // Compute lookahead target along route for smooth drone camera steering
-      const lookaheadDistance = Math.min(totalComputedDistance, currentDistance + LOOKAHEAD_DIST);
-      const lookaheadState = getPointAtDistance(lookaheadDistance);
+      // Eagle-eye circular orbit around the moving polyline point:
+      // Rotates continuously in a smooth 240-degree bird's-eye arc, and automatically swings around
+      // mountain ridges whenever terrain blocks the camera's line of sight to the moving point.
+      const baseOrbitBearing = (INITIAL_ORBIT_BEARING + prog * 240) % 360;
 
-      let targetBearing = smoothBearing;
-      if (lookaheadDistance > currentDistance + 2) {
-        targetBearing = getBearing(
+      function measureSightlineOcclusion(lat, lng, runnerElev, testBearingDeg) {
+        if (!map || typeof map.queryTerrainElevation !== 'function') return 0;
+        const camDirRad = ((testBearingDeg + 180) % 360) * Math.PI / 180;
+        const cosLat = Math.max(0.2, Math.cos(lat * Math.PI / 180));
+        const sampleDistances = [120, 260, 420];
+        let worstOcclusion = 0;
+        for (let s = 0; s < sampleDistances.length; s++) {
+          const d = sampleDistances[s];
+          const sLat = lat + (d * Math.cos(camDirRad)) / 111320;
+          const sLng = lng + (d * Math.sin(camDirRad)) / (111320 * cosLat);
+          try {
+            const ridgeElev = map.queryTerrainElevation([sLng, sLat]);
+            if (typeof ridgeElev === 'number' && !isNaN(ridgeElev)) {
+              // At pitch ~66deg, sightline rises ~0.42m per 1m horizontal distance toward camera
+              const occl = (ridgeElev - runnerElev) * TERRAIN_EXAGGERATION - d * 0.36;
+              if (occl > worstOcclusion) worstOcclusion = occl;
+            }
+          } catch (e) {}
+        }
+        return worstOcclusion;
+      }
+
+      const nowCheck = Date.now();
+      if (isDirectSeek || nowCheck - lastOcclusionCheckTime > 180) {
+        lastOcclusionCheckTime = nowCheck;
+        let runnerElev = typeof runnerState.altitude === 'number' ? runnerState.altitude : 0;
+        if (map && typeof map.queryTerrainElevation === 'function') {
+          try {
+            const demAlt = map.queryTerrainElevation([runnerState.longitude, runnerState.latitude]);
+            if (typeof demAlt === 'number' && !isNaN(demAlt)) runnerElev = demAlt;
+          } catch (e) {}
+        }
+        const currentScore = measureSightlineOcclusion(
           runnerState.latitude,
           runnerState.longitude,
-          lookaheadState.latitude,
-          lookaheadState.longitude
+          runnerElev,
+          baseOrbitBearing + occlusionOffset
         );
-      } else if (validPoints.length >= 2) {
-        const p1 = validPoints[validPoints.length - 2];
-        const p2 = validPoints[validPoints.length - 1];
-        targetBearing = getBearing(p1.latitude, p1.longitude, p2.latitude, p2.longitude);
+        if (currentScore > 8) {
+          // Mountain is blocking the current view: find the closest clear angle around the peak
+          const candidateShifts = [0, 35, -35, 70, -70, 110, -110, 145, -145, 180];
+          let bestOffset = targetOcclusionOffset;
+          let bestScore = Infinity;
+          for (let c = 0; c < candidateShifts.length; c++) {
+            const candOffset = occlusionOffset + candidateShifts[c];
+            const score = measureSightlineOcclusion(
+              runnerState.latitude,
+              runnerState.longitude,
+              runnerElev,
+              baseOrbitBearing + candOffset
+            );
+            if (score <= 0) {
+              bestOffset = candOffset;
+              bestScore = score;
+              break;
+            }
+            if (score < bestScore) {
+              bestScore = score;
+              bestOffset = candOffset;
+            }
+          }
+          targetOcclusionOffset = bestOffset;
+        }
       }
 
       if (isDirectSeek || !isPlaying) {
-        smoothBearing = targetBearing;
+        occlusionOffset = targetOcclusionOffset;
       } else {
-        // Ultra-smooth cinema gimbal turn rate limiter (max 1.2 degrees/frame)
-        smoothBearing = smoothTurn(smoothBearing, targetBearing, 1.2);
+        // Smoothly glide around the mountain ridge (max 1.5 deg/frame) with zero snap
+        const diff = ((targetOcclusionOffset - occlusionOffset + 540) % 360) - 180;
+        const step = Math.max(-1.5, Math.min(1.5, diff * 0.08));
+        occlusionOffset += step;
       }
 
-      // Camera lead point: positions camera slightly ahead so runner is in lower-third of view
-      const camLeadDistance = Math.min(totalComputedDistance, currentDistance + CAM_LEAD_DIST);
-      const targetCam = getPointAtDistance(camLeadDistance);
+      smoothBearing = ((baseOrbitBearing + occlusionOffset) % 360 + 360) % 360;
 
-      // Smooth low-pass camera center: eliminates micro-jitter from noisy GPS coordinates
+      // Lock camera directly onto the moving polyline point (like an eagle locking eyes on its target)
       if (isDirectSeek || !smoothCamLng) {
-        smoothCamLng = targetCam.longitude;
-        smoothCamLat = targetCam.latitude;
+        smoothCamLng = runnerState.longitude;
+        smoothCamLat = runnerState.latitude;
       } else {
-        smoothCamLng += (targetCam.longitude - smoothCamLng) * 0.09;
-        smoothCamLat += (targetCam.latitude - smoothCamLat) * 0.09;
+        smoothCamLng += (runnerState.longitude - smoothCamLng) * 0.12;
+        smoothCamLat += (runnerState.latitude - smoothCamLat) * 0.12;
       }
 
       // 3-Act Relive-style camera choreography:
@@ -1027,6 +1200,7 @@ export function generateFlyoverHtml(options: FlyoverOptions): string {
           recCanvas.width = recWidth;
           recCanvas.height = recHeight;
           recCtx = recCanvas.getContext('2d');
+          preloadRecorderAvatar();
 
           const captureSource = (recCtx && typeof recCanvas.captureStream === 'function') ? recCanvas : mapCanvas;
           if (typeof captureSource.captureStream !== 'function') {
@@ -1148,7 +1322,7 @@ export function generateFlyoverHtml(options: FlyoverOptions): string {
 
           mediaRecorder = new MediaRecorder(stream, {
             mimeType: mimeType,
-            videoBitsPerSecond: 1800000 // 1.8 Mbps: crisp mobile video, fast encoding & smaller gallery file
+            videoBitsPerSecond: 4000000 // 4.0 Mbps: high-quality crisp 720p mountain & route detail
           });
 
           mediaRecorder.ondataavailable = function(e) {
