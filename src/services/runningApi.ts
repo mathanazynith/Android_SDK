@@ -275,7 +275,7 @@ export class RunningApiClient {
         const responseData = error?.response?.data;
         const responseDetails = typeof responseData === 'string'
           ? responseData.slice(0, 4_000)
-          : responseData;
+          : JSON.stringify(responseData)?.slice(0, 4_000);
         console.error('[ActivityUpload] Request failed', {
           status: error?.response?.status ?? null,
           method: error?.config?.method ?? 'post',

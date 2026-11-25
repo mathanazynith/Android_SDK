@@ -225,8 +225,25 @@ export const parseGpxWorkout = (xml: string, fileName: string): GpxWorkoutPrevie
   };
 };
 
+const DEFAULT_MAX_IMPORT_POINTS = 2000;
+
+const downsampleGpxPoints = (
+  points: GpxWorkoutPoint[],
+  maxPoints: number,
+): GpxWorkoutPoint[] => {
+  if (points.length <= maxPoints || maxPoints < 2) return points;
+  const sampled: GpxWorkoutPoint[] = [points[0]];
+  const step = (points.length - 1) / (maxPoints - 1);
+  for (let i = 1; i < maxPoints - 1; i++) {
+    sampled.push(points[Math.round(i * step)]);
+  }
+  sampled.push(points[points.length - 1]);
+  return sampled;
+};
+
 export const toGpxActivityImportRequest = (
   preview: GpxWorkoutPreview,
+  maxPoints = DEFAULT_MAX_IMPORT_POINTS,
 ): GpxActivityImportRequest => ({
   source: 'GPX',
   source_file_name: preview.fileName,
@@ -235,7 +252,7 @@ export const toGpxActivityImportRequest = (
   end_time: preview.endTime,
   elapsed_time_s: preview.elapsedSeconds,
   distance_estimate_m: Math.round(preview.distanceMeters),
-  gps_points: preview.points.map((point) => ({
+  gps_points: downsampleGpxPoints(preview.points, maxPoints).map((point) => ({
     ...point,
     accuracy: null,
     speed: null,

@@ -21,6 +21,31 @@ describe('generateFlyoverHtml', () => {
     expect(html).toContain('<!DOCTYPE html>');
     expect(html).toContain('maplibre-gl.js');
     expect(html).toContain('runner-avatar-wrapper');
+    expect(html).toContain('terrain-dem');
+    expect(html).toContain('tiles.mapterhorn.com');
+    expect(html).toContain('ArcGIS/rest/services/World_Imagery');
+
+    // Verify MapTiler config when key is supplied
+    const maptilerHtml = generateFlyoverHtml({
+      points: [
+        { latitude: 12.9716, longitude: 77.5946, altitude: 920 },
+        { latitude: 12.9720, longitude: 77.5950, altitude: 922 },
+      ],
+      maptilerKey: 'test_maptiler_key_12345',
+    });
+    expect(maptilerHtml).toContain('api.maptiler.com/tiles/satellite-v2');
+    expect(maptilerHtml).toContain('api.maptiler.com/tiles/terrain-rgb-v2');
+
+    // Also verify Mapbox config when token is supplied
+    const mapboxHtml = generateFlyoverHtml({
+      points: [
+        { latitude: 12.9716, longitude: 77.5946, altitude: 920 },
+        { latitude: 12.9720, longitude: 77.5950, altitude: 922 },
+      ],
+      mapboxToken: 'pk.eyJ1IjoibXl1c2VyIiwiYSI6ImNsbXl1c2VyMTIzNDU2Nzg5In0.validtoken123456789',
+    });
+    expect(mapboxHtml).toContain('mapbox.satellite');
+    expect(mapboxHtml).toContain('mapbox.terrain-rgb');
 
     const scriptMatches = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
     const scriptCode = scriptMatches.map(m => m[1]).join('\n');
@@ -44,8 +69,11 @@ describe('generateFlyoverHtml', () => {
       once: (event: string, cb: Function) => cb(),
       getSource: (name: string) => mockSource,
       addSource: () => {},
+      removeSource: () => {},
       addLayer: () => {},
       setTerrain: () => {},
+      getTerrain: () => ({ source: 'terrain-dem', exaggeration: 1.5 }),
+      setSky: () => {},
       setStyle: () => {},
       jumpTo: (opts: any) => {
         mapJumped = true;

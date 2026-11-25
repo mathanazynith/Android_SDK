@@ -847,6 +847,8 @@ export default function ActivityDetailScreen() {
         totalDurationSeconds={activity?.moving_time || activity?.elapsed_time}
         elevationGainMeters={activity?.elevation_gain ?? undefined}
         avatarUrl={user?.profile?.profile_picture_url || user?.profile?.profile_picture}
+        mapboxToken={process.env.EXPO_PUBLIC_MAPBOX_TOKEN || process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN}
+        maptilerKey={process.env.EXPO_PUBLIC_MAPTILER_KEY}
       />
     </SafeAreaView>
   );
