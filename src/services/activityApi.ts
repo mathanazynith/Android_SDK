@@ -8,6 +8,7 @@ import { activityDistanceOverrides } from './activityDistanceOverrides';
 import { activityManualLapOverrides } from './activityManualLapOverrides';
 import { activityTimingOverrides } from './activityTimingOverrides';
 import { toGpxActivityImportRequest, type GpxWorkoutPreview } from './gpxService';
+import { RunningApiClient } from './runningApi';
 
 export interface BackendGpsPoint {
   latitude: number;
@@ -1468,19 +1469,80 @@ export const activityAPI = {
   },
 
   async importGpxWorkout(preview: GpxWorkoutPreview): Promise<BackendActivity> {
-    const response = await api.post(
-      GPX_ACTIVITY_IMPORT_PATH,
-      toGpxActivityImportRequest(preview),
-    );
-    const payload = response.data?.data ?? response.data;
-    const activityPayload = payload?.activity ?? payload;
-    const activityId = activityPayload?.activity_id ?? activityPayload?.id;
+    let activityId: string | number | null | undefined;
+    try {
+      let response;
+      try {
+        response = await api.post(
+          GPX_ACTIVITY_IMPORT_PATH,
+          toGpxActivityImportRequest(preview, 2000),
+        );
+      } catch (err: any) {
+        if (err?.response?.status === 413) {
+          response = await api.post(
+            GPX_ACTIVITY_IMPORT_PATH,
+            toGpxActivityImportRequest(preview, 800),
+          );
+        } else {
+          throw err;
+        }
+      }
+      const payload = response.data?.data ?? response.data;
+      const activityPayload = payload?.activity ?? payload;
+      activityId = activityPayload?.activity_id ?? activityPayload?.id;
+    } catch (err: any) {
+      if (err?.response?.status !== 404) {
+        throw err;
+      }
+      // Fallback: /rundata/activities/import-gpx/ is not available on this backend,
+      // so submit using the standard workout upload endpoint (/rundata/upload/).
+      const importReq = toGpxActivityImportRequest(preview, 2000);
+      const distanceMeters = Math.max(1, Math.round(preview.distanceMeters));
+      const elapsedSeconds = Math.max(1, Math.round(preview.elapsedSeconds));
+      const avgPace = Math.round((elapsedSeconds / distanceMeters) * 1000);
+      const submissionPayload: ActivitySubmissionPayload = {
+        gps_points: importReq.gps_points.map((pt) => ({
+          latitude: pt.latitude,
+          longitude: pt.longitude,
+          altitude: pt.altitude ?? 0,
+          accuracy: 5,
+          speed: 0,
+          heading: 0,
+          timestamp: pt.timestamp,
+          is_extra_distance: false,
+          is_paused: false,
+          pause_sequence: null,
+        })),
+        start_time: preview.startTime,
+        end_time: preview.endTime,
+        moving_time: elapsedSeconds,
+        elapsed_time: elapsedSeconds,
+        moving_time_s: elapsedSeconds,
+        elapsed_time_s: elapsedSeconds,
+        activity_type: preview.activityType,
+        distance: distanceMeters,
+        distance_meters: distanceMeters,
+        workout_distance_meters: distanceMeters,
+        additional_distance_meters: 0,
+        total_distance_meters: distanceMeters,
+        split_distance_m: distanceMeters,
+        avg_pace: avgPace,
+        pace_seconds_per_km: avgPace,
+        pause_count: 0,
+        paused_time_s: 0,
+      };
+      const uploadResult = await new RunningApiClient().submitActivity(submissionPayload);
+      activityId = uploadResult.activityId;
+    }
+
     if (
       (typeof activityId !== 'string' && typeof activityId !== 'number')
       || String(activityId).trim() === ''
     ) {
-      throw new Error('The GPX import endpoint did not return the created workout ID.');
+      throw new Error('The workout upload endpoint did not return the created workout ID.');
     }
+    const historyCacheKey = await getActivityHistoryCacheKey();
+    await storage.removeItem(historyCacheKey).catch(() => undefined);
     return this.get(activityId);
   },
 

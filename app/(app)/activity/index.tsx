@@ -33,6 +33,7 @@ import ThemedCalendarPicker from '../../../components/common/ThemedCalendarPicke
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import MotionEntrance from '../../../components/MotionEntrance';
+import { GpxImportModal } from '../../../components/GpxImportModal';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage, resolveApiUrl } from '../../../service/api';
 import { useAuth } from '../../../service/auth';
@@ -788,6 +789,7 @@ export default function ActivityScreen() {
   const pendingVisibleActivityIdsRef = useRef<Set<string>>(new Set());
   const visibleActivityFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
+  const [gpxImportVisible, setGpxImportVisible] = useState(false);
   const [selectedActivityIds, setSelectedActivityIds] = useState<Set<string>>(() => new Set());
   const [pendingDeleteActivities, setPendingDeleteActivities] = useState<BackendActivity[] | null>(null);
   const groupMode: ActivityGroupMode = 'month';
@@ -1554,18 +1556,31 @@ export default function ActivityScreen() {
             <Text style={[styles.title, { color: colors.text }]}>Workout History</Text>
             {!selectionMode && <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Your completed runs and walks</Text>}
           </View>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel={selectionMode ? 'Cancel selection' : 'Select workouts to delete'}
-            accessibilityState={{ disabled: isDeletingActivities }}
-            disabled={isDeletingActivities}
-            onPress={selectionMode ? cancelActivitySelection : () => enterActivitySelection()}
-            style={styles.selectionModeAction}
-          >
-            <Text style={[styles.selectionModeActionText, { color: colors.primary }]}>
-              {selectionMode ? 'Cancel' : 'Select'}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.headingActions}>
+            {!selectionMode && (
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Import GPX file"
+                onPress={() => setGpxImportVisible(true)}
+                style={[styles.importGpxButton, { borderColor: colors.border, backgroundColor: colors.surface }]}
+              >
+                <Feather name="upload" size={14} color={colors.primary} />
+                <Text style={[styles.importGpxButtonText, { color: colors.text }]}>Import GPX</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={selectionMode ? 'Cancel selection' : 'Select workouts to delete'}
+              accessibilityState={{ disabled: isDeletingActivities }}
+              disabled={isDeletingActivities}
+              onPress={selectionMode ? cancelActivitySelection : () => enterActivitySelection()}
+              style={styles.selectionModeAction}
+            >
+              <Text style={[styles.selectionModeActionText, { color: colors.primary }]}>
+                {selectionMode ? 'Cancel' : 'Select'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -2092,6 +2107,19 @@ export default function ActivityScreen() {
           </View>
         </View>
       </Modal>
+      <GpxImportModal
+        visible={gpxImportVisible}
+        onClose={() => setGpxImportVisible(false)}
+        onImported={(created) => {
+          setGpxImportVisible(false);
+          setActivities((current) => [created, ...current]);
+          setTotalHistoryCount((current) => (current === null ? 1 : current + 1));
+          router.push({
+            pathname: '/(app)/activity/[id]',
+            params: { id: String(created.id) },
+          } as any);
+        }}
+      />
       </View>
     </SafeAreaView>
     </GestureHandlerRootView>
@@ -2105,6 +2133,9 @@ const styles = StyleSheet.create({
   heading: { paddingTop: 20, paddingBottom: 18 },
   headingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   headingCopy: { flex: 1, minWidth: 0 },
+  headingActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  importGpxButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 999, borderWidth: 1, minHeight: 34 },
+  importGpxButtonText: { fontSize: 13, fontWeight: '600' },
   title: { color: '#F7F7F7', fontSize: 31, fontWeight: '700' },
   subtitle: { color: '#A9ADAF', fontSize: 15, marginTop: 4 },
   selectionModeAction: { minHeight: 40, justifyContent: 'center', paddingHorizontal: 4 },
