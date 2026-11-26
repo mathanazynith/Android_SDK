@@ -1,22 +1,24 @@
 import { Feather } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import {
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useTheme, type ThemeColors } from '../contexts/ThemeContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { ActivityLapRecord, ActivitySegmentSplits, ActivitySplit } from '../src/types/activity';
 import {
-    formatDistanceValueFromMeters,
-    formatPaceValueFromSecondsPerKm,
-    formatSplitDistanceValue,
+  formatActivityDistanceValueFromMeters,
+  formatDistanceValueFromMeters,
+  formatPaceValueFromSecondsPerKm,
+  formatSplitDistanceValue,
 } from '../src/utils/activityUnitFormatters';
-import { formatSplitTime } from '../src/utils/splitFormatters';
+import { formatDurationHhMmSs, formatSplitTime } from '../src/utils/splitFormatters';
 import { getDistanceUnitCode, getDistanceUnitDisplayLabel } from '../utils/distanceUnit';
 import { RunningLoader } from './common/RunningLoader';
 import OriginZoomModal from './navigation/OriginZoomModal';
@@ -38,24 +40,15 @@ interface ActivitySplitsModalProps {
   onExitComplete?: () => void;
 }
 
-const typePresentation = (type: string, isDark: boolean, colors: ThemeColors) =>
-  type === 'EXTRA'
-    ? {
-      color: isDark ? '#FDA4AF' : '#B91C1C',
-      backgroundColor: isDark ? '#451A24' : '#FEE2E2',
-    }
-    : {
-      color: isDark ? '#4ADE80' : '#15803D',
-      backgroundColor: colors.selected,
-    };
-
-const displayType = (type: string) => type.replace(/[-_]/g, ' ').toUpperCase();
-
 const sumSplits = (splits: ActivitySplit[], field: 'distance_m' | 'time_s') =>
   splits.reduce((total, split) => total + (Number.isFinite(split[field]) ? split[field] : 0), 0);
 
 const formatMetric = (value: number | undefined, formatter: (value: number) => string) =>
   value !== undefined && Number.isFinite(value) && value >= 0 ? formatter(value) : '—';
+
+const formatSegmentDistance = (meters: number | null | undefined, distanceUnit?: string | null) => {
+  return formatActivityDistanceValueFromMeters(meters, distanceUnit);
+};
 
 interface DisplaySegment {
   segment: ActivitySegmentSplits;
@@ -371,6 +364,18 @@ export default function ActivitySplitsModal({
   const [selectedLapKey, setSelectedLapKey] = useState<string | null>(null);
   const selectedLap = lapEntries.find((lap) => lap.key === selectedLapKey) ?? null;
   const standaloneLaps = lapEntries.filter((lap) => lap.groupLabel === 'Workout');
+  const [expandedLapGroups, setExpandedLapGroups] = useState<Set<string>>(() => new Set());
+
+  const toggleLapGroup = (groupLabel: string) => {
+    const isExpanded = expandedLapGroups.has(groupLabel);
+    setExpandedLapGroups((current) => {
+      const next = new Set(current);
+      if (next.has(groupLabel)) next.delete(groupLabel);
+      else next.add(groupLabel);
+      return next;
+    });
+    if (isExpanded && selectedLap?.groupLabel === groupLabel) setSelectedLapKey(null);
+  };
 
   return (
     <OriginZoomModal visible={visible} launchOrigin={launchOrigin} onExitComplete={onExitComplete} onRequestClose={onClose}>
@@ -407,30 +412,53 @@ export default function ActivitySplitsModal({
               </Text>
             </View>
             <View style={styles.summaryRow}>
-              <SegmentMetric compact highlighted label={`Distance (${distanceLabel})`} value={formatDistanceValueFromMeters(totalDistance, distanceUnit)} />
+              <SegmentMetric compact highlighted label={`Distance (${distanceLabel})`} value={formatActivityDistanceValueFromMeters(totalDistance, distanceUnit)} />
               {hasExtraDistance && (
-                <SegmentMetric compact label={`Extra (${distanceLabel})`} value={formatDistanceValueFromMeters(extraDistance, distanceUnit)} />
+                <SegmentMetric compact label={`Extra (${distanceLabel})`} value={formatActivityDistanceValueFromMeters(extraDistance, distanceUnit)} />
               )}
             </View>
-            {standaloneLaps.length > 0 && <LapTable laps={standaloneLaps} selectedLapKey={selectedLap?.key ?? null} onSelectLap={setSelectedLapKey} distanceUnit={distanceUnit} />}
+            {standaloneLaps.length > 0 && (
+              <>
+                <View style={styles.standaloneLapsHeader}>
+                  <Text style={[styles.sectionLapsLabel, { color: colors.text }]}>Workout laps</Text>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={expandedLapGroups.has('Workout') ? 'Hide workout laps' : 'Show workout laps'}
+                    accessibilityState={{ expanded: expandedLapGroups.has('Workout') }}
+                    onPress={() => toggleLapGroup('Workout')}
+                    style={[styles.segmentType, { backgroundColor: colors.selected }]}
+                  >
+                    <Text style={[styles.lapsButtonText, { color: colors.primary }]}>Laps</Text>
+                    <Feather name={expandedLapGroups.has('Workout') ? 'chevron-up' : 'chevron-down'} size={13} color={colors.primary} />
+                  </TouchableOpacity>
+                </View>
+                {expandedLapGroups.has('Workout') ? <LapTable laps={standaloneLaps} selectedLapKey={selectedLap?.key ?? null} onSelectLap={setSelectedLapKey} distanceUnit={distanceUnit} /> : null}
+              </>
+            )}
             {displaySegments.map(({ segment, recovery }) => {
               const distance = segment.completed_distance_m ?? sumSplits(segment.splits, 'distance_m');
               const time = segment.actual_time_s ?? sumSplits(segment.splits, 'time_s');
               const pace = segment.actual_pace_s_per_km ?? (distance > 0 && time > 0 ? time / (distance / 1000) : undefined);
-              const typeStyle = typePresentation(segment.type, isDark, colors);
               const groupLabel = segment.type === 'EXTRA' ? 'Extra distance' : `${segment.sequence}. ${titleCase(segment.type)}`;
               const segmentLapEntries = lapEntries.filter((lap) => lap.groupLabel === groupLabel);
+              const isLapsExpanded = expandedLapGroups.has(groupLabel);
               return (
                 <View key={`segment-${segment.sequence}-${segment.type}`}>
-                  <View style={[styles.segmentCard, { backgroundColor: colors.surface, borderColor: isDark ? colors.surface : colors.border }]}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={isLapsExpanded ? `Hide ${titleCase(segment.type)} laps` : `Show ${titleCase(segment.type)} laps`}
+                    accessibilityState={{ expanded: isLapsExpanded, disabled: segmentLapEntries.length === 0 }}
+                    disabled={segmentLapEntries.length === 0}
+                    onPress={() => toggleLapGroup(groupLabel)}
+                    style={({ pressed }) => [styles.segmentCard, { backgroundColor: colors.surface, borderColor: isDark ? colors.surface : colors.border, opacity: pressed ? 0.88 : 1 }]}
+                  >
                     <View style={styles.segmentHeader}>
                       <Text style={[styles.segmentTitle, { color: colors.text }]}>{segment.sequence}. {titleCase(segment.type)}</Text>
-                      <Text style={[styles.segmentType, typeStyle]}>{displayType(segment.type)}</Text>
                     </View>
                     <View style={styles.segmentMetrics}>
-                      <SegmentMetric inline label="Distance" value={formatDistanceValueFromMeters(distance, distanceUnit)} />
-                      <SegmentMetric inline label="Planned" value={formatMetric(segment.planned_distance_m, (value) => formatDistanceValueFromMeters(value, distanceUnit))} />
-                      <SegmentMetric inline label="Time" value={formatMetric(time, formatSplitTime)} />
+                      <SegmentMetric inline label={`Distance (${getDistanceUnitDisplayLabel(distanceUnit)})`} value={formatSegmentDistance(distance, distanceUnit)} />
+                      <SegmentMetric inline label={`Planned (${getDistanceUnitDisplayLabel(distanceUnit)})`} value={formatMetric(segment.planned_distance_m, (value) => formatSegmentDistance(value, distanceUnit))} />
+                      <SegmentMetric inline label="Time" value={formatMetric(time, formatDurationHhMmSs)} />
                       <SegmentMetric inline label="Pace" value={formatMetric(pace, (value) => `${formatPaceValueFromSecondsPerKm(value, distanceUnit)} ${paceLabel}`)} />
                     </View>
                     {recovery && <RecoveryDetails
@@ -445,8 +473,8 @@ export default function ActivitySplitsModal({
                         return next;
                       })}
                     />}
-                  </View>
-                  <LapTable laps={segmentLapEntries} selectedLapKey={selectedLap?.key ?? null} onSelectLap={setSelectedLapKey} distanceUnit={distanceUnit} />
+                  </Pressable>
+                  {isLapsExpanded ? <LapTable laps={segmentLapEntries} selectedLapKey={selectedLap?.key ?? null} onSelectLap={setSelectedLapKey} distanceUnit={distanceUnit} /> : null}
                 </View>
               );
             })}
@@ -478,8 +506,8 @@ function RecoveryDetails({ recovery, distanceUnit, expanded, onToggle }: { recov
         <Feather name="chevron-down" size={22} color={colors.textSecondary} />
       </TouchableOpacity>
       <View style={styles.recoveryMetrics}>
-        <SegmentMetric label={`Distance (${getDistanceUnitDisplayLabel(distanceUnit)})`} value={formatDistanceValueFromMeters(distance, distanceUnit)} />
-        <SegmentMetric label="Time" value={formatMetric(time, formatSplitTime)} />
+        <SegmentMetric label={`Distance (${getDistanceUnitDisplayLabel(distanceUnit)})`} value={formatSegmentDistance(distance, distanceUnit)} />
+        <SegmentMetric label="Time" value={formatMetric(time, formatDurationHhMmSs)} />
         <SegmentMetric label={`Pace (min/${getDistanceUnitCode(distanceUnit) === 'mile' ? 'mi' : 'km'})`} value={formatMetric(pace, (value) => formatPaceValueFromSecondsPerKm(value, distanceUnit))} />
       </View>
       {recovery.gps_points?.length !== undefined && <Text style={[styles.gpsPoints, { color: colors.textTertiary }]}>{recovery.gps_points.length} GPS points</Text>}
@@ -506,7 +534,10 @@ const styles = StyleSheet.create({
   segmentCard: { borderRadius: 20, padding: 17, marginBottom: 16, borderWidth: 1 },
   segmentHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   segmentTitle: { fontSize: 22, fontWeight: '700', flex: 1, letterSpacing: 0 },
-  segmentType: { fontSize: 12, fontWeight: '800', letterSpacing: 0.4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, overflow: 'hidden' },
+  segmentType: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, overflow: 'hidden' },
+  lapsButtonText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.4 },
+  standaloneLapsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, paddingHorizontal: 4 },
+  sectionLapsLabel: { fontSize: 15, fontWeight: '700' },
   segmentMetrics: { flexDirection: 'row', flexWrap: 'nowrap', justifyContent: 'space-between', columnGap: 8, marginTop: 16 },
   metric: { flexGrow: 1, flexShrink: 1, flexBasis: '46%', minWidth: 0, borderRadius: 12, borderWidth: 1, padding: 8 },
   metricLabel: { fontSize: 13, fontWeight: '700', letterSpacing: 0 },

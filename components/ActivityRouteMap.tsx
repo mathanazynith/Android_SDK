@@ -9,10 +9,11 @@ import type { BackendGpsPoint, BackendPauseEvent, BackendPolylineRoute } from '.
 import { getGpsOptimizationConfig } from '../src/services/gpsOptimizationConfig';
 import { RdpSimplifier } from '../src/services/rdpSimplifier';
 import {
-  formatDistanceFromMeters,
+  formatActivityDistanceFromMeters,
   formatElevationFromMeters,
   formatPaceFromSecondsPerKm,
 } from '../src/utils/activityUnitFormatters';
+import { formatDurationHhMmSs } from '../src/utils/splitFormatters';
 import { buildActivityRouteGroups, mergeActivityRouteGroups } from '../src/utils/activityRouteGroups';
 import { decodePolyline } from '../src/utils/polylineDecoder';
 import { createCatmullRomPolyline } from '../src/utils/catmullRom';
@@ -75,14 +76,7 @@ interface ActivityRouteMapProps {
 }
 
 const formatDuration = (seconds?: number) => {
-  if (seconds === undefined || !Number.isFinite(seconds)) return '--';
-  const totalSeconds = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const secs = totalSeconds % 60;
-  return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
-    : `${minutes}:${String(secs).padStart(2, '0')}`;
+  return seconds === undefined ? '--' : formatDurationHhMmSs(seconds);
 };
 
 const routeSimplifier = new RdpSimplifier();
@@ -860,7 +854,7 @@ function ActivityRouteMap({
                   <Text style={[styles.fullScreenTitleText, { color: colors.text }]}>Route View</Text>
                   {activityStats?.distance !== undefined && (
                     <Text style={[styles.fullScreenDistanceText, { color: colors.primary }]}>
-                      {formatDistanceFromMeters(activityStats.distance, distanceUnit)}
+                      {formatActivityDistanceFromMeters(activityStats.distance, distanceUnit)}
                     </Text>
                   )}
                 </View>
@@ -913,7 +907,7 @@ function ActivityRouteMap({
                   <View style={styles.statColumn}>
                     <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Distance</Text>
                     <Text style={[styles.statValue, { color: colors.text }]}>
-                      {formatDistanceFromMeters(activityStats.distance, distanceUnit)}
+                      {formatActivityDistanceFromMeters(activityStats.distance, distanceUnit)}
                     </Text>
                   </View>
 

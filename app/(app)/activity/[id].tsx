@@ -27,14 +27,14 @@ import { shareActivityAsGpx } from '../../../src/services/gpxFileExport';
 import { socialAPI, type SocialPostVisibility } from '../../../src/services/socialApi';
 import { ActivityExtraSplits, ActivityLapRecord, ActivitySegmentSplits } from '../../../src/types/activity';
 import {
-  formatDistanceFromMeters,
+  formatActivityDistanceFromMeters,
   formatElevationFromMeters,
   formatPaceFromSecondsPerKm,
   formatSpeedFromKilometersPerHour,
-  formatSpeedFromMetersPerSecond,
+  formatSpeedFromMetersPerSecond
 } from '../../../src/utils/activityUnitFormatters';
 import { getActivityExtraDistanceMeters } from '../../../src/utils/extraDistance';
-import { formatDurationMmSs as formatDuration } from '../../../src/utils/splitFormatters';
+import { formatDurationHhMmSs as formatDuration } from '../../../src/utils/splitFormatters';
 
 const formatRecordedDate = (value: string) => {
   const date = new Date(value);
@@ -659,7 +659,7 @@ export default function ActivityDetailScreen() {
             </TouchableOpacity>
 
             <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <DetailMetric label="Distance" value={formatDistanceFromMeters(activity.distance, distanceUnit)} />
+              <DetailMetric label="Distance" value={formatActivityDistanceFromMeters(activity.distance, distanceUnit)} />
               <DetailMetric label="Moving time" value={formatDuration(activity.moving_time)} />
               <DetailMetric label="Average pace" value={formatPaceFromSecondsPerKm(activity.avg_pace, distanceUnit)} />
               <DetailMetric label="Calories" value={`${Math.round(activity.calories)} kcal`} />
@@ -667,9 +667,9 @@ export default function ActivityDetailScreen() {
 
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Distance breakdown</Text>
             <View style={[styles.metricsCard, styles.verticalMetricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <DetailMetric fullWidth label="Distance" value={formatDistanceFromMeters(activity.distance, distanceUnit)} />
+              <DetailMetric fullWidth label="Distance" value={formatActivityDistanceFromMeters(activity.distance, distanceUnit)} />
               {extraDistanceMeters !== null && (
-                <DetailMetric fullWidth label="Extra distance" value={formatDistanceFromMeters(extraDistanceMeters, distanceUnit)} />
+                <DetailMetric fullWidth label="Extra distance" value={formatActivityDistanceFromMeters(extraDistanceMeters, distanceUnit)} />
               )}
               <DetailMetric fullWidth label="Elapsed time" value={formatDuration(activity.elapsed_time)} />
                 <DetailMetric fullWidth label="Moving time" value={formatDuration(activity.moving_time)} />

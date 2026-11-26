@@ -28,6 +28,24 @@ export const formatDistanceValueFromMeters = (
   return distance.toFixed(2);
 };
 
+export const formatActivityDistanceValueFromMeters = (
+  meters: number | null | undefined,
+  unit?: string | null,
+): string => {
+  if (meters === null || meters === undefined || !Number.isFinite(meters) || meters < 0) return '--';
+  if (getDistanceUnitCode(unit) === 'mile') return (meters / METERS_PER_MILE).toFixed(2);
+  return (meters / 1000).toFixed(3);
+};
+
+export const formatActivityDistanceFromMeters = (
+  meters: number | null | undefined,
+  unit?: string | null,
+): string => {
+  const value = formatActivityDistanceValueFromMeters(meters, unit);
+  if (value === '--') return value;
+  return `${value} ${getDistanceUnitCode(unit) === 'mile' ? 'mi' : 'km'}`;
+};
+
 export const formatElevationFromMeters = (
   meters: number | null | undefined,
   unit?: string | null,

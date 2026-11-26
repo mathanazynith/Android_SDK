@@ -12,6 +12,15 @@ export const formatDurationMmSs = (seconds: number): string => {
   return `${String(Math.floor(totalSeconds / 60)).padStart(2, '0')}:${String(totalSeconds % 60).padStart(2, '0')}`;
 };
 
+export const formatDurationHhMmSs = (seconds: number): string => {
+  if (!Number.isFinite(seconds) || seconds < 0) return '--';
+  const totalSeconds = Math.round(seconds);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainingSeconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+};
+
 export const formatSplitTime = formatDurationMmSs;
 
 export const formatPace = (secondsPerKm: number): string => {
