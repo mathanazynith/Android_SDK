@@ -1,6 +1,7 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { BlurTargetView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { Image as ExpoImage } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
@@ -319,7 +320,7 @@ const FilterTile = memo(function FilterTile({
       ]}
     >
       <MaterialCommunityIcons name={icon} size={14} color={isActive ? '#000000' : primaryTextColor} />
-      <Text numberOfLines={1} style={[styles.filterBarText, { color: isActive ? '#000000' : primaryTextColor }]}>
+      <Text numberOfLines={1} style={[styles.filterBarText, { color: isActive ? '#000000' : '#2196F3' }]}>
         {label}
       </Text>
       {showChevron && <Feather name="chevron-down" size={14} color={isActive ? '#000000' : primaryTextColor} />}
@@ -828,6 +829,7 @@ export default function ActivityScreen() {
   const selectionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectionToolbarOpacity] = useState(() => new Animated.Value(0));
   const [selectionToolbarTranslateY] = useState(() => new Animated.Value(8));
+  const [selectionToolbarScale] = useState(() => new Animated.Value(0.96));
   const [activeFilterPopover, setActiveFilterPopover] = useState<FilterPopover | null>(null);
   const [filterPopoverPosition, setFilterPopoverPosition] = useState<FilterPopoverPosition>({ left: 12, top: 72, width: 280, maxHeight: 420, originXPercent: 50, originYPercent: 50, originScaleX: 0.02, originScaleY: 0.02 });
   const [activityOptionsPosition, setActivityOptionsPosition] = useState<ActivityMenuPosition>({
@@ -1074,6 +1076,7 @@ export default function ActivityScreen() {
       if (reduceMotion) {
         selectionToolbarOpacity.setValue(1);
         selectionToolbarTranslateY.setValue(0);
+        selectionToolbarScale.setValue(1);
         return;
       }
       Animated.parallel([
@@ -1089,13 +1092,20 @@ export default function ActivityScreen() {
           stiffness: 190,
           useNativeDriver: true,
         }),
+        Animated.spring(selectionToolbarScale, {
+          toValue: 1,
+          damping: 17,
+          stiffness: 210,
+          useNativeDriver: true,
+        }),
       ]).start();
       return;
     }
 
     selectionToolbarOpacity.setValue(0);
     selectionToolbarTranslateY.setValue(8);
-  }, [reduceMotion, selectionMode, selectionToolbarOpacity, selectionToolbarTranslateY]);
+    selectionToolbarScale.setValue(0.96);
+  }, [reduceMotion, selectionMode, selectionToolbarOpacity, selectionToolbarScale, selectionToolbarTranslateY]);
 
   const loadFirstPage = useCallback(async () => {
     if (!userId) {
@@ -1244,9 +1254,10 @@ export default function ActivityScreen() {
     if (!reduceMotion) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     selectionToolbarOpacity.setValue(reduceMotion ? 1 : 0);
     selectionToolbarTranslateY.setValue(reduceMotion ? 0 : 8);
+    selectionToolbarScale.setValue(reduceMotion ? 1 : 0.96);
     setSelectionMode(true);
     setSelectedActivityIds(activityId === undefined ? new Set() : new Set([String(activityId)]));
-  }, [reduceMotion, selectionToolbarOpacity, selectionToolbarTranslateY]);
+  }, [reduceMotion, selectionToolbarOpacity, selectionToolbarScale, selectionToolbarTranslateY]);
 
   const startActivitySelection = useCallback((activityId: BackendActivity['id']) => {
     enterActivitySelection(activityId);
@@ -1752,8 +1763,10 @@ export default function ActivityScreen() {
       <View style={styles.heading}>
         <View style={styles.headingRow}>
           <View style={styles.headingCopy}>
-            <Text style={[styles.title, { color: colors.text }]}>Workout History</Text>
-            {!selectionMode && <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Your completed runs and walks</Text>}
+            <Text style={[styles.title, { color: colors.text }]}>{selectionMode ? 'Select workouts' : 'Workout History'}</Text>
+            {selectionMode
+              ? <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{selectedActivityIds.size} selected · Tap activities to update</Text>
+              : <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Your completed runs and walks</Text>}
           </View>
           <View style={styles.headingActions}>
             {!selectionMode && (
@@ -1773,9 +1786,10 @@ export default function ActivityScreen() {
               accessibilityState={{ disabled: isDeletingActivities }}
               disabled={isDeletingActivities}
               onPress={selectionMode ? cancelActivitySelection : () => enterActivitySelection()}
-              style={styles.selectionModeAction}
+              style={[styles.selectionModeAction, { borderColor: colors.border }, selectionMode && { backgroundColor: colors.surfaceRaised }]}
             >
-              <Text style={[styles.selectionModeActionText, { color: colors.primary }]}>
+              {selectionMode ? <Feather name="x" size={15} color={colors.textSecondary} /> : null}
+              <Text style={[styles.selectionModeActionText, { color: selectionMode ? colors.textSecondary : colors.primary }]}>
                 {selectionMode ? 'Cancel' : 'Select'}
               </Text>
             </TouchableOpacity>
@@ -1849,7 +1863,9 @@ export default function ActivityScreen() {
             styles.selectionToolbar,
             {
               opacity: selectionToolbarOpacity,
-              transform: [{ translateY: selectionToolbarTranslateY }],
+              transform: [{ translateY: selectionToolbarTranslateY }, { scale: selectionToolbarScale }],
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
             },
           ]}
         >
@@ -1860,15 +1876,17 @@ export default function ActivityScreen() {
               onPress={toggleAllVisibleSelection}
               style={styles.selectionAllButton}
             >
-              <Text style={[styles.selectionToolbarButtonText, { color: colors.primary }]}>
+                <Feather name={visibleActivities.length > 0 && visibleActivities.every((activity) => selectedActivityIds.has(String(activity.id))) ? 'minus-square' : 'check-square'} size={16} color={colors.primary} />
+                <Text style={[styles.selectionToolbarButtonText, { color: colors.primary }]}>
                 {visibleActivities.length > 0 && visibleActivities.every((activity) => selectedActivityIds.has(String(activity.id)))
                   ? 'Deselect All'
                   : 'Select All'}
               </Text>
             </TouchableOpacity>
-            <Text style={[styles.selectionCount, { color: colors.textSecondary }]}>
-              {selectedActivities.length} selected
-            </Text>
+            <View style={[styles.selectionCountBadge, { backgroundColor: colors.selected }]}>
+              <Text style={[styles.selectionCount, { color: colors.primary }]}>{selectedActivities.length}</Text>
+              <Text style={[styles.selectionCountLabel, { color: colors.textSecondary }]}>selected</Text>
+            </View>
           </View>
           {selectedActivities.length > 0 && (
             <TouchableOpacity
@@ -1880,12 +1898,15 @@ export default function ActivityScreen() {
               onPress={() => void confirmDeleteSelected()}
               style={styles.deleteSelectedButton}
             >
-              {isDeletingActivities
-                ? <RunningLoader size={18} fillColor="#FFFFFF" />
-                : <Feather name="trash-2" size={18} color="#FFFFFF" />}
-              <Text style={styles.deleteSelectedButtonText}>
-                {isDeletingActivities ? 'Deleting…' : `Delete ${selectedActivities.length} selected`}
-              </Text>
+              <LinearGradient colors={['#EF4444', '#B4232A']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.deleteSelectedButtonGradient}>
+                {isDeletingActivities
+                  ? <RunningLoader size={18} fillColor="#FFFFFF" />
+                  : <Feather name="trash-2" size={18} color="#FFFFFF" />}
+                <Text style={styles.deleteSelectedButtonText}>
+                  {isDeletingActivities ? 'Deleting…' : `Delete ${selectedActivities.length}`}
+                </Text>
+                {!isDeletingActivities && <View style={styles.deleteButtonChevron}><Feather name="arrow-right" size={14} color="#FFFFFF" /></View>}
+              </LinearGradient>
             </TouchableOpacity>
           )}
         </Animated.View>
@@ -2334,15 +2355,19 @@ const styles = StyleSheet.create({
   importGpxButtonText: { fontSize: 13, fontWeight: '600' },
   title: { color: '#F7F7F7', fontSize: 31, fontWeight: '700' },
   subtitle: { color: '#A9ADAF', fontSize: 15, marginTop: 4 },
-  selectionModeAction: { minHeight: 40, justifyContent: 'center', paddingHorizontal: 4 },
+  selectionModeAction: { minHeight: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 10, borderRadius: 13, borderWidth: StyleSheet.hairlineWidth },
   selectionModeActionText: { fontSize: 15, fontWeight: '600' },
-  selectionToolbar: { paddingTop: 4, paddingBottom: 10, gap: 10 },
-  selectionToolbarActions: { minHeight: 36, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  selectionAllButton: { minHeight: 36, justifyContent: 'center', paddingHorizontal: 4 },
-  selectionToolbarButtonText: { fontSize: 14, fontWeight: '600' },
-  selectionCount: { fontSize: 13, fontWeight: '500' },
-  deleteSelectedButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#E53935' },
-  deleteSelectedButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
+  selectionToolbar: { padding: 12, marginBottom: 8, gap: 10, borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, shadowColor: '#000000', shadowOpacity: 0.1, shadowOffset: { width: 0, height: 4 }, shadowRadius: 10, elevation: 3 },
+  selectionToolbarActions: { minHeight: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  selectionAllButton: { minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center', paddingHorizontal: 4 },
+  selectionToolbarButtonText: { fontSize: 13, fontWeight: '700' },
+  selectionCountBadge: { minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 10, borderRadius: 99 },
+  selectionCount: { fontSize: 14, fontWeight: '800' },
+  selectionCountLabel: { fontSize: 11, fontWeight: '600' },
+  deleteSelectedButton: { minHeight: 50, borderRadius: 14, overflow: 'hidden', shadowColor: '#991B1B', shadowOpacity: 0.18, shadowOffset: { width: 0, height: 3 }, shadowRadius: 6, elevation: 2 },
+  deleteSelectedButtonGradient: { minHeight: 50, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, paddingHorizontal: 16 },
+  deleteSelectedButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
+  deleteButtonChevron: { position: 'absolute', right: 14, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.18)' },
   filterRowScroll: { marginBottom: 10 },
   filterRowBar: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: 6, paddingRight: 2 },
   filterBarButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 7, borderRadius: 10, borderWidth: 1, minHeight: 36 },

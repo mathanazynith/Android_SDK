@@ -19,7 +19,10 @@ function AppLayoutContent() {
   const pathname = usePathname();
   const globalParams = useGlobalSearchParams();
   const hasDashboardLaunchOrigin = Boolean(getDashboardLaunchOrigin(globalParams));
-  const showBottomNav = isPrimaryTabPath(pathname);
+  const selfProfileTab = globalParams.selfProfile === '1';
+  const showBottomNav = isPrimaryTabPath(pathname)
+    || pathname.replace('/(app)', '') === '/profile/info'
+    || (pathname.includes('/runner/') && selfProfileTab);
   const activeRun = useActiveRun();
   const blurTargetRef = useRef<View | null>(null);
   const isIOS = Platform.OS === 'ios';
@@ -34,6 +37,12 @@ function AppLayoutContent() {
 
     const handleBackPress = () => {
       if (backNavigationPending.current) return true;
+
+      if (pathname.replace('/(app)', '') === '/profile/info' && router.canGoBack()) {
+        backNavigationPending.current = true;
+        router.back();
+        return true;
+      }
 
       if (pathname.replace('/(app)', '') !== '/dashboard') {
         backNavigationPending.current = true;

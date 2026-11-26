@@ -2,7 +2,7 @@ import { Alert } from '@/components/ThemedAlert';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AuthDismissHandle from '../../components/auth/AuthDismissHandle';
 import AuthModeTabs from '../../components/auth/AuthModeTabs';
@@ -192,7 +192,12 @@ export default function LoginScreen() {
           />
 
           <View style={styles.runnerBadge}>
-            <Ionicons name="walk" size={34} color={Colors.background} />
+            <Image
+              source={require('../../assets/images/zyrun-adaptive-foreground.png')}
+              resizeMode="contain"
+              style={styles.runnerLogo}
+              accessibilityLabel="Zy-Run logo"
+            />
           </View>
           <Text style={[styles.title, { color: colors.text }]}>Let&apos;s get moving</Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Sign in to pick up your streak</Text>
@@ -340,5 +345,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   authCard: { width: '100%', maxWidth: 520, alignSelf: 'center' },
-  runnerBadge: { width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center', backgroundColor: '#63C438', alignSelf: 'center', marginBottom: 16 },
+  runnerBadge: { width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center', backgroundColor: '#090B0A', alignSelf: 'center', marginBottom: 16, overflow: 'hidden' },
+  runnerLogo: { position: 'absolute', width: 80, height: 80, left: -13, top: -13 },
 });

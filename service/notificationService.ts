@@ -183,6 +183,24 @@ export const saveLocallyDismissedNotification = async (
   }
 };
 
+export const removeLocallyDismissedNotification = async (
+  userId: number,
+  notificationId: number | string,
+): Promise<void> => {
+  const previousWrite = pendingDismissalWrites.get(userId);
+  const write = (previousWrite ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    const dismissedIds = await getLocallyDismissedNotificationIds(userId);
+    dismissedIds.delete(String(notificationId));
+    await storage.setItem(notificationDismissalKey(userId), JSON.stringify([...dismissedIds]));
+  });
+  pendingDismissalWrites.set(userId, write);
+  try {
+    await write;
+  } finally {
+    if (pendingDismissalWrites.get(userId) === write) pendingDismissalWrites.delete(userId);
+  }
+};
+
 const getDeviceId = async (): Promise<string> => {
   if (!deviceIdRequest) {
     deviceIdRequest = (async () => {

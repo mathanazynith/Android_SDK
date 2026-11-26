@@ -1,5 +1,5 @@
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { router, usePathname } from 'expo-router';
+import { router, useGlobalSearchParams, usePathname } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import Animated, {
@@ -129,18 +129,22 @@ const TabButton = memo(function TabButton({
   );
 });
 
-const isTabActive = (pathname: string, route: Tab['route']) => {
+const isTabActive = (pathname: string, route: Tab['route'], selfProfileTab = false) => {
   if (route === '/(app)/social') return pathname.includes('/social');
   if (route === '/(app)/training-plan') return pathname.includes('/training-plan');
   if (route === '/(app)/activity') return pathname.includes('/activity') || pathname.includes('/history') || pathname === '/home';
   if (route === '/(app)/dashboard') return pathname.includes('/dashboard');
   if (route === '/(app)/stats') return pathname.includes('/stats');
-  if (route === '/(app)/profile') return pathname.includes('/profile');
+  if (route === '/(app)/profile') return pathname.includes('/profile') || (pathname.includes('/runner/') && selfProfileTab);
   return false;
 };
 
 export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject<View | null> }) {
   const pathname = usePathname();
+  const globalParams = useGlobalSearchParams();
+  const selfProfileTab = globalParams.selfProfile === '1';
+  const isProfileInfoPath = pathname.replace('/(app)', '') === '/profile/info';
+  const isSelfProfilePath = pathname.includes('/runner/') && selfProfileTab;
   const { colors, isDark } = useTheme();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isAndroid = Platform.OS === 'android';
@@ -174,7 +178,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
     () => hasActivePlan ? tabs : tabs.filter((tab) => tab.label !== 'Plans'),
     [hasActivePlan],
   );
-  const activeIndex = visibleTabs.findIndex((tab) => isTabActive(pathname, tab.route));
+  const activeIndex = visibleTabs.findIndex((tab) => isTabActive(pathname, tab.route, selfProfileTab));
   const tabContentWidth = Math.max(0, rowWidth - tabRowHorizontalPadding * 2);
   const tabWidth = tabContentWidth > 0 ? tabContentWidth / visibleTabs.length : 0;
   const glowTranslateX = useSharedValue(0);
@@ -231,7 +235,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
     }
 
     setPlanPrompt(null);
-    if (isTabActive(pathname, tab.route)) return;
+    if (isTabActive(pathname, tab.route, selfProfileTab)) return;
     if (tabNavigationPending.current) return;
     tabNavigationPending.current = true;
 
@@ -264,7 +268,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
     }
   }
 
-  if (!isPrimaryTabPath(pathname)) return null;
+  if (!isPrimaryTabPath(pathname) && !isProfileInfoPath && !isSelfProfilePath) return null;
 
   const navContent = (
     <View
@@ -287,7 +291,7 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
         />
       ) : null}
       {visibleTabs.map((tab) => {
-        const active = isTabActive(pathname, tab.route);
+        const active = isTabActive(pathname, tab.route, selfProfileTab);
         return (
           <TabButton
             key={tab.label}

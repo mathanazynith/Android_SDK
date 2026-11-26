@@ -159,7 +159,7 @@ export default function EditProfileScreen() {
   const handleClose = () => {
     const returnToProfile = () => {
       if (router.canGoBack()) router.back();
-      else router.replace("/(app)/profile");
+      else router.replace("/(app)/profile/info");
     };
 
     if (!hasChanges) {
@@ -183,7 +183,7 @@ export default function EditProfileScreen() {
           text: "OK",
           onPress: () => {
             if (router.canGoBack()) router.back();
-            else router.replace("/(app)/profile");
+            else router.replace("/(app)/profile/info");
           },
         },
       ]);

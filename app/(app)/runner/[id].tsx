@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Avatar } from "../../../components/Avatar";
 import ActivityRouteMap from "../../../components/ActivityRouteMap";
+import { RunningLoader } from "../../../components/common/RunningLoader";
 import { useTheme } from "../../../contexts/ThemeContext";
 import { getBackendErrorMessage } from "../../../service/api";
 import { useAuth } from "../../../service/auth";
@@ -52,7 +53,7 @@ const durationText = (seconds: number) => {
 export default function RunnerProfileScreen() {
   const { colors } = useTheme();
   const { user } = useAuth();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, selfProfile } = useLocalSearchParams<{ id: string; selfProfile?: string }>();
   const userId = Number(id);
   const [profile, setProfile] = useState<ConnectionProfile | null>(null);
   const [posts, setPosts] = useState<SocialPost[]>([]);
@@ -72,6 +73,8 @@ export default function RunnerProfileScreen() {
   const [reportBusy, setReportBusy] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const isOwnProfile = profile !== null && user?.id != null && String(profile.id) === String(user.id);
+  const isSelfProfileTabView = isOwnProfile && selfProfile === '1';
 
   const loadProfile = useCallback(async (refresh = false) => {
     if (!Number.isInteger(userId) || userId <= 0) {
@@ -209,11 +212,24 @@ export default function RunnerProfileScreen() {
   const header = (
     <View>
       <View style={styles.topBar}>
-        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={styles.iconButton}>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          onPress={() => {
+            if (isSelfProfileTabView || !router.canGoBack()) router.replace('/(app)/dashboard');
+            else router.back();
+          }}
+          style={styles.iconButton}
+        >
           <Feather name="arrow-left" size={22} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.pageTitle, { color: colors.text }]}>Runner</Text>
-        <View style={styles.iconButton} />
+        <Text style={[styles.pageTitle, { color: colors.text }]}>{isSelfProfileTabView ? 'Profile' : 'Runner'}</Text>
+        {isSelfProfileTabView ? (
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Info" onPress={() => router.push('/(app)/profile/info')} style={styles.infoButton}>
+            <MaterialCommunityIcons name="account-circle-outline" size={21} color={colors.primary} />
+            <Text style={[styles.infoButtonText, { color: colors.primary }]}>Info</Text>
+          </TouchableOpacity>
+        ) : <View style={styles.iconButton} />}
       </View>
       {profile ? (
         <View style={[styles.profileCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -288,11 +304,9 @@ export default function RunnerProfileScreen() {
   const list = peopleView ? people : posts;
   const hasMore = peopleView ? peopleHasMore : postsHasMore;
   const canShowContent = !profile || profile.can_view_details;
-  const isOwnProfile = profile !== null && user?.id != null && String(profile.id) === String(user.id);
-
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={[styles.screen, { backgroundColor: colors.background }]}>
-      {loading ? <View style={styles.center}><ActivityIndicator color={colors.primary} /></View> : (
+      {loading ? <View style={styles.center}><RunningLoader size={64} label="Loading profile..." /></View> : (
         <>
           <ScrollView
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadProfile(true)} tintColor={colors.primary} />}
@@ -369,6 +383,8 @@ const styles = StyleSheet.create({
   topBar: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   pageTitle: { fontSize: 18, fontWeight: "800" },
   iconButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center" },
+  infoButton: { minWidth: 58, height: 38, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4 },
+  infoButtonText: { fontSize: 13, fontWeight: "700" },
   profileCard: { alignItems: "center", borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, padding: 18, marginTop: 6 },
   name: { fontSize: 18, fontWeight: "800", marginTop: 10 },
   username: { fontSize: 12, marginTop: 2 },
