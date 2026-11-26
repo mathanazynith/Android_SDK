@@ -42,6 +42,8 @@ interface WorkoutFlyover3DModalProps {
   totalDurationSeconds?: number;
   elevationGainMeters?: number;
   avatarUrl?: string | null;
+  mapboxToken?: string | null;
+  maptilerKey?: string | null;
 }
 
 export function WorkoutFlyover3DModal({
@@ -55,10 +57,22 @@ export function WorkoutFlyover3DModal({
   totalDurationSeconds = 0,
   elevationGainMeters = 0,
   avatarUrl,
+  mapboxToken,
+  maptilerKey,
 }: WorkoutFlyover3DModalProps) {
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const webViewRef = useRef<any>(null);
+
+  const activeMapboxToken =
+    mapboxToken ||
+    process.env.EXPO_PUBLIC_MAPBOX_TOKEN ||
+    process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN ||
+    null;
+  const activeMaptilerKey =
+    maptilerKey ||
+    process.env.EXPO_PUBLIC_MAPTILER_KEY ||
+    null;
 
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -75,6 +89,7 @@ export function WorkoutFlyover3DModal({
   const [isRecording, setIsRecording] = useState(false);
   const [recordingStatusText, setRecordingStatusText] = useState('');
   const [exportingAction, setExportingAction] = useState<'download' | 'share' | null>(null);
+  const recordingChunksRef = useRef<string[]>([]);
 
   const resolvedPoints = useMemo<FlyoverGpsPoint[]>(() => {
     const parsePoints = (arr: unknown[]): FlyoverGpsPoint[] => {
@@ -207,8 +222,10 @@ export function WorkoutFlyover3DModal({
       elevationGainMeters,
       initialStyle: styleMode,
       avatarUrl,
+      mapboxToken: activeMapboxToken,
+      maptilerKey: activeMaptilerKey,
     });
-  }, [hasRoute, resolvedPoints, title, totalDistanceMeters, totalDurationSeconds, elevationGainMeters, styleMode, avatarUrl]);
+  }, [hasRoute, resolvedPoints, title, totalDistanceMeters, totalDurationSeconds, elevationGainMeters, styleMode, avatarUrl, activeMapboxToken, activeMaptilerKey]);
 
   const sendCommand = useCallback((action: string, payload?: unknown) => {
     if (!webViewRef.current) return;
@@ -319,10 +336,36 @@ export function WorkoutFlyover3DModal({
           setIsPlaying(false);
           break;
         case 'RECORDING_STARTED':
-          setRecordingStatusText('Recording 3D flyover video...');
+          setRecordingStatusText(
+            data.payload?.durationSeconds
+              ? `Recording ${data.payload.durationSeconds}s 3D flyover video...`
+              : 'Recording 3D flyover video...'
+          );
           break;
+        case 'RECORDING_CHUNK_START':
+          recordingChunksRef.current = [];
+          setRecordingStatusText('Preparing video file...');
+          break;
+        case 'RECORDING_CHUNK':
+          if (typeof data.payload?.data === 'string') {
+            recordingChunksRef.current.push(data.payload.data);
+          }
+          break;
+        case 'RECORDING_CHUNK_END': {
+          const assembledBase64 = recordingChunksRef.current.join('');
+          recordingChunksRef.current = [];
+          void handleRecordingExportReady(assembledBase64, data.payload?.mimeType || 'video/mp4');
+          break;
+        }
         case 'RECORDING_EXPORT_READY':
           void handleRecordingExportReady(data.payload?.base64, data.payload?.mimeType || 'video/mp4');
+          break;
+        case 'RECORDING_ERROR':
+          recordingChunksRef.current = [];
+          setIsRecording(false);
+          setRecordingStatusText('');
+          setExportingAction(null);
+          Alert.alert('Recording Error', String(data.payload || 'Unable to record 3D flyover video.'));
           break;
         case 'NO_ROUTE':
           setIsReady(true);
