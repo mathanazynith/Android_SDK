@@ -1,4 +1,4 @@
-import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -479,12 +479,6 @@ export default function RunnerProfileScreen() {
           <Feather name="arrow-left" size={22} color={colors.text} />
         </TouchableOpacity>
         <Text style={[styles.pageTitle, { color: colors.text }]}>{isSelfProfileTabView ? 'Profile' : 'Runner'}</Text>
-        {isSelfProfileTabView ? (
-          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Info" onPress={() => router.push('/(app)/profile/info')} style={styles.infoButton}>
-            <MaterialCommunityIcons name="account-circle-outline" size={21} color={colors.primary} />
-            <Text style={[styles.infoButtonText, { color: colors.primary }]}>Info</Text>
-          </TouchableOpacity>
-        ) : <View style={[styles.iconButton, styles.topBarTrailing]} />}
       </View>
       {profile ? (
         <View style={[styles.profileCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -758,9 +752,6 @@ const styles = StyleSheet.create({
   topBar: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "flex-start" },
   pageTitle: { fontSize: 18, fontWeight: "800" },
   iconButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center" },
-  topBarTrailing: { marginLeft: "auto" },
-  infoButton: { minWidth: 58, height: 38, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4, marginLeft: "auto" },
-  infoButtonText: { fontSize: 13, fontWeight: "700" },
   profileCard: { alignItems: "center", borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, padding: 14, marginTop: 6 },
   profileSummaryTopRow: { width: "100%", flexDirection: "row", alignItems: "flex-start", gap: 10 },
   profileIdentityText: { width: "100%" },
@@ -768,10 +759,10 @@ const styles = StyleSheet.create({
   username: { fontSize: 12, marginTop: 2 },
   privateBadge: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8 },
   privateText: { fontSize: 11 },
-  countRow: { flex: 1, flexDirection: "row", alignItems: "flex-start" },
-  countButton: { flex: 1, minWidth: 0, alignItems: "center", paddingVertical: 2 },
-  countValue: { fontSize: 16, fontWeight: "800" },
-  countLabel: { fontSize: 11, marginTop: 2 },
+  countRow: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-evenly" },
+  countButton: { flex: 1, flexBasis: 0, minWidth: 0, alignItems: "center", paddingVertical: 4 },
+  countValue: { fontSize: 18, fontWeight: "800", textAlign: "center" },
+  countLabel: { fontSize: 12, marginTop: 3, textAlign: "center" },
   blockButton: { minHeight: 36, flexDirection: "row", alignItems: "center", gap: 7, borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, paddingHorizontal: 13, marginTop: 15 },
   blockButtonText: { fontSize: 12, fontWeight: "700" },
   viewProfileButton: { width: "100%", minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 22, marginTop: 16 },
