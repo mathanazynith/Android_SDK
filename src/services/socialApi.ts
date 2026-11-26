@@ -242,6 +242,10 @@ export const socialAPI = {
       `/social/posts/${postId}/comments/`,
       { body },
     ),
+  deleteComment: (postId: number, commentId: number) =>
+    api.delete<ApiEnvelope<{ comment_count?: number }>>(
+      `/social/posts/${postId}/comments/${commentId}/`,
+    ),
   getSharingSettings: () =>
     api.get<ApiEnvelope<SharingSettings>>("/social/me/sharing/"),
   setDefaultAudience: (default_audience: Exclude<SharingSettings["default_audience"], "ONLY_ME">) =>

@@ -1,6 +1,6 @@
-import { Feather, FontAwesome } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -17,8 +17,6 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  type StyleProp,
-  type ViewStyle,
   useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -26,7 +24,13 @@ import { RunningLoader } from "../../components/common/RunningLoader";
 import { useTheme } from "../../contexts/ThemeContext";
 import { getBackendErrorMessage } from "../../service/api";
 import { Avatar } from "../../components/Avatar";
-import ActivityRouteMap from "../../components/ActivityRouteMap";
+import {
+  AnchoredMoreButton,
+  FeedPostCard,
+  formatDistance,
+  sortSocialPosts,
+} from "../../components/social/FeedPostCard";
+import { PostCommentsModal, PostDetailsModal } from "../../components/social/PostInteractionModals";
 import {
   connectionsAPI,
   extractApiResults,
@@ -39,8 +43,12 @@ import {
   type SocialPost,
   type SocialPostVisibility,
 } from "../../src/services/socialApi";
+import {
+  publishSocialPostDeleted,
+  publishSocialPostPatch,
+  subscribeToSocialPostChanges,
+} from "../../src/services/socialPostEvents";
 
-const formatDistance = (distanceKm: number) => `${Number(distanceKm || 0).toFixed(2)} km`;
 const REPORT_REASONS: { value: ContentReportReason; label: string }[] = [
   { value: "SPAM", label: "Spam or scam" },
   { value: "HARASSMENT", label: "Harassment or bullying" },
@@ -50,187 +58,6 @@ const REPORT_REASONS: { value: ContentReportReason; label: string }[] = [
   { value: "IMPERSONATION", label: "Impersonation" },
   { value: "OTHER", label: "Other" },
 ];
-
-const formatDuration = (seconds: number) => {
-  const total = Math.max(0, Math.floor(seconds || 0));
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const remainder = total % 60;
-  return hours > 0
-    ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
-    : `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
-};
-
-const formatPace = (pace: number) => {
-  if (!Number.isFinite(pace) || pace <= 0) return "--";
-  const seconds = Math.round(pace);
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}/km`;
-};
-
-const formatRelativeTime = (value: string) => {
-  const timestamp = new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) return "";
-  const elapsedMinutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
-  if (elapsedMinutes < 1) return "just now";
-  if (elapsedMinutes < 60) return `${elapsedMinutes} min ago`;
-  const elapsedHours = Math.floor(elapsedMinutes / 60);
-  if (elapsedHours < 24) return `${elapsedHours} ${elapsedHours === 1 ? "hour" : "hours"} ago`;
-  const elapsedDays = Math.floor(elapsedHours / 24);
-  if (elapsedDays < 7) return `${elapsedDays} ${elapsedDays === 1 ? "day" : "days"} ago`;
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(timestamp);
-};
-
-function AnchoredMoreButton({
-  label,
-  color,
-  size = 18,
-  style,
-  onPress,
-}: {
-  label: string;
-  color: string;
-  size?: number;
-  style?: StyleProp<ViewStyle>;
-  onPress: (anchor: { x: number; y: number; width: number; height: number }) => void;
-}) {
-  const buttonRef = useRef<View>(null);
-  return (
-    <View ref={buttonRef} collapsable={false}>
-      <TouchableOpacity
-        accessibilityRole="button"
-        accessibilityLabel={label}
-        onPress={() => buttonRef.current?.measureInWindow((x, y, width, height) => onPress({ x, y, width, height }))}
-        style={style}
-      >
-        <Feather name="more-horizontal" size={size} color={color} />
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-function ConnectionCard({
-  post,
-  colors,
-  isLiking,
-  onLike,
-  onComments,
-  onDetails,
-  onShare,
-  onMore,
-  onAuthorPress,
-}: {
-  post: SocialPost;
-  colors: ReturnType<typeof useTheme>["colors"];
-  isLiking: boolean;
-  onLike: () => void;
-  onComments: () => void;
-  onDetails: () => void;
-  onShare: () => void;
-  onMore: (anchor: { x: number; y: number; width: number; height: number }) => void;
-  onAuthorPress: () => void;
-}) {
-  const name = post.author.full_name || post.author.username;
-  const distance = Number(post.activity?.distance_km);
-  return (
-    <View style={[styles.postCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <View style={styles.postHeader}>
-        <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${name}'s profile`} onPress={onAuthorPress}>
-          <Avatar name={name} imageUrl={post.author.avatar_url || undefined} size={34} />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.authorInfo} accessibilityRole="button" accessibilityLabel={`Open ${name}'s profile`} onPress={onAuthorPress}>
-          <Text style={[styles.authorName, { color: colors.text }]} numberOfLines={1}>{name}</Text>
-          <Text style={[styles.username, { color: colors.textSecondary }]} numberOfLines={1}>@{post.author.username}</Text>
-        </TouchableOpacity>
-        <Text style={[styles.postTime, { color: colors.textTertiary }]}>{formatRelativeTime(post.created_at)}</Text>
-        {!post.is_mine && post.visibility === "ALL" && post.share_url ? (
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="Share workout"
-            onPress={onShare}
-            style={styles.topShareButton}
-          >
-            <Feather name="share" size={17} color={colors.primary} />
-          </TouchableOpacity>
-        ) : null}
-        <AnchoredMoreButton
-          label={post.is_mine ? "Post options" : "Workout options"}
-          color={colors.textSecondary}
-          style={styles.moreButton}
-          onPress={onMore}
-        />
-      </View>
-
-      <View style={[styles.workoutCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
-        <View style={styles.workoutHeading}>
-          <Feather name="activity" size={16} color={colors.text} />
-          <Text style={[styles.workoutType, { color: colors.text }]}>
-            {post.activity?.activity_type
-              ? `${post.activity.activity_type.charAt(0).toUpperCase()}${post.activity.activity_type.slice(1).toLowerCase()}`
-              : "Run"}
-          </Text>
-          <Text style={[styles.distance, { color: colors.text }]}>{formatDistance(distance)}</Text>
-        </View>
-        <View style={styles.metrics}>
-          <View style={styles.metric}>
-            <Feather name="clock" size={12} color={colors.textTertiary} />
-            <Text style={[styles.metricText, { color: colors.textSecondary }]}>{formatDuration(post.activity?.moving_time)}</Text>
-          </View>
-          <View style={styles.metric}>
-            <Feather name="navigation" size={12} color={colors.textTertiary} />
-            <Text style={[styles.metricText, { color: colors.textSecondary }]}>{formatPace(post.activity?.avg_pace)}</Text>
-          </View>
-        </View>
-      </View>
-
-      {!post.hide_map && post.activity?.encoded_polyline ? (
-        <View style={styles.workoutMap}>
-          <ActivityRouteMap
-            encodedPolyline={post.activity.encoded_polyline}
-            variant="preview"
-            compactPreview
-            googleMapPreview
-            routeOnly
-          />
-        </View>
-      ) : null}
-
-      {post.caption ? <Text style={[styles.caption, { color: colors.text }]}>{post.caption}</Text> : null}
-
-      <View style={[styles.postActions, { borderTopColor: colors.border }]}>
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel={post.liked_by_me ? "Unlike workout" : "Like workout"}
-          accessibilityState={{ disabled: isLiking }}
-          disabled={isLiking}
-          onPress={onLike}
-          style={styles.actionButton}
-        >
-          <FontAwesome name={post.liked_by_me ? "heart" : "heart-o"} size={15} color={post.liked_by_me ? "#E5484D" : colors.text} />
-          <Text style={[styles.actionCount, { color: colors.text }]}>{post.like_count}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel="View comments"
-          onPress={onComments}
-          style={styles.actionButton}
-        >
-          <Feather name="message-square" size={15} color={colors.primary} />
-          <Text style={[styles.actionCount, { color: colors.primary }]}>{post.comment_count}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity accessibilityRole="button" onPress={onComments} style={styles.actionLink}>
-          <Text style={[styles.actionLinkText, { color: colors.primary }]}>Comments</Text>
-        </TouchableOpacity>
-        <TouchableOpacity accessibilityRole="button" onPress={onDetails} style={styles.actionLink}>
-          <Text style={[styles.actionLinkText, { color: colors.primary }]}>Details</Text>
-        </TouchableOpacity>
-        <View style={styles.shareCount}>
-          <Feather name="share" size={13} color={colors.textTertiary} />
-          <Text style={[styles.actionCount, { color: colors.text }]}>{post.share_count}</Text>
-        </View>
-      </View>
-    </View>
-  );
-}
 
 export default function SocialScreen() {
   const { colors } = useTheme();
@@ -286,6 +113,23 @@ export default function SocialScreen() {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => subscribeToSocialPostChanges((change) => {
+    if ("deleted" in change) {
+      setPosts((current) => current.filter((post) => post.id !== change.postId));
+      setMyPosts((current) => current.filter((post) => post.id !== change.postId));
+      setDetailsPost((current) => current?.id === change.postId ? null : current);
+      setEditingPost((current) => current?.id === change.postId ? null : current);
+      return;
+    }
+
+    setPosts((current) => current
+      .filter((post) => post.id !== change.postId || (change.patch.visibility !== "ONLY_ME" && change.patch.visibility !== "NONE"))
+      .map((post) => post.id === change.postId ? { ...post, ...change.patch } : post));
+    setMyPosts((current) => current.map((post) => post.id === change.postId ? { ...post, ...change.patch } : post));
+    setDetailsPost((current) => current?.id === change.postId ? { ...current, ...change.patch } : current);
+    setEditingPost((current) => current?.id === change.postId ? { ...current, ...change.patch } : current);
+  }), []);
+
   const openModeration = useCallback((
     user: ConnectionUser,
     kind: "runner" | "workout" | "comment",
@@ -336,9 +180,7 @@ export default function SocialScreen() {
             void (async () => {
               try {
                 await socialAPI.deletePost(postId);
-                setPosts((current) => current.filter((post) => post.id !== postId));
-                setMyPosts((current) => current.filter((post) => post.id !== postId));
-                setDetailsPost((current) => current?.id === postId ? null : current);
+                  publishSocialPostDeleted(postId);
               } catch (error) {
                 Alert.alert("Unable to delete post", getBackendErrorMessage(error));
               }
@@ -373,13 +215,12 @@ export default function SocialScreen() {
       });
       const updatedPost = { ...response.data.data, is_mine: true };
       const updatePost = (items: SocialPost[]) => items.map((item) => item.id === updatedPost.id ? updatedPost : item);
-      if (editVisibility === "ONLY_ME") {
-        setPosts((current) => current.filter((item) => item.id !== updatedPost.id));
-      } else {
-        setPosts(updatePost);
-      }
+      setPosts((current) => editVisibility === "ONLY_ME"
+        ? current.filter((item) => item.id !== updatedPost.id)
+        : updatePost(current));
       setMyPosts(updatePost);
       setDetailsPost((current) => current?.id === updatedPost.id ? updatedPost : current);
+      publishSocialPostPatch(updatedPost.id, updatedPost);
       setEditingPost(null);
     } catch (error) {
       setEditPostError(getBackendErrorMessage(error, "Could not update this post."));
@@ -410,11 +251,7 @@ export default function SocialScreen() {
       const result = await Share.share({ message: `${description}\n${post.share_url}` });
       if (result.action !== Share.sharedAction) return;
       const response = await socialAPI.sharePost(post.id, "EXTERNAL");
-      const updateShareCount = (items: SocialPost[]) => items.map((item) => item.id === post.id
-        ? { ...item, share_count: response.data.data.share_count }
-        : item);
-      setPosts(updateShareCount);
-      setMyPosts(updateShareCount);
+      publishSocialPostPatch(post.id, { share_count: response.data.data.share_count });
     } catch (error) {
       Alert.alert("Unable to share post", getBackendErrorMessage(error));
     }
@@ -443,11 +280,11 @@ export default function SocialScreen() {
     setLoadError(null);
     try {
       const response = await socialAPI.getFeed();
-      setPosts(extractApiResults<SocialPost>(response.data).filter((post) => (
+      setPosts(sortSocialPosts(extractApiResults<SocialPost>(response.data).filter((post) => (
         !blockedIds.has(post.author.id)
         && post.visibility !== "ONLY_ME"
         && post.visibility !== "NONE"
-      )));
+      ))));
     } catch (error) {
       const message = getBackendErrorMessage(error, "Unable to load the Connections feed.");
       setLoadError(message);
@@ -507,6 +344,7 @@ export default function SocialScreen() {
           : [updatedPost, ...current]);
       }
       setMyPosts((current) => current.map((item) => item.id === post.id ? updatedPost : item));
+      publishSocialPostPatch(post.id, updatedPost);
       setModerationTarget(null);
     } catch (error) {
       setModerationTarget(null);
@@ -568,15 +406,29 @@ export default function SocialScreen() {
       : item);
     setPosts(updateLike);
     setMyPosts(updateLike);
+    const optimisticLike = {
+      liked_by_me: !post.liked_by_me,
+      like_count: Math.max(0, post.like_count + (post.liked_by_me ? -1 : 1)),
+    };
+    publishSocialPostPatch(post.id, optimisticLike);
     try {
-      if (post.liked_by_me) await socialAPI.unlikePost(post.id);
-      else await socialAPI.likePost(post.id);
+      const response = post.liked_by_me
+        ? await socialAPI.unlikePost(post.id)
+        : await socialAPI.likePost(post.id);
+      publishSocialPostPatch(post.id, {
+        liked_by_me: response.data.data.liked,
+        like_count: response.data.data.like_count,
+      });
     } catch (error) {
       const revertLike = (items: SocialPost[]) => items.map((item) => item.id === post.id
         ? { ...item, liked_by_me: post.liked_by_me, like_count: post.like_count }
         : item);
       setPosts(revertLike);
       setMyPosts(revertLike);
+      publishSocialPostPatch(post.id, {
+        liked_by_me: post.liked_by_me,
+        like_count: post.like_count,
+      });
       Alert.alert("Unable to update like", getBackendErrorMessage(error));
     } finally {
       setLikingPostIds((current) => {
@@ -615,6 +467,9 @@ export default function SocialScreen() {
       setMyPosts((current) => current.map((post) => post.id === commentPost.id
         ? { ...post, comment_count: createdComment.comment_count ?? post.comment_count + 1 }
         : post));
+      publishSocialPostPatch(commentPost.id, {
+        comment_count: createdComment.comment_count ?? commentPost.comment_count + 1,
+      });
       setCommentText("");
     } catch (error) {
       Alert.alert("Unable to add comment", getBackendErrorMessage(error));
@@ -648,6 +503,49 @@ export default function SocialScreen() {
   }, []);
 
   const reportComment = useCallback((comment: SocialComment, anchor: { x: number; y: number; width: number; height: number }) => openModeration(comment.author, "comment", "COMMENT", comment.id, anchor), [openModeration]);
+  const deleteComment = useCallback((comment: SocialComment) => {
+    const previousPost = [...posts, ...myPosts].find((post) => post.id === comment.post_id);
+    if (!comment.can_delete || !previousPost) return;
+    const nextCount = Math.max(0, previousPost.comment_count - 1);
+    const updateCount = (items: SocialPost[], count: number) => items.map((post) => post.id === comment.post_id
+      ? { ...post, comment_count: count }
+      : post);
+    setComments((current) => current.filter((item) => item.id !== comment.id));
+    setPosts((current) => updateCount(current, nextCount));
+    setMyPosts((current) => updateCount(current, nextCount));
+    publishSocialPostPatch(comment.post_id, { comment_count: nextCount });
+    void (async () => {
+      try {
+        const response = await socialAPI.deleteComment(comment.post_id, comment.id);
+        const commentCount = response.data?.data?.comment_count;
+        if (typeof commentCount === "number" && Number.isFinite(commentCount)) {
+          setPosts((current) => updateCount(current, commentCount));
+          setMyPosts((current) => updateCount(current, commentCount));
+          publishSocialPostPatch(comment.post_id, { comment_count: commentCount });
+        }
+      } catch (error) {
+        setComments((current) => current.some((item) => item.id === comment.id) ? current : [comment, ...current]);
+        setPosts((current) => updateCount(current, previousPost.comment_count));
+        setMyPosts((current) => updateCount(current, previousPost.comment_count));
+        publishSocialPostPatch(comment.post_id, { comment_count: previousPost.comment_count });
+        Alert.alert("Unable to delete comment", getBackendErrorMessage(error));
+      }
+    })();
+  }, [myPosts, posts]);
+  const openCommentActions = useCallback((
+    comment: SocialComment,
+    anchor: { x: number; y: number; width: number; height: number },
+  ) => {
+    if (!comment.can_delete) {
+      reportComment(comment, anchor);
+      return;
+    }
+    Alert.alert("Comment options", "Choose an action for this comment.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Report comment", onPress: () => reportComment(comment, anchor) },
+      { text: "Delete comment", style: "destructive", onPress: () => deleteComment(comment) },
+    ]);
+  }, [deleteComment, reportComment]);
   const openPostActions = useCallback((post: SocialPost, anchor: { x: number; y: number; width: number; height: number }) => openModeration(post.author, "workout", "POST", post.id, anchor, post.is_mine, post), [openModeration]);
 
   const renderRunner = useCallback(({ item }: { item: ConnectionUser }) => {
@@ -682,7 +580,7 @@ export default function SocialScreen() {
   }, [colors, followingIds, openRunnerActions, toggleRunnerFollow]);
 
   const renderPost = useCallback(({ item }: { item: SocialPost }) => (
-    <ConnectionCard
+    <FeedPostCard
       post={item}
       colors={colors}
       isLiking={likingPostIds.has(item.id)}
@@ -857,153 +755,19 @@ export default function SocialScreen() {
         </SafeAreaView>
       </Modal>
 
-      <Modal
-        visible={detailsPost !== null}
-        animationType="slide"
-        onRequestClose={() => setDetailsPost(null)}
-      >
-        <SafeAreaView edges={["top", "left", "right", "bottom"]} style={[styles.modalScreen, { backgroundColor: colors.background }]}>
-          <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close workout details" onPress={() => setDetailsPost(null)} style={styles.modalBack}>
-              <Feather name="chevron-left" size={25} color={colors.text} />
-            </TouchableOpacity>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>Workout details</Text>
-            <View style={styles.modalBack} />
-          </View>
-          {detailsPost ? (
-            <ScrollView contentContainerStyle={styles.detailsContent} showsVerticalScrollIndicator={false}>
-              <View style={[styles.detailsHero, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <View style={styles.detailsHeroTop}>
-                  <View style={[styles.detailsActivityIcon, { backgroundColor: colors.background }]}>
-                    <Feather name="activity" size={20} color={colors.primary} />
-                  </View>
-                  <View style={styles.detailsHeroCopy}>
-                    <Text style={[styles.detailsActivityName, { color: colors.text }]}>
-                      {detailsPost.activity.activity_type
-                        ? `${detailsPost.activity.activity_type.charAt(0).toUpperCase()}${detailsPost.activity.activity_type.slice(1).toLowerCase()}`
-                        : "Workout"}
-                    </Text>
-                    <Text style={[styles.detailsByline, { color: colors.textSecondary }]}>
-                      {detailsPost.author.full_name || detailsPost.author.username} · {formatRelativeTime(detailsPost.created_at)}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={[styles.detailsDistance, { color: colors.text }]}>{formatDistance(detailsPost.activity.distance_km)}</Text>
-                <Text style={[styles.detailsDistanceLabel, { color: colors.textSecondary }]}>Total distance</Text>
-              </View>
-
-              {!detailsPost.hide_map && detailsPost.activity.encoded_polyline ? (
-                <View style={[styles.detailsMap, { borderColor: colors.border }]}>
-                  <ActivityRouteMap
-                    encodedPolyline={detailsPost.activity.encoded_polyline}
-                    variant="preview"
-                    compactPreview
-                    googleMapPreview
-                  />
-                </View>
-              ) : null}
-
-              <Text style={[styles.detailsSectionTitle, { color: colors.textSecondary }]}>ACTIVITY SUMMARY</Text>
-              <View style={styles.detailsStatsGrid}>
-                <View style={[styles.detailsStatCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <Feather name="clock" size={17} color={colors.primary} />
-                  <Text style={[styles.detailsStatValue, { color: colors.text }]}>{formatDuration(detailsPost.activity.moving_time)}</Text>
-                  <Text style={[styles.detailsStatLabel, { color: colors.textSecondary }]}>Moving time</Text>
-                </View>
-                <View style={[styles.detailsStatCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <Feather name="navigation" size={17} color={colors.primary} />
-                  <Text style={[styles.detailsStatValue, { color: colors.text }]}>{formatPace(detailsPost.activity.avg_pace)}</Text>
-                  <Text style={[styles.detailsStatLabel, { color: colors.textSecondary }]}>Average pace</Text>
-                </View>
-                <View style={[styles.detailsStatCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <Feather name="trending-up" size={17} color={colors.primary} />
-                  <Text style={[styles.detailsStatValue, { color: colors.text }]}>{Math.round(detailsPost.activity.elevation_gain || 0)} m</Text>
-                  <Text style={[styles.detailsStatLabel, { color: colors.textSecondary }]}>Elevation gain</Text>
-                </View>
-                <View style={[styles.detailsStatCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <Feather name="zap" size={17} color={colors.primary} />
-                  <Text style={[styles.detailsStatValue, { color: colors.text }]}>{Math.round(detailsPost.activity.calories || 0)}</Text>
-                  <Text style={[styles.detailsStatLabel, { color: colors.textSecondary }]}>Calories</Text>
-                </View>
-              </View>
-
-              {detailsPost.caption ? (
-                <View style={[styles.detailsCaptionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <Text style={[styles.detailsSectionTitle, { color: colors.textSecondary, marginTop: 0 }]}>NOTE</Text>
-                  <Text style={[styles.detailsCaption, { color: colors.text }]}>{detailsPost.caption}</Text>
-                </View>
-              ) : null}
-            </ScrollView>
-          ) : null}
-        </SafeAreaView>
-      </Modal>
-
-      <Modal
-        visible={commentPost !== null}
-        animationType="slide"
-        onRequestClose={() => setCommentPost(null)}
-      >
-        <SafeAreaView edges={["top", "left", "right", "bottom"]} style={[styles.modalScreen, { backgroundColor: colors.background }]}>
-          <KeyboardAvoidingView
-            style={styles.keyboardAvoiding}
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            keyboardVerticalOffset={0}
-          >
-          <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close comments" onPress={() => setCommentPost(null)} style={styles.modalBack}>
-              <Feather name="chevron-left" size={25} color={colors.text} />
-            </TouchableOpacity>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>Comments</Text>
-            <View style={styles.modalBack} />
-          </View>
-          {commentsLoading ? <ActivityIndicator style={styles.searchLoader} color={colors.primary} /> : null}
-          <FlatList
-            style={styles.commentsList}
-            data={comments}
-            keyExtractor={(item) => String(item.id)}
-            contentContainerStyle={styles.commentList}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-            automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
-            renderItem={({ item }) => (
-              <View style={styles.commentRow}>
-                <Avatar name={item.author.full_name || item.author.username} imageUrl={item.author.avatar_url || undefined} size={34} />
-                <View style={[styles.commentBubble, { backgroundColor: colors.surface }]}>
-                  <View style={styles.commentHeader}>
-                    <Text style={[styles.commentAuthor, { color: colors.text }]}>{item.author.full_name || item.author.username}</Text>
-                    <AnchoredMoreButton label="Comment options" size={16} color={colors.textTertiary} onPress={(anchor) => reportComment(item, anchor)} />
-                  </View>
-                  <Text style={[styles.commentBody, { color: colors.textSecondary }]}>{item.body}</Text>
-                </View>
-              </View>
-            )}
-            ListEmptyComponent={!commentsLoading ? (
-              <Text style={[styles.emptyCopy, { color: colors.textSecondary }]}>No comments yet. Start the conversation.</Text>
-            ) : null}
-          />
-          <View style={[styles.commentComposer, { borderTopColor: colors.border, paddingBottom: 8 }]}>
-            <TextInput
-              value={commentText}
-              onChangeText={setCommentText}
-              placeholder="Write a comment..."
-              placeholderTextColor={colors.textTertiary}
-              style={[styles.commentInput, { color: colors.text, backgroundColor: colors.surface, borderColor: colors.border }]}
-              maxLength={2000}
-              multiline
-            />
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Send comment"
-              disabled={!commentText.trim() || sendingComment}
-              onPress={() => void sendComment()}
-              style={[styles.sendButton, { backgroundColor: colors.primary, opacity: !commentText.trim() || sendingComment ? 0.55 : 1 }]}
-            >
-              {sendingComment ? <ActivityIndicator size="small" color={colors.primaryText} /> : <Feather name="send" size={17} color={colors.primaryText} />}
-            </TouchableOpacity>
-          </View>
-          </KeyboardAvoidingView>
-        </SafeAreaView>
-      </Modal>
+      <PostDetailsModal post={detailsPost} colors={colors} onClose={() => setDetailsPost(null)} />
+      <PostCommentsModal
+        post={commentPost}
+        comments={comments}
+        loading={commentsLoading}
+        sending={sendingComment}
+        text={commentText}
+        colors={colors}
+        onTextChange={setCommentText}
+        onSend={() => void sendComment()}
+        onClose={() => setCommentPost(null)}
+        onCommentOptions={openCommentActions}
+      />
 
       <Modal
         visible={editingPost !== null}
@@ -1232,28 +996,9 @@ const styles = StyleSheet.create({
   feedHeader: { minHeight: 66, flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   feedTitle: { fontSize: 28, lineHeight: 34, fontWeight: "800" },
   findButton: { width: 44, height: 44, borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, alignItems: "center", justifyContent: "center" },
-  postCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 10, marginBottom: 10 },
-  postHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
-  authorInfo: { flex: 1, minWidth: 0 },
   authorName: { fontSize: 13, fontWeight: "700" },
   username: { fontSize: 10, marginTop: 1 },
-  postTime: { fontSize: 10 },
-  topShareButton: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
-  workoutCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, padding: 9 },
-  workoutMap: { marginTop: 8 },
-  workoutHeading: { flexDirection: "row", alignItems: "center", gap: 7 },
-  workoutType: { fontSize: 14, fontWeight: "700", flex: 1 },
-  distance: { fontSize: 14, fontWeight: "800" },
-  metrics: { flexDirection: "row", gap: 12, marginTop: 6 },
-  metric: { flexDirection: "row", alignItems: "center", gap: 5 },
-  metricText: { fontSize: 10 },
-  caption: { fontSize: 12, lineHeight: 16, marginTop: 8 },
-  postActions: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 9, borderTopWidth: StyleSheet.hairlineWidth, marginTop: 8, paddingTop: 6 },
-  actionButton: { minHeight: 26, flexDirection: "row", alignItems: "center", gap: 4 },
-  actionCount: { fontSize: 11 },
-  actionLink: { minHeight: 26, justifyContent: "center" },
   actionLinkText: { fontSize: 10, fontWeight: "500" },
-  shareCount: { flexDirection: "row", alignItems: "center", gap: 5, marginLeft: "auto" },
   emptyState: { flex: 1, minHeight: 310, alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
   emptyTitle: { fontSize: 17, fontWeight: "700", marginTop: 14, textAlign: "center" },
   emptyCopy: { fontSize: 13, lineHeight: 19, textAlign: "center", marginTop: 8, paddingHorizontal: 12 },
@@ -1289,31 +1034,6 @@ const styles = StyleSheet.create({
   mutualText: { fontSize: 10, marginTop: 3 },
   followButton: { minWidth: 78, minHeight: 34, borderRadius: 17, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
   followButtonText: { fontSize: 12, fontWeight: "700" },
-  commentList: { padding: 16, flexGrow: 1 },
-  commentsList: { flex: 1 },
-  commentRow: { flexDirection: "row", alignItems: "flex-start", gap: 9, marginBottom: 12 },
-  commentBubble: { flex: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9 },
-  commentHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  commentAuthor: { fontSize: 12, fontWeight: "700" },
-  commentBody: { fontSize: 13, lineHeight: 18, marginTop: 3 },
-  commentComposer: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingTop: 10, flexDirection: "row", alignItems: "flex-end", gap: 8 },
-  detailsContent: { padding: 16, paddingBottom: 28, gap: 14 },
-  detailsHero: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, padding: 16 },
-  detailsHeroTop: { flexDirection: "row", alignItems: "center", gap: 11 },
-  detailsActivityIcon: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
-  detailsHeroCopy: { flex: 1, minWidth: 0 },
-  detailsActivityName: { fontSize: 16, fontWeight: "800" },
-  detailsByline: { fontSize: 11, marginTop: 3 },
-  detailsDistance: { fontSize: 30, lineHeight: 36, fontWeight: "800", marginTop: 18 },
-  detailsDistanceLabel: { fontSize: 12, marginTop: 2 },
-  detailsMap: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, overflow: "hidden" },
-  detailsSectionTitle: { fontSize: 10, fontWeight: "800", letterSpacing: 0.9, marginTop: 4 },
-  detailsStatsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  detailsStatCard: { width: "48%", minHeight: 104, borderWidth: StyleSheet.hairlineWidth, borderRadius: 15, padding: 12, justifyContent: "center" },
-  detailsStatValue: { fontSize: 17, fontWeight: "800", marginTop: 9 },
-  detailsStatLabel: { fontSize: 11, marginTop: 2 },
-  detailsCaptionCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 15, padding: 14, gap: 8 },
-  detailsCaption: { fontSize: 14, lineHeight: 20 },
   moderationOverlay: { flex: 1, backgroundColor: "transparent" },
   moderationPopover: { position: "absolute", borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 12, shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 18 },
   moderationHeading: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 9 },
