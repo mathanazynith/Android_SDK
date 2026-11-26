@@ -1,4 +1,4 @@
-import { Feather, FontAwesome } from "@expo/vector-icons";
+import { Feather, FontAwesome, Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -23,8 +23,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { RunningLoader } from "../../components/common/RunningLoader";
+import ActivitySplitsModal from "../../components/ActivitySplitsModal";
+import OriginZoomModal from "../../components/navigation/OriginZoomModal";
 import { useTheme } from "../../contexts/ThemeContext";
 import { getBackendErrorMessage } from "../../service/api";
+import { useAuth } from "../../service/auth";
+import { formatActivityDistanceFromMeters } from "../../src/utils/activityUnitFormatters";
+import { formatDurationHhMmSs } from "../../src/utils/splitFormatters";
 import { Avatar } from "../../components/Avatar";
 import ActivityRouteMap from "../../components/ActivityRouteMap";
 import {
@@ -39,6 +44,7 @@ import {
   type SocialPost,
   type SocialPostVisibility,
 } from "../../src/services/socialApi";
+import type { ActivitySegmentSplits } from "../../src/types/activity";
 
 const formatDistance = (distanceKm: number) => `${Number(distanceKm || 0).toFixed(2)} km`;
 const REPORT_REASONS: { value: ContentReportReason; label: string }[] = [
@@ -102,7 +108,7 @@ function AnchoredMoreButton({
         onPress={() => buttonRef.current?.measureInWindow((x, y, width, height) => onPress({ x, y, width, height }))}
         style={style}
       >
-        <Feather name="more-horizontal" size={size} color={color} />
+        <Ionicons name="ellipsis-horizontal-circle-outline" size={size + 2} color={color} />
       </TouchableOpacity>
     </View>
   );
@@ -176,20 +182,19 @@ function ConnectionCard({
             <Text style={[styles.metricText, { color: colors.textSecondary }]}>{formatDuration(post.activity?.moving_time)}</Text>
           </View>
           <View style={styles.metric}>
-            <Feather name="navigation" size={12} color={colors.textTertiary} />
+            <Feather name="compass" size={12} color={colors.textTertiary} />
             <Text style={[styles.metricText, { color: colors.textSecondary }]}>{formatPace(post.activity?.avg_pace)}</Text>
           </View>
         </View>
       </View>
 
       {!post.hide_map && post.activity?.encoded_polyline ? (
-        <View style={styles.workoutMap}>
+        <View style={[styles.workoutMap, { borderColor: colors.border }]}>
           <ActivityRouteMap
             encodedPolyline={post.activity.encoded_polyline}
             variant="preview"
             compactPreview
             googleMapPreview
-            routeOnly
           />
         </View>
       ) : null}
@@ -234,6 +239,8 @@ function ConnectionCard({
 
 export default function SocialScreen() {
   const { colors } = useTheme();
+  const { user } = useAuth();
+  const distanceUnit = user?.profile?.distance_unit;
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const { findRunners, returnToPrivacy } = useLocalSearchParams<{ findRunners?: string; returnToPrivacy?: string }>();
   const [posts, setPosts] = useState<SocialPost[]>([]);
@@ -254,6 +261,10 @@ export default function SocialScreen() {
   const [blockedIds, setBlockedIds] = useState<Set<number>>(() => new Set());
   const [commentPost, setCommentPost] = useState<SocialPost | null>(null);
   const [detailsPost, setDetailsPost] = useState<SocialPost | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [workoutBreakdownVisible, setWorkoutBreakdownVisible] = useState(false);
+  const detailsRequestId = useRef(0);
   const [comments, setComments] = useState<SocialComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [sendingComment, setSendingComment] = useState(false);
@@ -277,9 +288,71 @@ export default function SocialScreen() {
   } | null>(null);
   const [moderationBusy, setModerationBusy] = useState(false);
   const [moderationError, setModerationError] = useState<string | null>(null);
+  const [moderationSuccessMessage, setModerationSuccessMessage] = useState<string | null>(null);
   const [reportReason, setReportReason] = useState<ContentReportReason | null>(null);
   const [reportDetails, setReportDetails] = useState("");
+  const [moderationViewportHeight, setModerationViewportHeight] = useState(0);
+  const [themedMessage, setThemedMessage] = useState<{ title: string; message: string } | null>(null);
   const [, setRelativeTimeTick] = useState(0);
+
+  const workoutDetailSegments = useMemo<ActivitySegmentSplits[]>(() => (
+    (detailsPost?.activity.segments ?? []).map((segment) => {
+      const mapSplit = (split: NonNullable<typeof segment.splits>[number]) => ({
+        split_number: split.split_number,
+        distance_m: split.distance_m,
+        time_s: split.time_s,
+        pace_s_per_km: split.pace_s_per_km ?? 0,
+        steps: split.steps,
+        average_spm: split.average_spm,
+        cadence_spm: split.cadence_spm,
+      });
+      return {
+        sequence: segment.sequence,
+        type: segment.type,
+        planned_distance_m: segment.planned_distance_m ?? undefined,
+        completed_distance_m: segment.completed_distance_m ?? undefined,
+        actual_time_s: segment.actual_time_s ?? undefined,
+        actual_pace_s_per_km: segment.actual_pace_s_per_km ?? undefined,
+        splits: (segment.splits ?? segment.laps?.flatMap((lap) => lap.splits) ?? []).map(mapSplit),
+        laps: segment.laps?.map((lap) => ({
+          sequence: lap.lap_number,
+          label: `Lap ${lap.lap_number}`,
+          distance_m: lap.distance_m,
+          time_s: lap.time_s,
+          pace_s_per_km: lap.pace_s_per_km ?? undefined,
+          steps: lap.steps,
+          cadence_spm: lap.cadence_spm,
+          splits: lap.splits.map(mapSplit),
+        })),
+      };
+    })
+  ), [detailsPost?.activity.segments]);
+
+  const openWorkoutDetails = useCallback(async (post: SocialPost) => {
+    const requestId = detailsRequestId.current + 1;
+    detailsRequestId.current = requestId;
+    setDetailsPost(post);
+    setDetailsError(null);
+    setDetailsLoading(true);
+    try {
+      const response = await socialAPI.getPost(post.id);
+      if (detailsRequestId.current === requestId) setDetailsPost(response.data.data);
+    } catch (error) {
+      if (detailsRequestId.current === requestId) {
+        setDetailsError(getBackendErrorMessage(error, "Some workout details could not be loaded."));
+      }
+    } finally {
+      if (detailsRequestId.current === requestId) setDetailsLoading(false);
+    }
+  }, []);
+
+  const closeWorkoutDetails = useCallback(() => {
+    detailsRequestId.current += 1;
+    setDetailsPost(null);
+    setDetailsError(null);
+    setDetailsLoading(false);
+    setWorkoutBreakdownVisible(false);
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setRelativeTimeTick((tick) => tick + 1), 60_000);
@@ -296,6 +369,7 @@ export default function SocialScreen() {
     post: SocialPost | null = null,
   ) => {
     setModerationError(null);
+    setModerationSuccessMessage(null);
     setReportReason(null);
     setReportDetails("");
     setModerationTarget({ user, kind, targetType, targetId, anchor, step: "actions", isOwnPost, post });
@@ -308,12 +382,13 @@ export default function SocialScreen() {
     setModerationBusy(true);
     setModerationError(null);
     try {
-      await socialAPI.reportContent({
+      const response = await socialAPI.reportContent({
         target_type: moderationTarget.targetType,
         target_id: moderationTarget.targetId,
         reason: reportReason,
         ...(reportDetails.trim() ? { details: reportDetails.trim() } : {}),
       });
+      setModerationSuccessMessage(response.data.message?.trim() || "Thanks. Your report was sent privately to the moderation team.");
       setModerationTarget((current) => current ? { ...current, step: "reported" } : null);
     } catch (error) {
       setModerationError(getBackendErrorMessage(error));
@@ -390,7 +465,7 @@ export default function SocialScreen() {
 
   const sharePost = useCallback(async (post: SocialPost) => {
     if (post.is_mine) {
-      Alert.alert("Sharing unavailable", "You can share your own workout using its audience setting.");
+      setThemedMessage({ title: "Sharing unavailable", message: "You can share your own workout using its audience setting." });
       return;
     }
     // The backend owns the account privacy and audience rules. Ask it to
@@ -399,9 +474,9 @@ export default function SocialScreen() {
     if (!post.share_url) {
       try {
         await socialAPI.sharePost(post.id, "EXTERNAL");
-        Alert.alert("Sharing unavailable", "This workout does not have an external share link.");
+        setThemedMessage({ title: "Sharing unavailable", message: "This workout does not have an external share link." });
       } catch (error) {
-        Alert.alert("Unable to share post", getBackendErrorMessage(error));
+        setThemedMessage({ title: "Unable to share post", message: getBackendErrorMessage(error) });
       }
       return;
     }
@@ -416,7 +491,7 @@ export default function SocialScreen() {
       setPosts(updateShareCount);
       setMyPosts(updateShareCount);
     } catch (error) {
-      Alert.alert("Unable to share post", getBackendErrorMessage(error));
+      setThemedMessage({ title: "Unable to share post", message: getBackendErrorMessage(error) });
     }
   }, []);
 
@@ -647,6 +722,24 @@ export default function SocialScreen() {
     }
   }, []);
 
+  const blockRunnerFromSearch = useCallback((runner: ConnectionUser) => {
+    setModerationTarget(null);
+    Alert.alert("Block runner?", `You and ${runner.full_name || runner.username} will no longer see each other in Connections.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Block",
+        style: "destructive",
+        onPress: () => {
+          void connectionsAPI.blockAccount(runner.id).then(() => {
+            setBlockedIds((current) => new Set(current).add(runner.id));
+            setSuggestions((current) => current.filter((item) => item.id !== runner.id));
+            setSearchResults((current) => current.filter((item) => item.id !== runner.id));
+          }).catch((error) => Alert.alert("Unable to block runner", getBackendErrorMessage(error)));
+        },
+      },
+    ]);
+  }, []);
+
   const reportComment = useCallback((comment: SocialComment, anchor: { x: number; y: number; width: number; height: number }) => openModeration(comment.author, "comment", "COMMENT", comment.id, anchor), [openModeration]);
   const openPostActions = useCallback((post: SocialPost, anchor: { x: number; y: number; width: number; height: number }) => openModeration(post.author, "workout", "POST", post.id, anchor, post.is_mine, post), [openModeration]);
 
@@ -656,12 +749,19 @@ export default function SocialScreen() {
     const isBusy = followingIds.has(item.id);
     return (
       <View style={[styles.runnerRow, { borderBottomColor: colors.border }]}>
-        <Avatar name={item.full_name || item.username} imageUrl={item.avatar_url || undefined} size={42} />
-        <View style={styles.runnerInfo}>
-          <Text style={[styles.authorName, { color: colors.text }]} numberOfLines={1}>{item.full_name || item.username}</Text>
-          <Text style={[styles.username, { color: colors.textSecondary }]} numberOfLines={1}>@{item.username}</Text>
-          {item.mutual_count ? <Text style={[styles.mutualText, { color: colors.textTertiary }]}>{item.mutual_count} mutual connections</Text> : null}
-        </View>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${item.full_name || item.username}'s runner profile`}
+          onPress={() => router.push({ pathname: "/(app)/runner/[id]", params: { id: String(item.id) } })}
+          style={styles.runnerIdentity}
+        >
+          <Avatar name={item.full_name || item.username} imageUrl={item.avatar_url || undefined} size={42} />
+          <View style={styles.runnerInfo}>
+            <Text style={[styles.authorName, { color: colors.text }]} numberOfLines={1}>{item.full_name || item.username}</Text>
+            <Text style={[styles.username, { color: colors.textSecondary }]} numberOfLines={1}>@{item.username}</Text>
+            {item.mutual_count ? <Text style={[styles.mutualText, { color: colors.textTertiary }]}>{item.mutual_count} mutual connections</Text> : null}
+          </View>
+        </TouchableOpacity>
         <TouchableOpacity
           accessibilityRole="button"
           accessibilityLabel={isFollowing ? `Unfollow ${item.username}` : isRequested ? `Cancel follow request to ${item.username}` : `Follow ${item.username}`}
@@ -688,12 +788,12 @@ export default function SocialScreen() {
       isLiking={likingPostIds.has(item.id)}
       onLike={() => void handleLike(item)}
       onComments={() => void openComments(item)}
-      onDetails={() => setDetailsPost(item)}
+      onDetails={() => void openWorkoutDetails(item)}
       onShare={() => void sharePost(item)}
       onMore={(anchor) => openPostActions(item, anchor)}
       onAuthorPress={() => router.push({ pathname: "/(app)/runner/[id]", params: { id: String(item.author.id) } })}
     />
-  ), [colors, handleLike, likingPostIds, openComments, openPostActions, sharePost]);
+  ), [colors, handleLike, likingPostIds, openComments, openPostActions, openWorkoutDetails, sharePost]);
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -860,15 +960,19 @@ export default function SocialScreen() {
       <Modal
         visible={detailsPost !== null}
         animationType="slide"
-        onRequestClose={() => setDetailsPost(null)}
+        onRequestClose={closeWorkoutDetails}
       >
         <SafeAreaView edges={["top", "left", "right", "bottom"]} style={[styles.modalScreen, { backgroundColor: colors.background }]}>
           <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close workout details" onPress={() => setDetailsPost(null)} style={styles.modalBack}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close workout details" onPress={closeWorkoutDetails} style={styles.modalBack}>
               <Feather name="chevron-left" size={25} color={colors.text} />
             </TouchableOpacity>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Workout details</Text>
-            <View style={styles.modalBack} />
+            {workoutDetailSegments.length > 0 ? (
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open split details" onPress={() => setWorkoutBreakdownVisible(true)} style={styles.modalBack}>
+                <Feather name="list" size={19} color={colors.primary} />
+              </TouchableOpacity>
+            ) : <View style={styles.modalBack} />}
           </View>
           {detailsPost ? (
             <ScrollView contentContainerStyle={styles.detailsContent} showsVerticalScrollIndicator={false}>
@@ -888,30 +992,19 @@ export default function SocialScreen() {
                     </Text>
                   </View>
                 </View>
-                <Text style={[styles.detailsDistance, { color: colors.text }]}>{formatDistance(detailsPost.activity.distance_km)}</Text>
+                <Text style={[styles.detailsDistance, { color: colors.text }]}>{formatActivityDistanceFromMeters(detailsPost.activity.distance != null ? detailsPost.activity.distance : detailsPost.activity.distance_km * 1000, distanceUnit)}</Text>
                 <Text style={[styles.detailsDistanceLabel, { color: colors.textSecondary }]}>Total distance</Text>
               </View>
-
-              {!detailsPost.hide_map && detailsPost.activity.encoded_polyline ? (
-                <View style={[styles.detailsMap, { borderColor: colors.border }]}>
-                  <ActivityRouteMap
-                    encodedPolyline={detailsPost.activity.encoded_polyline}
-                    variant="preview"
-                    compactPreview
-                    googleMapPreview
-                  />
-                </View>
-              ) : null}
 
               <Text style={[styles.detailsSectionTitle, { color: colors.textSecondary }]}>ACTIVITY SUMMARY</Text>
               <View style={styles.detailsStatsGrid}>
                 <View style={[styles.detailsStatCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                   <Feather name="clock" size={17} color={colors.primary} />
-                  <Text style={[styles.detailsStatValue, { color: colors.text }]}>{formatDuration(detailsPost.activity.moving_time)}</Text>
+                  <Text style={[styles.detailsStatValue, { color: colors.text }]}>{detailsLoading ? "Loading…" : formatDurationHhMmSs(detailsPost.activity.moving_time)}</Text>
                   <Text style={[styles.detailsStatLabel, { color: colors.textSecondary }]}>Moving time</Text>
                 </View>
                 <View style={[styles.detailsStatCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <Feather name="navigation" size={17} color={colors.primary} />
+                  <Feather name="compass" size={17} color={colors.primary} />
                   <Text style={[styles.detailsStatValue, { color: colors.text }]}>{formatPace(detailsPost.activity.avg_pace)}</Text>
                   <Text style={[styles.detailsStatLabel, { color: colors.textSecondary }]}>Average pace</Text>
                 </View>
@@ -925,7 +1018,31 @@ export default function SocialScreen() {
                   <Text style={[styles.detailsStatValue, { color: colors.text }]}>{Math.round(detailsPost.activity.calories || 0)}</Text>
                   <Text style={[styles.detailsStatLabel, { color: colors.textSecondary }]}>Calories</Text>
                 </View>
+                {detailsPost.activity.elapsed_time !== undefined ? (
+                  <View style={[styles.detailsStatCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                    <Feather name="clock" size={17} color={colors.primary} />
+                    <Text style={[styles.detailsStatValue, { color: colors.text }]}>{formatDurationHhMmSs(detailsPost.activity.elapsed_time)}</Text>
+                    <Text style={[styles.detailsStatLabel, { color: colors.textSecondary }]}>Elapsed time</Text>
+                  </View>
+                ) : null}
+                {detailsPost.activity.elevation_loss !== undefined ? (
+                  <View style={[styles.detailsStatCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                    <Feather name="trending-down" size={17} color={colors.primary} />
+                    <Text style={[styles.detailsStatValue, { color: colors.text }]}>{Math.round(detailsPost.activity.elevation_loss || 0)} m</Text>
+                    <Text style={[styles.detailsStatLabel, { color: colors.textSecondary }]}>Elevation loss</Text>
+                  </View>
+                ) : null}
+                {detailsPost.activity.total_steps != null ? (
+                  <View style={[styles.detailsStatCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                    <Feather name="activity" size={17} color={colors.primary} />
+                    <Text style={[styles.detailsStatValue, { color: colors.text }]}>{detailsPost.activity.total_steps.toLocaleString()}</Text>
+                    <Text style={[styles.detailsStatLabel, { color: colors.textSecondary }]}>Steps</Text>
+                  </View>
+                ) : null}
               </View>
+
+              {detailsLoading ? <ActivityIndicator color={colors.primary} /> : null}
+              {detailsError ? <Text style={[styles.detailsLoadError, { color: colors.textSecondary }]}>{detailsError}</Text> : null}
 
               {detailsPost.caption ? (
                 <View style={[styles.detailsCaptionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -937,6 +1054,17 @@ export default function SocialScreen() {
           ) : null}
         </SafeAreaView>
       </Modal>
+      <ActivitySplitsModal
+        visible={workoutBreakdownVisible}
+        loading={false}
+        error={null}
+        segments={workoutDetailSegments}
+        laps={[]}
+        extraSplits={[]}
+        distanceUnit={distanceUnit}
+        onClose={() => setWorkoutBreakdownVisible(false)}
+        onRetry={() => {}}
+      />
 
       <Modal
         visible={commentPost !== null}
@@ -1089,13 +1217,21 @@ export default function SocialScreen() {
         </SafeAreaView>
       </Modal>
 
-      <Modal
+      <OriginZoomModal
         visible={moderationTarget !== null}
         transparent
-        animationType="fade"
+        launchOrigin={moderationTarget?.anchor}
         onRequestClose={() => setModerationTarget(null)}
       >
-        <View style={styles.moderationOverlay}>
+        <KeyboardAvoidingView
+          style={styles.moderationKeyboardAvoiding}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={0}
+        >
+        <View
+          style={styles.moderationOverlay}
+          onLayout={(event) => setModerationViewportHeight(event.nativeEvent.layout.height)}
+        >
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setModerationTarget(null)} accessibilityLabel="Close options" />
           {moderationTarget ? (
             <View
@@ -1103,8 +1239,9 @@ export default function SocialScreen() {
                 styles.moderationPopover,
                 {
                   width: Math.min(windowWidth - 24, 276),
-                  top: Math.max(8, Math.min(moderationTarget.anchor.y + moderationTarget.anchor.height + 6, windowHeight - (moderationTarget.step === "report" ? 450 : 236))),
+                  top: Math.max(8, Math.min(moderationTarget.anchor.y + moderationTarget.anchor.height + 6, (moderationViewportHeight || windowHeight) - (moderationTarget.step === "report" ? 450 : 236))),
                   right: Math.max(12, windowWidth - moderationTarget.anchor.x - moderationTarget.anchor.width),
+                  maxHeight: (moderationViewportHeight || windowHeight) - Math.max(8, Math.min(moderationTarget.anchor.y + moderationTarget.anchor.height + 6, (moderationViewportHeight || windowHeight) - (moderationTarget.step === "report" ? 450 : 236))) - 12,
                   backgroundColor: colors.surface,
                   borderColor: colors.border,
                 },
@@ -1121,11 +1258,17 @@ export default function SocialScreen() {
                     {moderationTarget.user.full_name || moderationTarget.user.username}
                   </Text>
                 </View>
-                <TouchableOpacity onPress={() => setModerationTarget(null)} accessibilityRole="button" accessibilityLabel="Close" style={styles.moderationClose}>
-                  <Feather name="x" size={18} color={colors.textSecondary} />
-                </TouchableOpacity>
               </View>
 
+              <ScrollView
+                style={styles.moderationContentScroll}
+                contentContainerStyle={styles.moderationContent}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+                automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+                showsVerticalScrollIndicator={false}
+              >
               {moderationTarget.step === "actions" ? (
                 moderationTarget.isOwnPost ? (
                   <>
@@ -1160,6 +1303,16 @@ export default function SocialScreen() {
                   </>
                 ) : (
                   <>
+                    {moderationTarget.kind === "runner" ? (
+                      <TouchableOpacity
+                        style={[styles.moderationAction, { borderColor: colors.border }]}
+                        onPress={() => blockRunnerFromSearch(moderationTarget.user)}
+                      >
+                        <Feather name="user-x" size={16} color="#E5484D" />
+                        <Text style={[styles.moderationActionText, { color: "#E5484D" }]}>Block runner</Text>
+                        <Feather name="chevron-right" size={16} color={colors.textTertiary} />
+                      </TouchableOpacity>
+                    ) : null}
                     {moderationTarget.kind === "workout"
                       && !moderationTarget.post?.is_mine ? (
                       <TouchableOpacity
@@ -1175,7 +1328,7 @@ export default function SocialScreen() {
                         <Feather name="chevron-right" size={16} color={colors.textTertiary} />
                       </TouchableOpacity>
                     ) : null}
-                    <TouchableOpacity style={[styles.moderationAction, { borderColor: colors.border }]} onPress={() => { setModerationError(null); setModerationTarget((current) => current ? { ...current, step: "report" } : null); }}>
+                    <TouchableOpacity style={[styles.moderationAction, { borderColor: colors.border }]} onPress={() => { setModerationError(null); setModerationSuccessMessage(null); setModerationTarget((current) => current ? { ...current, step: "report" } : null); }}>
                       <Feather name="flag" size={16} color={colors.textSecondary} />
                       <Text style={[styles.moderationActionText, { color: colors.text }]}>Report {moderationTarget.kind === "runner" ? "runner" : moderationTarget.kind}</Text>
                       <Feather name="chevron-right" size={16} color={colors.textTertiary} />
@@ -1212,14 +1365,33 @@ export default function SocialScreen() {
                 </>
               ) : (
                 <>
-                  <Text style={[styles.moderationBody, { color: colors.textSecondary }]}>{moderationTarget.step === "reported" ? "Thanks. Your report was sent privately to the moderation team." : "Your report could not be sent."}</Text>
+                  <Text style={[styles.moderationBody, { color: colors.textSecondary }]}>{moderationSuccessMessage || "Thanks. Your report was sent privately to the moderation team."}</Text>
                   <TouchableOpacity onPress={() => setModerationTarget(null)} style={[styles.moderationPrimary, { backgroundColor: colors.primary }]}>
                     <Text style={[styles.moderationPrimaryText, { color: colors.primaryText }]}>Done</Text>
                   </TouchableOpacity>
                 </>
               )}
+              </ScrollView>
             </View>
           ) : null}
+        </View>
+        </KeyboardAvoidingView>
+      </OriginZoomModal>
+      <Modal
+        visible={themedMessage !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setThemedMessage(null)}
+      >
+        <View style={styles.messageOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setThemedMessage(null)} accessibilityLabel="Dismiss message" />
+          <View style={[styles.messageCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.messageTitle, { color: colors.text }]}>{themedMessage?.title}</Text>
+            <Text style={[styles.messageBody, { color: colors.textSecondary }]}>{themedMessage?.message}</Text>
+            <TouchableOpacity onPress={() => setThemedMessage(null)} style={[styles.messageButton, { backgroundColor: colors.primary }]}>
+              <Text style={[styles.messageButtonText, { color: colors.primaryText }]}>OK</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
     </SafeAreaView>
@@ -1240,7 +1412,6 @@ const styles = StyleSheet.create({
   postTime: { fontSize: 10 },
   topShareButton: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
   workoutCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, padding: 9 },
-  workoutMap: { marginTop: 8 },
   workoutHeading: { flexDirection: "row", alignItems: "center", gap: 7 },
   workoutType: { fontSize: 14, fontWeight: "700", flex: 1 },
   distance: { fontSize: 14, fontWeight: "800" },
@@ -1284,6 +1455,7 @@ const styles = StyleSheet.create({
   searchLoader: { margin: 18 },
   runnerList: { paddingHorizontal: 16, paddingBottom: 24 },
   runnerRow: { minHeight: 70, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  runnerIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 10 },
   moreButton: { minWidth: 28, minHeight: 30, alignItems: "center", justifyContent: "center" },
   runnerInfo: { flex: 1, minWidth: 0 },
   mutualText: { fontSize: 10, marginTop: 3 },
@@ -1297,31 +1469,34 @@ const styles = StyleSheet.create({
   commentAuthor: { fontSize: 12, fontWeight: "700" },
   commentBody: { fontSize: 13, lineHeight: 18, marginTop: 3 },
   commentComposer: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingTop: 10, flexDirection: "row", alignItems: "flex-end", gap: 8 },
-  detailsContent: { padding: 16, paddingBottom: 28, gap: 14 },
-  detailsHero: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, padding: 16 },
-  detailsHeroTop: { flexDirection: "row", alignItems: "center", gap: 11 },
-  detailsActivityIcon: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
+  detailsContent: { padding: 12, paddingBottom: 24, gap: 10 },
+  detailsHero: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 15, padding: 11 },
+  detailsHeroTop: { flexDirection: "row", alignItems: "center", gap: 9 },
+  detailsActivityIcon: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
   detailsHeroCopy: { flex: 1, minWidth: 0 },
   detailsActivityName: { fontSize: 16, fontWeight: "800" },
   detailsByline: { fontSize: 11, marginTop: 3 },
-  detailsDistance: { fontSize: 30, lineHeight: 36, fontWeight: "800", marginTop: 18 },
-  detailsDistanceLabel: { fontSize: 12, marginTop: 2 },
-  detailsMap: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, overflow: "hidden" },
+  detailsDistance: { fontSize: 25, lineHeight: 30, fontWeight: "800", marginTop: 11 },
+  detailsDistanceLabel: { fontSize: 11, marginTop: 2 },
+  workoutMap: { marginTop: 8, borderWidth: StyleSheet.hairlineWidth, borderRadius: 13, overflow: "hidden" },
   detailsSectionTitle: { fontSize: 10, fontWeight: "800", letterSpacing: 0.9, marginTop: 4 },
-  detailsStatsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  detailsStatCard: { width: "48%", minHeight: 104, borderWidth: StyleSheet.hairlineWidth, borderRadius: 15, padding: 12, justifyContent: "center" },
-  detailsStatValue: { fontSize: 17, fontWeight: "800", marginTop: 9 },
-  detailsStatLabel: { fontSize: 11, marginTop: 2 },
-  detailsCaptionCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 15, padding: 14, gap: 8 },
+  detailsStatsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  detailsStatCard: { width: "48%", minHeight: 82, borderWidth: StyleSheet.hairlineWidth, borderRadius: 13, padding: 9, justifyContent: "center" },
+  detailsStatValue: { fontSize: 15, fontWeight: "800", marginTop: 6 },
+  detailsStatLabel: { fontSize: 10, marginTop: 1 },
+  detailsCaptionCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 13, padding: 11, gap: 7 },
   detailsCaption: { fontSize: 14, lineHeight: 20 },
-  moderationOverlay: { flex: 1, backgroundColor: "transparent" },
-  moderationPopover: { position: "absolute", borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 12, shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 18 },
+  detailsLoadError: { fontSize: 12, lineHeight: 17 },
+  moderationKeyboardAvoiding: { flex: 1 },
+  moderationOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.12)" },
+  moderationPopover: { position: "absolute", minHeight: 0, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 12, shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 18 },
+  moderationContentScroll: { flexGrow: 0, flexShrink: 1, maxHeight: "100%" },
+  moderationContent: { flexGrow: 0 },
   moderationHeading: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 9 },
   moderationIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   moderationHeadingText: { flex: 1 },
   moderationTitle: { fontSize: 14, fontWeight: "800" },
   moderationSubtitle: { fontSize: 11, marginTop: 2 },
-  moderationClose: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
   moderationAction: { minHeight: 42, borderWidth: StyleSheet.hairlineWidth, borderRadius: 11, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 9, marginTop: 7 },
   moderationActionText: { flex: 1, fontSize: 12, fontWeight: "600" },
   moderationSectionLabel: { fontSize: 11, fontWeight: "600", marginBottom: 4 },
@@ -1335,6 +1510,12 @@ const styles = StyleSheet.create({
   moderationPrimaryText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
   moderationCancel: { minHeight: 32, alignItems: "center", justifyContent: "center" },
   moderationCancelText: { fontSize: 12, fontWeight: "600" },
+  messageOverlay: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: "rgba(0,0,0,0.58)" },
+  messageCard: { width: "100%", maxWidth: 380, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 18, shadowColor: "#000", shadowOpacity: 0.24, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 14 },
+  messageTitle: { fontSize: 16, fontWeight: "800" },
+  messageBody: { fontSize: 14, lineHeight: 20, marginTop: 9 },
+  messageButton: { minHeight: 40, minWidth: 72, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 10, paddingHorizontal: 18, marginTop: 18 },
+  messageButtonText: { fontSize: 13, fontWeight: "700" },
   commentInput: { flex: 1, minHeight: 40, maxHeight: 100, borderWidth: StyleSheet.hairlineWidth, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 9, fontSize: 14 },
   sendButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
 });

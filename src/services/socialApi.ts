@@ -61,6 +61,45 @@ export interface SocialActivity {
   calories: number;
   elevation_gain: number;
   encoded_polyline: string | null;
+  distance?: number;
+  max_speed?: number;
+  elevation_loss?: number;
+  total_steps?: number | null;
+  counted_steps?: number | null;
+  segments?: SocialActivitySegment[];
+}
+
+export interface SocialActivitySplit {
+  split_number: number;
+  distance_m: number;
+  time_s: number;
+  pace_s_per_km: number | null;
+  steps?: number | null;
+  average_spm?: number | null;
+  cadence_spm?: number | null;
+}
+
+export interface SocialActivityLap {
+  lap_number: number;
+  distance_m: number;
+  time_s: number;
+  duration_s?: number;
+  pace_s_per_km: number | null;
+  steps?: number | null;
+  cadence_spm?: number | null;
+  splits: SocialActivitySplit[];
+}
+
+export interface SocialActivitySegment {
+  sequence: number;
+  type: string;
+  planned_distance_m?: number | null;
+  planned_time_s?: number | null;
+  completed_distance_m?: number | null;
+  actual_time_s?: number | null;
+  actual_pace_s_per_km?: number | null;
+  splits?: SocialActivitySplit[];
+  laps?: SocialActivityLap[];
 }
 
 export interface SocialPost {
@@ -204,6 +243,8 @@ export const socialAPI = {
     api.get<ApiEnvelope<Page<SocialPost>>>(`/social/users/${userId}/posts/`, {
       params: { limit: 20, ...(cursor ? { cursor } : {}) },
     }),
+  getPost: (postId: number) =>
+    api.get<ApiEnvelope<SocialPost>>(`/social/posts/${postId}/`),
   deletePost: (postId: number) =>
     api.delete<ApiEnvelope<Record<string, unknown>>>(`/social/posts/${postId}/`),
   sharePost: (postId: number, channel: "USER" | "LINK" | "EXTERNAL", recipient_id?: number) =>
@@ -231,6 +272,11 @@ export const socialAPI = {
     reason: ContentReportReason;
     details?: string;
   }) => api.post<ApiEnvelope<Record<string, unknown>>>("/social/reports/", payload),
+  getMyReports: () => api.get<ApiEnvelope<Page<{ id: number; target_type: string; target_id: number | null; reason: string; details: string; status: string; created_at: string; updated_at: string }>>> ("/social/reports/"),
+  getMyModerationNotices: () => api.get<ApiEnvelope<Array<{ id: number; message: string; is_read: boolean; created_at: string }>>>("/social/me/moderation-notices/"),
+  getMyModerationStatus: () => api.get<ApiEnvelope<{ is_suspended: boolean; reason: string | null; suspended_until: string | null }>>("/social/me/moderation-status/"),
+  getMyModerationAppeals: () => api.get<ApiEnvelope<Page<{ id: number; decision_action_id: number; reason: string; status: string; review_note: string; reviewed_at: string | null; created_at: string; updated_at: string }>>> ("/social/me/moderation-appeals/"),
+  markModerationNoticeRead: (noticeId: number) => api.post<ApiEnvelope<Record<string, unknown>>>(`/social/me/moderation-notices/${noticeId}/read/`),
   likePost: (postId: number) =>
     api.post<ApiEnvelope<{ liked: boolean; like_count: number }>>(`/social/posts/${postId}/like/`),
   unlikePost: (postId: number) =>
