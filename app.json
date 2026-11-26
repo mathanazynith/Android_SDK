@@ -22,7 +22,7 @@
       ],
       "predictiveBackGestureEnabled": false,
       "package": "com.zyapp",
-      "versionCode": 5
+      "versionCode": 7
     },
     "web": {
       "output": "static",
