@@ -263,9 +263,16 @@ export default function SocialScreen() {
   const [workoutBreakdownVisible, setWorkoutBreakdownVisible] = useState(false);
   const detailsRequestId = useRef(0);
   const [comments, setComments] = useState<SocialComment[]>([]);
+  const [reportedCommentIds, setReportedCommentIds] = useState<Set<number>>(() => new Set());
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [sendingComment, setSendingComment] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionStart, setMentionStart] = useState<number | null>(null);
+  const [mentionResults, setMentionResults] = useState<ConnectionUser[]>([]);
+  const [mentionProfiles, setMentionProfiles] = useState<Map<string, number>>(() => new Map());
+  const [mentionLoading, setMentionLoading] = useState(false);
+  const [commentSelection, setCommentSelection] = useState<{ start: number; end: number } | undefined>();
   const [editingPost, setEditingPost] = useState<SocialPost | null>(null);
   const [editCaption, setEditCaption] = useState("");
   const [editVisibility, setEditVisibility] = useState<SocialPostVisibility>("PUBLIC");
@@ -356,6 +363,63 @@ export default function SocialScreen() {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (mentionQuery === null || mentionQuery.length === 0) {
+      setMentionResults([]);
+      setMentionLoading(false);
+      return;
+    }
+    let active = true;
+    const timer = setTimeout(() => {
+      setMentionLoading(true);
+      void connectionsAPI.search(mentionQuery)
+        .then((response) => {
+          if (active) {
+            const runners = extractApiResults<ConnectionUser>(response.data).filter((runner) => !blockedIds.has(runner.id));
+            setMentionResults(runners);
+            setMentionProfiles((current) => {
+              const next = new Map(current);
+              runners.forEach((runner) => next.set(runner.username.toLowerCase(), runner.id));
+              return next;
+            });
+          }
+        })
+        .catch(() => { if (active) setMentionResults([]); })
+        .finally(() => { if (active) setMentionLoading(false); });
+    }, 250);
+    return () => { active = false; clearTimeout(timer); };
+  }, [blockedIds, mentionQuery]);
+
+  useEffect(() => {
+    const usernames = Array.from(new Set(comments.flatMap((comment) => (
+      comment.body.match(/(?<![\\w@])@[A-Za-z0-9_+.-]+/g) ?? []
+    ).map((token) => token.slice(1).toLowerCase())))).filter((username) => !mentionProfiles.has(username));
+    if (usernames.length === 0) return;
+    let active = true;
+    void Promise.all(usernames.map(async (username) => {
+      try {
+        const response = await connectionsAPI.search(username);
+        return extractApiResults<ConnectionUser>(response.data).find((runner) => runner.username.toLowerCase() === username);
+      } catch {
+        return undefined;
+      }
+    })).then((runners) => {
+      if (!active) return;
+      setMentionProfiles((current) => {
+        const next = new Map(current);
+        let changed = false;
+        runners.forEach((runner) => {
+          if (runner && !next.has(runner.username.toLowerCase())) {
+            next.set(runner.username.toLowerCase(), runner.id);
+            changed = true;
+          }
+        });
+        return changed ? next : current;
+      });
+    });
+    return () => { active = false; };
+  }, [comments, mentionProfiles]);
+
   const openModeration = useCallback((
     user: ConnectionUser,
     kind: "runner" | "workout" | "comment",
@@ -386,6 +450,9 @@ export default function SocialScreen() {
         ...(reportDetails.trim() ? { details: reportDetails.trim() } : {}),
       });
       setModerationSuccessMessage(response.data.message?.trim() || "Thanks. Your report was sent privately to the moderation team.");
+      if (moderationTarget.targetType === "COMMENT") {
+        setReportedCommentIds((current) => new Set(current).add(moderationTarget.targetId));
+      }
       setModerationTarget((current) => current ? { ...current, step: "reported" } : null);
     } catch (error) {
       setModerationError(getBackendErrorMessage(error));
@@ -674,6 +741,33 @@ export default function SocialScreen() {
     }
   }, [blockedIds]);
 
+  const handleCommentChange = useCallback((value: string) => {
+    setCommentText(value);
+    const cursor = commentSelection?.start ?? value.length;
+    const beforeCursor = value.slice(0, cursor);
+    const match = beforeCursor.match(/(^|\s)@([A-Za-z0-9_.+-]*)$/);
+    if (match) {
+      setMentionQuery(match[2]);
+      setMentionStart(cursor - match[0].length + match[1].length);
+    } else {
+      setMentionQuery(null);
+      setMentionStart(null);
+    }
+  }, [commentSelection]);
+
+  const insertMention = useCallback((runner: ConnectionUser) => {
+    if (mentionStart === null) return;
+    const cursor = commentSelection?.start ?? commentText.length;
+    const token = `@${runner.username} `;
+    const nextText = `${commentText.slice(0, mentionStart)}${token}${commentText.slice(cursor)}`;
+    const nextCursor = mentionStart + token.length;
+    setCommentText(nextText);
+    setCommentSelection({ start: nextCursor, end: nextCursor });
+    setMentionQuery(null);
+    setMentionStart(null);
+    setMentionResults([]);
+  }, [commentSelection, commentText, mentionStart]);
+
   const sendComment = useCallback(async () => {
     if (!commentPost || !commentText.trim() || sendingComment) return;
     setSendingComment(true);
@@ -688,6 +782,8 @@ export default function SocialScreen() {
         ? { ...post, comment_count: createdComment.comment_count ?? post.comment_count + 1 }
         : post));
       setCommentText("");
+      setMentionQuery(null);
+      setCommentSelection(undefined);
     } catch (error) {
       Alert.alert("Unable to add comment", getBackendErrorMessage(error));
     } finally {
@@ -1096,9 +1192,26 @@ export default function SocialScreen() {
                 <View style={[styles.commentBubble, { backgroundColor: colors.surface }]}>
                   <View style={styles.commentHeader}>
                     <Text style={[styles.commentAuthor, { color: colors.text }]}>{item.author.full_name || item.author.username}</Text>
-                    <AnchoredMoreButton label="Comment options" size={16} color={colors.textTertiary} onPress={(anchor) => reportComment(item, anchor)} />
+                    {String(item.author.id) !== String(user?.id) && !reportedCommentIds.has(item.id) ? (
+                      <AnchoredMoreButton label="Comment options" size={16} color={colors.textTertiary} onPress={(anchor) => reportComment(item, anchor)} />
+                    ) : null}
                   </View>
-                  <Text style={[styles.commentBody, { color: colors.textSecondary }]}>{item.body}</Text>
+                  <View style={styles.commentBody}>
+                    {item.body.split(/(@[A-Za-z0-9_.+-]+)/g).map((part, index) => {
+                      const mention = item.mentions?.find((entry) => part.toLowerCase() === `@${entry.username}`.toLowerCase());
+                      const mentionedRunnerId = mention?.user_id ?? mentionProfiles.get(part.slice(1).toLowerCase());
+                      return mentionedRunnerId ? (
+                        <TouchableOpacity
+                          key={`${mentionedRunnerId}-${index}`}
+                          accessibilityRole="link"
+                          accessibilityLabel={`Open ${part.slice(1)}'s runner profile`}
+                          onPress={() => router.push({ pathname: "/(app)/runner/[id]", params: { id: String(mentionedRunnerId) } })}
+                        >
+                          <Text style={[styles.commentBodyText, { color: colors.primary, fontWeight: "700" }]}>{part}</Text>
+                        </TouchableOpacity>
+                      ) : <Text key={`body-${index}`} style={[styles.commentBodyText, { color: colors.textSecondary }]}>{part}</Text>;
+                    })}
+                  </View>
                 </View>
               </View>
             )}
@@ -1106,10 +1219,32 @@ export default function SocialScreen() {
               <Text style={[styles.emptyCopy, { color: colors.textSecondary }]}>No comments yet. Start the conversation.</Text>
             ) : null}
           />
+          {mentionQuery !== null && mentionQuery.length > 0 ? (
+            <View style={[styles.mentionSuggestions, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              {mentionLoading ? <ActivityIndicator size="small" color={colors.primary} style={styles.mentionLoader} /> : mentionResults.length ? mentionResults.slice(0, 5).map((runner) => (
+                <View key={runner.id} style={[styles.mentionSuggestion, { borderBottomColor: colors.border }]}>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={`Insert @${runner.username} in comment`}
+                    onPress={() => insertMention(runner)}
+                    style={styles.mentionSuggestionIdentity}
+                  >
+                    <Avatar name={runner.full_name || runner.username} imageUrl={runner.avatar_url || undefined} size={30} />
+                    <View style={styles.mentionSuggestionCopy}>
+                      <Text style={[styles.mentionSuggestionName, { color: colors.text }]} numberOfLines={1}>{runner.full_name || runner.username}</Text>
+                      <Text style={[styles.mentionSuggestionUsername, { color: colors.textSecondary }]} numberOfLines={1}>@{runner.username}</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              )) : <Text style={[styles.mentionEmpty, { color: colors.textSecondary }]}>No runners found.</Text>}
+            </View>
+          ) : null}
           <View style={[styles.commentComposer, { borderTopColor: colors.border, paddingBottom: 8 }]}>
             <TextInput
               value={commentText}
-              onChangeText={setCommentText}
+              onChangeText={handleCommentChange}
+              onSelectionChange={(event) => setCommentSelection(event.nativeEvent.selection)}
+              selection={commentSelection}
               placeholder="Write a comment..."
               placeholderTextColor={colors.textTertiary}
               style={[styles.commentInput, { color: colors.text, backgroundColor: colors.surface, borderColor: colors.border }]}
@@ -1464,8 +1599,17 @@ const styles = StyleSheet.create({
   commentBubble: { flex: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9 },
   commentHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   commentAuthor: { fontSize: 12, fontWeight: "700" },
-  commentBody: { fontSize: 13, lineHeight: 18, marginTop: 3 },
+  commentBody: { flexDirection: "row", flexWrap: "wrap", marginTop: 3 },
+  commentBodyText: { fontSize: 13, lineHeight: 18 },
   commentComposer: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingTop: 10, flexDirection: "row", alignItems: "flex-end", gap: 8 },
+  mentionSuggestions: { marginHorizontal: 12, borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, overflow: "hidden", maxHeight: 220 },
+  mentionLoader: { padding: 14 },
+  mentionSuggestion: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  mentionSuggestionIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 9 },
+  mentionSuggestionCopy: { flex: 1, minWidth: 0 },
+  mentionSuggestionName: { fontSize: 12, fontWeight: "700" },
+  mentionSuggestionUsername: { fontSize: 10, marginTop: 2 },
+  mentionEmpty: { padding: 12, fontSize: 12 },
   detailsContent: { padding: 12, paddingBottom: 24, gap: 10 },
   detailsHero: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 15, padding: 11 },
   detailsHeroTop: { flexDirection: "row", alignItems: "center", gap: 9 },

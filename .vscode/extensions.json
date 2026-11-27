@@ -1,6 +1,8 @@
 {
     "recommendations": [
         "expo.vscode-expo-tools",
-        "andrepimenta.claude-code-chat"
+        "andrepimenta.claude-code-chat",
+        "openai.chatgpt"
     ]
 }
+ 

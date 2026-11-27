@@ -160,6 +160,7 @@ export interface SocialComment {
   parent_id: number | null;
   author: ConnectionUser;
   body: string;
+  mentions?: { username: string; user_id: number }[];
   like_count: number;
   reply_count: number;
   liked_by_me: boolean;
