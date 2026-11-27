@@ -1,14 +1,14 @@
 import { Feather } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   KeyboardAvoidingView,
   Modal,
-  Pressable,
   Platform,
+  Pressable,
   RefreshControl,
   ScrollView,
   Share,
@@ -20,15 +20,10 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { RunningLoader } from "../../components/common/RunningLoader";
 import ActivitySplitsModal from "../../components/ActivitySplitsModal";
-import OriginZoomModal from "../../components/navigation/OriginZoomModal";
-import { useTheme } from "../../contexts/ThemeContext";
-import { getBackendErrorMessage } from "../../service/api";
-import { useAuth } from "../../service/auth";
-import { formatActivityDistanceFromMeters } from "../../src/utils/activityUnitFormatters";
-import { formatDurationHhMmSs } from "../../src/utils/splitFormatters";
 import { Avatar } from "../../components/Avatar";
+import { RunningLoader } from "../../components/common/RunningLoader";
+import OriginZoomModal from "../../components/navigation/OriginZoomModal";
 import {
   AnchoredMoreButton,
   FeedPostCard,
@@ -37,6 +32,9 @@ import {
   formatRelativeTime,
   sortSocialPosts,
 } from "../../components/social/FeedPostCard";
+import { useTheme } from "../../contexts/ThemeContext";
+import { getBackendErrorMessage } from "../../service/api";
+import { useAuth } from "../../service/auth";
 import {
   connectionsAPI,
   extractApiResults,
@@ -55,6 +53,8 @@ import {
   subscribeToSocialPostChanges,
 } from "../../src/services/socialPostEvents";
 import type { ActivitySegmentSplits } from "../../src/types/activity";
+import { formatActivityDistanceFromMeters } from "../../src/utils/activityUnitFormatters";
+import { formatDurationHhMmSs } from "../../src/utils/splitFormatters";
 
 const REPORT_REASONS: { value: ContentReportReason; label: string }[] = [
   { value: "SPAM", label: "Spam or scam" },

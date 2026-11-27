@@ -62,8 +62,8 @@ const MAX_ZONE_RADIUS_M = 1600;
 const ZONE_RADIUS_STEP_M = 100;
 const reportStatusLabel = (status: string) => {
   switch (status) {
-    case 'ACTIONED': return 'Actioned · Closed';
-    case 'DISMISSED': return 'Dismissed · Closed';
+    case 'ACTIONED': return 'Actioned';
+    case 'DISMISSED': return 'Dismissed';
     case 'UNDER_REVIEW': return 'Under review';
     case 'OPEN': return 'Open';
     default: return status.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (character) => character.toUpperCase());
@@ -1193,7 +1193,10 @@ export default function SettingsMenu({
                     <View key={report.id} style={[styles.moderationNotice, { borderBottomColor: colors.border }]}>
                       <View style={styles.androidThemeCopy}>
                         <Text style={[styles.androidOptionLabel, { color: colors.text }]}>{report.target_type === 'DELETED' ? 'Deleted content' : report.target_type} report · {report.reason}</Text>
-                        <Text style={[styles.androidOptionHint, { color: report.status === 'ACTIONED' ? colors.primary : colors.textSecondary }]}>{reportStatusLabel(report.status)} · {new Date(report.created_at).toLocaleDateString()}</Text>
+                        <Text style={[styles.androidOptionHint, { color: colors.textSecondary }]}>{new Date(report.created_at).toLocaleDateString()}</Text>
+                      </View>
+                      <View style={[styles.reportStatusBadge, { backgroundColor: report.status === 'ACTIONED' ? colors.selected : colors.background }]}>
+                        <Text style={[styles.reportStatusText, { color: report.status === 'ACTIONED' ? colors.primary : colors.textSecondary }]}>{reportStatusLabel(report.status)}</Text>
                       </View>
                     </View>
                   )) : <Text style={[styles.privacyListMessage, { color: colors.textSecondary }]}>No reports submitted.</Text>}
@@ -1741,6 +1744,8 @@ const styles = StyleSheet.create({
   privacyUserRow: { minHeight: 60, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth },
   privacyUserIdentity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 9 },
   moderationNotice: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  reportStatusBadge: { minHeight: 26, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 9, borderRadius: 13 },
+  reportStatusText: { fontSize: 11, fontWeight: '700' },
   noticeUnreadDot: { width: 8, height: 8, borderRadius: 4 },
   privacyActionButton: { minHeight: 30, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 11, borderRadius: 16 },
   privacyActionText: { fontSize: 11, fontWeight: '700' },
