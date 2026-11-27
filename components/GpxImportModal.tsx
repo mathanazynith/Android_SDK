@@ -108,9 +108,8 @@ export function GpxImportModal({ visible, onClose, onImported }: GpxImportModalP
   <label class="drop-btn">
     <div class="icon-circle">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-        <polyline points="17 8 12 3 7 8"/>
-        <line x1="12" y1="3" x2="12" y2="15"/>
+        <path d="M10 4H7a4 4 0 0 0-4 4v9a4 4 0 0 0 4 4h10a4 4 0 0 0 4-4V8a4 4 0 0 0-4-4h-3"/>
+        <path d="M12 2v11m-4-4 4 4 4-4"/>
       </svg>
     </div>
     <div class="title">Choose .GPX File</div>

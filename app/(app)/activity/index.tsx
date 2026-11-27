@@ -1,9 +1,9 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { BlurTargetView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { Image as ExpoImage } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
@@ -29,20 +29,19 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-g
 import { useReducedMotion } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
-import OriginZoomView from '../../../components/navigation/OriginZoomView';
-import OriginZoomModal from '../../../components/navigation/OriginZoomModal';
-import ThemedCalendarPicker from '../../../components/common/ThemedCalendarPicker';
 import AppBlurView from '../../../components/common/AppBlurView';
+import ThemedCalendarPicker from '../../../components/common/ThemedCalendarPicker';
+import OriginZoomModal from '../../../components/navigation/OriginZoomModal';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import { RunningLoader } from '../../../components/common/RunningLoader';
+import { GpxImportModal } from '../../../components/GpxImportModal';
 import MotionEntrance from '../../../components/MotionEntrance';
 import {
   getActivityLaunchParams,
   launchFromView,
   type DashboardLaunchOrigin,
 } from '../../../components/navigation/dashboardLaunchTransition';
-import { GpxImportModal } from '../../../components/GpxImportModal';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage, resolveApiUrl } from '../../../service/api';
 import { useAuth } from '../../../service/auth';
@@ -1776,7 +1775,7 @@ export default function ActivityScreen() {
                 onPress={() => setGpxImportVisible(true)}
                 style={[styles.importGpxButton, { borderColor: colors.border, backgroundColor: colors.surface }]}
               >
-                <Feather name="upload" size={16} color={colors.primary} />
+                <MaterialCommunityIcons name="tray-arrow-down" size={20} color={colors.primary} />
               </TouchableOpacity>
             )}
             <TouchableOpacity
