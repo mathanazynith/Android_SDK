@@ -239,11 +239,23 @@ export default function GlobalBottomNav({ blurTarget }: { blurTarget?: RefObject
     if (tabNavigationPending.current) return;
     tabNavigationPending.current = true;
 
+    if (tab.label === 'Profile' && user?.id != null) {
+      router.replace({
+        pathname: '/(app)/runner/[id]',
+        params: {
+          id: String(user.id),
+          selfProfile: '1',
+          ...getTabLaunchParams(origin),
+        },
+      });
+      return;
+    }
+
     router.replace({
       pathname: tab.route,
       params: getTabLaunchParams(origin),
     });
-  }, [fetchWorkoutPlan, hasActivePlan, isWorkoutPlanLoaded, isWorkoutPlanLoading, pathname]);
+  }, [fetchWorkoutPlan, hasActivePlan, isWorkoutPlanLoaded, isWorkoutPlanLoading, pathname, selfProfileTab, user]);
 
   const handleGetPlan = useCallback(() => {
     if (isAuthLoading) return;

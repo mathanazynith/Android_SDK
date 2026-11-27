@@ -43,6 +43,25 @@ interface ActivitySplitsModalProps {
 const sumSplits = (splits: ActivitySplit[], field: 'distance_m' | 'time_s') =>
   splits.reduce((total, split) => total + (Number.isFinite(split[field]) ? split[field] : 0), 0);
 
+const positiveOrFallback = (primary: number | null | undefined, fallback: number) =>
+  primary !== null && primary !== undefined && Number.isFinite(primary) && primary > 0 ? primary : fallback;
+
+const getSegmentDistance = (segment: ActivitySegmentSplits) => positiveOrFallback(
+  segment.completed_distance_m,
+  positiveOrFallback(
+    segment.laps?.reduce((total, lap) => total + (lap.distance_m ?? 0), 0),
+    sumSplits(segment.splits, 'distance_m'),
+  ),
+);
+
+const getSegmentTime = (segment: ActivitySegmentSplits) => positiveOrFallback(
+  segment.actual_time_s,
+  positiveOrFallback(
+    segment.laps?.reduce((total, lap) => total + (lap.time_s ?? 0), 0),
+    sumSplits(segment.splits, 'time_s'),
+  ),
+);
+
 const formatMetric = (value: number | undefined, formatter: (value: number) => string) =>
   value !== undefined && Number.isFinite(value) && value >= 0 ? formatter(value) : '—';
 
@@ -232,7 +251,7 @@ export default function ActivitySplitsModal({
   const distanceLabel = getDistanceUnitDisplayLabel(distanceUnit);
   const paceLabel = `min/${getDistanceUnitCode(distanceUnit) === 'mile' ? 'mi' : 'km'}`;
   const totalDistance = useMemo(() => segments.reduce((total, segment) => (
-    total + (segment.completed_distance_m ?? sumSplits(segment.splits, 'distance_m'))
+    total + getSegmentDistance(segment)
   ), 0) + Math.max(
     sumSplits(extraSplits, 'distance_m'),
     extraLaps.reduce((total, lap) => total + (lap.distance_m ?? 0), 0),
@@ -304,8 +323,8 @@ export default function ActivitySplitsModal({
           lap.segment_sequence === segment.sequence
           || (lap.segment_sequence === undefined && segment.sequence === primarySegmentSequence)
         ));
-      const distance = segment.completed_distance_m ?? sumSplits(segment.splits, 'distance_m');
-      const time = segment.actual_time_s ?? sumSplits(segment.splits, 'time_s');
+      const distance = getSegmentDistance(segment);
+      const time = getSegmentTime(segment);
       const pace = segment.actual_pace_s_per_km ?? (distance > 0 && time > 0 ? time / (distance / 1000) : undefined);
       if (segmentLaps.length > 0) {
         segmentLaps.forEach((lap, index) => entries.push({
@@ -334,8 +353,8 @@ export default function ActivitySplitsModal({
       .filter((segment) => segment.type === 'EXTRA')
       .forEach((segment) => {
         const segmentLaps = extraLaps.length > 0 ? extraLaps : segment.laps ?? [];
-        const distance = segment.completed_distance_m ?? sumSplits(segment.splits, 'distance_m');
-        const time = segment.actual_time_s ?? sumSplits(segment.splits, 'time_s');
+        const distance = getSegmentDistance(segment);
+        const time = getSegmentTime(segment);
         const pace = segment.actual_pace_s_per_km ?? (distance > 0 && time > 0 ? time / (distance / 1000) : undefined);
         if (segmentLaps.length > 0) {
           segmentLaps.forEach((lap, index) => entries.push({
@@ -436,8 +455,8 @@ export default function ActivitySplitsModal({
               </>
             )}
             {displaySegments.map(({ segment, recovery }) => {
-              const distance = segment.completed_distance_m ?? sumSplits(segment.splits, 'distance_m');
-              const time = segment.actual_time_s ?? sumSplits(segment.splits, 'time_s');
+              const distance = getSegmentDistance(segment);
+              const time = getSegmentTime(segment);
               const pace = segment.actual_pace_s_per_km ?? (distance > 0 && time > 0 ? time / (distance / 1000) : undefined);
               const groupLabel = segment.type === 'EXTRA' ? 'Extra distance' : `${segment.sequence}. ${titleCase(segment.type)}`;
               const segmentLapEntries = lapEntries.filter((lap) => lap.groupLabel === groupLabel);
@@ -521,31 +540,31 @@ const styles = StyleSheet.create({
   header: { height: 60, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderBottomWidth: 1 },
   title: { fontSize: 24, fontWeight: '700', letterSpacing: 0 },
   closeButton: { position: 'absolute', right: 0, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  listContent: { paddingTop: 20, paddingBottom: 36 },
-  overviewHeader: { paddingHorizontal: 4, marginBottom: 20 },
-  workoutTitle: { fontSize: 26, fontWeight: '700', letterSpacing: 0 },
-  segmentCount: { fontSize: 16, marginTop: 8 },
-  summaryRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
-  summaryMetric: { borderRadius: 15, padding: 11, minHeight: 70 },
-  tableCard: { borderRadius: 18, padding: 14, marginBottom: 16, borderWidth: 1 },
-  tableTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 },
-  tableTitle: { fontSize: 19, fontWeight: '800' },
+  listContent: { paddingTop: 14, paddingBottom: 26 },
+  overviewHeader: { paddingHorizontal: 4, marginBottom: 12 },
+  workoutTitle: { fontSize: 23, fontWeight: '700', letterSpacing: 0 },
+  segmentCount: { fontSize: 14, marginTop: 5 },
+  summaryRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  summaryMetric: { borderRadius: 13, padding: 9, minHeight: 58 },
+  tableCard: { borderRadius: 16, padding: 11, marginBottom: 12, borderWidth: 1 },
+  tableTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  tableTitle: { fontSize: 17, fontWeight: '800' },
   tableHint: { fontSize: 11, marginTop: 3 },
-  segmentCard: { borderRadius: 20, padding: 17, marginBottom: 16, borderWidth: 1 },
+  segmentCard: { borderRadius: 16, padding: 12, marginBottom: 12, borderWidth: 1 },
   segmentHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  segmentTitle: { fontSize: 22, fontWeight: '700', flex: 1, letterSpacing: 0 },
+  segmentTitle: { fontSize: 19, fontWeight: '700', flex: 1, letterSpacing: 0 },
   segmentType: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, overflow: 'hidden' },
   lapsButtonText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.4 },
   standaloneLapsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, paddingHorizontal: 4 },
   sectionLapsLabel: { fontSize: 15, fontWeight: '700' },
-  segmentMetrics: { flexDirection: 'row', flexWrap: 'nowrap', justifyContent: 'space-between', columnGap: 8, marginTop: 16 },
-  metric: { flexGrow: 1, flexShrink: 1, flexBasis: '46%', minWidth: 0, borderRadius: 12, borderWidth: 1, padding: 8 },
-  metricLabel: { fontSize: 13, fontWeight: '700', letterSpacing: 0 },
-  metricValue: { fontSize: 13, fontWeight: '600', marginTop: 3, letterSpacing: 0 },
+  segmentMetrics: { flexDirection: 'row', flexWrap: 'nowrap', justifyContent: 'space-between', columnGap: 6, marginTop: 11 },
+  metric: { flexGrow: 1, flexShrink: 1, flexBasis: '46%', minWidth: 0, borderRadius: 11, borderWidth: 1, padding: 7 },
+  metricLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 0 },
+  metricValue: { fontSize: 12, fontWeight: '600', marginTop: 3, letterSpacing: 0 },
   inlineMetric: { flex: 1, flexGrow: 1, flexBasis: 0, minWidth: 0, backgroundColor: 'transparent', borderWidth: 0, borderRadius: 0, padding: 0 },
-  inlineMetricLabel: { fontSize: 12, fontWeight: '400' },
-  inlineMetricValue: { fontSize: 13, fontWeight: '600', marginTop: 4 },
-  gpsPoints: { fontSize: 14, marginTop: 18 },
+  inlineMetricLabel: { fontSize: 10, fontWeight: '400' },
+  inlineMetricValue: { fontSize: 12, fontWeight: '600', marginTop: 3 },
+  gpsPoints: { fontSize: 12, marginTop: 12 },
   tableHeaderRow: { flexDirection: 'row', alignItems: 'flex-end', minHeight: 46, borderBottomWidth: 1, paddingBottom: 6 },
   tableHead: { fontSize: 9, fontWeight: '700', lineHeight: 11, textAlign: 'right', paddingHorizontal: 1 },
   tableEntry: { borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 4 },

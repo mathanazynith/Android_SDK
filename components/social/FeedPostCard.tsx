@@ -1,4 +1,4 @@
-import { Feather, FontAwesome } from "@expo/vector-icons";
+import { Feather, FontAwesome, Ionicons } from "@expo/vector-icons";
 import React, { useRef } from "react";
 import {
   StyleSheet,
@@ -72,7 +72,7 @@ export function AnchoredMoreButton({
         onPress={() => buttonRef.current?.measureInWindow((x, y, width, height) => onPress({ x, y, width, height }))}
         style={style}
       >
-        <Feather name="more-horizontal" size={size} color={color} />
+        <Ionicons name="ellipsis-horizontal-circle-outline" size={size + 4} color={color} />
       </TouchableOpacity>
     </View>
   );
@@ -101,6 +101,7 @@ export function FeedPostCard({
 }) {
   const name = post.author.full_name || post.author.username;
   const distance = Number(post.activity?.distance_km);
+  const canSharePost = post.visibility === "PUBLIC" || post.visibility === "ALL";
   return (
     <View style={[styles.postCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <View style={styles.postHeader}>
@@ -112,16 +113,6 @@ export function FeedPostCard({
           <Text style={[styles.username, { color: colors.textSecondary }]} numberOfLines={1}>@{post.author.username}</Text>
         </TouchableOpacity>
         <Text style={[styles.postTime, { color: colors.textTertiary }]}>{formatRelativeTime(post.created_at)}</Text>
-        {!post.is_mine && post.visibility === "ALL" && post.share_url ? (
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="Share workout"
-            onPress={onShare}
-            style={styles.topShareButton}
-          >
-            <Feather name="share" size={17} color={colors.primary} />
-          </TouchableOpacity>
-        ) : null}
         <AnchoredMoreButton
           label={post.is_mine ? "Post options" : "Workout options"}
           color={colors.textSecondary}
@@ -146,7 +137,7 @@ export function FeedPostCard({
             <Text style={[styles.metricText, { color: colors.textSecondary }]}>{formatDuration(post.activity?.moving_time)}</Text>
           </View>
           <View style={styles.metric}>
-            <Feather name="navigation" size={12} color={colors.textTertiary} />
+            <Feather name="compass" size={12} color={colors.textTertiary} />
             <Text style={[styles.metricText, { color: colors.textSecondary }]}>{formatPace(post.activity?.avg_pace)}</Text>
           </View>
         </View>
@@ -158,8 +149,8 @@ export function FeedPostCard({
             encodedPolyline={post.activity.encoded_polyline}
             variant="preview"
             compactPreview
+            compactPreviewHeight={168}
             googleMapPreview
-            routeOnly
           />
         </View>
       ) : null}
@@ -193,10 +184,22 @@ export function FeedPostCard({
         <TouchableOpacity accessibilityRole="button" onPress={onDetails} style={styles.actionLink}>
           <Text style={[styles.actionLinkText, { color: colors.primary }]}>Details</Text>
         </TouchableOpacity>
-        <View style={styles.shareCount}>
-          <Feather name="share" size={13} color={colors.textTertiary} />
-          <Text style={[styles.actionCount, { color: colors.text }]}>{post.share_count}</Text>
-        </View>
+        {canSharePost ? (
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`Share workout, ${post.share_count} shares`}
+            onPress={onShare}
+            style={styles.shareCount}
+          >
+            <Feather name="share" size={13} color={colors.textTertiary} />
+            <Text style={[styles.actionCount, { color: colors.text }]}>{post.share_count}</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.shareCount}>
+            <Feather name="share" size={13} color={colors.textTertiary} />
+            <Text style={[styles.actionCount, { color: colors.text }]}>{post.share_count}</Text>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -209,7 +212,6 @@ const styles = StyleSheet.create({
   authorName: { fontSize: 13, fontWeight: "700" },
   username: { fontSize: 10, marginTop: 1 },
   postTime: { fontSize: 10 },
-  topShareButton: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
   moreButton: { minWidth: 28, minHeight: 30, alignItems: "center", justifyContent: "center" },
   workoutCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, padding: 9 },
   workoutMap: { marginTop: 8 },

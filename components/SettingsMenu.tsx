@@ -55,11 +55,20 @@ interface SettingsMenuProps {
   onDismiss?: () => void;
 }
 
-type SettingsPage = 'home' | 'pause' | 'appearance' | 'privacy' | 'requests' | 'blocked' | 'followers' | 'following' | 'zones';
+type SettingsPage = 'home' | 'pause' | 'appearance' | 'privacy' | 'safety' | 'requests' | 'blocked' | 'followers' | 'following' | 'zones';
 const DEFAULT_ZONE_RADIUS_M = 200;
 const MIN_ZONE_RADIUS_M = 200;
 const MAX_ZONE_RADIUS_M = 1600;
 const ZONE_RADIUS_STEP_M = 100;
+const reportStatusLabel = (status: string) => {
+  switch (status) {
+    case 'ACTIONED': return 'Actioned · Closed';
+    case 'DISMISSED': return 'Dismissed · Closed';
+    case 'UNDER_REVIEW': return 'Under review';
+    case 'OPEN': return 'Open';
+    default: return status.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (character) => character.toUpperCase());
+  }
+};
 const HIDE_RADIUS_OPTIONS = [0, ...Array.from(
   { length: (MAX_ZONE_RADIUS_M - MIN_ZONE_RADIUS_M) / ZONE_RADIUS_STEP_M + 1 },
   (_, index) => MIN_ZONE_RADIUS_M + index * ZONE_RADIUS_STEP_M,
@@ -119,6 +128,12 @@ export default function SettingsMenu({
   const [privacyListLoading, setPrivacyListLoading] = useState(false);
   const [privacyListError, setPrivacyListError] = useState<string | null>(null);
   const [privacyActionIds, setPrivacyActionIds] = useState<Set<number>>(() => new Set());
+  const [moderationLoading, setModerationLoading] = useState(false);
+  const [moderationError, setModerationError] = useState<string | null>(null);
+  const [moderationStatus, setModerationStatus] = useState<{ is_suspended: boolean; reason: string | null; suspended_until: string | null } | null>(null);
+  const [moderationNotices, setModerationNotices] = useState<Array<{ id: number; message: string; is_read: boolean; created_at: string }>>([]);
+  const [moderationReports, setModerationReports] = useState<Array<{ id: number; target_type: string; reason: string; status: string; created_at: string }>>([]);
+  const [moderationAppeals, setModerationAppeals] = useState<Array<{ id: number; reason: string; status: string; created_at: string }>>([]);
   const [zoneFormVisible, setZoneFormVisible] = useState(false);
   const [radiusPickerVisible, setRadiusPickerVisible] = useState(false);
   const [radiusDraft, setRadiusDraft] = useState(DEFAULT_ZONE_RADIUS_M);
@@ -657,25 +672,61 @@ export default function SettingsMenu({
     pause: 'Pause Mode',
     appearance: 'Appearance',
     privacy: 'Privacy & Sharing',
+    safety: 'Safety Center',
     requests: 'Follow requests',
     blocked: 'Blocked accounts',
     followers: 'My followers',
     following: 'Following',
     zones: 'Privacy zones',
   };
+  const loadModeration = useCallback(async () => {
+    setModerationLoading(true);
+    setModerationError(null);
+    try {
+      const [statusResult, noticesResult, reportsResult, appealsResult] = await Promise.all([
+        socialAPI.getMyModerationStatus(),
+        socialAPI.getMyModerationNotices(),
+        socialAPI.getMyReports(),
+        socialAPI.getMyModerationAppeals(),
+      ]);
+      setModerationStatus(statusResult.data.data);
+      setModerationNotices(extractApiResults(noticesResult.data));
+      setModerationReports(extractApiResults(reportsResult.data));
+      setModerationAppeals(extractApiResults(appealsResult.data));
+    } catch (error) {
+      setModerationError(getBackendErrorMessage(error, 'Unable to load moderation information.'));
+    } finally {
+      setModerationLoading(false);
+    }
+  }, []);
+  const markNoticeRead = useCallback(async (noticeId: number) => {
+    try {
+      await socialAPI.markModerationNoticeRead(noticeId);
+      setModerationNotices((current) => current.map((notice) => notice.id === noticeId ? { ...notice, is_read: true } : notice));
+    } catch (error) {
+      Alert.alert('Unable to update notice', getBackendErrorMessage(error));
+    }
+  }, []);
   const renderConnectionRow = (
     account: ConnectionUser,
     action?: { label: string; onPress: () => void; disabled?: boolean },
     secondaryAction?: { label: string; onPress: () => void; disabled?: boolean },
   ) => (
     <View key={account.id} style={[styles.privacyUserRow, { borderBottomColor: colors.border }]}>
-      <Avatar name={account.full_name || account.username} imageUrl={account.avatar_url || undefined} size={38} />
-      <View style={styles.androidThemeCopy}>
-        <Text style={[styles.androidOptionLabel, { color: colors.text, fontSize: fontSize(14, 13, 15) }]} numberOfLines={1}>
-          {account.full_name || account.username}
-        </Text>
-        <Text style={[styles.androidOptionHint, { color: colors.textSecondary }]} numberOfLines={1}>@{account.username}</Text>
-      </View>
+      <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={`Open ${account.full_name || account.username}'s runner profile`}
+        onPress={() => router.push({ pathname: '/(app)/runner/[id]', params: { id: String(account.id) } })}
+        style={styles.privacyUserIdentity}
+      >
+        <Avatar name={account.full_name || account.username} imageUrl={account.avatar_url || undefined} size={38} />
+        <View style={styles.androidThemeCopy}>
+          <Text style={[styles.androidOptionLabel, { color: colors.text, fontSize: fontSize(14, 13, 15) }]} numberOfLines={1}>
+            {account.full_name || account.username}
+          </Text>
+          <Text style={[styles.androidOptionHint, { color: colors.textSecondary }]} numberOfLines={1}>@{account.username}</Text>
+        </View>
+      </TouchableOpacity>
       {secondaryAction ? (
         <TouchableOpacity
           accessibilityRole="button"
@@ -716,7 +767,7 @@ export default function SettingsMenu({
   const handleBack = useCallback(() => {
     if (page !== 'home') {
       setPage((current) => (
-        current === 'requests' || current === 'blocked' || current === 'followers' || current === 'following' || current === 'zones'
+        current === 'safety' || current === 'requests' || current === 'blocked' || current === 'followers' || current === 'following' || current === 'zones'
           ? 'privacy'
           : 'home'
       ));
@@ -1101,8 +1152,64 @@ export default function SettingsMenu({
                     {renderAndroidRow({ label: 'My followers', icon: 'users', onPress: () => void openPrivacyList('followers'), disabled: privacyListLoading })}
                     {renderAndroidRow({ label: 'Following', icon: 'users', onPress: () => void openPrivacyList('following'), disabled: privacyListLoading })}
                   </View>
+                  <Text style={[styles.androidSectionTitle, styles.androidSectionSpaced, { color: colors.textTertiary }]}>SAFETY</Text>
+                  <View style={[styles.optionGroup, { backgroundColor: isDark ? colors.surfaceRaised : '#F3F4F4', borderColor: 'transparent' }]}>
+                    {renderAndroidRow({ label: 'Safety Center', icon: 'shield', onPress: () => { setPage('safety'); void loadModeration(); } })}
+                  </View>
                 </>
               )
+            ) : page === 'safety' ? (
+              <>
+                <Text style={[styles.androidSectionTitle, { color: colors.textTertiary }]}>ACCOUNT STATUS</Text>
+                {moderationLoading ? <ActivityIndicator color={colors.primary} style={{ margin: 18 }} /> : null}
+                {moderationError ? <Text style={[styles.privacyListMessage, { color: '#E5484D' }]}>{moderationError}</Text> : null}
+                {moderationStatus ? (
+                  <View style={[styles.optionGroup, { backgroundColor: isDark ? colors.surfaceRaised : '#F3F4F4', borderColor: 'transparent' }]}>
+                    <View style={styles.androidVoiceRow}>
+                      <Feather name={moderationStatus.is_suspended ? 'alert-triangle' : 'shield'} size={20} color={moderationStatus.is_suspended ? '#E5484D' : colors.primary} />
+                      <View style={styles.androidCheckboxCopy}>
+                        <Text style={[styles.androidOptionLabel, { color: colors.text }]}>{moderationStatus.is_suspended ? 'Account restricted' : 'Account in good standing'}</Text>
+                        {moderationStatus.reason ? <Text style={[styles.androidOptionHint, { color: colors.textSecondary }]}>{moderationStatus.reason}</Text> : null}
+                        {moderationStatus.suspended_until ? <Text style={[styles.androidOptionHint, { color: colors.textSecondary }]}>Until {new Date(moderationStatus.suspended_until).toLocaleString()}</Text> : null}
+                      </View>
+                    </View>
+                  </View>
+                ) : null}
+                <Text style={[styles.androidSectionTitle, styles.androidSectionSpaced, { color: colors.textTertiary }]}>MODERATION NOTICES</Text>
+                <View style={[styles.optionGroup, { backgroundColor: isDark ? colors.surfaceRaised : '#F3F4F4', borderColor: 'transparent' }]}>
+                  {moderationNotices.length ? moderationNotices.map((notice) => (
+                    <TouchableOpacity key={notice.id} onPress={() => !notice.is_read && void markNoticeRead(notice.id)} style={[styles.moderationNotice, { borderBottomColor: colors.border }]}>
+                      <View style={styles.androidThemeCopy}>
+                        <Text style={[styles.androidOptionLabel, { color: colors.text }]}>{notice.message}</Text>
+                        <Text style={[styles.androidOptionHint, { color: colors.textSecondary }]}>{new Date(notice.created_at).toLocaleString()}{notice.is_read ? ' · Read' : ' · Tap to mark read'}</Text>
+                      </View>
+                      {!notice.is_read ? <View style={[styles.noticeUnreadDot, { backgroundColor: colors.primary }]} /> : null}
+                    </TouchableOpacity>
+                  )) : <Text style={[styles.privacyListMessage, { color: colors.textSecondary }]}>No moderation notices.</Text>}
+                </View>
+                <Text style={[styles.androidSectionTitle, styles.androidSectionSpaced, { color: colors.textTertiary }]}>YOUR REPORTS</Text>
+                <View style={[styles.optionGroup, { backgroundColor: isDark ? colors.surfaceRaised : '#F3F4F4', borderColor: 'transparent' }]}>
+                  {moderationReports.length ? moderationReports.map((report) => (
+                    <View key={report.id} style={[styles.moderationNotice, { borderBottomColor: colors.border }]}>
+                      <View style={styles.androidThemeCopy}>
+                        <Text style={[styles.androidOptionLabel, { color: colors.text }]}>{report.target_type === 'DELETED' ? 'Deleted content' : report.target_type} report · {report.reason}</Text>
+                        <Text style={[styles.androidOptionHint, { color: report.status === 'ACTIONED' ? colors.primary : colors.textSecondary }]}>{reportStatusLabel(report.status)} · {new Date(report.created_at).toLocaleDateString()}</Text>
+                      </View>
+                    </View>
+                  )) : <Text style={[styles.privacyListMessage, { color: colors.textSecondary }]}>No reports submitted.</Text>}
+                </View>
+                <Text style={[styles.androidSectionTitle, styles.androidSectionSpaced, { color: colors.textTertiary }]}>YOUR APPEALS</Text>
+                <View style={[styles.optionGroup, { backgroundColor: isDark ? colors.surfaceRaised : '#F3F4F4', borderColor: 'transparent' }]}>
+                  {moderationAppeals.length ? moderationAppeals.map((appeal) => (
+                    <View key={appeal.id} style={[styles.moderationNotice, { borderBottomColor: colors.border }]}>
+                      <View style={styles.androidThemeCopy}>
+                        <Text style={[styles.androidOptionLabel, { color: colors.text }]}>{appeal.reason}</Text>
+                        <Text style={[styles.androidOptionHint, { color: colors.textSecondary }]}>{appeal.status} · {new Date(appeal.created_at).toLocaleDateString()}</Text>
+                      </View>
+                    </View>
+                  )) : <Text style={[styles.privacyListMessage, { color: colors.textSecondary }]}>No appeals submitted.</Text>}
+                </View>
+              </>
             ) : page === 'requests' ? (
               <>
                 <Text style={[styles.androidSectionTitle, { color: colors.textTertiary }]}>PEOPLE WHO WANT TO FOLLOW YOU</Text>
@@ -1632,6 +1739,9 @@ const styles = StyleSheet.create({
   privacyListMessage: { minHeight: 48, paddingHorizontal: 16, paddingVertical: 12, textAlign: 'center', textAlignVertical: 'center', fontSize: 12, lineHeight: 18, includeFontPadding: false },
   privacyLoading: { minHeight: 300, alignItems: 'center', justifyContent: 'center' },
   privacyUserRow: { minHeight: 60, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth },
+  privacyUserIdentity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 9 },
+  moderationNotice: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  noticeUnreadDot: { width: 8, height: 8, borderRadius: 4 },
   privacyActionButton: { minHeight: 30, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 11, borderRadius: 16 },
   privacyActionText: { fontSize: 11, fontWeight: '700' },
   privacyRefreshRow: { minHeight: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 7, paddingHorizontal: 14, borderBottomWidth: StyleSheet.hairlineWidth },

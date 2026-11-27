@@ -637,26 +637,22 @@ export default function ActivityDetailScreen() {
               </Text>
             </View>
 
-            <TouchableOpacity
-              ref={postWorkoutButtonRef}
-              accessibilityRole="button"
-              accessibilityLabel={activity.post_id ? 'Change workout post audience' : 'Post saved workout to Connections'}
-              onPress={openPostWorkout}
-              style={[styles.postWorkoutButton, { backgroundColor: colors.primary }]}
-            >
-              <Feather name={activity.post_id ? 'users' : 'send'} size={17} color={colors.primaryText} />
-              <View style={styles.postWorkoutButtonCopy}>
-                <Text style={[styles.postWorkoutButtonTitle, { color: colors.primaryText }]}>
-                  {activity.post_id ? 'Change post audience' : 'Post to Connections'}
-                </Text>
-                <Text style={[styles.postWorkoutButtonSubtitle, { color: colors.primaryText }]}>
-                  {activity.post_id
-                    ? `Currently ${activity.share_audience === 'ALL' ? 'Everyone' : activity.share_audience === 'FOLLOWERS' ? 'Followers' : 'Only me'}`
-                    : 'Post this saved workout to My Posts or Connections'}
-                </Text>
-              </View>
-              <Feather name="chevron-right" size={18} color={colors.primaryText} />
-            </TouchableOpacity>
+            {!activity.post_id ? (
+              <TouchableOpacity
+                ref={postWorkoutButtonRef}
+                accessibilityRole="button"
+                accessibilityLabel="Post saved workout to Connections"
+                onPress={openPostWorkout}
+                style={[styles.postWorkoutButton, { backgroundColor: colors.primary }]}
+              >
+                <Feather name="send" size={17} color={colors.primaryText} />
+                <View style={styles.postWorkoutButtonCopy}>
+                  <Text style={[styles.postWorkoutButtonTitle, { color: colors.primaryText }]}>Post to Connections</Text>
+                  <Text style={[styles.postWorkoutButtonSubtitle, { color: colors.primaryText }]}>Post this saved workout to My Posts or Connections</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color={colors.primaryText} />
+              </TouchableOpacity>
+            ) : null}
 
             <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <DetailMetric label="Distance" value={formatActivityDistanceFromMeters(activity.distance, distanceUnit)} />
@@ -679,7 +675,7 @@ export default function ActivityDetailScreen() {
               <DetailMetric fullWidth label="Calories" value={`${Math.round(activity.calories)} kcal`} />
               <DetailMetric fullWidth label="Elevation gain" value={formatElevationFromMeters(activity.elevation_gain, distanceUnit)} />
               <DetailMetric fullWidth label="Elevation loss" value={formatElevationFromMeters(activity.elevation_loss, distanceUnit)} />
-              <DetailMetric fullWidth singleLine label="Recorded" value={formatRecordedDate(activity.end_time)} />
+              <DetailMetric fullWidth singleLine label="Workout start" value={formatRecordedDate(activity.start_time)} />
             </View>
             </MotionEntrance>
           </ScrollView>

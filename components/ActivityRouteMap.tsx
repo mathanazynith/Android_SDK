@@ -68,6 +68,7 @@ interface ActivityRouteMapProps {
   cropEndIndex?: number;
   enableFullScreen?: boolean;
   compactPreview?: boolean;
+  compactPreviewHeight?: number;
   googleMapPreview?: boolean;
   routeOnly?: boolean;
   onPress?: () => void;
@@ -137,6 +138,7 @@ function ActivityRouteMap({
   cropEndIndex,
   enableFullScreen,
   compactPreview = false,
+  compactPreviewHeight = 150,
   googleMapPreview = false,
   routeOnly = false,
   onPress,
@@ -536,7 +538,7 @@ function ActivityRouteMap({
             ? styles.previewMapFrame
             : [styles.mapContainer, { height: detailMapHeight }],
           variant === 'preview' && styles.previewMapContainer,
-          variant === 'preview' && compactPreview && styles.compactPreviewMapContainer,
+          variant === 'preview' && compactPreview && [styles.compactPreviewMapContainer, { height: compactPreviewHeight }],
         ]}
       >
         {variant === 'preview' && previewProjection && (routeOnly || !googleMapPreview) ? (
