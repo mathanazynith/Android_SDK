@@ -35,6 +35,7 @@ export interface WorkoutShareCardProps {
   cardHeight?: number;
   isEditable?: boolean;
   showRouteThumbnail?: boolean;
+  gender?: string | null;
   onTitleChange?: (text: string) => void;
   onSubtitleChange?: (text: string) => void;
   onPressCard?: () => void;
@@ -42,9 +43,39 @@ export interface WorkoutShareCardProps {
 }
 
 /**
- * Resolves the artwork background image for each workout theme.
+ * Resolves the artwork background image for each workout theme,
+ * selecting female or male workout imagery while keeping milestone templates common.
  */
-function getThemeBackgroundImage(themeId: string) {
+function getThemeBackgroundImage(themeId: string, gender?: string | null) {
+  const isFemale = /^(f|female|woman)$/i.test(String(gender ?? '').trim());
+
+  if (isFemale) {
+    switch (themeId) {
+      case 'intervals':
+        return require('../../assets/images/templates/intervals_female_bg.jpg');
+      case 'tempo_run':
+        return require('../../assets/images/templates/tempo_run_female_bg.jpg');
+      case 'hill_repeats':
+        return require('../../assets/images/templates/hill_repeats_female_bg.jpg');
+      case 'easy_run':
+        return require('../../assets/images/templates/easy_run_female_bg.jpg');
+      case 'trail_run':
+        return require('../../assets/images/templates/trail_run_female_bg.jpg');
+      case 'recovery_run':
+        return require('../../assets/images/templates/recovery_run_female_bg.jpg');
+      case 'marathon':
+        return require('../../assets/images/templates/marathon_bg.jpg');
+      case 'half_marathon':
+        return require('../../assets/images/templates/half_marathon_bg.jpg');
+      case 'five_k':
+        return require('../../assets/images/templates/five_k_bg.jpg');
+      case 'ten_k':
+        return require('../../assets/images/templates/ten_k_bg.jpg');
+      default:
+        return require('../../assets/images/templates/easy_run_female_bg.jpg');
+    }
+  }
+
   switch (themeId) {
     case 'intervals':
       return require('../../assets/images/templates/intervals_bg.jpg');
@@ -54,8 +85,6 @@ function getThemeBackgroundImage(themeId: string) {
       return require('../../assets/images/templates/hill_repeats_bg.jpg');
     case 'recovery_run':
       return require('../../assets/images/templates/recovery_run_bg.jpg');
-    case 'easy_run':
-      return require('../../assets/images/templates/easy_run_bg.jpg');
     case 'marathon':
       return require('../../assets/images/templates/marathon_bg.jpg');
     case 'half_marathon':
@@ -66,28 +95,20 @@ function getThemeBackgroundImage(themeId: string) {
       return require('../../assets/images/templates/ten_k_bg.jpg');
     case 'trail_run':
       return require('../../assets/images/templates/trail_run_bg.jpg');
-    case 'warmup':
+    case 'easy_run':
     default:
-      return require('../../assets/images/templates/warmup_bg.jpg');
+      return require('../../assets/images/templates/easy_run_bg.jpg');
   }
 }
 
-/**
- * Counts words in a string.
- */
-function countWords(str: string): number {
-  if (!str || !str.trim()) return 0;
-  return str.trim().split(/\s+/).filter(Boolean).length;
-}
+const MAX_HEADER_CHARS = 20;
 
 /**
- * Truncates text so total words do not exceed maxWords.
+ * Truncates text so total characters do not exceed maxChars.
  */
-function enforceMaxWords(str: string, maxWords: number = 25): string {
+function enforceMaxChars(str: string, maxChars: number = MAX_HEADER_CHARS): string {
   if (!str) return '';
-  const words = str.trim().split(/\s+/).filter(Boolean);
-  if (words.length <= maxWords) return str;
-  return words.slice(0, maxWords).join(' ');
+  return str.slice(0, maxChars);
 }
 
 /**
@@ -154,7 +175,7 @@ function projectMiniRoute(
 }
 
 export const WorkoutShareCard = React.forwardRef<View, WorkoutShareCardProps>(({
-  themeId = 'warmup',
+  themeId = 'easy_run',
   theme: customTheme,
   title,
   subtitle,
@@ -167,6 +188,7 @@ export const WorkoutShareCard = React.forwardRef<View, WorkoutShareCardProps>(({
   cardHeight,
   isEditable = false,
   showRouteThumbnail = true,
+  gender,
   onTitleChange,
   onSubtitleChange,
   onPressCard,
@@ -175,7 +197,6 @@ export const WorkoutShareCard = React.forwardRef<View, WorkoutShareCardProps>(({
   const activeTheme =
     customTheme ??
     WORKOUT_SHARE_THEMES[themeId] ??
-    WORKOUT_SHARE_THEMES.warmup ??
     WORKOUT_SHARE_THEMES.easy_run;
 
   // Exact 571 x 1024 or 576 x 1024 aspect ratio from artwork (~9:16 story format)
@@ -219,33 +240,24 @@ export const WorkoutShareCard = React.forwardRef<View, WorkoutShareCardProps>(({
                       ? '#86EFAC'
                       : (activeTheme.labelColor ?? '#E0F2FE');
 
-  // Enforce maximum 25 words in the header
+  // Enforce maximum 20 characters independently for top header and sub header
   // If title/subtitle is explicitly passed (even as empty string ''), honor it so user can backspace & clear it completely while editing!
   const rawTitle = title !== undefined ? title : activeTheme.name;
   const rawSubtitle = subtitle !== undefined ? subtitle : activeTheme.subtitle;
 
-  const displayTitle = useMemo(() => enforceMaxWords(rawTitle, 25), [rawTitle]);
-  const titleWordCount = useMemo(() => countWords(displayTitle), [displayTitle]);
-  const remainingWordsForSubtitle = Math.max(0, 25 - titleWordCount);
-  const displaySubtitle = useMemo(
-    () => enforceMaxWords(rawSubtitle, remainingWordsForSubtitle),
-    [rawSubtitle, remainingWordsForSubtitle]
-  );
+  const displayTitle = useMemo(() => enforceMaxChars(rawTitle, MAX_HEADER_CHARS), [rawTitle]);
+  const displaySubtitle = useMemo(() => enforceMaxChars(rawSubtitle, MAX_HEADER_CHARS), [rawSubtitle]);
 
-  const totalHeaderWords = titleWordCount + countWords(displaySubtitle);
-
-  // Enlarged heading font sizing, with graceful scaling for long text
+  // Enlarged heading font sizing, with graceful scaling for longer text
   const titleFontSize = useMemo(() => {
-    if (totalHeaderWords > 16) return Math.max(14, Math.round(cardWidth * 0.045));
-    if (totalHeaderWords > 8) return Math.max(16, Math.round(cardWidth * 0.055));
+    if (displayTitle.length > 16) return Math.max(17, Math.min(22, Math.round(cardWidth * 0.062)));
     return Math.max(19, Math.min(24, Math.round(cardWidth * 0.070)));
-  }, [totalHeaderWords, cardWidth]);
+  }, [displayTitle.length, cardWidth]);
 
   const subtitleFontSize = useMemo(() => {
-    if (totalHeaderWords > 16) return Math.max(10, Math.round(cardWidth * 0.030));
-    if (totalHeaderWords > 8) return Math.max(11, Math.round(cardWidth * 0.035));
+    if (displaySubtitle.length > 16) return Math.max(11, Math.min(14, Math.round(cardWidth * 0.038)));
     return Math.max(12, Math.min(15, Math.round(cardWidth * 0.042)));
-  }, [totalHeaderWords, cardWidth]);
+  }, [displaySubtitle.length, cardWidth]);
 
   // Mini Route Thumbnail projected into a glass HUD chip on the right side above the stats box
   const miniRoute = useMemo(() => {
@@ -269,25 +281,11 @@ export const WorkoutShareCard = React.forwardRef<View, WorkoutShareCardProps>(({
         : `${rawElevation} m`;
 
   const handleTitleTextChange = (text: string) => {
-    const words = text.trim().split(/\s+/).filter(Boolean);
-    const subWords = countWords(displaySubtitle);
-    if (words.length + subWords <= 25) {
-      onTitleChange?.(text);
-    } else {
-      const allowed = Math.max(1, 25 - subWords);
-      onTitleChange?.(words.slice(0, allowed).join(' '));
-    }
+    onTitleChange?.(text.slice(0, MAX_HEADER_CHARS));
   };
 
   const handleSubtitleTextChange = (text: string) => {
-    const words = text.trim().split(/\s+/).filter(Boolean);
-    const titWords = countWords(displayTitle);
-    if (words.length + titWords <= 25) {
-      onSubtitleChange?.(text);
-    } else {
-      const allowed = Math.max(0, 25 - titWords);
-      onSubtitleChange?.(words.slice(0, allowed).join(' '));
-    }
+    onSubtitleChange?.(text.slice(0, MAX_HEADER_CHARS));
   };
 
   return (
@@ -306,7 +304,7 @@ export const WorkoutShareCard = React.forwardRef<View, WorkoutShareCardProps>(({
     >
       {/* 1. Photorealistic Clean Background (Artwork has the glowing capsule & badge pre-painted) */}
       <ImageBackground
-        source={getThemeBackgroundImage(activeTheme.id)}
+        source={getThemeBackgroundImage(activeTheme.id, gender)}
         style={StyleSheet.absoluteFill}
         resizeMode="cover"
       >
@@ -342,11 +340,10 @@ export const WorkoutShareCard = React.forwardRef<View, WorkoutShareCardProps>(({
                 { fontSize: titleFontSize },
               ]}
               textAlign="left"
-              maxLength={120}
+              maxLength={MAX_HEADER_CHARS}
               selectTextOnFocus
               placeholder="Add Title"
               placeholderTextColor="rgba(255, 255, 255, 0.45)"
-              multiline={totalHeaderWords > 6}
             />
           ) : (
             <Text
@@ -357,7 +354,7 @@ export const WorkoutShareCard = React.forwardRef<View, WorkoutShareCardProps>(({
                   lineHeight: Math.round(titleFontSize * 1.2),
                 },
               ]}
-              numberOfLines={totalHeaderWords > 10 ? 2 : 1}
+              numberOfLines={1}
               adjustsFontSizeToFit
             >
               {displayTitle.trim() ? displayTitle : activeTheme.name}
@@ -375,11 +372,10 @@ export const WorkoutShareCard = React.forwardRef<View, WorkoutShareCardProps>(({
                   { fontSize: subtitleFontSize, color: activeSubtitleColor },
                 ]}
                 textAlign="left"
-                maxLength={120}
+                maxLength={MAX_HEADER_CHARS}
                 selectTextOnFocus
                 placeholder="Add Subtitle"
                 placeholderTextColor="rgba(255, 255, 255, 0.45)"
-                multiline={totalHeaderWords > 6}
               />
             ) : (
               <Text

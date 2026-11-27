@@ -27,32 +27,6 @@ export interface WorkoutShareTheme {
 }
 
 export const WORKOUT_SHARE_THEMES: Record<string, WorkoutShareTheme> = {
-  warmup: {
-    id: 'warmup',
-    name: 'Warm Up',
-    subtitle: 'Prepare & Activate',
-    iconName: 'sun',
-    badgeIconType: 'leaf',
-    primaryColor: '#22D3EE',
-    glowColor: '#67E8F9',
-    accentGradient: ['#064E3B', '#047857', '#052e16'],
-    cardBorderColor: '#22D3EE',
-    hudBgColor: 'rgba(4, 24, 38, 0.90)',
-    hudGradient: ['rgba(8, 47, 73, 0.90)', 'rgba(4, 24, 38, 0.95)'],
-    hudBorderColor: '#22D3EE',
-    hudShadowColor: '#22D3EE',
-    labelColor: '#67E8F9',
-    valueShadowColor: 'rgba(34, 211, 238, 0.75)',
-    unitColor: '#38BDF8',
-    dividerColor: 'rgba(34, 211, 238, 0.25)',
-    iconColor: '#22D3EE',
-    mountainGrad: ['#67E8F9', '#0891B2', '#0E7490', '#0284C7'],
-    miniMapBg: 'rgba(4, 24, 38, 0.86)',
-    miniMapBorder: '#22D3EE',
-    miniMapPolyline: '#22D3EE',
-    miniMapBadgeBg: 'rgba(34, 211, 238, 0.25)',
-    miniMapBadgeText: '#67E8F9',
-  },
   easy_run: {
     id: 'easy_run',
     name: 'Easy Run',

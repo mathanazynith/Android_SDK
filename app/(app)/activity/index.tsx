@@ -1776,8 +1776,7 @@ export default function ActivityScreen() {
                 onPress={() => setGpxImportVisible(true)}
                 style={[styles.importGpxButton, { borderColor: colors.border, backgroundColor: colors.surface }]}
               >
-                <Feather name="upload" size={14} color={colors.primary} />
-                <Text style={[styles.importGpxButtonText, { color: colors.text }]}>Import GPX</Text>
+                <Feather name="upload" size={16} color={colors.primary} />
               </TouchableOpacity>
             )}
             <TouchableOpacity
@@ -2351,8 +2350,7 @@ const styles = StyleSheet.create({
   headingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   headingCopy: { flex: 1, minWidth: 0 },
   headingActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  importGpxButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 999, borderWidth: 1, minHeight: 34 },
-  importGpxButtonText: { fontSize: 13, fontWeight: '600' },
+  importGpxButton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   title: { color: '#F7F7F7', fontSize: 31, fontWeight: '700' },
   subtitle: { color: '#A9ADAF', fontSize: 15, marginTop: 4 },
   selectionModeAction: { minHeight: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 10, borderRadius: 13, borderWidth: StyleSheet.hairlineWidth },

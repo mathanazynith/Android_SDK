@@ -809,6 +809,94 @@ export function generateFlyoverHtml(options: FlyoverOptions): string {
       } catch (e) {}
     }
 
+    function formatVideoMmSs(totalSec) {
+      const s = Math.max(0, Math.round(totalSec || 0));
+      const mins = Math.floor(s / 60);
+      const secs = s % 60;
+      return String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+    }
+
+    function drawRoundedRectPath(ctx, x, y, width, height, radius) {
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(x, y, width, height, radius);
+        return;
+      }
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + width - radius, y);
+      ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+      ctx.lineTo(x + width, y + height - radius);
+      ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+      ctx.lineTo(x + radius, y + height);
+      ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+    }
+
+    function drawHudOverlayOnCanvas(ctx, w, currentDistance, currentAlt, elapsedSec) {
+      ctx.save();
+      const padX = Math.round(w * 0.04);
+      const cardW = w - padX * 2;
+      const cardY = Math.round(w * 0.045);
+      const cardH = Math.round(w * 0.12);
+
+      // Subtle top gradient for legibility
+      const topGrad = ctx.createLinearGradient(0, 0, 0, cardY + cardH + 40);
+      topGrad.addColorStop(0, 'rgba(9, 11, 10, 0.55)');
+      topGrad.addColorStop(1, 'rgba(9, 11, 10, 0)');
+      ctx.fillStyle = topGrad;
+      ctx.fillRect(0, 0, w, cardY + cardH + 40);
+
+      // Glassmorphism HUD Card
+      drawRoundedRectPath(ctx, padX, cardY, cardW, cardH, 26);
+      ctx.fillStyle = 'rgba(12, 16, 15, 0.80)';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+      ctx.stroke();
+
+      const paceStr = (currentDistance >= 50 && elapsedSec >= 5)
+        ? (function() {
+            const p = (elapsedSec / currentDistance) * 1000;
+            return (isFinite(p) && p <= 1800) ? formatVideoMmSs(p) + '/km' : '--:--/km';
+          })()
+        : '--:--/km';
+
+      const metrics = [
+        { label: 'DISTANCE', value: (currentDistance / 1000).toFixed(2) + ' km' },
+        { label: 'TIME', value: formatVideoMmSs(elapsedSec) },
+        { label: 'ELEVATION', value: Math.max(0, Math.round(currentAlt)) + ' m' },
+        { label: 'PACE', value: paceStr }
+      ];
+
+      const colW = cardW / 4;
+      const labelFontSize = Math.round(w * 0.017);
+      const valueFontSize = Math.round(w * 0.030);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      for (let i = 0; i < 4; i++) {
+        const cx = padX + colW * i + colW / 2;
+        if (i > 0) {
+          ctx.beginPath();
+          ctx.moveTo(padX + colW * i, cardY + cardH * 0.24);
+          ctx.lineTo(padX + colW * i, cardY + cardH * 0.76);
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+          ctx.stroke();
+        }
+        ctx.font = '600 ' + labelFontSize + 'px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.fillStyle = '#9CA3AF';
+        ctx.fillText(metrics[i].label, cx, cardY + cardH * 0.33);
+
+        ctx.font = '700 ' + valueFontSize + 'px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(metrics[i].value, cx, cardY + cardH * 0.67);
+      }
+      ctx.restore();
+    }
+
     function drawEndpointDotOnCanvas(ctx, px, py, fillColor, glowColor) {
       ctx.save();
       ctx.beginPath();
@@ -911,6 +999,21 @@ export function generateFlyoverHtml(options: FlyoverOptions): string {
             recCtx.stroke();
             recCtx.restore();
           }
+
+          // Composite live Distance, Time, Elevation & Pace HUD card onto the video frame
+          const currentDist = progress * totalComputedDistance;
+          const elapsedSec = progress * (TOTAL_DURATION || (totalComputedDistance / 3.0));
+          let currentAlt = 0;
+          if (typeof map.queryTerrainElevation === 'function') {
+            try {
+              const demAlt = map.queryTerrainElevation([runnerState.longitude, runnerState.latitude]);
+              if (typeof demAlt === 'number' && !isNaN(demAlt)) currentAlt = Math.round(demAlt);
+            } catch (e) {}
+          }
+          if (!currentAlt && typeof runnerState.altitude === 'number' && !isNaN(runnerState.altitude)) {
+            currentAlt = Math.round(runnerState.altitude);
+          }
+          drawHudOverlayOnCanvas(recCtx, w, currentDist, currentAlt, elapsedSec);
         }
       } catch (e) {}
     }
@@ -1191,15 +1294,19 @@ export function generateFlyoverHtml(options: FlyoverOptions): string {
             throw new Error('MediaRecorder is not available on this device');
           }
 
-          // Use a dedicated 16-aligned 720p recording canvas so Android/iOS hardware decoders
-          // never fail on odd WebView pixel dimensions, and encoding runs 3x faster.
+          // Use a dedicated 16-aligned 1080p Full HD recording canvas so Android/iOS hardware decoders
+          // never fail on odd pixel dimensions, while delivering razor-sharp 1080p detail.
           const aspect = (mapCanvas.height && mapCanvas.width) ? (mapCanvas.height / mapCanvas.width) : (16 / 9);
-          const recWidth = 720;
-          const recHeight = Math.max(480, Math.round((recWidth * aspect) / 16) * 16);
+          const recWidth = 1080;
+          const recHeight = Math.max(720, Math.round((recWidth * aspect) / 16) * 16);
           recCanvas = document.createElement('canvas');
           recCanvas.width = recWidth;
           recCanvas.height = recHeight;
           recCtx = recCanvas.getContext('2d');
+          if (recCtx) {
+            recCtx.imageSmoothingEnabled = true;
+            recCtx.imageSmoothingQuality = 'high';
+          }
           preloadRecorderAvatar();
 
           const captureSource = (recCtx && typeof recCanvas.captureStream === 'function') ? recCanvas : mapCanvas;
@@ -1322,7 +1429,7 @@ export function generateFlyoverHtml(options: FlyoverOptions): string {
 
           mediaRecorder = new MediaRecorder(stream, {
             mimeType: mimeType,
-            videoBitsPerSecond: 4000000 // 4.0 Mbps: high-quality crisp 720p mountain & route detail
+            videoBitsPerSecond: 8000000 // 8.0 Mbps: crisp Full HD 1080p mountain & route detail
           });
 
           mediaRecorder.ondataavailable = function(e) {

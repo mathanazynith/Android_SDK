@@ -17,6 +17,7 @@ import { captureRef } from 'react-native-view-shot';
 import { Feather } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../service/auth';
 import { BackendActivity } from '../../src/services/activityApi';
 import { shareActivityAsGpx } from '../../src/services/gpxFileExport';
 import { RunningCoordinate } from '../../src/types/running';
@@ -43,12 +44,11 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
  * Automatically picks a matching theme from the activity distance or workout type.
  */
 function autoSelectTheme(activity: BackendActivity | null): string {
-  if (!activity) return 'warmup';
+  if (!activity) return 'easy_run';
 
   const distanceMeters = activity.distance ?? 0;
   const activityType = (activity.activity_type ?? '').toUpperCase();
 
-  if (activityType.includes('WARM') || distanceMeters < 2000) return 'warmup';
   if (activityType.includes('TRAIL')) return 'trail_run';
   if (distanceMeters >= 40_000) return 'marathon';
   if (distanceMeters >= 20_000) return 'half_marathon';
@@ -57,7 +57,7 @@ function autoSelectTheme(activity: BackendActivity | null): string {
   if (activityType === 'WALK') return 'recovery_run';
   if (activity.elevation_gain && activity.elevation_gain > 100) return 'hill_repeats';
 
-  return 'warmup';
+  return 'easy_run';
 }
 
 export const WorkoutShareStudioModal: React.FC<WorkoutShareStudioModalProps> = ({
@@ -68,6 +68,7 @@ export const WorkoutShareStudioModal: React.FC<WorkoutShareStudioModalProps> = (
   onExitComplete,
 }) => {
   const { colors, isDark } = useTheme();
+  const { user } = useAuth();
 
   const defaultThemeId = useMemo(() => autoSelectTheme(activity), [activity]);
   const cardRef = useRef<View>(null);
@@ -79,31 +80,12 @@ export const WorkoutShareStudioModal: React.FC<WorkoutShareStudioModalProps> = (
   const [isSharingImage, setIsSharingImage] = useState(false);
   const [isSharingText, setIsSharingText] = useState(false);
 
-  const countWords = (text: string) => {
-    if (!text || !text.trim()) return 0;
-    return text.trim().split(/\s+/).filter(Boolean).length;
-  };
-
   const handleCustomTitleChange = (text: string) => {
-    const words = text.trim().split(/\s+/).filter(Boolean);
-    const subWords = countWords(customSubtitle ?? '');
-    if (words.length + subWords <= 25) {
-      setCustomTitle(text);
-    } else {
-      const allowed = Math.max(1, 25 - subWords);
-      setCustomTitle(words.slice(0, allowed).join(' '));
-    }
+    setCustomTitle(text.slice(0, 20));
   };
 
   const handleCustomSubtitleChange = (text: string) => {
-    const words = text.trim().split(/\s+/).filter(Boolean);
-    const titleWords = countWords(customTitle ?? '');
-    if (words.length + titleWords <= 25) {
-      setCustomSubtitle(text);
-    } else {
-      const allowed = Math.max(0, 25 - titleWords);
-      setCustomSubtitle(words.slice(0, allowed).join(' '));
-    }
+    setCustomSubtitle(text.slice(0, 20));
   };
 
   // When activity changes, re-sync default theme and reset custom text
@@ -198,7 +180,6 @@ export const WorkoutShareStudioModal: React.FC<WorkoutShareStudioModalProps> = (
     try {
       const activeThemeObj =
         WORKOUT_SHARE_THEMES[selectedThemeId] ??
-        WORKOUT_SHARE_THEMES.warmup ??
         WORKOUT_SHARE_THEMES.easy_run;
 
       const titleToShare =
@@ -264,7 +245,6 @@ export const WorkoutShareStudioModal: React.FC<WorkoutShareStudioModalProps> = (
     try {
       const activeThemeObj =
         WORKOUT_SHARE_THEMES[selectedThemeId] ??
-        WORKOUT_SHARE_THEMES.warmup ??
         WORKOUT_SHARE_THEMES.easy_run;
 
       // When sharing without any custom heading, fill it with default theme text
@@ -339,7 +319,7 @@ export const WorkoutShareStudioModal: React.FC<WorkoutShareStudioModalProps> = (
           <View>
             <Text style={[styles.headerTitle, { color: colors.text }]}>Workout Share Card</Text>
             <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
-              Tap text on card to edit (max 25 words)
+              Tap text on card to edit (max 20 characters)
             </Text>
           </View>
           <TouchableOpacity
@@ -371,6 +351,7 @@ export const WorkoutShareStudioModal: React.FC<WorkoutShareStudioModalProps> = (
               cardHeight={cardHeight}
               isEditable
               showRouteThumbnail={showRouteThumbnail}
+              gender={user?.profile?.gender}
               onTitleChange={handleCustomTitleChange}
               onSubtitleChange={handleCustomSubtitleChange}
               onPressCard={handleShareImage}
