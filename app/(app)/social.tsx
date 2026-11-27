@@ -222,9 +222,6 @@ function ConnectionCard({
           <Feather name="message-square" size={15} color={colors.primary} />
           <Text style={[styles.actionCount, { color: colors.primary }]}>{post.comment_count}</Text>
         </TouchableOpacity>
-        <TouchableOpacity accessibilityRole="button" onPress={onComments} style={styles.actionLink}>
-          <Text style={[styles.actionLinkText, { color: colors.primary }]}>Comments</Text>
-        </TouchableOpacity>
         <TouchableOpacity accessibilityRole="button" onPress={onDetails} style={styles.actionLink}>
           <Text style={[styles.actionLinkText, { color: colors.primary }]}>Details</Text>
         </TouchableOpacity>
