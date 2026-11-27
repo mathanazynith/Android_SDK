@@ -28,6 +28,33 @@ describe('buildActivityRouteGroups', () => {
       ],
     }]);
   });
+
+  it('keeps route points when accuracy metadata is unavailable', () => {
+    expect(buildActivityRouteGroups([
+      { latitude: 0, longitude: 0 },
+      { latitude: 0, longitude: 0.001 },
+    ])).toEqual([{
+      type: 'running',
+      coordinates: [
+        { latitude: 0, longitude: 0 },
+        { latitude: 0, longitude: 0.001 },
+      ],
+    }]);
+  });
+
+  it('continues to discard points with unreliable accuracy values', () => {
+    expect(buildActivityRouteGroups([
+      { latitude: 0, longitude: 0, accuracy: 5 },
+      { latitude: 0, longitude: 0.001, accuracy: 30 },
+      { latitude: 0, longitude: 0.002, accuracy: 5 },
+    ])).toEqual([{
+      type: 'running',
+      coordinates: [
+        { latitude: 0, longitude: 0 },
+        { latitude: 0, longitude: 0.002 },
+      ],
+    }]);
+  });
 });
 
 describe('mergeActivityRouteGroups', () => {

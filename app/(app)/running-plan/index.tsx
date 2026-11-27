@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { RunningLoader } from '../../../components/common/RunningLoader';
 import EndActivePlanModal from '../../../components/EndActivePlanModal';
@@ -11,7 +11,12 @@ export default function RunningPlanScreen() {
   const { colors } = useTheme();
   const { assessmentResult, isAssessmentResultLoading, fetchAssessmentResult, workoutPlan, workoutPlanError, isWorkoutPlanLoading, fetchWorkoutPlan, endWorkoutPlan } = useQuestionnaire();
   const [isEndPlanModalVisible, setIsEndPlanModalVisible] = useState(false);
-  useEffect(() => { fetchAssessmentResult(); fetchWorkoutPlan(); }, [fetchAssessmentResult, fetchWorkoutPlan]);
+  useFocusEffect(
+    useCallback(() => {
+      void fetchAssessmentResult();
+      void fetchWorkoutPlan(true);
+    }, [fetchAssessmentResult, fetchWorkoutPlan]),
+  );
 
   const recommendation = assessmentResult?.recommendation;
   const planName = workoutPlan?.training_plan || workoutPlan?.template_name || '';
@@ -56,7 +61,7 @@ export default function RunningPlanScreen() {
     </MotionEntrance>
     <MotionEntrance delay={140}>
     <View style={styles.buttonArea}>
-      <TouchableOpacity style={[styles.calendarButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => router.push('/(app)/calendar')}><Text style={[styles.calendarButtonText, { color: colors.primary }]}>View Training Calendar</Text></TouchableOpacity>
+      <TouchableOpacity style={[styles.calendarButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => router.push('/(app)/training-plan')}><Text style={[styles.calendarButtonText, { color: colors.primary }]}>View Training Calendar</Text></TouchableOpacity>
       <TouchableOpacity style={styles.endPlanButton} onPress={handleEndPlan} accessibilityRole="button"><Text style={styles.endPlanButtonText}>End Plan</Text></TouchableOpacity>
     </View>
     </MotionEntrance>

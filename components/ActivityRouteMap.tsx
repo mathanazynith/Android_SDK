@@ -2,13 +2,21 @@ import { Feather } from '@expo/vector-icons';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, StatusBar, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import Svg, { Circle, Defs, LinearGradient, Path, Rect, Stop, Text as SvgText } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import type { BackendGpsPoint, BackendPauseEvent, BackendPolylineRoute } from '../src/services/activityApi';
 import { getGpsOptimizationConfig } from '../src/services/gpsOptimizationConfig';
 import { RdpSimplifier } from '../src/services/rdpSimplifier';
+import {
+  formatActivityDistanceFromMeters,
+  formatElevationFromMeters,
+  formatPaceFromSecondsPerKm,
+} from '../src/utils/activityUnitFormatters';
+import { formatDurationHhMmSs } from '../src/utils/splitFormatters';
 import { buildActivityRouteGroups, mergeActivityRouteGroups } from '../src/utils/activityRouteGroups';
 import { decodePolyline } from '../src/utils/polylineDecoder';
+import { createCatmullRomPolyline } from '../src/utils/catmullRom';
 
 export interface ActivityMapStats {
   distance?: number;
@@ -59,37 +67,26 @@ interface ActivityRouteMapProps {
   cropStartIndex?: number;
   cropEndIndex?: number;
   enableFullScreen?: boolean;
+  compactPreview?: boolean;
+  compactPreviewHeight?: number;
+  googleMapPreview?: boolean;
+  routeOnly?: boolean;
   onPress?: () => void;
   activityStats?: ActivityMapStats;
-  onPreviewSnapshot?: (uri: string) => void;
+  distanceUnit?: string | null;
 }
 
-const formatDistance = (meters?: number) => {
-  if (meters === undefined || !Number.isFinite(meters)) return '--';
-  return `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
-};
-
 const formatDuration = (seconds?: number) => {
-  if (seconds === undefined || !Number.isFinite(seconds)) return '--';
-  const totalSeconds = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const secs = totalSeconds % 60;
-  return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
-    : `${minutes}:${String(secs).padStart(2, '0')}`;
-};
-
-const formatPace = (secondsPerKm?: number) => {
-  if (secondsPerKm === undefined || !Number.isFinite(secondsPerKm) || secondsPerKm <= 0) return '-- /km';
-  const totalSeconds = Math.round(secondsPerKm);
-  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')} /km`;
+  return seconds === undefined ? '--' : formatDurationHhMmSs(seconds);
 };
 
 const routeSimplifier = new RdpSimplifier();
 const simplifyRouteForDisplay = (points: RouteCoordinate[]) => routeSimplifier.simplifyPreservingTurns(
   points,
   getGpsOptimizationConfig().livePolylineJitterToleranceMeters,
+);
+const smoothRecordedRouteForDisplay = (points: RouteCoordinate[]) => createCatmullRomPolyline(
+  simplifyRouteForDisplay(points),
 );
 const ROUTE_OVERLAP_TOLERANCE_METERS = 8;
 
@@ -140,12 +137,16 @@ function ActivityRouteMap({
   cropStartIndex,
   cropEndIndex,
   enableFullScreen,
+  compactPreview = false,
+  compactPreviewHeight = 150,
+  googleMapPreview = false,
+  routeOnly = false,
   onPress,
   activityStats,
-  onPreviewSnapshot,
+  distanceUnit,
 }: ActivityRouteMapProps) {
   const { colors, isDark } = useTheme();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const detailMapHeight = Math.min(340, Math.max(210, windowHeight * 0.34));
   const mapRef = useRef<MapView | null>(null);
   const fullScreenMapRef = useRef<MapView | null>(null);
@@ -155,6 +156,8 @@ function ActivityRouteMap({
   const [mapType, setMapType] = useState<'standard' | 'hybrid'>('standard');
 
   const isFullScreenEnabled = enableFullScreen ?? (variant === 'detail');
+  const compactPreviewWidth = Math.min(260, Math.max(180, windowWidth - 100));
+  const previewRouteWidthScale = compactPreview ? 0.65 : 1;
 
   const routePoints = useMemo(() => {
     if (!encodedPolyline?.trim()) return [];
@@ -215,8 +218,8 @@ function ActivityRouteMap({
     () => useUnifiedRoute ? mergeActivityRouteGroups(savedRouteGroups) : savedRouteGroups,
     [savedRouteGroups, useUnifiedRoute],
   );
-  const hasSavedGpsPoints = (savedGpsPoints?.length ?? 0) > 0;
-  const useSavedRouteGroups = hasSavedGpsPoints
+  const hasDrawableSavedRoute = displaySavedRouteGroups.some((group) => group.coordinates.length >= 2);
+  const useSavedRouteGroups = hasDrawableSavedRoute
     && !(cropStartIndex !== undefined && cropEndIndex !== undefined);
 
   const visibleRoutePoints = useMemo(() => {
@@ -230,7 +233,7 @@ function ActivityRouteMap({
   }, [cropEndIndex, cropStartIndex, routePoints]);
 
   const smoothedVisibleRoutePoints = useMemo(
-    () => simplifyRouteForDisplay(visibleRoutePoints),
+    () => smoothRecordedRouteForDisplay(visibleRoutePoints),
     [visibleRoutePoints],
   );
   const smoothedPlannedRoutePoints = useMemo(
@@ -238,7 +241,7 @@ function ActivityRouteMap({
     [plannedRoutePoints],
   );
   const smoothedExtraRoutePoints = useMemo(
-    () => simplifyRouteForDisplay(extraRoutePoints),
+    () => smoothRecordedRouteForDisplay(extraRoutePoints),
     [extraRoutePoints],
   );
   const smoothedSavedRouteGroups = useMemo(
@@ -246,7 +249,7 @@ function ActivityRouteMap({
       .filter((group) => group.coordinates.length >= 2)
       .map((group) => ({
         type: group.type,
-        coordinates: simplifyRouteForDisplay(group.coordinates),
+        coordinates: smoothRecordedRouteForDisplay(group.coordinates),
       })),
     [displaySavedRouteGroups],
   );
@@ -263,10 +266,10 @@ function ActivityRouteMap({
       const coordinates = routePoints.length >= 2
         ? smoothedVisibleRoutePoints
         : backendRunningRouteGroups.flat();
-      return coordinates.length >= 2 ? [simplifyRouteForDisplay(coordinates)] : [];
+      return coordinates.length >= 2 ? [smoothRecordedRouteForDisplay(coordinates)] : [];
     }
     if (backendRunningRouteGroups.length > 0) {
-      return backendRunningRouteGroups.map(simplifyRouteForDisplay);
+      return backendRunningRouteGroups.map(smoothRecordedRouteForDisplay);
     }
     if (plannedRoutePoints.length >= 2 || extraRoutePoints.length >= 2) return [];
     return smoothedVisibleRoutePoints.length >= 2 ? [smoothedVisibleRoutePoints] : [];
@@ -410,20 +413,6 @@ function ActivityRouteMap({
   }, [allRouteCoordinates.length, fitRoute, mapReady]);
 
   useEffect(() => {
-    if (variant !== 'preview' || !onPreviewSnapshot || !mapReady || allRouteCoordinates.length < 2) return;
-    const timer = setTimeout(() => {
-      void mapRef.current?.takeSnapshot({
-        width: 264,
-        height: 240,
-        format: 'jpg',
-        quality: 0.82,
-        result: 'file',
-      }).then(onPreviewSnapshot).catch(() => undefined);
-    }, 700);
-    return () => clearTimeout(timer);
-  }, [allRouteCoordinates.length, mapReady, onPreviewSnapshot, variant]);
-
-  useEffect(() => {
     if (!fullScreenVisible || !fullScreenMapReady || allRouteCoordinates.length < 2) return;
     const timer = setTimeout(() => {
       fitFullScreenRoute();
@@ -440,14 +429,6 @@ function ActivityRouteMap({
       setFullScreenVisible(true);
     }
   };
-
-  if (allRouteCoordinates.length === 0) {
-    return (
-      <View style={[styles.emptyRoute, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <Text style={[styles.emptyRouteText, { color: colors.textSecondary }]}>No saved route is available for this workout.</Text>
-      </View>
-    );
-  }
 
   const runningCoordinates = smoothedRunningRouteGroups.flat();
   const pauseCoordinates = smoothedPauseRouteGroups.flat();
@@ -467,20 +448,196 @@ function ActivityRouteMap({
     ?? pauseCoordinates.at(-1)
     ?? smoothedPlannedRoutePoints.at(-1)
     ?? extraCoordinates.at(-1);
+  const previewRouteGroups = useMemo(() => [
+    ...(useSavedRouteGroups
+      ? smoothedSavedRouteGroups
+      : smoothedRunningRouteGroups.map((coordinates) => ({ type: 'running' as const, coordinates }))
+    ).filter((group) => group.type === 'running'),
+    ...(useSavedRouteGroups
+      ? smoothedSavedRouteGroups
+      : smoothedPauseRouteGroups.map((coordinates) => ({ type: 'pause' as const, coordinates }))
+    ).filter((group) => group.type === 'pause'),
+    ...(showPlannedRoute ? [{ type: 'planned' as const, coordinates: smoothedPlannedRoutePoints }] : []),
+    ...(useSavedRouteGroups
+      ? smoothedSavedRouteGroups
+      : smoothedExtraRouteGroups.map((coordinates) => ({ type: 'extra' as const, coordinates }))
+    ).filter((group) => group.type === 'extra'),
+  ].filter((group) => group.coordinates.length >= 2), [
+    showPlannedRoute,
+    smoothedExtraRouteGroups,
+    smoothedPauseRouteGroups,
+    smoothedPlannedRoutePoints,
+    smoothedRunningRouteGroups,
+    smoothedSavedRouteGroups,
+    useSavedRouteGroups,
+  ]);
+  const previewProjection = useMemo(() => {
+    const width = compactPreview ? compactPreviewWidth : 140;
+    const height = compactPreview ? 130 : 140;
+    const padding = compactPreview ? 18 : 25;
+    const points = previewRouteGroups.flatMap((group) => group.coordinates);
+    if (points.length < 2) return null;
+
+    const referenceLatitude = points.reduce((total, point) => total + point.latitude, 0) / points.length;
+    const longitudeScale = Math.max(0.01, Math.cos((referenceLatitude * Math.PI) / 180));
+    const projected = points.map((point) => ({
+      x: point.longitude * longitudeScale,
+      y: -point.latitude,
+    }));
+    const bounds = projected.reduce((current, point) => ({
+      minX: Math.min(current.minX, point.x),
+      maxX: Math.max(current.maxX, point.x),
+      minY: Math.min(current.minY, point.y),
+      maxY: Math.max(current.maxY, point.y),
+    }), {
+      minX: Number.POSITIVE_INFINITY,
+      maxX: Number.NEGATIVE_INFINITY,
+      minY: Number.POSITIVE_INFINITY,
+      maxY: Number.NEGATIVE_INFINITY,
+    });
+    const { minX, maxX, minY, maxY } = bounds;
+    const spanX = Math.max(maxX - minX, 0.000001);
+    const spanY = Math.max(maxY - minY, 0.000001);
+    const scale = Math.min((width - padding * 2) / spanX, (height - padding * 2) / spanY);
+    const offsetX = (width - spanX * scale) / 2;
+    const offsetY = (height - spanY * scale) / 2;
+    const project = (point: RouteCoordinate) => ({
+      x: offsetX + (point.longitude * longitudeScale - minX) * scale,
+      y: offsetY + (-point.latitude - minY) * scale,
+    });
+
+    return {
+      width,
+      height,
+      routes: previewRouteGroups.map((group, index) => ({
+        key: `${group.type}-${index}-${group.coordinates.length}`,
+        color: group.type === 'pause' ? '#FB7185' : group.type === 'extra' ? '#CBD5E1' : '#34D399',
+        path: group.coordinates.map((point, pointIndex) => {
+          const projectedPoint = project(point);
+          return `${pointIndex === 0 ? 'M' : 'L'}${projectedPoint.x.toFixed(2)},${projectedPoint.y.toFixed(2)}`;
+        }).join(' '),
+      })),
+      start: firstPoint ? project(firstPoint) : null,
+      finish: lastPoint ? project(lastPoint) : null,
+    };
+  }, [compactPreview, compactPreviewWidth, firstPoint, lastPoint, previewRouteGroups]);
+
+  if (allRouteCoordinates.length === 0) {
+    return (
+      <View style={[styles.emptyRoute, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Text style={[styles.emptyRouteText, { color: colors.textSecondary }]}>No saved route is available for this workout.</Text>
+      </View>
+    );
+  }
 
   return (
     <>
       <View
         style={[
-          styles.mapContainer,
-          { height: variant === 'preview' ? 110 : detailMapHeight },
+          variant === 'preview'
+            ? styles.previewMapFrame
+            : [styles.mapContainer, { height: detailMapHeight }],
           variant === 'preview' && styles.previewMapContainer,
+          variant === 'preview' && compactPreview && [styles.compactPreviewMapContainer, { height: compactPreviewHeight }],
         ]}
       >
+        {variant === 'preview' && previewProjection && (routeOnly || !googleMapPreview) ? (
+          <Svg
+            width="100%"
+            height="100%"
+            viewBox={`0 0 ${previewProjection.width} ${previewProjection.height}`}
+            preserveAspectRatio="xMidYMid meet"
+          >
+            <Defs>
+              <LinearGradient id="activityPreviewBackground" x1="0" y1="0" x2="1" y2="1">
+                <Stop offset="0" stopColor={isDark ? '#132B2A' : '#E5F8EF'} />
+                <Stop offset="0.55" stopColor={isDark ? '#1A3833' : '#D8F1E7'} />
+                <Stop offset="1" stopColor={isDark ? '#20352D' : '#CBE9DC'} />
+              </LinearGradient>
+              <LinearGradient id="activityPreviewRoute" x1="0" y1="0" x2="1" y2="1">
+                <Stop offset="0" stopColor="#A3F766" />
+                <Stop offset="1" stopColor="#10B981" />
+              </LinearGradient>
+            </Defs>
+            <Rect
+              width={previewProjection.width}
+              height={previewProjection.height}
+              fill={routeOnly ? (isDark ? '#111827' : '#F3F4F6') : 'url(#activityPreviewBackground)'}
+            />
+            {!routeOnly ? (
+              <>
+                <Path
+                  d={compactPreview
+                    ? `M-12 ${previewProjection.height * 0.3} C${previewProjection.width * 0.18} ${previewProjection.height * 0.12} ${previewProjection.width * 0.32} ${previewProjection.height * 0.48} ${previewProjection.width * 0.5} ${previewProjection.height * 0.3} S${previewProjection.width * 0.82} ${previewProjection.height * 0.12} ${previewProjection.width + 12} ${previewProjection.height * 0.3} M-12 ${previewProjection.height * 0.53} C${previewProjection.width * 0.18} ${previewProjection.height * 0.35} ${previewProjection.width * 0.32} ${previewProjection.height * 0.7} ${previewProjection.width * 0.5} ${previewProjection.height * 0.53} S${previewProjection.width * 0.82} ${previewProjection.height * 0.35} ${previewProjection.width + 12} ${previewProjection.height * 0.53} M-12 ${previewProjection.height * 0.82} C${previewProjection.width * 0.18} ${previewProjection.height * 0.64} ${previewProjection.width * 0.32} ${previewProjection.height} ${previewProjection.width * 0.5} ${previewProjection.height * 0.82} S${previewProjection.width * 0.82} ${previewProjection.height * 0.64} ${previewProjection.width + 12} ${previewProjection.height * 0.82}`
+                    : 'M-12 42 C18 20 40 56 70 35 S122 20 154 42 M-12 60 C18 38 40 74 70 53 S122 38 154 60 M-12 112 C18 90 40 126 70 105 S122 90 154 112'}
+                  fill="none"
+                  stroke={isDark ? '#B7F7DA' : '#39856B'}
+                  strokeWidth={0.8}
+                  opacity={isDark ? 0.1 : 0.13}
+                />
+                <Circle cx={compactPreview ? previewProjection.width * 0.82 : 116} cy={compactPreview ? previewProjection.height * 0.22 : 27} r={compactPreview ? previewProjection.height * 0.24 : 25} fill={isDark ? '#6EE7B7' : '#34D399'} opacity={0.08} />
+                <Circle cx={compactPreview ? previewProjection.width * 0.82 : 116} cy={compactPreview ? previewProjection.height * 0.22 : 27} r={compactPreview ? previewProjection.height * 0.16 : 17} fill="none" stroke={isDark ? '#A7F3D0' : '#047857'} strokeWidth={0.8} opacity={0.15} />
+                <Circle cx={compactPreview ? previewProjection.width * 0.17 : 24} cy={compactPreview ? previewProjection.height * 0.78 : 116} r={compactPreview ? previewProjection.height * 0.18 : 19} fill="none" stroke={isDark ? '#A7F3D0' : '#047857'} strokeWidth={0.8} opacity={0.12} />
+                <Path d={compactPreview
+                  ? `M0 ${previewProjection.height / 2} H${previewProjection.width} M${previewProjection.width / 2} 0 V${previewProjection.height}`
+                  : 'M0 70 H140 M70 0 V140'} stroke={isDark ? '#D1FAE5' : '#166534'} strokeWidth={0.6} opacity={0.07} />
+              </>
+            ) : null}
+            {previewProjection.routes.map((route) => (
+              <Path
+                key={`${route.key}-glow`}
+                d={route.path}
+                fill="none"
+                stroke={route.color}
+                strokeWidth={13 * previewRouteWidthScale}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={0.2}
+              />
+            ))}
+            {previewProjection.routes.map((route) => (
+              <Path
+                key={`${route.key}-casing`}
+                d={route.path}
+                fill="none"
+                stroke={isDark ? '#0B1C1B' : '#FFFFFF'}
+                strokeWidth={8 * previewRouteWidthScale}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={0.9}
+              />
+            ))}
+            {previewProjection.routes.map((route) => (
+              <Path
+                key={route.key}
+                d={route.path}
+                fill="none"
+                stroke={route.key.startsWith('pause-') ? route.color : 'url(#activityPreviewRoute)'}
+                strokeWidth={4.5 * previewRouteWidthScale}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ))}
+            {previewProjection.start && (
+              <>
+                <Circle cx={previewProjection.start.x} cy={previewProjection.start.y} r={7 * previewRouteWidthScale} fill="#FFFFFF" opacity={0.96} />
+                <Circle cx={previewProjection.start.x} cy={previewProjection.start.y} r={4.5 * previewRouteWidthScale} fill="#10B981" />
+                <SvgText x={previewProjection.start.x} y={previewProjection.start.y + 1.8 * previewRouteWidthScale} textAnchor="middle" fill="#FFFFFF" fontSize={5 * previewRouteWidthScale} fontWeight="bold">S</SvgText>
+              </>
+            )}
+            {previewProjection.finish && (
+              <>
+                <Circle cx={previewProjection.finish.x} cy={previewProjection.finish.y} r={7 * previewRouteWidthScale} fill="#FFFFFF" opacity={0.96} />
+                <Circle cx={previewProjection.finish.x} cy={previewProjection.finish.y} r={4.5 * previewRouteWidthScale} fill="#F43F5E" />
+                <SvgText x={previewProjection.finish.x} y={previewProjection.finish.y + 1.8 * previewRouteWidthScale} textAnchor="middle" fill="#FFFFFF" fontSize={4.5 * previewRouteWidthScale} fontWeight="bold">F</SvgText>
+              </>
+            )}
+          </Svg>
+        ) : (
         <MapView
           ref={mapRef}
           provider={PROVIDER_GOOGLE}
-          liteMode={variant === 'preview'}
+          mapType={routeOnly ? 'none' : mapType}
           style={styles.map}
           initialRegion={{
             latitude: firstPoint.latitude,
@@ -489,10 +646,10 @@ function ActivityRouteMap({
             longitudeDelta: 0.015,
           }}
           onMapReady={() => setMapReady(true)}
-          scrollEnabled={!isFullScreenEnabled}
-          zoomEnabled={!isFullScreenEnabled}
-          pitchEnabled={!isFullScreenEnabled}
-          rotateEnabled={!isFullScreenEnabled}
+          scrollEnabled={!isFullScreenEnabled || googleMapPreview}
+          zoomEnabled={!isFullScreenEnabled || googleMapPreview}
+          pitchEnabled={!isFullScreenEnabled || googleMapPreview}
+          rotateEnabled={!isFullScreenEnabled || googleMapPreview}
         >
           {(useSavedRouteGroups
             ? smoothedSavedRouteGroups.filter((group) => group.type === 'running')
@@ -502,7 +659,7 @@ function ActivityRouteMap({
               key={`running-route-${index}`}
               coordinates={coordinates}
               strokeColor="#35C72B"
-              strokeWidth={variant === 'preview' ? 2 : 3}
+              strokeWidth={3}
             />
           ))}
           {(useSavedRouteGroups
@@ -510,21 +667,21 @@ function ActivityRouteMap({
             : smoothedPauseRouteGroups.map((coordinates) => ({ type: 'pause' as const, coordinates }))
           ).map(({ coordinates }, index) => (
             <Polyline
-              key={`pause-route-${pauseRoutes?.[index]?.sequence ?? index + 1}`}
+              key={`pause-route-${index}-${pauseRoutes?.[index]?.sequence ?? index + 1}`}
               coordinates={coordinates}
               strokeColor="#EF4444"
-              strokeWidth={variant === 'preview' ? 2 : 3}
+              strokeWidth={3}
             />
           ))}
           {showPlannedRoute && (
-            <Polyline coordinates={smoothedPlannedRoutePoints} strokeColor="#35C72B" strokeWidth={variant === 'preview' ? 2 : 3} />
+            <Polyline coordinates={smoothedPlannedRoutePoints} strokeColor="#35C72B" strokeWidth={3} />
           )}
           {smoothedExtraRouteGroups.map((coordinates, index) => (
             <Polyline
               key={`extra-route-${index}`}
               coordinates={coordinates}
               strokeColor="#9CA3AF"
-              strokeWidth={variant === 'preview' ? 2 : 3}
+              strokeWidth={3}
             />
           ))}
           {savedPauseMarkers.map((marker) => (
@@ -537,9 +694,22 @@ function ActivityRouteMap({
               <View style={[styles.pauseMarker, variant === 'preview' && styles.previewPauseMarker]} />
             </Marker>
           ))}
-          {firstPoint && <Marker coordinate={firstPoint} pinColor="#35C72B" title="Start" />}
-          {lastPoint && <Marker coordinate={lastPoint} pinColor="#FF5B5B" title="Finish" />}
+          {firstPoint && (
+            <Marker coordinate={firstPoint} anchor={{ x: 0.5, y: 0.5 }} title="Start">
+              <View style={styles.startDotMarker}>
+                <View style={styles.startDotInner} />
+              </View>
+            </Marker>
+          )}
+          {lastPoint && (
+            <Marker coordinate={lastPoint} anchor={{ x: 0.5, y: 0.5 }} title="Finish">
+              <View style={styles.finishDotMarker}>
+                <View style={styles.finishDotInner} />
+              </View>
+            </Marker>
+          )}
         </MapView>
+        )}
 
         {isFullScreenEnabled && (
           <TouchableOpacity
@@ -614,7 +784,7 @@ function ActivityRouteMap({
                 : smoothedPauseRouteGroups.map((coordinates) => ({ type: 'pause' as const, coordinates }))
               ).map(({ coordinates }, index) => (
                 <Polyline
-                  key={`fs-pause-route-${pauseRoutes?.[index]?.sequence ?? index + 1}`}
+                  key={`fs-pause-route-${index}-${pauseRoutes?.[index]?.sequence ?? index + 1}`}
                   coordinates={coordinates}
                   strokeColor="#EF4444"
                   strokeWidth={4}
@@ -641,8 +811,20 @@ function ActivityRouteMap({
                   <View style={styles.pauseMarker} />
                 </Marker>
               ))}
-              {firstPoint && <Marker coordinate={firstPoint} pinColor="#35C72B" title="Start" />}
-              {lastPoint && <Marker coordinate={lastPoint} pinColor="#FF5B5B" title="Finish" />}
+              {firstPoint && (
+                <Marker coordinate={firstPoint} anchor={{ x: 0.5, y: 0.5 }} title="Start">
+                  <View style={styles.startDotMarker}>
+                    <View style={styles.startDotInner} />
+                  </View>
+                </Marker>
+              )}
+              {lastPoint && (
+                <Marker coordinate={lastPoint} anchor={{ x: 0.5, y: 0.5 }} title="Finish">
+                  <View style={styles.finishDotMarker}>
+                    <View style={styles.finishDotInner} />
+                  </View>
+                </Marker>
+              )}
             </MapView>
 
             <SafeAreaView edges={['top']} style={styles.fullScreenTopSafeArea}>
@@ -674,7 +856,7 @@ function ActivityRouteMap({
                   <Text style={[styles.fullScreenTitleText, { color: colors.text }]}>Route View</Text>
                   {activityStats?.distance !== undefined && (
                     <Text style={[styles.fullScreenDistanceText, { color: colors.primary }]}>
-                      {formatDistance(activityStats.distance)}
+                      {formatActivityDistanceFromMeters(activityStats.distance, distanceUnit)}
                     </Text>
                   )}
                 </View>
@@ -727,7 +909,7 @@ function ActivityRouteMap({
                   <View style={styles.statColumn}>
                     <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Distance</Text>
                     <Text style={[styles.statValue, { color: colors.text }]}>
-                      {formatDistance(activityStats.distance)}
+                      {formatActivityDistanceFromMeters(activityStats.distance, distanceUnit)}
                     </Text>
                   </View>
 
@@ -744,7 +926,7 @@ function ActivityRouteMap({
                     <View style={[styles.statColumn, styles.statDivider, { borderLeftColor: colors.border }]}>
                       <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Pace</Text>
                       <Text style={[styles.statValue, { color: colors.text }]}>
-                        {formatPace(activityStats.pace)}
+                        {formatPaceFromSecondsPerKm(activityStats.pace, distanceUnit)}
                       </Text>
                     </View>
                   )}
@@ -753,7 +935,7 @@ function ActivityRouteMap({
                     <View style={[styles.statColumn, styles.statDivider, { borderLeftColor: colors.border }]}>
                       <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Gain</Text>
                       <Text style={[styles.statValue, { color: colors.text }]}>
-                        +{Math.round(activityStats.elevationGain)}m
+                        +{formatElevationFromMeters(activityStats.elevationGain, distanceUnit)}
                       </Text>
                     </View>
                   )}
@@ -778,7 +960,9 @@ const styles = StyleSheet.create({
     borderColor: '#35C72B',
     position: 'relative',
   },
-  previewMapContainer: { height: 110, borderRadius: 20, overflow: 'hidden' },
+  previewMapContainer: { aspectRatio: 1, borderRadius: 20, overflow: 'hidden', borderColor: 'rgba(34, 197, 94, 0.38)' },
+  compactPreviewMapContainer: { width: '100%', height: 150, aspectRatio: undefined },
+  previewMapFrame: { width: '100%', aspectRatio: 1 },
   map: { flex: 1 },
   emptyRoute: {
     minHeight: 120,
@@ -798,6 +982,48 @@ const styles = StyleSheet.create({
     borderColor: '#D1D5DB',
   },
   previewPauseMarker: { width: 10, height: 10, borderWidth: 1 },
+  startDotMarker: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#22C55E',
+    borderWidth: 2.5,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  startDotInner: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#FFFFFF',
+  },
+  finishDotMarker: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#EF4444',
+    borderWidth: 2.5,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  finishDotInner: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#FFFFFF',
+  },
   expandOverlay: {
     ...StyleSheet.absoluteFill,
     justifyContent: 'flex-start',

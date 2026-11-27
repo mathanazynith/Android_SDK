@@ -159,7 +159,7 @@ export default function EditProfileScreen() {
   const handleClose = () => {
     const returnToProfile = () => {
       if (router.canGoBack()) router.back();
-      else router.replace("/(app)/profile");
+      else router.replace("/(app)/profile/info");
     };
 
     if (!hasChanges) {
@@ -183,7 +183,7 @@ export default function EditProfileScreen() {
           text: "OK",
           onPress: () => {
             if (router.canGoBack()) router.back();
-            else router.replace("/(app)/profile");
+            else router.replace("/(app)/profile/info");
           },
         },
       ]);
@@ -278,13 +278,13 @@ export default function EditProfileScreen() {
         <View style={[styles.photoCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={[styles.avatar, { borderColor: colors.border, backgroundColor: colors.surfaceRaised }]}>
             {profilePictureUri ? <Image source={{ uri: profilePictureUri }} style={styles.avatarImage} /> : <Text style={[styles.photoInitial, { color: colors.text }]}>{initials}</Text>}
-            {isUploadingPicture && <View style={styles.uploadOverlay}><RunningLoader size={32} fillColor="#FFFFFF" /></View>}
+            {isUploadingPicture && <View style={styles.uploadOverlay}><RunningLoader size={38} fillColor="#FFFFFF" /></View>}
           </View>
           <View style={styles.profileDetails}>
             <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>PROFILE PHOTO</Text>
             <Text style={[styles.profileName, { color: colors.text }]} numberOfLines={1}>{displayName}</Text>
             <TouchableOpacity accessibilityLabel="Change profile picture" accessibilityRole="button" onPress={openPictureOptions} style={[styles.photoAction, { backgroundColor: colors.selected }]} disabled={isUploadingPicture}>
-              {isUploadingPicture ? <RunningLoader size={16} fillColor={colors.primary} /> : <Feather name="camera" size={15} color={colors.primary} />}
+              {isUploadingPicture ? <RunningLoader size={20} fillColor={colors.primary} /> : <Feather name="camera" size={15} color={colors.primary} />}
               <Text style={[styles.photoActionText, { color: colors.primary }]}>{isUploadingPicture ? "Uploading" : "Change photo"}</Text>
             </TouchableOpacity>
           </View>
@@ -334,7 +334,7 @@ export default function EditProfileScreen() {
     </ScrollView>
       </View>
     </TouchableWithoutFeedback>
-    <View style={styles.footer}><TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: loading || !hasChanges, busy: loading }} disabled={loading || !hasChanges} onPress={handleUpdate} style={[styles.saveButton, { backgroundColor: BRAND_GREEN }, !hasChanges && styles.saveButtonDisabled]}>{loading ? <RunningLoader size={18} fillColor={colors.primaryText} /> : <Feather name="check" size={18} color={colors.primaryText} />}<Text style={[styles.saveButtonText, { color: colors.primaryText }]}>{loading ? "Saving..." : hasChanges ? "Save Changes" : "No Changes"}</Text></TouchableOpacity></View>
+    <View style={styles.footer}><TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: loading || !hasChanges, busy: loading }} disabled={loading || !hasChanges} onPress={handleUpdate} style={[styles.saveButton, { backgroundColor: BRAND_GREEN }, !hasChanges && styles.saveButtonDisabled]}>{loading ? <RunningLoader size={22} fillColor={colors.primaryText} /> : <Feather name="check" size={18} color={colors.primaryText} />}<Text style={[styles.saveButtonText, { color: colors.primaryText }]}>{loading ? "Saving..." : hasChanges ? "Save Changes" : "No Changes"}</Text></TouchableOpacity></View>
     </SafeAreaView>
     <Modal visible={showPictureOptions} transparent animationType="slide" onRequestClose={() => setShowPictureOptions(false)}>
       <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>

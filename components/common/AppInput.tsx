@@ -20,21 +20,30 @@ export const AppInput: React.FC<AppInputProps> = ({
   label, error, icon, rightIcon, onRightIconPress, containerStyle, inputStyle,
   authStyle = false, secureTextEntry, ...props
 }) => {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const { spacing, fontSize } = useResponsive();
   const [isFocused, setIsFocused] = useState(false);
   const [isSecure, setIsSecure] = useState(secureTextEntry || false);
   const toggleSecure = () => setIsSecure(!isSecure);
-  const borderColor = error ? Colors.error : isFocused ? colors.primary : colors.border;
+  const authBorderColor = isDark ? '#303236' : colors.border;
+  const borderColor = error ? Colors.error : isFocused ? colors.primary : authBorderColor;
 
   return (
     <View style={[styles.container, containerStyle]}>
-      {label && <Text style={[styles.label, { color: colors.textSecondary }]}>{label}</Text>}
+      {label && (
+        <Text style={[
+          styles.label,
+          { color: authStyle ? colors.text : colors.textSecondary },
+          authStyle && styles.authLabel,
+        ]}>
+          {label}
+        </Text>
+      )}
       <View style={[
         styles.inputWrapper,
-        { borderColor, backgroundColor: colors.surface },
+        { borderColor, backgroundColor: authStyle && isDark ? '#202124' : colors.surface },
         authStyle && styles.authInputWrapper,
-        authStyle && { borderColor: error ? Colors.error : isFocused ? Colors.primary : colors.border },
+        authStyle && { borderColor: error ? Colors.error : isFocused ? Colors.primary : authBorderColor },
         inputStyle,
       ]}>
         {icon && <View style={styles.iconContainer}>{icon}</View>}
@@ -61,6 +70,7 @@ export const AppInput: React.FC<AppInputProps> = ({
 const styles = StyleSheet.create({
   container: { gap: Spacing.sm },
   label: { ...Typography.bodySmall, fontWeight: '500' },
+  authLabel: { fontSize: 14, fontWeight: '500' },
   inputWrapper: { flexDirection: 'row', alignItems: 'center', borderRadius: BorderRadius.md, borderWidth: 1.5, paddingHorizontal: Spacing.md, minHeight: 50 },
   authInputWrapper: { borderWidth: 1, borderRadius: 14, minHeight: 54, paddingHorizontal: 16 },
   input: { flex: 1, ...Typography.body, paddingVertical: Spacing.sm },

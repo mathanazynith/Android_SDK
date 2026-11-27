@@ -1,10 +1,26 @@
-export const SPLIT_DISTANCE_METERS = 250;
+export const SPLIT_DISTANCE_METERS = 1000;
 
 export interface ActivitySplit {
   split_number: number;
   distance_m: number;
   time_s: number;
   pace_s_per_km: number;
+  steps?: number | null;
+  average_spm?: number | null;
+  cadence_spm?: number | null;
+}
+
+export interface ActivityLapRecord {
+  sequence: number;
+  segment_sequence?: number;
+  label: string;
+  timestamp?: string;
+  distance_m?: number;
+  time_s?: number;
+  pace_s_per_km?: number;
+  steps?: number | null;
+  cadence_spm?: number | null;
+  splits?: ActivitySplit[];
 }
 
 export interface ActivitySegmentSplits {
@@ -16,6 +32,7 @@ export interface ActivitySegmentSplits {
   actual_time_s?: number;
   actual_pace_s_per_km?: number;
   splits: ActivitySplit[];
+  laps?: ActivityLapRecord[];
   recovery?: ActivitySegmentSplits;
   gps_points?: {
     latitude: number;
@@ -32,4 +49,5 @@ export interface ActivityExtraSplits {
   actual_time_s?: number;
   actual_pace_s_per_km?: number;
   splits: ActivitySplit[];
+  laps?: ActivityLapRecord[];
 }

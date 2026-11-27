@@ -13,6 +13,8 @@ export interface RawGpsPayload {
   speed?: number;
   heading?: number;
   timestamp?: number | string | Date;
+  mocked?: boolean;
+  isSimulator?: boolean;
 }
 
 export interface RunningGpsPoint extends RunningCoordinate {
@@ -87,12 +89,43 @@ export interface ActivitySubmissionPayload {
   split_distance_m: number;
   avg_pace: number;
   pace_seconds_per_km: number;
+  total_steps?: number;
+  step_summary?: ActivityStepSummaryPayload | null;
+  steps_per_minute?: ActivityStepsPerMinutePayload[];
   laps?: ActivityLapPayload[];
+  lap_events?: ActivityLapEventPayload[];
   segments?: ActivitySegmentPayload[];
   extra?: ActivityExtraPayload | null;
   pause_events?: ActivityPauseEventPayload[];
   pause_count?: number;
   paused_time_s?: number;
+}
+
+export interface ActivityStepsPerMinutePayload {
+  interval_number: number;
+  start_time: string;
+  end_time: string;
+  step_count: number;
+  active_duration_s: number;
+  segment_type?: string | null;
+  segment_sequence?: number | null;
+}
+
+export interface ActivityStepSummaryPayload {
+  total_steps: number;
+  counted_steps: number;
+  step_tracking_source: string;
+}
+
+export interface ActivityLapEventPayload {
+  event_number: number;
+  timestamp: string;
+  is_extra_distance?: boolean;
+  manual_lap_number?: number;
+  split_number?: number;
+  distance_m?: number;
+  time_s?: number;
+  pace_s_per_km?: number;
 }
 
 export interface ActivityPauseEventPayload {
@@ -114,6 +147,12 @@ export interface ActivitySegmentPayload {
   actual_time_s: number;
   actual_pace_s_per_km: number;
   gps_points: ActivityGpsPointPayload[];
+  splits?: {
+    split_number: number;
+    distance_m: number;
+    time_s: number;
+    pace_s_per_km: number;
+  }[];
   recovery?: ActivityRecoveryPayload | null;
 }
 

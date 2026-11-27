@@ -16,10 +16,11 @@ interface DistanceInputProps {
 export const DistanceInput: React.FC<DistanceInputProps> = ({ label, value, unitLabel, hint, error, maxValue, onChange }) => {
   const { colors } = useTheme();
   const [localValue, setLocalValue] = useState(value || '');
-
-  React.useEffect(() => {
+  const [prevValue, setPrevValue] = useState(value || '');
+  if (prevValue !== (value || '')) {
+    setPrevValue(value || '');
     setLocalValue(value || '');
-  }, [value]);
+  }
 
   const validation = useMemo(() => validateDistance(localValue || ''), [localValue]);
   const exceedsMaximum = Number.isFinite(maxValue) && Number(localValue) > Number(maxValue);
@@ -33,13 +34,11 @@ export const DistanceInput: React.FC<DistanceInputProps> = ({ label, value, unit
           style={[styles.input, { color: colors.inputText }, resolvedError ? styles.inputError : null]}
           value={localValue}
           onChangeText={(text) => {
-            const nextValue = text.replace(/[^0-9.]/g, '');
+            const nextValue = text.replace(/[^0-9.-]/g, '').replace(/(?!^)-/g, '');
             const decimalCount = (nextValue.match(/\./g) || []).length;
             const sanitizedValue = decimalCount > 1 ? nextValue.replace(/\.(?=.*\.)/g, '') : nextValue;
             setLocalValue(sanitizedValue);
-            if (!(Number.isFinite(maxValue) && Number(sanitizedValue) > Number(maxValue))) {
-              onChange(sanitizedValue);
-            }
+            onChange(sanitizedValue);
           }}
           placeholder=""
           placeholderTextColor={colors.placeholder}

@@ -5,11 +5,15 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Rect
 import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import android.service.notification.StatusBarNotification
+import android.util.Log
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.util.Locale
@@ -23,6 +27,46 @@ class ZYRunLiveUpdateModule : Module() {
       val context = appContext.reactContext?.applicationContext ?: return@Function false
       updateForegroundNotification(context, data)
     }
+
+    Function("dismissNotification") {
+      val context = appContext.reactContext?.applicationContext ?: return@Function false
+      dismissForegroundNotification(context)
+    }
+
+    Function("isBootRestorePending") {
+      val context = appContext.reactContext?.applicationContext ?: return@Function false
+      context.getSharedPreferences(BootRestoreReceiver.PREFERENCES_NAME, Context.MODE_PRIVATE)
+        .getBoolean(BootRestoreReceiver.KEY_BOOT_RESTORE_PENDING, false)
+    }
+
+    Function("acknowledgeBootRestore") {
+      val context = appContext.reactContext?.applicationContext ?: return@Function null
+      context.getSharedPreferences(BootRestoreReceiver.PREFERENCES_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putBoolean(BootRestoreReceiver.KEY_BOOT_RESTORE_PENDING, false)
+        .apply()
+    }
+  }
+
+  private fun dismissForegroundNotification(context: Context): Boolean {
+    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+      ?: return false
+    val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+    val notificationId = preferences.getInt(KEY_NOTIFICATION_ID, INVALID_NOTIFICATION_ID)
+    val notificationTag = preferences.getString(KEY_NOTIFICATION_TAG, null)
+    if (notificationId == INVALID_NOTIFICATION_ID) return false
+
+    val activeNotification = notificationManager.activeNotifications.firstOrNull {
+      it.id == notificationId && it.tag == notificationTag && it.isRunForegroundNotification()
+    }
+    if (activeNotification != null) {
+      notificationManager.cancel(activeNotification.tag, activeNotification.id)
+    }
+    preferences.edit()
+      .remove(KEY_NOTIFICATION_ID)
+      .remove(KEY_NOTIFICATION_TAG)
+      .apply()
+    return activeNotification != null
   }
 
   private fun updateForegroundNotification(context: Context, data: Map<String, Any?>): Boolean {
@@ -31,17 +75,31 @@ class ZYRunLiveUpdateModule : Module() {
     val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
       ?: return false
     val activeNotification = findLocationForegroundNotification(context, notificationManager) ?: return false
+    val notificationIcon = context.resources.getIdentifier("notification_icon", "drawable", context.packageName)
+    if (notificationIcon == 0) {
+      Log.e(TAG, "The configured Android notification icon resource was not found.")
+      return false
+    }
     val runId = data["runId"] as? String
     val status = if (data["status"] == "paused") "paused" else "running"
     val distanceKm = (data["distanceKm"] as? Number)?.toDouble()?.coerceAtLeast(0.0) ?: 0.0
     val elapsedSeconds = (data["elapsedSeconds"] as? Number)?.toDouble()?.coerceAtLeast(0.0) ?: 0.0
     val paceMinutesPerKm = (data["paceMinutesPerKm"] as? Number)?.toDouble() ?: 0.0
+    val distanceUnit = (data["distanceUnit"] as? String)?.lowercase() ?: "km"
+    val isMiles = distanceUnit == "mile"
+    val displayDistance = if (isMiles) distanceKm / 1.609344 else distanceKm
+    val displayPace = if (isMiles) paceMinutesPerKm * 1.609344 else paceMinutesPerKm
     val startedAtMs = (data["startedAtMs"] as? Number)?.toLong() ?: System.currentTimeMillis()
+    val messageTitle = data["messageTitle"] as? String
+    val messageBody = data["messageBody"] as? String
 
-    val title = if (status == "paused") "ZYRun · Paused" else "ZYRun · Running"
-    val text = "${formatDuration(elapsedSeconds)} · ${String.format(Locale.US, "%.2f", distanceKm)} km · ${formatPace(paceMinutesPerKm)}/km"
+    val title = messageTitle ?: if (status == "paused") "ZYRun · Paused" else "ZYRun · Running"
+    val unitLabel = if (isMiles) "mi" else "km"
+    val text = messageBody ?: "${formatDuration(elapsedSeconds)} · ${String.format(Locale.US, "%.2f", displayDistance)} $unitLabel · ${formatPace(displayPace)}/$unitLabel"
     val launchIntent = createRunIntent(context, runId, null) ?: return false
     val builder = Notification.Builder.recoverBuilder(context, activeNotification.notification)
+      .setSmallIcon(notificationIcon)
+      .setLargeIcon(getApplicationIconBitmap(context))
       .setContentTitle(title)
       .setContentText(text)
       .setContentIntent(pendingActivity(context, launchIntent, 1001))
@@ -52,18 +110,18 @@ class ZYRunLiveUpdateModule : Module() {
       .setOnlyAlertOnce(true)
       .setShowWhen(false)
       .setWhen(startedAtMs)
-      .setActions(*buildActions(context, runId, status))
+      .setActions(*(if (messageTitle == null) buildActions(context, runId, status) else emptyArray()))
       .addExtras(Bundle().apply {
         putBoolean(EXTRA_ZYRUN_LIVE_UPDATE, true)
       })
 
     if (Build.VERSION.SDK_INT >= 36) {
       builder
-        .setShortCriticalText(formatDistanceChip(distanceKm))
+        .setShortCriticalText(formatDistanceChip(displayDistance, isMiles))
         .addExtras(Bundle().apply {
           putBoolean("android.requestPromotedOngoing", true)
         })
-      if (status == "running") {
+      if (status == "running" && messageTitle == null) {
         builder.setStyle(Notification.ProgressStyle().setProgressIndeterminate(true))
       } else {
         builder.setStyle(null)
@@ -72,6 +130,32 @@ class ZYRunLiveUpdateModule : Module() {
 
     notificationManager.notify(activeNotification.tag, activeNotification.id, builder.build())
     return true
+  }
+
+  private fun getApplicationIconBitmap(context: Context): Bitmap? {
+    val drawable = try {
+      context.packageManager.getApplicationIcon(context.applicationInfo)
+    } catch (error: Exception) {
+      Log.w(TAG, "The application icon could not be loaded for the live notification.", error)
+      return null
+    }
+
+    val originalBounds = Rect(drawable.bounds)
+    val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: LARGE_ICON_SIZE
+    val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: LARGE_ICON_SIZE
+    val scale = minOf(1f, LARGE_ICON_SIZE.toFloat() / maxOf(width, height))
+    val bitmapWidth = (width * scale).toInt().coerceAtLeast(1)
+    val bitmapHeight = (height * scale).toInt().coerceAtLeast(1)
+    val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
+
+    try {
+      drawable.setBounds(0, 0, bitmapWidth, bitmapHeight)
+      drawable.draw(Canvas(bitmap))
+    } finally {
+      drawable.bounds = originalBounds
+    }
+
+    return bitmap
   }
 
   private fun findLocationForegroundNotification(
@@ -116,15 +200,17 @@ class ZYRunLiveUpdateModule : Module() {
   private fun buildActions(context: Context, runId: String?, status: String): Array<Notification.Action> {
     val action = if (status == "paused") "zyrun-resume" else "zyrun-pause"
     val label = if (status == "paused") "Resume" else "Pause"
-    val icon = Icon.createWithResource(context, context.applicationInfo.icon)
+    val toggleIconResource = if (status == "paused") android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause
+    val toggleIcon = Icon.createWithResource(context, toggleIconResource)
+    val finishIcon = Icon.createWithResource(context, android.R.drawable.ic_menu_close_clear_cancel)
     val toggleIntent = createRunIntent(context, runId, action)
       ?.let { pendingActivity(context, it, 1002) }
     val finishIntent = createRunIntent(context, runId, "zyrun-stop")
       ?.let { pendingActivity(context, it, 1003) }
 
     return listOfNotNull(
-      toggleIntent?.let { Notification.Action.Builder(icon, label, it).build() },
-      finishIntent?.let { Notification.Action.Builder(icon, "Finish", it).build() },
+      toggleIntent?.let { Notification.Action.Builder(toggleIcon, label, it).build() },
+      finishIntent?.let { Notification.Action.Builder(finishIcon, "Finish", it).build() },
     ).toTypedArray()
   }
 
@@ -172,15 +258,19 @@ class ZYRunLiveUpdateModule : Module() {
     return String.format(Locale.US, "%d:%02d", wholeMinutes, seconds)
   }
 
-  private fun formatDistanceChip(distanceKm: Double): String =
-    if (distanceKm < 10) String.format(Locale.US, "%.1fk", distanceKm) else "${distanceKm.toInt()}k"
+  private fun formatDistanceChip(distance: Double, isMiles: Boolean): String {
+    val suffix = if (isMiles) "mi" else "k"
+    return if (distance < 10) String.format(Locale.US, "%.1f%s", distance, suffix) else "${distance.toInt()}$suffix"
+  }
 
   private companion object {
+    const val TAG = "ZYRunLiveUpdate"
     const val PREFERENCES_NAME = "zyrun_live_update"
     const val KEY_NOTIFICATION_ID = "expo_location_notification_id"
     const val KEY_NOTIFICATION_TAG = "expo_location_notification_tag"
     const val INVALID_NOTIFICATION_ID = -1
     const val LOCATION_NOTIFICATION_TITLE = "Zy-Run - Tracking Live"
     const val EXTRA_ZYRUN_LIVE_UPDATE = "com.zyapp.extra.ZYRUN_LIVE_UPDATE"
+    const val LARGE_ICON_SIZE = 96
   }
 }

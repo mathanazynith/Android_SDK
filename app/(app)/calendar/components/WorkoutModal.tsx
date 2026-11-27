@@ -1,11 +1,12 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Animated, Modal, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useReducedMotion } from 'react-native-reanimated';
 import BenchmarkBadgeIcon from '../../../../components/BenchmarkBadgeIcon';
+import { usePauseSettings } from '../../../../contexts/PauseSettingsContext';
 import { useTheme } from '../../../../contexts/ThemeContext';
 import { cacheAssignedRoute, customWorkoutAPI, getCachedAssignedRoute, type SuggestedRoute } from '../../../../service/customWorkout';
 import { workoutPlanService } from '../../../../service/workoutPlan';
@@ -20,6 +21,7 @@ interface WorkoutModalProps {
   visible: boolean;
   workout: WorkoutDetail | null;
   onClose: () => void;
+  presentation?: 'modal' | 'page';
   onUpdateBenchmark?: (
     workoutId: string,
     isBenchmark: boolean,
@@ -46,18 +48,117 @@ const segmentTitle = (segment: WorkoutSegment) =>
 const segmentSubtitle = (segment: WorkoutSegment, fallback: string) =>
   [segment.rest ? `${segment.rest} rest` : '', segment.notes].filter(Boolean).join(' · ') || fallback;
 
+type SuggestedRouteAvailability = 'loading' | 'available' | 'empty' | 'error';
+
+const getSuggestedRoutes = (value: unknown): SuggestedRoute[] => {
+  if (Array.isArray(value)) return value as SuggestedRoute[];
+  if (!value || typeof value !== 'object') return [];
+  const response = value as Record<string, unknown>;
+  const routes = response.suggestions
+    ?? response.routes
+    ?? response.suggested_routes
+    ?? response.results
+    ?? response.data;
+  return Array.isArray(routes) ? routes as SuggestedRoute[] : [];
+};
+
+type PageSegmentRow = {
+  key: string;
+  label: string;
+  title: string;
+  recovery?: string;
+  note?: string;
+};
+
+const getPageSegmentRows = (segments: WorkoutSegment[], fallbackSteps: string[]): PageSegmentRow[] => {
+  if (!segments.length) {
+    return fallbackSteps.map((step, index) => ({
+      key: `step-${index}`,
+      label: `Step ${index + 1}`,
+      title: step,
+    }));
+  }
+
+  return segments.flatMap((segment, segmentIndex) => {
+    const repeatCount = Number.isFinite(segment.repeats)
+      ? Math.max(1, Math.floor(segment.repeats))
+      : 1;
+    const canExpandRepeats = repeatCount > 1
+      && !isSegmentType(segment, 'warmup')
+      && !isSegmentType(segment, 'cooldown');
+
+    if (canExpandRepeats) {
+      return Array.from({ length: repeatCount }, (_, repeatIndex) => ({
+        key: `segment-${segmentIndex}-rep-${repeatIndex}`,
+        label: `Rep ${repeatIndex + 1}`,
+        title: segmentTitle({ ...segment, repeats: 1 }) || segment.notes || 'Workout interval',
+        recovery: repeatIndex < repeatCount - 1 ? segment.rest || undefined : undefined,
+        note: segment.notes || undefined,
+      }));
+    }
+
+    const label = isSegmentType(segment, 'warmup')
+      ? 'Warm-up'
+      : isSegmentType(segment, 'cooldown')
+        ? 'Cool-down'
+        : segment.type || 'Workout';
+
+    return [{
+      key: `segment-${segmentIndex}`,
+      label,
+      title: segmentTitle(segment) || segment.notes || label,
+      recovery: segment.rest || undefined,
+      note: segment.notes || undefined,
+    }];
+  });
+};
+
+const getWorkoutPageIcon = (workout: WorkoutDetail) => {
+  const label = `${workout.workoutType} ${workout.title}`.toLowerCase();
+  if (workout.isRest || label.includes('rest')) {
+    return { name: 'moon-outline' as const, color: '#64748B' };
+  }
+  if (label.includes('long')) {
+    return { name: 'flame' as const, color: '#F97316' };
+  }
+  if (label.includes('interval')) {
+    return { name: 'flash-outline' as const, color: '#F59E0B' };
+  }
+  if (label.includes('tempo')) {
+    return { name: 'speedometer-outline' as const, color: '#0EA5E9' };
+  }
+  if (label.includes('recovery')) {
+    return { name: 'bicycle-outline' as const, color: '#14B8A6' };
+  }
+  return { name: workout.iconName || 'walk-outline', color: workout.accentColor || '#22C55E' };
+};
+
+const METRONOME_BPM_OPTIONS = [160, 165, 170, 175, 180] as const;
+
 export default function WorkoutModal({
   visible,
   workout,
   onClose,
+  presentation = 'modal',
   onUpdateBenchmark,
 }: WorkoutModalProps) {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
+  const { height: windowHeight } = useWindowDimensions();
+  const compactPage = windowHeight < 760;
   const reduceMotion = useReducedMotion();
+  const { isLoaded: pauseSettingsLoaded, voiceAlertsEnabled } = usePauseSettings();
   const [rendered, setRendered] = useState(visible);
   const renderedRef = useRef(visible);
   const [activeWorkout, setActiveWorkout] = useState<WorkoutDetail | null>(workout);
+  const [runSetupVisible, setRunSetupVisible] = useState(false);
+  const [metronomeEnabled, setMetronomeEnabled] = useState(false);
+  const [selectedMetronomeBpm, setSelectedMetronomeBpm] = useState<number>(170);
   const [assignedRoute, setAssignedRoute] = useState<SuggestedRoute | null>(null);
+  const [routeAvailability, setRouteAvailability] = useState<{
+    workoutId: number | null;
+    status: SuggestedRouteAvailability;
+  }>({ workoutId: null, status: 'loading' });
+  const [isSavingBenchmark, setIsSavingBenchmark] = useState(false);
   const [opacity] = useState(() => new Animated.Value(0));
   const [translateY] = useState(() => new Animated.Value(30));
 
@@ -111,6 +212,7 @@ export default function WorkoutModal({
       let cancelled = false;
       if (!visible || !workoutDbId) {
         setAssignedRoute(null);
+        setRouteAvailability({ workoutId: workoutDbId ?? null, status: 'error' });
         return undefined;
       }
 
@@ -123,6 +225,18 @@ export default function WorkoutModal({
         if (!cancelled) setAssignedRoute(getCachedAssignedRoute(workoutDbId));
       });
 
+      setRouteAvailability({ workoutId: workoutDbId, status: 'loading' });
+      void customWorkoutAPI.suggestedRoutes(workoutDbId).then(({ data }) => {
+        if (cancelled) return;
+        setRouteAvailability({
+          workoutId: workoutDbId,
+          status: getSuggestedRoutes(data).length > 0 ? 'available' : 'empty',
+        });
+      }).catch((error) => {
+        console.warn('[WorkoutModal] Unable to check suggested route availability:', error);
+        if (!cancelled) setRouteAvailability({ workoutId: workoutDbId, status: 'error' });
+      });
+
       return () => {
         cancelled = true;
       };
@@ -131,20 +245,21 @@ export default function WorkoutModal({
 
   if ((!rendered && !visible) || !activeWorkout) return null;
 
-  const handleToggleBenchmark = async () => {
-    if (!activeWorkout || activeWorkout.isRest) return;
-    const nextState = !activeWorkout.isBenchmark;
+  const routeAvailabilityStatus = routeAvailability.workoutId === activeWorkout.workoutDbId
+    ? routeAvailability.status
+    : 'loading';
+  const suggestedRoutesDisabled = routeAvailabilityStatus === 'loading'
+    || routeAvailabilityStatus === 'empty';
+  const suggestedRoutesHint = routeAvailabilityStatus === 'empty'
+    ? 'No suggested routes for this workout.'
+    : routeAvailabilityStatus === 'error'
+      ? 'Could not check route availability. Tap to try again.'
+      : undefined;
+
+  const saveBenchmark = async (nextState: boolean) => {
+    if (!activeWorkout || activeWorkout.isRest || isSavingBenchmark) return;
+    setIsSavingBenchmark(true);
     const workoutKey = activeWorkout.rawDate || activeWorkout.id;
-
-    // Optimistically update activeWorkout
-    const updated: WorkoutDetail = {
-      ...activeWorkout,
-      isBenchmark: nextState,
-      benchmarkTitle: nextState ? activeWorkout.title : undefined,
-      benchmarkType: nextState ? 'plan' : undefined,
-    };
-    setActiveWorkout(updated);
-
     let assignment: PlanBenchmarkAssignment | undefined = undefined;
     if (nextState) {
       assignment = {
@@ -154,7 +269,7 @@ export default function WorkoutModal({
         benchmarkTitle: activeWorkout.title || 'Plan Benchmark',
         workoutDbId: activeWorkout.workoutDbId,
         planWorkoutTitle: activeWorkout.title,
-        planWorkoutDate: activeWorkout.date || activeWorkout.rawDate,
+        planWorkoutDate: activeWorkout.rawDate || activeWorkout.date,
         planWorkoutDay: activeWorkout.day,
         planWorkoutType: activeWorkout.workoutType,
         planWorkoutDistance: activeWorkout.distance,
@@ -164,12 +279,8 @@ export default function WorkoutModal({
         planWorkoutSteps: activeWorkout.steps,
         notes: activeWorkout.notes,
       };
-      await PlanBenchmarkStore.setAssignment(workoutKey, assignment);
-    } else {
-      await PlanBenchmarkStore.removeAssignment(workoutKey, activeWorkout.workoutDbId);
     }
 
-    // Call backend API to persist is_benchmark in workouts table
     let dbId = activeWorkout.workoutDbId;
     try {
       const saved = await workoutPlanService.updatePlanWorkoutBenchmark(
@@ -181,42 +292,89 @@ export default function WorkoutModal({
           weekday: activeWorkout.day,
           title: activeWorkout.title,
           workoutType: activeWorkout.workoutType,
-          distance: activeWorkout.distance ? parseFloat(activeWorkout.distance) * 1000 : null,
+          distance: activeWorkout.distanceMeters
+            ?? (activeWorkout.distance ? parseFloat(activeWorkout.distance) * 1000 : null),
           duration: activeWorkout.estimatedDuration ? parseInt(activeWorkout.estimatedDuration, 10) * 60 : null,
           notes: activeWorkout.notes,
           segments: activeWorkout.segments,
         },
         nextState
       );
-      if (saved?.id) {
-        dbId = saved.id;
-        if (assignment) {
-          assignment.workoutDbId = saved.id;
-          await PlanBenchmarkStore.setAssignment(workoutKey, assignment);
-        } else {
-          await PlanBenchmarkStore.removeAssignment(workoutKey, saved.id);
-        }
+      if (!saved) {
+        throw new Error('The benchmark change could not be saved. Please try again.');
       }
+
+      if (saved.id) dbId = saved.id;
+      if (assignment) {
+        assignment.workoutDbId = dbId;
+        await PlanBenchmarkStore.setAssignment(workoutKey, assignment);
+      } else {
+        await PlanBenchmarkStore.removeAssignment(workoutKey, dbId);
+      }
+
+      setActiveWorkout((prev) => prev ? {
+        ...prev,
+        isBenchmark: nextState,
+        benchmarkTitle: nextState ? prev.title : undefined,
+        benchmarkType: nextState ? 'plan' : undefined,
+        workoutDbId: dbId || prev.workoutDbId,
+      } : prev);
+      onUpdateBenchmark?.(activeWorkout.id, nextState, assignment, dbId);
+
+      Alert.alert(
+        nextState ? 'Marked as Benchmark' : 'Benchmark Removed',
+        nextState
+          ? `"${activeWorkout.title || 'Workout'}" is now set as a Benchmark Workout in Statistics.`
+          : `"${activeWorkout.title || 'Workout'}" removed from Benchmark Workouts in Statistics.`
+      );
     } catch (err) {
-      console.warn('[WorkoutModal] Failed to persist is_benchmark to backend:', err);
+      console.warn('[WorkoutModal] Failed to persist benchmark change:', err);
+      const message = err instanceof Error
+        ? err.message
+        : 'Unable to update this benchmark. Please try again.';
+      Alert.alert('Unable to update benchmark', message);
+    } finally {
+      setIsSavingBenchmark(false);
     }
+  };
 
-    if (dbId && dbId !== activeWorkout.workoutDbId) {
-      setActiveWorkout((prev) => (prev ? { ...prev, workoutDbId: dbId } : prev));
-    }
-
-    onUpdateBenchmark?.(activeWorkout.id, nextState, assignment, dbId);
-
+  const handleToggleBenchmark = () => {
+    if (!activeWorkout || activeWorkout.isRest || isSavingBenchmark) return;
+    const nextState = !activeWorkout.isBenchmark;
     Alert.alert(
-      nextState ? 'Marked as Benchmark' : 'Benchmark Removed',
+      nextState ? 'Mark as Benchmark?' : 'Remove Benchmark?',
       nextState
-        ? `"${activeWorkout.title || 'Workout'}" is now set as a Benchmark Workout in Statistics.`
-        : `"${activeWorkout.title || 'Workout'}" removed from Benchmark Workouts in Statistics.`
+        ? `Add "${activeWorkout.title || 'Workout'}" to Benchmark Workouts?`
+        : `Remove "${activeWorkout.title || 'Workout'}" from Benchmark Workouts?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: nextState ? 'Mark as Benchmark' : 'Remove Benchmark',
+          style: nextState ? 'default' : 'destructive',
+          onPress: () => { void saveBenchmark(nextState); },
+        },
+      ],
     );
   };
 
-  const handleStartRun = () => {
-    onClose();
+  const workoutLabel = `${activeWorkout.workoutType} ${activeWorkout.title}`.toLowerCase().replace(/[-_]/g, ' ');
+  const supportsMetronomeSetup = !activeWorkout.isRest
+    && (workoutLabel.includes('easy run') || workoutLabel.includes('long run'));
+
+  const launchRun = () => {
+    if (metronomeEnabled && (!pauseSettingsLoaded || !voiceAlertsEnabled)) {
+      Alert.alert(
+        'Voice Coach required',
+        'Enable Voice Coach in Settings before using the metronome.',
+      );
+      return;
+    }
+
+    setRunSetupVisible(false);
+    if (presentation === 'modal') onClose();
+    const metronomeParams = metronomeEnabled
+      ? { metronomeEnabled: 'true', metronomeBpm: String(selectedMetronomeBpm) }
+      : {};
     const hasSegments = Array.isArray(activeWorkout.segments) && activeWorkout.segments.length > 0;
     if (hasSegments) {
       const planSteps = buildPlanFromPlanSegments(
@@ -231,6 +389,7 @@ export default function WorkoutModal({
               ? `${activeWorkout.title} (Benchmark)`
               : activeWorkout.title,
             workoutPlan: JSON.stringify(planSteps),
+            ...metronomeParams,
             ...(assignedRoute ? { assignedRoute: JSON.stringify(assignedRoute) } : {}),
           },
         });
@@ -249,13 +408,110 @@ export default function WorkoutModal({
         workoutDuration: activeWorkout.estimatedDuration,
         workoutDistance: activeWorkout.distance,
         workoutPace: activeWorkout.targetPace,
+        ...metronomeParams,
         ...(assignedRoute ? { assignedRoute: JSON.stringify(assignedRoute) } : {}),
       },
     });
   };
 
+  const handleStartRun = () => {
+    if (supportsMetronomeSetup) {
+      setMetronomeEnabled(false);
+      setSelectedMetronomeBpm(170);
+      setRunSetupVisible(true);
+      return;
+    }
+
+    launchRun();
+  };
+
+  const handleMetronomeToggle = (enabled: boolean) => {
+    if (enabled && (!pauseSettingsLoaded || !voiceAlertsEnabled)) {
+      Alert.alert(
+        'Voice Coach required',
+        'Enable Voice Coach in Settings before using the metronome.',
+      );
+      return;
+    }
+    setMetronomeEnabled(enabled);
+  };
+
+  const runSetupOverlay = runSetupVisible ? (
+    <View style={styles.setupOverlay}>
+      <TouchableOpacity
+        style={styles.setupBackdrop}
+        onPress={() => setRunSetupVisible(false)}
+        activeOpacity={1}
+        accessibilityRole="button"
+        accessibilityLabel="Close run setup"
+      />
+      <View style={[styles.setupSheet, { backgroundColor: colors.background, borderColor: colors.border }]}>
+        <View style={styles.setupHeader}>
+          <TouchableOpacity
+            onPress={() => setRunSetupVisible(false)}
+            style={styles.setupHeaderButton}
+            accessibilityRole="button"
+          >
+            <Text style={[styles.setupHeaderButtonText, { color: colors.textSecondary }]}>Cancel</Text>
+          </TouchableOpacity>
+          <Text style={[styles.setupTitle, { color: colors.text }]}>Run Setup</Text>
+          <TouchableOpacity
+            onPress={launchRun}
+            style={[styles.setupHeaderButton, styles.setupStartButton, { backgroundColor: colors.primary }]}
+            accessibilityRole="button"
+          >
+            <Text style={[styles.setupStartButtonText, { color: colors.primaryText }]}>Start Workout</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={[styles.metronomeCard, { backgroundColor: colors.surfaceRaised }]}>
+          <View style={styles.metronomeToggleRow}>
+            <Text style={[styles.metronomeLabel, { color: colors.text }]}>Metronome</Text>
+            <Switch
+              value={metronomeEnabled}
+              onValueChange={handleMetronomeToggle}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor="#FFFFFF"
+              accessibilityLabel="Metronome"
+            />
+          </View>
+          <Text style={[styles.metronomeHelper, { color: colors.textSecondary }]}>
+            {pauseSettingsLoaded && voiceAlertsEnabled
+              ? 'The metronome can run alongside Voice Coach.'
+              : 'Enable Voice Coach in Settings to use the metronome.'}
+          </Text>
+        </View>
+
+        {metronomeEnabled && (
+          <View style={styles.bpmSection}>
+            <Text style={[styles.bpmTitle, { color: colors.textSecondary }]}>Beats per minute</Text>
+            <View style={[styles.bpmOptions, { backgroundColor: colors.surfaceRaised }]}>
+              {METRONOME_BPM_OPTIONS.map((bpm, index) => (
+                <TouchableOpacity
+                  key={bpm}
+                  style={[
+                    styles.bpmOption,
+                    index < METRONOME_BPM_OPTIONS.length - 1 && { borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth },
+                  ]}
+                  onPress={() => setSelectedMetronomeBpm(bpm)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: selectedMetronomeBpm === bpm }}
+                >
+                  <Text style={[styles.bpmOptionText, { color: colors.text }]}>{bpm} BPM</Text>
+                  {selectedMetronomeBpm === bpm && (
+                    <Ionicons name="checkmark" size={22} color={colors.primary} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+      </View>
+    </View>
+  ) : null;
+
   const content = (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+    <ScrollView style={styles.fullScreen} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
       <Text style={[styles.caption, { color: colors.textSecondary }]}>Workout Details</Text>
       <View style={styles.headerRow}>
         <View style={styles.titleBlock}>
@@ -283,6 +539,7 @@ export default function WorkoutModal({
               activeWorkout.isBenchmark && styles.benchmarkToggleButtonActive,
             ]}
             onPress={handleToggleBenchmark}
+            disabled={isSavingBenchmark}
             activeOpacity={0.8}
             accessibilityLabel={activeWorkout.isBenchmark ? 'Remove benchmark' : 'Mark as benchmark'}
           >
@@ -305,7 +562,9 @@ export default function WorkoutModal({
                   activeWorkout.isBenchmark && styles.benchmarkToggleTitleActive,
                 ]}
               >
-                {activeWorkout.isBenchmark
+                {isSavingBenchmark
+                  ? 'Saving benchmark...'
+                  : activeWorkout.isBenchmark
                   ? 'Benchmark Workout Active'
                   : 'Mark as Benchmark Workout'}
               </Text>
@@ -328,7 +587,6 @@ export default function WorkoutModal({
         <SummaryMetric label="Distance" value={activeWorkout.distance} />
         <SummaryMetric label="Duration" value={activeWorkout.estimatedDuration} />
         <SummaryMetric label="Target Pace" value={activeWorkout.targetPace} />
-        <SummaryMetric label="HR Zone" value={activeWorkout.heartRateZone} />
       </View>
 
       <Text style={[styles.segmentsHeading, { color: colors.text }]}>Segments</Text>
@@ -361,7 +619,6 @@ export default function WorkoutModal({
       <View style={styles.statsRow}>
         <Stat label="Est Calories" value={activeWorkout.estimatedCalories} />
         <Stat label="Duration" value={activeWorkout.estimatedDuration} />
-        <Stat label="HR Zone" value={activeWorkout.heartRateZone} />
       </View>
       <View style={styles.statsRow}>
         <Stat label="Target Pace" value={activeWorkout.targetPace} />
@@ -387,19 +644,54 @@ export default function WorkoutModal({
               <Ionicons name="chevron-forward" size={20} color={colors.primary} />
             </TouchableOpacity>
           ) : null}
-          <TouchableOpacity
-            style={[styles.suggestedRoutesButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
-            onPress={() => {
-              const workoutId = activeWorkout.workoutDbId;
-              onClose();
-              router.push({ pathname: '/custom-workout/suggested-routes', params: { workoutId: String(workoutId) } });
-            }}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="map-outline" size={19} color={colors.primary} />
-            <Text style={[styles.suggestedRoutesText, { color: colors.primary }]}>Suggested Routes</Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.primary} />
-          </TouchableOpacity>
+          <View>
+            <TouchableOpacity
+              style={[
+                styles.suggestedRoutesButton,
+                suggestedRoutesDisabled && styles.suggestedRoutesButtonDisabled,
+                { backgroundColor: colors.surfaceRaised, borderColor: colors.border },
+              ]}
+              onPress={() => {
+                const workoutId = activeWorkout.workoutDbId;
+                if (!workoutId) {
+                  Alert.alert('Routes unavailable', 'This workout is not linked to a saved plan workout.');
+                  return;
+                }
+                if (presentation === 'modal') onClose();
+                router.push({
+                  pathname: '/(app)/custom-workout/suggested-routes',
+                  params: { workoutId: String(workoutId) },
+                });
+              }}
+              disabled={suggestedRoutesDisabled}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: suggestedRoutesDisabled }}
+              accessibilityHint={suggestedRoutesHint}
+            >
+              {routeAvailabilityStatus === 'loading'
+                ? <ActivityIndicator size="small" color={colors.textSecondary} />
+                : <Ionicons name="map-outline" size={19} color={suggestedRoutesDisabled ? colors.textTertiary : colors.primary} />}
+              <Text style={[
+                styles.suggestedRoutesText,
+                { color: suggestedRoutesDisabled ? colors.textTertiary : colors.primary },
+              ]}>
+                {routeAvailabilityStatus === 'loading' ? 'Checking routes...' : 'Suggested Routes'}
+              </Text>
+              {routeAvailabilityStatus !== 'loading' && (
+                <Ionicons
+                  name="chevron-forward"
+                  size={20}
+                  color={suggestedRoutesDisabled ? colors.textTertiary : colors.primary}
+                />
+              )}
+            </TouchableOpacity>
+            {suggestedRoutesHint && (
+              <Text style={[styles.suggestedRoutesHint, { color: colors.textSecondary }]}>
+                {suggestedRoutesHint}
+              </Text>
+            )}
+          </View>
         </View>
       ) : null}
 
@@ -426,22 +718,243 @@ export default function WorkoutModal({
     </ScrollView>
   );
 
+  if (presentation === 'page') {
+    const pageIcon = getWorkoutPageIcon(activeWorkout);
+    const pageSegmentRows = getPageSegmentRows(activeWorkout.segments, activeWorkout.steps);
+
+    return (
+      <SafeAreaView edges={['top', 'bottom']} style={[styles.fullScreen, { backgroundColor: colors.background }]}>
+        <ScrollView
+          style={styles.fullScreen}
+          contentContainerStyle={[
+            styles.pageContent,
+            {
+              paddingHorizontal: compactPage ? 16 : 20,
+              paddingTop: compactPage ? 8 : 14,
+              paddingBottom: compactPage ? 8 : 14,
+            },
+          ]}
+          showsVerticalScrollIndicator
+        >
+          <View style={styles.pageMain}>
+            <View>
+              <Text style={[styles.caption, styles.pageCaption, { color: colors.textSecondary }]}>Workout Details</Text>
+              <View style={styles.headerRow}>
+                <View style={[styles.pageWorkoutIcon, { backgroundColor: colors.surfaceRaised }]}>
+                  <Ionicons name={pageIcon.name} size={28} color={pageIcon.color} />
+                </View>
+                <View style={styles.titleBlock}>
+                  <Text style={[styles.title, compactPage && styles.pageTitleCompact, { color: colors.text }]} numberOfLines={1}>{activeWorkout.title}</Text>
+                  <Text style={[styles.type, { color: colors.primary }]} numberOfLines={1}>{activeWorkout.workoutType}</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={onClose}
+                  style={[styles.closeButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close workout details"
+                >
+                  <Ionicons name="close" size={24} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {activeWorkout.isRest ? (
+              <View style={[styles.restMessageCard, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
+                <Text style={[styles.restMessageTitle, { color: colors.text }]}>Take a rest today</Text>
+                <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
+                  Recover today, then do your best on your next workout day.
+                </Text>
+              </View>
+            ) : (
+              <>
+              <TouchableOpacity
+                style={[
+                  styles.pageBenchmarkButton,
+                  compactPage && styles.pageBenchmarkButtonCompact,
+                  { backgroundColor: colors.surfaceRaised, borderColor: colors.border },
+                  activeWorkout.isBenchmark && styles.benchmarkToggleButtonActive,
+                ]}
+                onPress={handleToggleBenchmark}
+                disabled={isSavingBenchmark}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={activeWorkout.isBenchmark ? 'Remove benchmark' : 'Mark as benchmark'}
+              >
+                <View style={[styles.benchmarkToggleIconWrap, compactPage && styles.pageBenchmarkIconCompact, activeWorkout.isBenchmark && styles.benchmarkToggleIconWrapActive]}>
+                  <BenchmarkBadgeIcon size={compactPage ? 17 : 20} color={activeWorkout.isBenchmark ? '#0F172A' : '#F59E0B'} />
+                </View>
+                <View style={styles.pageBenchmarkCopy}>
+                  <Text style={[styles.benchmarkToggleTitle, { color: colors.text }]} numberOfLines={1}>
+                    {isSavingBenchmark ? 'Saving benchmark...' : activeWorkout.isBenchmark ? 'Benchmark Workout Active' : 'Mark as Benchmark Workout'}
+                  </Text>
+                  <Text style={[styles.benchmarkToggleSub, { color: colors.textSecondary }]}>
+                    {activeWorkout.isBenchmark
+                      ? 'Tap to remove this workout from Benchmark list in Statistics'
+                      : `Tap to mark "${activeWorkout.title}" as benchmark in Statistics`}
+                  </Text>
+                </View>
+                <Ionicons name={activeWorkout.isBenchmark ? 'checkmark-circle' : 'add-circle-outline'} size={22} color={activeWorkout.isBenchmark ? '#F59E0B' : colors.primary} />
+              </TouchableOpacity>
+
+            <View style={[styles.pageSummaryGrid, compactPage && styles.pageSummaryGridCompact]}>
+              <View style={styles.pageSummaryRow}>
+                <SummaryMetric pageLayout label="Distance" value={activeWorkout.distance} />
+                <SummaryMetric pageLayout label="Duration" value={activeWorkout.estimatedDuration} />
+              </View>
+              <View style={styles.pageSummaryRow}>
+                <SummaryMetric pageLayout label="Target Pace" value={activeWorkout.targetPace} />
+              </View>
+            </View>
+
+            {pageSegmentRows.length > 0 && (
+              <View style={styles.pageInfoBlock}>
+                <Text style={[styles.pageSectionTitle, { color: colors.text }]}>Segments</Text>
+                <View style={styles.pageSegmentsList}>
+                  {pageSegmentRows.map((row) => (
+                    <View
+                      key={row.key}
+                      style={[
+                        styles.pageSegmentRow,
+                        { backgroundColor: colors.surface, borderColor: colors.border },
+                      ]}
+                    >
+                      <View style={[styles.pageSegmentBadge, { backgroundColor: colors.selected }]}>
+                        <Text style={[styles.pageSegmentLabel, { color: colors.primary }]}>{row.label}</Text>
+                      </View>
+                      <View style={styles.pageSegmentCopy}>
+                        <Text style={[styles.pageSegmentTitle, { color: colors.text }]}>{row.title}</Text>
+                        {(row.recovery || row.note) && (
+                          <View style={styles.pageSegmentMeta}>
+                            {row.recovery && (
+                              <>
+                                <Ionicons name="time-outline" size={13} color={colors.textSecondary} />
+                                <Text style={[styles.pageSegmentSubtitle, { color: colors.textSecondary }]}>
+                                  {row.recovery} recovery
+                                </Text>
+                              </>
+                            )}
+                            {row.recovery && row.note && (
+                              <View style={[styles.pageSegmentMetaDivider, { backgroundColor: colors.border }]} />
+                            )}
+                            {row.note && (
+                              <Text style={[styles.pageSegmentSubtitle, styles.pageSegmentNote, { color: colors.textSecondary }]}>
+                                {row.note}
+                              </Text>
+                            )}
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {!!activeWorkout.description && (
+              <View style={styles.pageInfoBlock}>
+                <Text style={[styles.pageSectionTitle, { color: colors.text }]}>Description</Text>
+                <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
+                  {activeWorkout.description}
+                </Text>
+              </View>
+            )}
+
+            {!!activeWorkout.instructions && (
+              <View style={styles.pageInfoBlock}>
+                <Text style={[styles.pageSectionTitle, { color: colors.text }]}>Instructions</Text>
+                <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
+                  {activeWorkout.instructions}
+                </Text>
+              </View>
+            )}
+              </>
+            )}
+          </View>
+
+          <View style={styles.pageActions}>
+            {!activeWorkout.isRest && activeWorkout.workoutDbId ? (
+              <View>
+                <TouchableOpacity
+                  style={[
+                    styles.suggestedRoutesButton,
+                    styles.pageActionButton,
+                    suggestedRoutesDisabled && styles.suggestedRoutesButtonDisabled,
+                    { backgroundColor: colors.surfaceRaised, borderColor: colors.border },
+                  ]}
+                  onPress={() => {
+                    router.push({
+                      pathname: '/(app)/custom-workout/suggested-routes',
+                      params: { workoutId: String(activeWorkout.workoutDbId) },
+                    });
+                  }}
+                  disabled={suggestedRoutesDisabled}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: suggestedRoutesDisabled }}
+                  accessibilityHint={suggestedRoutesHint}
+                >
+                  {routeAvailabilityStatus === 'loading'
+                    ? <ActivityIndicator size="small" color={colors.textSecondary} />
+                    : <Ionicons name="map-outline" size={19} color={suggestedRoutesDisabled ? colors.textTertiary : colors.primary} />}
+                  <Text style={[
+                    styles.suggestedRoutesText,
+                    { color: suggestedRoutesDisabled ? colors.textTertiary : colors.primary },
+                  ]}>
+                    {routeAvailabilityStatus === 'loading' ? 'Checking routes...' : 'Suggested Routes'}
+                  </Text>
+                  {routeAvailabilityStatus !== 'loading' && (
+                    <Ionicons
+                      name="chevron-forward"
+                      size={20}
+                      color={suggestedRoutesDisabled ? colors.textTertiary : colors.primary}
+                    />
+                  )}
+                </TouchableOpacity>
+                {suggestedRoutesHint && (
+                  <Text style={[styles.suggestedRoutesHint, { color: colors.textSecondary }]}>
+                    {suggestedRoutesHint}
+                  </Text>
+                )}
+              </View>
+            ) : null}
+            {!activeWorkout.isRest && (
+              <TouchableOpacity
+                style={[styles.startButton, styles.pageActionButton, { backgroundColor: activeWorkout.isBenchmark ? '#F59E0B' : colors.primary }]}
+                onPress={handleStartRun}
+                activeOpacity={0.85}
+              >
+                <View style={styles.startButtonContent}>
+                  {activeWorkout.isBenchmark
+                    ? <BenchmarkBadgeIcon size={19} color="#0F172A" style={{ marginRight: 6 }} />
+                    : <Ionicons name="play" size={18} color={colors.primaryText} />}
+                  <Text style={[styles.startButtonText, { color: activeWorkout.isBenchmark ? '#0F172A' : colors.primaryText }]}>
+                    {activeWorkout.isBenchmark ? `Start Benchmark: ${activeWorkout.title || 'Run'}` : 'Start Run'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+          </View>
+        </ScrollView>
+        {runSetupOverlay}
+      </SafeAreaView>
+    );
+  }
+
   return (
     <Modal
-      transparent
+      transparent={false}
       visible={visible || (rendered && !reduceMotion)}
       animationType="none"
       onRequestClose={onClose}
     >
-      <Animated.View style={[styles.overlay, { opacity }]}>
-        <BlurView intensity={isDark ? 80 : 65} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <Animated.View style={[styles.cardWrapper, { transform: [{ translateY }] }]}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            {content}
+      <SafeAreaView edges={['top', 'bottom']} style={[styles.fullScreen, { backgroundColor: colors.background }]}>
+        <Animated.View style={[styles.fullScreen, { opacity, transform: [{ translateY }] }]}>
+          <View style={[styles.modalCard, styles.fullScreenCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+              {content}
           </View>
         </Animated.View>
-      </Animated.View>
+        {runSetupOverlay}
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -456,10 +969,10 @@ function DetailSection({ label, text }: { label: string; text: string }) {
   ) : null;
 }
 
-function SummaryMetric({ label, value }: { label: string; value: string }) {
+function SummaryMetric({ label, value, pageLayout = false }: { label: string; value: string; pageLayout?: boolean }) {
   const { colors } = useTheme();
   return (
-    <View style={[styles.summaryMetric, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
+    <View style={[styles.summaryMetric, pageLayout && styles.pageSummaryMetric, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
       <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>{label}</Text>
       <Text style={[styles.summaryValue, { color: colors.text }]}>{value || '—'}</Text>
     </View>
@@ -545,8 +1058,62 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'transparent', justifyContent: 'center', paddingHorizontal: 18 },
-  cardWrapper: { maxHeight: '90%' },
+  fullScreen: { flex: 1 },
+  setupOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'flex-end' },
+  setupBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0, 0, 0, 0.62)' },
+  setupSheet: {
+    borderWidth: 1,
+    borderRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 28,
+    maxHeight: '82%',
+    gap: 20,
+  },
+  setupHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  setupHeaderButton: { minHeight: 42, justifyContent: 'center', paddingHorizontal: 8 },
+  setupHeaderButtonText: { fontSize: 16, fontWeight: '600' },
+  setupTitle: { fontSize: 17, fontWeight: '700' },
+  setupStartButton: { borderRadius: 22, paddingHorizontal: 16 },
+  setupStartButtonText: { fontSize: 15, fontWeight: '700' },
+  metronomeCard: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 14 },
+  metronomeToggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  metronomeLabel: { fontSize: 16, fontWeight: '600' },
+  metronomeHelper: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(128, 128, 128, 0.35)', marginTop: 10, paddingTop: 12, fontSize: 13, lineHeight: 19 },
+  bpmSection: { gap: 10 },
+  bpmTitle: { fontSize: 15, fontWeight: '700', paddingHorizontal: 4 },
+  bpmOptions: { borderRadius: 20, overflow: 'hidden', paddingHorizontal: 16 },
+  bpmOption: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  bpmOptionText: { fontSize: 16 },
+  pageContent: { flexGrow: 1, justifyContent: 'space-between' },
+  pageMain: { gap: 14 },
+  pageCaption: { marginBottom: 4 },
+  pageTitleCompact: { fontSize: 24, lineHeight: 29 },
+  pageWorkoutIcon: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  restMessageCard: { minHeight: 132, justifyContent: 'center', gap: 8, padding: 18, borderRadius: 16, borderWidth: 1 },
+  restMessageTitle: { fontSize: 18, fontWeight: '700' },
+  pageBenchmarkButton: { minHeight: 74, flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 14, padding: 12, borderWidth: 1 },
+  pageBenchmarkButtonCompact: { minHeight: 54, paddingVertical: 8 },
+  pageBenchmarkIconCompact: { width: 34, height: 34 },
+  pageBenchmarkCopy: { flex: 1, minWidth: 0 },
+  pageSummaryGrid: { gap: 8 },
+  pageSummaryGridCompact: { gap: 7 },
+  pageSummaryRow: { flexDirection: 'row', gap: 8 },
+  pageSummaryMetric: { flex: 1, width: 'auto', minHeight: 54 },
+  pageInfoBlock: { gap: 4 },
+  pageSegmentsList: { gap: 6 },
+  pageSegmentRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 12, borderWidth: 1 },
+  pageSegmentBadge: { minWidth: 54, minHeight: 28, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, borderRadius: 8 },
+  pageSegmentLabel: { fontSize: 11, fontWeight: '700', textAlign: 'center' },
+  pageSegmentCopy: { flex: 1, minWidth: 0, justifyContent: 'center', gap: 2 },
+  pageSegmentTitle: { fontSize: 13, lineHeight: 18, fontWeight: '700' },
+  pageSegmentMeta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 4, rowGap: 2 },
+  pageSegmentMetaDivider: { width: 3, height: 3, borderRadius: 2, marginHorizontal: 2 },
+  pageSegmentSubtitle: { fontSize: 11, lineHeight: 14 },
+  pageSegmentNote: { flexShrink: 1 },
+  pageSectionTitle: { fontSize: 15, fontWeight: '700' },
+  pageActions: { gap: 8 },
+  pageActionButton: { marginTop: 0 },
   modalCard: {
     borderRadius: 16,
     borderWidth: 1,
@@ -559,6 +1126,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.45,
     shadowRadius: 16,
   },
+  fullScreenCard: { flex: 1, maxHeight: '100%', borderRadius: 0, borderWidth: 0 },
   scrollContent: { padding: 22, paddingBottom: 26 },
   caption: { fontSize: 12, fontWeight: '700', marginBottom: 8, textTransform: 'uppercase' },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
@@ -636,7 +1204,9 @@ const styles = StyleSheet.create({
   assignedRouteButton: { minHeight: 52, borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
   assignedRouteText: { flex: 1, fontSize: 14, fontWeight: '700' },
   suggestedRoutesButton: { minHeight: 52, borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  suggestedRoutesButtonDisabled: { opacity: 0.48 },
   suggestedRoutesText: { flex: 1, fontSize: 15, fontWeight: '800' },
+  suggestedRoutesHint: { fontSize: 11, lineHeight: 15, marginTop: 4, paddingHorizontal: 4 },
   stat: { flex: 1 },
   statLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
   statValue: { fontSize: 14, lineHeight: 19 },

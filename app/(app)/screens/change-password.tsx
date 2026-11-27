@@ -30,7 +30,7 @@ export default function ChangePasswordScreen() {
 
   const handleBack = () => {
     if (router.canGoBack()) router.back();
-    else router.replace('/(app)/profile');
+    else router.replace('/(app)/profile/info');
   };
 
   const validate = () => {

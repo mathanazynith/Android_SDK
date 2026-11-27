@@ -19,6 +19,8 @@ interface RecentLongRunProps {
     pace?: string;
   };
   onCustomChange?: (field: string, value: string) => void;
+  distanceError?: string;
+  timeError?: string;
 }
 
 const RecentLongRun: React.FC<RecentLongRunProps> = ({
@@ -33,6 +35,8 @@ const RecentLongRun: React.FC<RecentLongRunProps> = ({
   onSelect,
   customValues,
   onCustomChange,
+  distanceError,
+  timeError,
 }) => {
   return (
     <DistanceTimePaceSelector
@@ -44,6 +48,8 @@ const RecentLongRun: React.FC<RecentLongRunProps> = ({
       onSelect={onSelect}
       customValues={customValues}
       onCustomChange={onCustomChange}
+      distanceError={distanceError}
+      timeError={timeError}
       distanceField="distance"
       timeField="time"
       paceField="pace"

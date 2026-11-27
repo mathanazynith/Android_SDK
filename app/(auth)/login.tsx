@@ -2,19 +2,20 @@ import { Alert } from '@/components/ThemedAlert';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AuthDismissHandle from '../../components/auth/AuthDismissHandle';
 import AuthModeTabs from '../../components/auth/AuthModeTabs';
+import AuthSocialButtons from '../../components/auth/AuthSocialButtons';
 import { AppInput } from '../../components/common/AppInput';
 import { PrimaryButton } from '../../components/common/PrimaryButton';
-import GoogleLoginButton from '../../components/GoogleLoginButton';
 import { LegalConsent } from '../../components/LegalConsent';
 import { Colors, Spacing, Typography } from '../../constants/theme';
-import { BRAND_GREEN, useTheme } from '../../contexts/ThemeContext';
+import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../service/auth';
 
 export default function LoginScreen() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -175,22 +176,31 @@ export default function LoginScreen() {
       style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <StatusBar barStyle={colors.background === '#F8FAFC' ? 'dark-content' : 'light-content'} backgroundColor={colors.background} />
+      <AuthDismissHandle top={insets.top} disabled={loading || googleLoading} />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 18 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 54 }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.authCard}>
           <AuthModeTabs
             mode="login"
-            onChange={() => router.push({ pathname: '/(auth)/signup', params: { fromAuthTab: '1' } })}
+            onChange={() => router.replace({
+              pathname: '/(auth)/signup',
+              params: { authSwitchDirection: 'right' },
+            })}
           />
 
           <View style={styles.runnerBadge}>
-            <Ionicons name="walk" size={34} color={Colors.background} />
+            <Image
+              source={require('../../assets/images/zyrun-adaptive-foreground.png')}
+              resizeMode="contain"
+              style={styles.runnerLogo}
+              accessibilityLabel="Zy-Run logo"
+            />
           </View>
-          <Text style={styles.title}>Let&apos;s get moving</Text>
-          <Text style={styles.subtitle}>Sign in to pick up your streak</Text>
+          <Text style={[styles.title, { color: colors.text }]}>Let&apos;s get moving</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Sign in to pick up your streak</Text>
 
         <AppInput
           placeholder="Email or Username"
@@ -200,7 +210,7 @@ export default function LoginScreen() {
           autoCorrect={false}
           containerStyle={styles.inputContainer}
           authStyle
-          icon={<Ionicons name="mail-outline" size={18} color={Colors.textSecondary} />}
+          icon={<Ionicons name="mail-outline" size={18} color={colors.textSecondary} />}
         />
         {!!errors.identifier && (
           <Text style={styles.errorText}>{errors.identifier}</Text>
@@ -213,7 +223,7 @@ export default function LoginScreen() {
           secureTextEntry
           containerStyle={styles.inputContainer}
           authStyle
-          icon={<Ionicons name="lock-closed-outline" size={17} color={Colors.textSecondary} />}
+          icon={<Ionicons name="lock-closed-outline" size={17} color={colors.textSecondary} />}
         />
         {!!errors.password && (
           <Text style={styles.errorText}>{errors.password}</Text>
@@ -226,14 +236,16 @@ export default function LoginScreen() {
           <Text style={styles.forgotPasswordText}>Forgot password?</Text>
         </TouchableOpacity>
 
-        <LegalConsent />
         <PrimaryButton
-          title="Sign in  →"
+          title="Sign in"
           onPress={handleLogin}
           loading={loading}
           style={styles.loginButton}
+          rightIcon={<Ionicons name="arrow-forward" size={22} color="#101510" />}
           authStyle
         />
+
+        <LegalConsent />
 
         <View style={styles.dividerContainer}>
           <View style={styles.divider} />
@@ -241,7 +253,11 @@ export default function LoginScreen() {
           <View style={styles.divider} />
         </View>
 
-        <GoogleLoginButton onPress={handleGoogleLogin} loading={googleLoading} disabled={loading || googleLoading} authStyle />
+        <AuthSocialButtons
+          onGooglePress={handleGoogleLogin}
+          loading={googleLoading}
+          disabled={loading}
+        />
 
         <View style={styles.signupContainer}>
           <Text style={styles.signupText}>New here? </Text>
@@ -267,16 +283,14 @@ const styles = StyleSheet.create({
     paddingBottom: 30,
   },
   title: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: '700',
-    color: BRAND_GREEN,
     textAlign: 'center',
     marginBottom: 3,
   },
   subtitle: {
-    fontSize: 11,
+    fontSize: 14,
     lineHeight: 16,
-    color: Colors.textSecondary,
     textAlign: 'center',
     marginBottom: 22,
   },
@@ -331,5 +345,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   authCard: { width: '100%', maxWidth: 520, alignSelf: 'center' },
-  runnerBadge: { width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center', backgroundColor: '#63C438', alignSelf: 'center', marginBottom: 16 },
+  runnerBadge: { width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center', backgroundColor: '#090B0A', alignSelf: 'center', marginBottom: 16, overflow: 'hidden' },
+  runnerLogo: { position: 'absolute', width: 80, height: 80, left: -13, top: -13 },
 });

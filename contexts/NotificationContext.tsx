@@ -1,6 +1,5 @@
 import {
   getInitialNotification,
-  getMessaging,
   onMessage,
   onNotificationOpenedApp,
   type RemoteMessage,
@@ -18,6 +17,7 @@ import React, {
 } from 'react';
 import { AppState, Platform } from 'react-native';
 import { useAuth } from '../service/auth';
+import { getSafeMessaging } from '../service/firebase';
 import {
   AppNotification,
   getNotificationDestination,
@@ -190,41 +190,57 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     if (isAuthLoading || userId == null) return;
 
-    const messaging = getMessaging();
-    const unsubscribeForeground = onMessage(messaging, async (message) => {
-      void refresh();
-      const titleValue = message.notification?.title ?? message.data?.title;
-      const bodyValue = message.notification?.body ?? message.data?.body ?? message.data?.message;
-      const title = typeof titleValue === 'string' ? titleValue : undefined;
-      const body = typeof bodyValue === 'string' ? bodyValue : undefined;
-      if (!title && !body) {
-        console.warn('[FCM] Foreground message has no title or body to display.');
-        return;
-      }
+    let unsubscribeForeground = () => {};
+    let unsubscribeOpened = () => {};
 
+    const messaging = getSafeMessaging();
+    if (messaging) {
       try {
-        if (Platform.OS === 'android') {
-          await Notifications.setNotificationChannelAsync(BUSINESS_NOTIFICATION_CHANNEL_ID, {
-            name: 'ZYRun notifications',
-            description: 'Updates from Zy-Run',
-            importance: Notifications.AndroidImportance.DEFAULT,
-            lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-          });
-        }
+        unsubscribeForeground = onMessage(messaging, async (message) => {
+          void refresh();
+          const titleValue = message.notification?.title ?? message.data?.title;
+          const bodyValue = message.notification?.body ?? message.data?.body ?? message.data?.message;
+          const title = typeof titleValue === 'string' ? titleValue : undefined;
+          const body = typeof bodyValue === 'string' ? bodyValue : undefined;
+          if (!title && !body) {
+            console.warn('[FCM] Foreground message has no title or body to display.');
+            return;
+          }
 
-        const content = {
-          title,
-          body,
-          data: { ...message.data, _zyrunLocal: true },
-        } satisfies Notifications.NotificationContentInput;
-        const notificationId = await Notifications.scheduleNotificationAsync({
-          content,
-          trigger: { channelId: BUSINESS_NOTIFICATION_CHANNEL_ID },
+          try {
+            if (Platform.OS === 'android') {
+              await Notifications.setNotificationChannelAsync(BUSINESS_NOTIFICATION_CHANNEL_ID, {
+                name: 'ZYRun notifications',
+                description: 'Updates from Zy-Run',
+                importance: Notifications.AndroidImportance.DEFAULT,
+                lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+              });
+            }
+
+            const content = {
+              title,
+              body,
+              data: { ...message.data, _zyrunLocal: true },
+            } satisfies Notifications.NotificationContentInput;
+            const notificationId = await Notifications.scheduleNotificationAsync({
+              content,
+              trigger: { channelId: BUSINESS_NOTIFICATION_CHANNEL_ID },
+            });
+          } catch (notificationError) {
+            console.warn('[Notifications] Foreground notification presentation failed', notificationError);
+          }
         });
-      } catch (notificationError) {
-        console.warn('[Notifications] Foreground notification presentation failed', notificationError);
+
+        unsubscribeOpened = onNotificationOpenedApp(messaging, handleRemoteMessageTap);
+        void getInitialNotification(messaging).then((message) => {
+          if (message) handleRemoteMessageTap(message);
+        }).catch((error) => {
+          console.warn('[Notifications] Initial notification lookup failed', error);
+        });
+      } catch (messagingError) {
+        console.warn('[Notifications] Firebase messaging setup failed:', messagingError);
       }
-    });
+    }
 
     const handleLocalNotificationTap = (response: Notifications.NotificationResponse) => {
       const data = response.notification.request.content.data;
@@ -239,13 +255,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       if (response) handleLocalNotificationTap(response);
     }).catch((error) => {
       console.warn('[Notifications] Local notification response lookup failed', error);
-    });
-
-    const unsubscribeOpened = onNotificationOpenedApp(messaging, handleRemoteMessageTap);
-    void getInitialNotification(messaging).then((message) => {
-      if (message) handleRemoteMessageTap(message);
-    }).catch((error) => {
-      console.warn('[Notifications] Initial notification lookup failed', error);
     });
 
     return () => {

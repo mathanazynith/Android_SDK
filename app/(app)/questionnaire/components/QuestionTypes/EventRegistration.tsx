@@ -1,10 +1,14 @@
 import React, { useMemo, useState, useCallback, useRef } from "react";
-import { View, Text, TextInput, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, TextInput, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import DatePicker from "../../QuestionTypes/DatePicker";
 import DistanceTimePaceSelector from "../../QuestionTypes/DistanceTimePaceSelector";
 import { RunningLoader } from "../../../../../components/common/RunningLoader";
 import { useTheme } from "../../../../../contexts/ThemeContext";
+import {
+  getMinimumEventDateForDistance,
+  getTrainingStartDateMaximum,
+} from "../../../../../utils/questionnaireValidation";
 
 interface EventRegistrationProps {
   value?: {
@@ -24,6 +28,7 @@ interface EventRegistrationProps {
   racePrediction?: RacePrediction | null;
   isRacePredictionLoading?: boolean;
   racePredictionError?: string | null;
+  minimumEventDate?: string | null;
   validationMessages?: {
     eventName?: string[];
     eventDate?: string[];
@@ -99,7 +104,7 @@ export function RacePredictionCard({
   const trainingDates = prediction?.training_period?.start_date && prediction.training_period.target_date
     ? `${prediction.training_period.start_date} – ${prediction.training_period.target_date}`
     : null;
-  const rows: Array<[string, string | null | undefined]> = [
+  const rows: [string, string | null | undefined][] = [
     ["Your goal", prediction?.goal_time],
     ["Predicted race time", prediction?.predicted_time],
     ["Your goal pace", prediction?.goal_pace],
@@ -159,6 +164,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   racePrediction,
   isRacePredictionLoading = false,
   racePredictionError,
+  minimumEventDate,
   validationMessages,
   labels,
 }) => {
@@ -169,23 +175,27 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   const [distanceState, setDistanceState] = useState(value?.targetDistance || value?.distance || customValues?.distance || "");
   const [targetTime, setTargetTime] = useState(value?.targetTime || customValues?.targetTime || "");
   const [selectedDistanceValue, setSelectedDistanceValue] = useState<string | undefined>(selectedValue);
-  // Selecting a preset triggers both onSelect and onCustomChange. State does
-  // not update between those callbacks, so this preserves the new option ID
-  // instead of allowing onCustomChange to write the old one back.
   const selectedDistanceValueRef = useRef<string | undefined>(selectedValue);
 
-  React.useEffect(() => {
+  const [prevSelectedValue, setPrevSelectedValue] = useState(selectedValue);
+  if (prevSelectedValue !== selectedValue) {
+    setPrevSelectedValue(selectedValue);
     setSelectedDistanceValue(selectedValue);
-    selectedDistanceValueRef.current = selectedValue;
-  }, [selectedValue]);
+  }
 
-  React.useEffect(() => {
-    setDistanceState(value?.targetDistance || value?.distance || customValues?.distance || "");
-  }, [value?.targetDistance, value?.distance, customValues?.distance]);
+  const incomingDistance = value?.targetDistance || value?.distance || customValues?.distance || "";
+  const [prevIncomingDistance, setPrevIncomingDistance] = useState(incomingDistance);
+  if (prevIncomingDistance !== incomingDistance) {
+    setPrevIncomingDistance(incomingDistance);
+    setDistanceState(incomingDistance);
+  }
 
-  React.useEffect(() => {
-    setTargetTime(value?.targetTime || customValues?.targetTime || "");
-  }, [value?.targetTime, customValues?.targetTime]);
+  const incomingTargetTime = value?.targetTime || customValues?.targetTime || "";
+  const [prevIncomingTargetTime, setPrevIncomingTargetTime] = useState(incomingTargetTime);
+  if (prevIncomingTargetTime !== incomingTargetTime) {
+    setPrevIncomingTargetTime(incomingTargetTime);
+    setTargetTime(incomingTargetTime);
+  }
 
   // Shared state for all custom values (distance, time, unit) - pace is computed only
   const normalizedCustomValues = useMemo(() => {
@@ -198,6 +208,17 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       unit: "km",
     };
   }, [customValues, distanceState, targetTime]);
+  const distanceKm = Number(distanceState);
+  const eventDateMinimumDetails = getMinimumEventDateForDistance(
+    Number.isFinite(distanceKm) && distanceKm > 0 ? distanceKm : 0,
+    trainingStartDate,
+    minimumEventDate
+  );
+  const eventDateMinimum = eventDateMinimumDetails.date;
+  const trainingStartMaximum = getTrainingStartDateMaximum();
+  const eventDateHint = eventDateMinimumDetails.requiredDays
+    ? `Please select a date at least ${Math.ceil(eventDateMinimumDetails.requiredDays / 7)} weeks (${eventDateMinimumDetails.requiredDays} days) from ${trainingStartDate ? "your start date" : "today"}.`
+    : null;
 
   interface EventRegistrationChange {
     eventName: string;
@@ -317,12 +338,15 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         <Text style={[styles.sectionLabel, { color: colors.textPrimary }]}>{labels?.eventDate || "When is your event?"}</Text>
         <DatePicker
           value={eventDate}
-          minimumDate={new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())}
+          minimumDate={eventDateMinimum}
           onChange={(date) => {
             setEventDate(date);
             emitChange({ eventDate: date });
           }}
         />
+        {eventDateHint ? (
+          <Text style={[styles.dateHint, { color: colors.textSecondary }]}>{eventDateHint}</Text>
+        ) : null}
         {validationMessages?.eventDate?.map((message) => (
           <Text key={message} style={styles.validationText}>{message}</Text>
         ))}
@@ -333,11 +357,16 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         <Text style={[styles.sectionLabel, { color: colors.textPrimary }]}>{labels?.trainingStartDate || "When can you start training for this event?"}</Text>
         <DatePicker
           value={trainingStartDate}
+          minimumDate={new Date()}
+          maximumDate={trainingStartMaximum}
           onChange={(date) => {
             setTrainingStartDate(date);
             emitChange({ trainingStartDate: date });
           }}
         />
+        <Text style={[styles.dateHint, { color: colors.textSecondary }]}>
+          Please select a date within the next 10 days.
+        </Text>
         {validationMessages?.trainingStartDate?.map((message) => (
           <Text key={message} style={styles.validationText}>{message}</Text>
         ))}
@@ -420,6 +449,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     lineHeight: 20,
+  },
+  dateHint: {
+    fontSize: 12,
+    lineHeight: 17,
   },
   predictionCard: { borderWidth: 1, borderRadius: 14, padding: 16, gap: 10, marginTop: 14 },
   predictionUnsupported: { borderColor: "#DC2626" },

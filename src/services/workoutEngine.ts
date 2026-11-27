@@ -176,8 +176,24 @@ export class WorkoutEngine {
     return this.state === 'paused' || this.continuedAfterCompletion;
   }
 
+  public isPostWorkoutContinuation(): boolean {
+    return this.continuedAfterCompletion;
+  }
+
   public isDistanceCounting(): boolean {
     return this.state === 'running';
+  }
+
+  public stop(timestamp = Date.now()): void {
+    if (this.currentLap) {
+      this.refreshDuration(timestamp);
+      this.currentLap.completed = false;
+      this.currentLap.completedAt = timestamp;
+      const stoppedLap = { ...this.currentLap };
+      this.completedLaps.push(stoppedLap);
+      this.currentLap = null;
+    }
+    this.state = 'completed';
   }
 
   public getSnapshot(): WorkoutEngineSnapshot {

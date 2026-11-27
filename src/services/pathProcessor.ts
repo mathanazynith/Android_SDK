@@ -21,12 +21,17 @@ const getINDOOR_DRIFT_MIN_DURATION_SECONDS = () => getGpsOptimizationConfig().in
 const getINDOOR_DRIFT_MIN_WANDER_RATIO = () => getGpsOptimizationConfig().indoorDriftMinWanderRatio;
 const getMIN_DISPLAY_INTERVAL_MS = () => getGpsOptimizationConfig().minDisplayIntervalSeconds * 1000;
 const getMAX_FINAL_POINT_GAP_METERS = () => getGpsOptimizationConfig().maxFinalPointGapMeters;
+const getMAX_JUMP_DISTANCE_METERS = () => getGpsOptimizationConfig().maxJumpDistanceMeters;
+const getMinimumMeaningfulDistanceMeters = (accuracyRadius: number) => (
+  Math.max(3, Math.min(8, accuracyRadius * 0.5))
+);
 
 export class PathProcessor {
   private readonly gpsFilter: GpsFilter;
   private readonly rdp: RdpSimplifier;
   private sequence = 0;
   private readonly runId: string;
+  private isSimulator = false;
   private readonly workingPoints: RunningGpsPoint[] = [];
   private readonly displayPoints: RunningPathPoint[] = [];
   private readonly filteredPoints: RunningPathPoint[] = [];
@@ -44,6 +49,7 @@ export class PathProcessor {
 
   public reset(): void {
     this.sequence = 0;
+    this.isSimulator = false;
     this.workingPoints.length = 0;
     this.displayPoints.length = 0;
     this.filteredPoints.length = 0;
@@ -56,6 +62,9 @@ export class PathProcessor {
    * deliberately deferred to filterRawPoints(), which runs only when saving.
    */
   public ingestRaw(raw: RawGpsPayload): RunningPathPoint | null {
+    if (Boolean(raw?.isSimulator)) {
+      this.isSimulator = true;
+    }
     if (
       raw === null ||
       typeof raw !== 'object' ||
@@ -116,12 +125,13 @@ export class PathProcessor {
     } else {
       const displayDistance = calculateDistanceMeters(lastDisplay, pathPoint);
       const displayElapsedSeconds = Math.max(0, (pathPoint.timestamp - lastDisplay.timestamp) / 1_000);
-      // Keep the live route visible while still avoiding a noisy every-second
-      // trace. A small real movement should remain visible, while tiny GPS wobble
-      // is filtered out before it reaches the SDK polyline.
       const displayThreshold = getGpsOptimizationConfig().liveDisplayThresholdMeters;
 
-      if (
+      if (this.isSimulator) {
+        if (displayDistance >= 0.5) {
+          this.displayPoints.push(pathPoint);
+        }
+      } else if (
         !(displayDistance > 500 && displayElapsedSeconds < 10)
         &&
         displayElapsedSeconds >= 1 &&
@@ -133,7 +143,10 @@ export class PathProcessor {
     return pathPoint;
   }
 
-  public filterRawPoints(boundaryTimestamps: number[] = []): RunningPathPoint[] {
+  public filterRawPoints(
+    boundaryTimestamps: number[] = [],
+    movementConfirmed = false,
+  ): RunningPathPoint[] {
     this.filteredPoints.length = 0;
 
 
@@ -154,7 +167,7 @@ export class PathProcessor {
       }
 
       const ageSeconds = Math.max(0, (Date.now() - rawPoint.timestamp) / 1000);
-      if (ageSeconds > 60 * 60 * 24) {
+      if (!this.isSimulator && ageSeconds > 60 * 60 * 24) {
         continue;
       }
 
@@ -165,10 +178,8 @@ export class PathProcessor {
           continue;
         }
 
-        // Indoor location callbacks can arrive in bursts, so their implied
-        // speed is unreliable. Keep plausible points and reject only a large,
-        // obvious GPS jump; RDP will simplify indoor jitter after saving.
-        if (distance > 500) {
+        // Keep the save route aligned with the live route's jump gate.
+        if (distance >= (this.isSimulator ? 500 : getMAX_JUMP_DISTANCE_METERS())) {
           continue;
         }
       }
@@ -184,10 +195,11 @@ export class PathProcessor {
         const distance = calculateDistanceMeters(distanceAnchor, filteredPoint);
         const elapsedMilliseconds = Math.max(0, filteredPoint.timestamp - distanceAnchor.timestamp);
         const accuracyRadius = Math.max(distanceAnchor.accuracy ?? 0, filteredPoint.accuracy ?? 0);
-        const minimumMeaningfulDistance = Math.max(5, Math.min(12, accuracyRadius));
+        const minimumMeaningfulDistance = getMinimumMeaningfulDistanceMeters(accuracyRadius);
 
-        // Mirror ingestRaw()'s display gate. A 0.5m threshold turns ordinary
-        // GPS position noise into fake distance when all samples are summed.
+        // Match the movement gate's half-accuracy displacement rule, with a
+        // small noise floor. The old 5–12m save threshold could discard a
+        // short route that had already contributed distance to live/manual splits.
         if (
           elapsedMilliseconds < getMIN_DISPLAY_INTERVAL_MS() ||
           distance < minimumMeaningfulDistance
@@ -199,7 +211,7 @@ export class PathProcessor {
       this.filteredPoints.push(filteredPoint);
     }
 
-    this.collapseIndoorDrift(boundaryTimestamps);
+    if (!movementConfirmed) this.collapseIndoorDrift(boundaryTimestamps);
     return [...this.filteredPoints];
   }
 
@@ -290,11 +302,17 @@ export class PathProcessor {
     return [...this.displayPoints];
   }
 
-  public simplifyLivePolyline(points: RunningCoordinate[]): RunningCoordinate[] {
-    return this.rdp.simplifyPreservingTurns(
+  private static readonly sharedRdp = new RdpSimplifier(DEFAULT_RDP_SIMPLIFIER_CONFIG);
+
+  public static simplifyLivePolyline(points: RunningCoordinate[]): RunningCoordinate[] {
+    return PathProcessor.sharedRdp.simplifyPreservingTurns(
       points,
       getGpsOptimizationConfig().livePolylineJitterToleranceMeters
     );
+  }
+
+  public simplifyLivePolyline(points: RunningCoordinate[]): RunningCoordinate[] {
+    return PathProcessor.simplifyLivePolyline(points);
   }
 
   public getFilteredPoints(): RunningPathPoint[] {
@@ -306,6 +324,7 @@ export class PathProcessor {
   }
 
   private collapseIndoorDrift(boundaryTimestamps: number[]): void {
+    if (this.isSimulator) return;
     const boundaries = [...new Set(boundaryTimestamps.filter(Number.isFinite))].sort((a, b) => a - b);
     const groupByBoundaries = <T extends { timestamp: number }>(points: T[]): T[][] => {
       const groups: T[][] = [];

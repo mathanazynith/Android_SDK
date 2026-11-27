@@ -101,7 +101,9 @@ export const createCatmullRomPolyline = (
     const next = usablePoints[Math.min(usablePoints.length - 1, index + 2)];
     for (let step = 1; step <= subdivisions; step += 1) {
       const amount = step / subdivisions;
-      const candidate = interpolate(previous, start, end, next, amount);
+      const candidate = step === subdivisions
+        ? end
+        : interpolate(previous, start, end, next, amount);
       const bounded = clampToSegmentBounds(candidate, start, end);
       const last = smoothed[smoothed.length - 1];
       if (distanceSquared(last, bounded) > 0.01) {

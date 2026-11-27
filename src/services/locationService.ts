@@ -1,11 +1,15 @@
 import * as Location from 'expo-location';
 import { Platform } from 'react-native';
 import { RawGpsPayload } from '../types/running';
+import { getGpsOptimizationConfig } from './gpsOptimizationConfig';
 
 export class LocationService {
   public static async requestForegroundPermissions(): Promise<boolean> {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    return status === 'granted';
+    const currentPermission = await Location.getForegroundPermissionsAsync();
+    if (currentPermission.granted) return true;
+
+    const requestedPermission = await Location.requestForegroundPermissionsAsync();
+    return requestedPermission.granted;
   }
 
   /** Ask Android to enable its high-accuracy provider (GPS + Wi-Fi + mobile). */
@@ -33,6 +37,7 @@ export class LocationService {
         speed: current.coords.speed ?? 0,
         heading: current.coords.heading ?? 0,
         timestamp: current.timestamp,
+        mocked: (current as any).mocked,
       };
 
 
@@ -93,6 +98,7 @@ export class LocationService {
         speed: location.coords.speed ?? 0,
         heading: location.coords.heading ?? 0,
         timestamp: location.timestamp,
+        mocked: (location as any).mocked,
       };
 
       callback(payload);
@@ -101,11 +107,9 @@ export class LocationService {
     const subscription = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.BestForNavigation,
-        // Match the iOS live-map behaviour: request fresh callbacks while the
-        // user is walking, including indoors. PathProcessor keeps these visual
-        // points separate from the stricter save-time route.
+        // Keep the native watcher aligned with iOS route-quality sampling.
         timeInterval: 1_000,
-        distanceInterval: 0,
+        distanceInterval: getGpsOptimizationConfig().locationUpdateDistanceMeters,
         mayShowUserSettingsDialog: true,
       },
       (location) => {

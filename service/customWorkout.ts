@@ -28,6 +28,7 @@ export interface CustomWorkoutWritePayload {
   workout_type?: string;
   distance?: number | null;
   duration?: number | null;
+  distance_unit?: string;
   segments: CustomWorkoutSegmentWritePayload[];
 }
 
@@ -161,12 +162,8 @@ export const secondsToTimeString = (sec?: number | null): string => {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 };
 
-export const cleanPaceString = (paceStr?: string | null): string | null => {
-  if (!paceStr) return null;
-  const match = paceStr.match(/(\d+)\s*:\s*(\d+(?:\.\d+)?)/);
-  if (!match) return null;
-  return `${match[1]}:${match[2].padStart(2, "0")}`;
-};
+import { cleanPaceString } from "../src/utils/workoutCalculations";
+export { cleanPaceString };
 
 export const canonicalDistanceUnit = (
   unitStr?: string | null,
@@ -182,10 +179,9 @@ export const canonicalDistanceUnit = (
   if (lower === "mi" || lower.includes("mile") || lower.includes("(mi)")) {
     return "mi";
   }
-  // Check meters (only for Run segments)
+  // Check meters (backend forbids meters for Warmup and Cooldown)
   if (lower === "m" || lower === "meter" || lower === "meters" || lower.includes("(m)")) {
     return stepType === "Run" ? "m" : "km";
   }
   return "km";
 };
-

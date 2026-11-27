@@ -38,6 +38,8 @@ interface DistanceTimePaceSelectorProps {
   showTimeInput?: boolean;
   showPace?: boolean;
   maxDistanceKm?: number | null;
+  distanceError?: string;
+  timeError?: string;
 }
 
 interface DistanceOption {
@@ -98,6 +100,8 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
   showTimeInput = true,
   showPace = true,
   maxDistanceKm,
+  distanceError,
+  timeError,
 }) => {
   const { colors } = useTheme();
   const { user } = useAuth();
@@ -283,6 +287,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
             value={customValues?.[distanceField] || ""}
             unitLabel={distanceUnitLabel}
             hint={undefined}
+            error={distanceError}
             onChange={(value) => onCustomChange?.(distanceField, value)}
             maxValue={maxDistanceForInput}
           />
@@ -294,6 +299,7 @@ const DistanceTimePaceSelector: React.FC<DistanceTimePaceSelectorProps> = ({
             value={customValues?.[timeField]}
             allowEmpty={!selectedTimeValue}
             hint={undefined}
+            error={timeError}
             onChange={(value) => onCustomChange?.(timeField, value)}
             maxHours={99}
           />

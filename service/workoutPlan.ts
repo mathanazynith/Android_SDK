@@ -1,7 +1,9 @@
 import { workoutPlanAPI } from "./api";
 import { customWorkoutAPI, type UserWorkoutResponse } from "./customWorkout";
+import { isNoTrainingPlanResponse } from "../src/utils/workoutPlanGeneration";
 
 export type { UserWorkoutResponse };
+export { isNoTrainingPlanResponse };
 
 export interface CurrentWorkoutSegment {
   segment_order: number;
@@ -52,32 +54,14 @@ export interface CurrentWorkoutPlan {
   weeks: Array<{ week_number: number; workouts: CurrentWorkout[] }>;
 }
 
-export const isNoTrainingPlanResponse = (value: unknown): boolean => {
-  const candidates = [value];
-  if (value && typeof value === "object") {
-    const response = value as Record<string, unknown>;
-    candidates.push(response.data);
-    for (const candidate of [value, response.data]) {
-      if (!candidate || typeof candidate !== "object") continue;
-      const fields = candidate as Record<string, unknown>;
-      candidates.push(fields.detail, fields.message, fields.error);
-    }
-  }
-
-  return candidates.some((candidate) => (
-    typeof candidate === "string"
-      && /\bno\s+(?:(?:active|training)\s+)*plans?\b/i.test(candidate)
-  ));
-};
-
 export const workoutPlanService = {
   async getCurrent(): Promise<CurrentWorkoutPlan | null> {
     const response = await workoutPlanAPI.getCurrent();
     if (isNoTrainingPlanResponse(response.data)) return null;
     return response.data as CurrentWorkoutPlan;
   },
-  async endCurrent(reason: string): Promise<void> {
-    await workoutPlanAPI.endCurrent(reason);
+  async endPlan(planId: number, reason: string): Promise<void> {
+    await workoutPlanAPI.endPlan(planId, reason);
   },
 
   /**
@@ -236,7 +220,7 @@ export const workoutPlanService = {
             `[workoutPlanService] Backend patch on workout id=${match.id} failed:`,
             patchErr?.response?.data || patchErr?.message
           );
-          return { ...match, is_benchmark: isBenchmark };
+          throw patchErr;
         }
       }
 

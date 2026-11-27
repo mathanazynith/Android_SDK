@@ -1,16 +1,23 @@
 import { Feather } from "@expo/vector-icons";
-import { useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BRAND_GREEN, useTheme } from "../../contexts/ThemeContext";
+import OriginZoomModal from "../navigation/OriginZoomModal";
+import type { DashboardLaunchOrigin } from "../navigation/dashboardLaunchTransition";
 
 interface ThemedCalendarPickerProps {
+  visible?: boolean;
   value: Date;
   title: string;
   onCancel: () => void;
   onConfirm: (date: Date) => void;
+  onClear?: () => void;
+  clearLabel?: string;
   minimumDate?: Date;
   maximumDate?: Date;
+  launchOrigin?: DashboardLaunchOrigin;
+  onExitComplete?: () => void;
 }
 
 const weekdayLabels = ["S", "M", "T", "W", "T", "F", "S"];
@@ -25,12 +32,19 @@ const clampToBounds = (date: Date, minimumDate?: Date, maximumDate?: Date) => {
   return day;
 };
 
-export default function ThemedCalendarPicker({ value, title, onCancel, onConfirm, minimumDate, maximumDate }: ThemedCalendarPickerProps) {
+export default function ThemedCalendarPicker({ visible = true, value, title, onCancel, onConfirm, onClear, clearLabel, minimumDate, maximumDate, launchOrigin, onExitComplete }: ThemedCalendarPickerProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [selectedDate, setSelectedDate] = useState(() => clampToBounds(value, minimumDate, maximumDate));
-  const [displayMonth, setDisplayMonth] = useState(() => startOfMonth(value));
+  const [displayMonth, setDisplayMonth] = useState(() => startOfMonth(clampToBounds(value, minimumDate, maximumDate)));
   const [showYears, setShowYears] = useState(false);
+
+  useEffect(() => {
+    if (!visible) return;
+    const nextDate = clampToBounds(value, minimumDate, maximumDate);
+    setSelectedDate(nextDate);
+    setDisplayMonth(startOfMonth(nextDate));
+  }, [maximumDate, minimumDate, value, visible]);
 
   const year = displayMonth.getFullYear();
   const month = displayMonth.getMonth();
@@ -42,8 +56,9 @@ export default function ThemedCalendarPicker({ value, title, onCancel, onConfirm
   const nextMonth = new Date(year, month + 1, 1);
   const canGoPrevious = !minimumDate || previousMonth.getFullYear() > minimumDate.getFullYear() || (previousMonth.getFullYear() === minimumDate.getFullYear() && previousMonth.getMonth() >= minimumDate.getMonth());
   const canGoNext = !maximumDate || nextMonth.getFullYear() < maximumDate.getFullYear() || (nextMonth.getFullYear() === maximumDate.getFullYear() && nextMonth.getMonth() <= maximumDate.getMonth());
-  const firstYear = minimumDate?.getFullYear() ?? 1900;
-  const lastYear = maximumDate?.getFullYear() ?? new Date().getFullYear() + 5;
+  const thisYear = new Date().getFullYear();
+  const firstYear = minimumDate?.getFullYear() ?? Math.min(1970, displayMonth.getFullYear() - 2);
+  const lastYear = maximumDate?.getFullYear() ?? Math.max(thisYear + 10, displayMonth.getFullYear() + 5);
   const years = Array.from({ length: Math.max(1, lastYear - firstYear + 1) }, (_, index) => firstYear + index);
   const monthLabel = currentMonth.toLocaleDateString(undefined, { month: "long" });
 
@@ -54,7 +69,13 @@ export default function ThemedCalendarPicker({ value, title, onCancel, onConfirm
   };
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onCancel}>
+    <OriginZoomModal
+      visible={visible}
+      transparent
+      launchOrigin={launchOrigin}
+      onExitComplete={onExitComplete}
+      onRequestClose={onCancel}
+    >
       <View style={[styles.overlay, { backgroundColor: colors.overlay }]}>
         <Pressable accessibilityRole="button" accessibilityLabel="Close calendar" onPress={onCancel} style={StyleSheet.absoluteFill} />
         <View style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: Math.max(insets.bottom, 16) }]}>
@@ -64,11 +85,26 @@ export default function ThemedCalendarPicker({ value, title, onCancel, onConfirm
               <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
               <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Choose a date</Text>
             </View>
-            <View style={[styles.selectedDate, { backgroundColor: colors.selected }]}>
-              <Feather name="calendar" size={14} color={colors.primary} />
-              <Text style={[styles.selectedDateText, { color: colors.primary }]}>
-                {selectedDate.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
-              </Text>
+            <View style={styles.dateBadgeRow}>
+              <View style={[styles.selectedDate, { backgroundColor: colors.selected }]}>
+                <Feather name="calendar" size={14} color={colors.primary} />
+                <Text style={[styles.selectedDateText, { color: colors.primary }]}>
+                  {selectedDate.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
+                </Text>
+              </View>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Jump to today"
+                onPress={() => {
+                  const today = new Date();
+                  if ((minimumDate && beforeDay(today, minimumDate)) || (maximumDate && afterDay(today, maximumDate))) return;
+                  setSelectedDate(today);
+                  setDisplayMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+                }}
+                style={[styles.todayButton, { borderColor: colors.border, backgroundColor: colors.surfaceRaised }]}
+              >
+                <Text style={[styles.todayButtonText, { color: colors.primary }]}>Today</Text>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -126,6 +162,11 @@ export default function ThemedCalendarPicker({ value, title, onCancel, onConfirm
             <TouchableOpacity accessibilityRole="button" onPress={onCancel} style={[styles.cancelButton, { borderColor: colors.border }]}>
               <Text style={[styles.actionText, { color: colors.textSecondary }]}>Cancel</Text>
             </TouchableOpacity>
+            {onClear && (
+              <TouchableOpacity accessibilityRole="button" onPress={onClear} style={[styles.clearButton, { borderColor: "rgba(255, 69, 58, 0.4)", backgroundColor: "rgba(255, 69, 58, 0.12)" }]}>
+                <Text style={[styles.actionText, { color: "#FF453A" }]}>{clearLabel || "Remove date"}</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity accessibilityRole="button" onPress={() => onConfirm(selectedDate)} style={[styles.doneButton, { backgroundColor: BRAND_GREEN }]}>
               <Text style={[styles.actionText, { color: colors.primaryText }]}>Use this date</Text>
               <Feather name="check" size={17} color={colors.primaryText} />
@@ -133,7 +174,7 @@ export default function ThemedCalendarPicker({ value, title, onCancel, onConfirm
           </View>
         </View>
       </View>
-    </Modal>
+    </OriginZoomModal>
   );
 }
 
@@ -145,8 +186,11 @@ const styles = StyleSheet.create({
   titleWrap: { flex: 1, gap: 3 },
   title: { fontSize: 18, fontWeight: "700" },
   subtitle: { fontSize: 12, fontWeight: "500" },
+  dateBadgeRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   selectedDate: { minHeight: 34, paddingHorizontal: 10, borderRadius: 10, flexDirection: "row", alignItems: "center", gap: 6 },
   selectedDateText: { fontSize: 12, fontWeight: "700" },
+  todayButton: { minHeight: 34, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  todayButtonText: { fontSize: 12, fontWeight: "700" },
   monthBar: { minHeight: 46, marginBottom: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   monthArrow: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   monthLabel: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
@@ -165,6 +209,7 @@ const styles = StyleSheet.create({
   yearCellText: { fontSize: 14, fontWeight: "600" },
   actions: { flexDirection: "row", gap: 10, paddingTop: 8 },
   cancelButton: { flex: 1, minHeight: 48, borderWidth: 1, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  clearButton: { flex: 1, minHeight: 48, borderWidth: 1, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   doneButton: { flex: 1.5, minHeight: 48, borderRadius: 13, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   actionText: { fontSize: 14, fontWeight: "700" },
 });

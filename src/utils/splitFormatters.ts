@@ -1,19 +1,30 @@
+import { SPLIT_DISTANCE_METERS } from '../types/activity';
+
 export const formatSplitDistance = (meters: number): string => {
   if (!Number.isFinite(meters) || meters < 0) return '--';
-  if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`;
-  const roundedMeters = Number(meters.toFixed(2));
-  return `${roundedMeters} m`;
+  if (meters % 1 === 0) return `${meters}m`;
+  return `${meters.toFixed(2)}m`;
 };
 
-export const formatSplitTime = (seconds: number): string => {
+export const formatDurationMmSs = (seconds: number): string => {
   if (!Number.isFinite(seconds) || seconds < 0) return '--';
-  if (seconds < 60) return `${seconds.toFixed(1).replace(/\.0$/, '')} s`;
   const totalSeconds = Math.round(seconds);
-  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`;
+  return `${String(Math.floor(totalSeconds / 60)).padStart(2, '0')}:${String(totalSeconds % 60).padStart(2, '0')}`;
 };
+
+export const formatDurationHhMmSs = (seconds: number): string => {
+  if (!Number.isFinite(seconds) || seconds < 0) return '--';
+  const totalSeconds = Math.round(seconds);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainingSeconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+};
+
+export const formatSplitTime = formatDurationMmSs;
 
 export const formatPace = (secondsPerKm: number): string => {
-  if (!Number.isFinite(secondsPerKm) || secondsPerKm <= 0) return '-- /km';
+  if (!Number.isFinite(secondsPerKm) || secondsPerKm <= 0) return '--/km';
   const totalSeconds = Math.round(secondsPerKm);
-  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')} /km`;
+  return `${String(Math.floor(totalSeconds / 60)).padStart(2, '0')}:${String(totalSeconds % 60).padStart(2, '0')}/km`;
 };

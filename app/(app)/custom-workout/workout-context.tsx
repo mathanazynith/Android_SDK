@@ -1,4 +1,6 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { useAuth } from "../../../service/auth";
+import { getDistanceUnitCode } from "../../../utils/distanceUnit";
 import { getBackendErrorMessage } from "../../../service/api";
 import {
     canonicalDistanceUnit,
@@ -16,10 +18,12 @@ import {
     getMaxDistanceForUnit,
     getUnitFullLabel,
     normalizeUnit,
+    parsePaceToSeconds,
 } from "../../../src/utils/workoutCalculations";
 
 export type WorkoutStep = {
   id?: number;
+  clientKey?: string;
   title: string;
   stepType?: CustomSegmentType;
   inputType?: SegmentInputType;
@@ -56,6 +60,9 @@ const getTodayDateString = () => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
+export const createStepKey = () =>
+  `step-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
 const createDefaultWorkout = (): WorkoutState => ({
   id: null,
   title: "",
@@ -80,6 +87,7 @@ interface CustomWorkoutContextType {
   addRun: (step: WorkoutStep) => void;
   addEmptyRun: () => void;
   addRepeatRun: () => void;
+  convertRunToRepeat: (index: number) => void;
   updateRun: (index: number, step: WorkoutStep) => void;
   addRunAfter: (index: number) => void;
   duplicateRunGroup: (index: number) => void;
@@ -89,9 +97,11 @@ interface CustomWorkoutContextType {
   updateRunSkipLastRest: (index: number, skipLastRest: boolean) => void;
   updateGroupRepeat: (groupId: string, repeat: number) => void;
   updateGroupSkipLastRest: (groupId: string, skipLastRest: boolean) => void;
+  reorderRuns: (runs: WorkoutStep[]) => void;
   setCooldown: (step: WorkoutStep) => void;
   removeWarmUp: () => void;
   removeRun: (index: number) => void;
+  removeRunGroup: (groupId: string) => void;
   removeCooldown: () => void;
   reset: () => void;
   setIsBenchmark: (isBenchmark: boolean) => void;
@@ -103,6 +113,8 @@ interface CustomWorkoutContextType {
 const WorkoutContext = createContext<CustomWorkoutContextType | null>(null);
 
 export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  const profileUnit = getDistanceUnitCode(user?.profile?.distance_unit) === "mile" ? "mi" : "km";
   const [workout, setWorkout] = useState<WorkoutState>(createDefaultWorkout);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -147,8 +159,9 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         ...current.runs,
         {
           ...step,
+          clientKey: step.clientKey || (step.id ? String(step.id) : createStepKey()),
           stepType: "Run",
-          title: step.title || "Running",
+          title: step.title || "Run",
         },
       ],
     }));
@@ -157,11 +170,12 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
   const addEmptyRun = useCallback(() => {
     setWorkout((current) => {
       const newStep: WorkoutStep = {
-        title: "Running",
+        clientKey: createStepKey(),
+        title: "Run",
         stepType: "Run",
         inputType: "DURATION",
-        duration: "",
-        distance: "",
+        duration: "00:00:00",
+        distance: "0.00",
         unit: "Kilometers (km)",
         pace: "",
         repeat: 1,
@@ -181,41 +195,70 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const convertRunToRepeat = useCallback((index: number) => {
+    setWorkout((current) => {
+      const target = current.runs[index];
+      if (!target) return current;
+      const newGroupId = `run-group-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      return {
+        ...current,
+        runs: current.runs.map((step, idx) =>
+          idx === index
+            ? {
+                ...step,
+                clientKey: step.clientKey || createStepKey(),
+                groupId: newGroupId,
+                repeat: 2,
+                groupRepeat: 2,
+                rest: step.rest && step.rest !== "00:00:00" ? step.rest : "00:01:00",
+                skipLastRest: step.skipLastRest ?? true,
+                skipRest: false,
+              }
+            : step
+        ),
+      };
+    });
+  }, []);
+
   const addRepeatRun = useCallback(() => {
     setWorkout((current) => {
-      const existingGroup = current.runs.find((r) => Boolean(r.groupId));
-      const groupId = existingGroup?.groupId || `run-group-${Date.now()}`;
-
-      const newRepeatStep: WorkoutStep = {
-        title: "Running",
+      const newGroupId = `run-group-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const newStep: WorkoutStep = {
+        clientKey: createStepKey(),
+        title: "Run",
         stepType: "Run",
-        inputType: "DURATION",
-        duration: "00:05:00",
-        distance: "1.00",
-        unit: "Kilometers (km)",
-        pace: "05:00 /km",
-        repeat: 1,
+        inputType: "DISTANCE",
+        duration: "00:00:00",
+        distance: "0.00",
+        unit: getUnitFullLabel(profileUnit),
+        pace: "",
+        repeat: 2,
+        groupRepeat: 2,
+        groupId: newGroupId,
         rest: "00:01:00",
         skipLastRest: true,
         skipRest: false,
-        groupId,
-        groupRepeat: 1,
         notes: "",
       };
 
       return {
         ...current,
-        runs: [...current.runs, newRepeatStep],
+        runs: [...current.runs, newStep],
       };
     });
-  }, []);
+  }, [profileUnit]);
 
   const updateRun = useCallback((index: number, step: WorkoutStep) => {
     setWorkout((current) => ({
       ...current,
       runs: current.runs.map((existing, runIndex) =>
         runIndex === index
-          ? { ...step, stepType: "Run", title: step.title || "Running" }
+          ? {
+              ...step,
+              clientKey: existing.clientKey || step.clientKey || createStepKey(),
+              stepType: "Run",
+              title: step.title || "Run",
+            }
           : existing
       ),
     }));
@@ -226,7 +269,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
       const source = current.runs[index];
       if (!source) return current;
       const runs = [...current.runs];
-      runs.splice(index + 1, 0, { ...source });
+      runs.splice(index + 1, 0, { ...source, clientKey: createStepKey() });
       return { ...current, runs };
     });
   }, []);
@@ -241,7 +284,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         groupId,
         groupRepeat: source.groupRepeat || 1,
       };
-      const duplicate = { ...groupedSource };
+      const duplicate = { ...groupedSource, clientKey: createStepKey() };
       const runs = current.runs.map((step, runIndex) =>
         runIndex === index ? groupedSource : step
       );
@@ -294,11 +337,12 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateGroupRepeat = useCallback((groupId: string, repeat: number) => {
+    const val = Math.max(1, Math.min(40, repeat));
     setWorkout((current) => ({
       ...current,
       runs: current.runs.map((step) =>
         step.groupId === groupId
-          ? { ...step, groupRepeat: Math.max(1, Math.min(40, repeat)) }
+          ? { ...step, repeat: val, groupRepeat: val }
           : step
       ),
     }));
@@ -310,6 +354,13 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
       runs: current.runs.map((step) =>
         step.groupId === groupId ? { ...step, skipLastRest } : step
       ),
+    }));
+  }, []);
+
+  const reorderRuns = useCallback((newRuns: WorkoutStep[]) => {
+    setWorkout((current) => ({
+      ...current,
+      runs: newRuns,
     }));
   }, []);
 
@@ -332,6 +383,13 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
     setWorkout((current) => ({
       ...current,
       runs: current.runs.filter((_, runIndex) => runIndex !== index),
+    }));
+  }, []);
+
+  const removeRunGroup = useCallback((groupId: string) => {
+    setWorkout((current) => ({
+      ...current,
+      runs: current.runs.filter((step) => step.groupId !== groupId),
     }));
   }, []);
 
@@ -360,7 +418,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         if (run.distance) {
           const maxDist = getMaxDistanceForUnit(run.unit);
           if (parseFloat(run.distance) > maxDist) {
-            throw new Error(`Running step "${run.title}" distance cannot exceed ${maxDist} ${run.unit || "km"}.`);
+            throw new Error(`Run step "${run.title}" distance cannot exceed ${maxDist} ${run.unit || "km"}.`);
           }
         }
       }
@@ -387,9 +445,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           !isTimeBased && workout.warmUp.distance
             ? parseFloat(workout.warmUp.distance)
             : null;
-        const distanceUnit = isTimeBased
-          ? null
-          : canonicalDistanceUnit(workout.warmUp.unit, "Warmup");
+        const distanceUnit = canonicalDistanceUnit(workout.warmUp.unit, "Warmup");
 
         segments.push({
           segment_order: order++,
@@ -425,7 +481,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           pace: cleanPaceString(run.pace),
           repeats: Math.max(
             1,
-            Math.min(40, (run.repeat || 1) * (run.groupRepeat || 1))
+            Math.min(40, run.groupId ? (run.groupRepeat || run.repeat || 1) : (run.repeat || 1))
           ),
           rest_duration: restSec,
           skip_last_rest: run.skipLastRest ?? true,
@@ -449,9 +505,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           !isTimeBased && workout.cooldown.distance
             ? parseFloat(workout.cooldown.distance)
             : null;
-        const distanceUnit = isTimeBased
-          ? null
-          : canonicalDistanceUnit(workout.cooldown.unit, "Cooldown");
+        const distanceUnit = canonicalDistanceUnit(workout.cooldown.unit, "Cooldown");
 
         segments.push({
           segment_order: order++,
@@ -468,11 +522,44 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         });
       }
 
+      const allSteps = [workout.warmUp, ...workout.runs, workout.cooldown].filter(Boolean) as WorkoutStep[];
+      let totalSec = 0;
+      let totalDistKm = 0;
+      for (const step of allSteps) {
+        const declared = timeStringToSeconds(step.duration) || 0;
+        let stepSec = declared;
+        const normUnit = normalizeUnit(step.unit);
+        const d = parseFloat(step.distance?.replace(",", ".") || "0") || 0;
+        let distKm = 0;
+        if (d > 0) {
+          distKm = normUnit === "m" ? d / 1000 : normUnit === "mi" ? d * 1.609344 : d;
+        }
+
+        const defP = step.stepType === "Warmup" ? 400 : step.stepType === "Cooldown" ? 500 : 300;
+        const p = parsePaceToSeconds(step.pace) || defP;
+
+        if (stepSec <= 0 && distKm > 0) {
+          stepSec = normUnit === "m" ? Math.round((d / 1000) * p) : Math.round(d * p);
+        } else if (distKm <= 0 && stepSec > 0) {
+          distKm = normUnit === "mi" ? (stepSec / p) * 1.609344 : stepSec / p;
+        }
+
+        const rep = Math.max(1, step.groupId ? (step.groupRepeat || step.repeat || 1) : (step.repeat || 1));
+        const rest = timeStringToSeconds(step.rest) || 0;
+        const isRepeated = rep > 1 || Boolean(step.groupId);
+        const restCount = isRepeated ? ((step.skipLastRest ?? true) ? Math.max(rep - 1, 0) : rep) : 0;
+        totalSec += stepSec * rep + rest * restCount;
+        totalDistKm += distKm * rep;
+      }
+
       const payload: CustomWorkoutWritePayload = {
         title: workout.title?.trim() || "Custom Workout",
         workout_date: workout.workoutDate || null,
         notes: workout.notes || "",
         is_benchmark: workout.isBenchmark ?? false,
+        duration: totalSec > 0 ? totalSec : null,
+        distance: totalDistKm > 0 ? (profileUnit === "mi" ? parseFloat((totalDistKm / 1.609344).toFixed(2)) : parseFloat(totalDistKm.toFixed(2))) : null,
+        distance_unit: profileUnit,
         segments,
       };
 
@@ -525,12 +612,12 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           loadedDistance = String(seg.display_distance);
         } else if (seg.rep_distance != null && seg.rep_distance > 0) {
           if (unitType === "m") loadedDistance = String(seg.rep_distance);
-          else if (unitType === "mi") loadedDistance = (seg.rep_distance / 1609.344).toFixed(2);
-          else loadedDistance = (seg.rep_distance / 1000).toFixed(2);
+          else if (unitType === "mi") loadedDistance = seg.rep_distance > 100 ? (seg.rep_distance / 1609.344).toFixed(2) : String(seg.rep_distance);
+          else loadedDistance = seg.rep_distance > 100 ? (seg.rep_distance / 1000).toFixed(2) : String(seg.rep_distance);
         } else if (seg.distance != null && seg.distance > 0) {
           if (unitType === "m") loadedDistance = String(seg.distance);
-          else if (unitType === "mi") loadedDistance = (seg.distance / 1609.344).toFixed(2);
-          else loadedDistance = (seg.distance / 1000).toFixed(2);
+          else if (unitType === "mi") loadedDistance = seg.distance > 100 ? (seg.distance / 1609.344).toFixed(2) : String(seg.distance);
+          else loadedDistance = seg.distance > 100 ? (seg.distance / 1000).toFixed(2) : String(seg.distance);
         }
 
         let cleanNotes = seg.notes || "";
@@ -551,15 +638,20 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           loadedGroupId = `run-group-${seg.id || seg.segment_order}`;
         }
 
+        const rawType = String(seg.segment_type || "").trim().toLowerCase();
+        const isWarmup = rawType === "warmup" || rawType.includes("warm");
+        const isCooldown = rawType === "cooldown" || rawType.includes("cool");
+        const resolvedType: CustomSegmentType = isWarmup
+          ? "Warmup"
+          : isCooldown
+          ? "Cooldown"
+          : "Run";
+
         const step: WorkoutStep = {
           id: seg.id,
-          title:
-            seg.segment_type === "Warmup"
-              ? "Warm Up"
-              : seg.segment_type === "Cooldown"
-              ? "Cool Down"
-              : "Running",
-          stepType: seg.segment_type,
+          clientKey: seg.id ? `seg-${seg.id}` : createStepKey(),
+          title: isWarmup ? "Warm Up" : isCooldown ? "Cool Down" : "Run",
+          stepType: resolvedType,
           inputType: seg.input_type || "DURATION",
           duration: secondsToTimeString(seg.duration),
           distance: loadedDistance,
@@ -571,12 +663,12 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
           skipRest: !seg.rest_duration,
           notes: cleanNotes,
           groupId: loadedGroupId,
-          groupRepeat: 1,
+          groupRepeat: seg.repeats || 1,
         };
 
-        if (seg.segment_type === "Warmup" && !loadedWarmUp) {
+        if (isWarmup && !loadedWarmUp) {
           loadedWarmUp = step;
-        } else if (seg.segment_type === "Cooldown" && !loadedCooldown) {
+        } else if (isCooldown && !loadedCooldown) {
           loadedCooldown = step;
         } else {
           loadedRuns.push(step);
@@ -632,6 +724,7 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         addRun,
         addEmptyRun,
         addRepeatRun,
+        convertRunToRepeat,
         updateRun,
         addRunAfter,
         duplicateRunGroup,
@@ -641,9 +734,11 @@ export function CustomWorkoutProvider({ children }: { children: ReactNode }) {
         updateRunSkipLastRest,
         updateGroupRepeat,
         updateGroupSkipLastRest,
+        reorderRuns,
         setCooldown,
         removeWarmUp,
         removeRun,
+        removeRunGroup,
         removeCooldown,
         reset,
         setIsBenchmark,

@@ -41,8 +41,8 @@ export interface Question {
   fieldLabels?: Record<string, string>;
   subQuestions?: SubQuestion[];
   validation?: {
-    min?: number;
-    max?: number;
+    min?: number | string;
+    max?: number | string;
     pattern?: string;
   };
   // Additional fields from backend (page_no, question_order, slug, etc.)

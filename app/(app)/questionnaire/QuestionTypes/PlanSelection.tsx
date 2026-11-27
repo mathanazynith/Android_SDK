@@ -30,6 +30,8 @@ interface PlanSelectionProps {
   racePrediction?: RacePrediction | null;
   isRacePredictionLoading?: boolean;
   racePredictionError?: string | null;
+  distanceError?: string;
+  timeError?: string;
 }
 
 const PlanSelection: React.FC<PlanSelectionProps> = ({
@@ -47,6 +49,8 @@ const PlanSelection: React.FC<PlanSelectionProps> = ({
   racePrediction,
   isRacePredictionLoading,
   racePredictionError,
+  distanceError,
+  timeError,
 }) => {
   return (
     <View style={{ gap: 14 }}>
@@ -59,6 +63,8 @@ const PlanSelection: React.FC<PlanSelectionProps> = ({
         onSelect={onSelect}
         customValues={customValues}
         onCustomChange={onCustomChange}
+        distanceError={distanceError}
+        timeError={timeError}
         distanceField="distance"
         timeField="time"
         paceField="pace"

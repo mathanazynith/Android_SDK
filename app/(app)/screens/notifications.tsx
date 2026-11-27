@@ -1,7 +1,11 @@
 import { Feather } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 import {
+  Image,
   LayoutAnimation,
   Pressable,
   RefreshControl,
@@ -20,37 +24,14 @@ import { useAuth } from '../../../service/auth';
 import {
   getLocallyDismissedNotificationIds,
   getNotificationDestination,
+  removeLocallyDismissedNotification,
   saveLocallyDismissedNotification,
   type AppNotification,
 } from '../../../service/notificationService';
 
 const EMPTY_IDS = new Set<string>();
-  
-  type IconName = keyof typeof Feather.glyphMap;
-  
-  const eventPresentation = (type: string): { icon: IconName; color: string } => {
-    switch (type) {
-      case 'PLAN_ENDING':
-        return { icon: 'clock', color: '#E6B75A' };
-      case 'WORKOUT_TODAY':
-      case 'WORKOUT_TOMORROW':
-        return { icon: 'calendar', color: BRAND_GREEN };
-      case 'BENCHMARK_WORKOUT_TODAY':
-      case 'BENCHMARK_WORKOUT_TOMORROW':
-        return { icon: 'activity', color: '#E6B75A' };
-      case 'NEW_DEVICE_LOGIN':
-        return { icon: 'smartphone', color: '#8FA6B5' };
-      case 'RUN_SAVED_OTHER_DEVICE':
-        return { icon: 'activity', color: BRAND_GREEN };
-      case 'PASSWORD_CHANGED':
-        return { icon: 'lock', color: '#8FA6B5' };
-      case 'PLAN_UPDATED_BY_ADMIN':
-        return { icon: 'refresh-cw', color: BRAND_GREEN };
-      default:
-        return { icon: 'bell', color: '#A7ADB0' };
-    }
-  };
-  
+const UNDO_WINDOW_MS = 5_000;
+
   const dateGroupFor = (value: string, now: Date): string => {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return 'Date unavailable';
@@ -93,6 +74,8 @@ export default function NotificationsScreen() {
       loaded: boolean;
     }>({ userId: null, dismissedIds: new Set(), loaded: false });
     const [dismissalRetry, setDismissalRetry] = useState(0);
+    const [undoNotification, setUndoNotification] = useState<{ userId: number; notification: AppNotification } | null>(null);
+    const undoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [dismissalReadError, setDismissalReadError] = useState<{
       userId: number;
       message: string;
@@ -144,9 +127,21 @@ export default function NotificationsScreen() {
         if (current.userId !== userId || !current.loaded) return current;
         return { ...current, dismissedIds: new Set(current.dismissedIds).add(String(id)) };
       });
+      const notification = notifications.find((item) => String(item.id) === String(id));
+      if (notification) {
+        if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+        setUndoNotification({ userId, notification });
+        undoTimeoutRef.current = setTimeout(() => {
+          setUndoNotification((current) => current?.userId === userId && String(current.notification.id) === String(id) ? null : current);
+          undoTimeoutRef.current = null;
+        }, UNDO_WINDOW_MS);
+      }
       try {
         await saveLocallyDismissedNotification(userId, id);
       } catch (error) {
+        if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+        undoTimeoutRef.current = null;
+        setUndoNotification((current) => current?.userId === userId && String(current.notification.id) === String(id) ? null : current);
         if (activeUserId.current === userId) {
           LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
           setDismissalState((current) => {
@@ -160,6 +155,37 @@ export default function NotificationsScreen() {
         console.warn('[Notifications] Local dismissal save failed', error);
       }
     };
+    const undoDismissal = async () => {
+      const pendingUndo = undoNotification;
+      if (!pendingUndo || pendingUndo.userId !== userId) return;
+      if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+      undoTimeoutRef.current = null;
+      setUndoNotification(null);
+      setDismissalState((current) => {
+        if (current.userId !== userId || !current.loaded) return current;
+        const nextDismissedIds = new Set(current.dismissedIds);
+        nextDismissedIds.delete(String(pendingUndo.notification.id));
+        return { ...current, dismissedIds: nextDismissedIds };
+      });
+      try {
+        await removeLocallyDismissedNotification(userId!, pendingUndo.notification.id);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      } catch (error) {
+        setDismissalState((current) => {
+          if (current.userId !== userId || !current.loaded) return current;
+          return { ...current, dismissedIds: new Set(current.dismissedIds).add(String(pendingUndo.notification.id)) };
+        });
+        setActionError('This notification could not be restored. Please try again.');
+        console.warn('[Notifications] Local dismissal undo failed', error);
+      }
+    };
+    const handleSwipeOpened = (id: AppNotification['id']) => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      void dismissNotification(id);
+    };
+    useEffect(() => () => {
+      if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+    }, []);
     const sections = useMemo(() => {
       const now = new Date();
       const groups = new Map<string, AppNotification[]>();
@@ -306,32 +332,25 @@ export default function NotificationsScreen() {
               <View key={section.title}>
                 <Text style={[styles.sectionHeading, { color: colors.textSecondary }]}>{section.title}</Text>
                 {section.items.map((notification) => {
-                  const presentation = eventPresentation(notification.type);
                   return (
                     <ReanimatedSwipeable
                       key={String(notification.id)}
                       overshootRight={false}
                       overshootLeft={false}
-                      rightThreshold={40}
-                      leftThreshold={40}
+                      rightThreshold={78}
+                      leftThreshold={78}
                       renderLeftActions={() => (
-                        <View style={styles.dismissAction}>
-                          <Feather name="trash-2" size={18} color="#FFFFFF" />
-                          <Text style={styles.dismissActionText}>Dismiss</Text>
-                        </View>
+                        <SwipeDeleteFeedback />
                       )}
                       renderRightActions={() => (
-                        <View style={styles.dismissAction}>
-                          <Feather name="trash-2" size={18} color="#FFFFFF" />
-                          <Text style={styles.dismissActionText}>Dismiss</Text>
-                        </View>
+                        <SwipeDeleteFeedback />
                       )}
-                      onSwipeableOpen={() => dismissNotification(notification.id)}
+                      onSwipeableOpen={() => handleSwipeOpened(notification.id)}
                     >
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={`${notification.title}. ${notification.is_read ? 'Read' : 'Unread'}`}
-                        accessibilityActions={[{ name: 'dismiss', label: 'Dismiss notification' }]}
+                        accessibilityActions={[{ name: 'dismiss', label: 'Delete notification' }]}
                         onAccessibilityAction={({ nativeEvent }) => {
                           if (nativeEvent.actionName === 'dismiss') void dismissNotification(notification.id);
                         }}
@@ -345,9 +364,12 @@ export default function NotificationsScreen() {
                           },
                         ]}
                       >
-                        <View style={[styles.eventIcon, { backgroundColor: `${presentation.color}18` }]}>
-                          <Feather name={presentation.icon} size={18} color={presentation.color} />
-                        </View>
+                        <Image
+                          accessible={false}
+                          source={require('../../../assets/Zy-Run_Official.png')}
+                          resizeMode="cover"
+                          style={styles.eventIconImage}
+                        />
                         <View style={styles.notificationContent}>
                           <View style={styles.titleLine}>
                             {!notification.is_read ? <View style={styles.unreadDot} /> : null}
@@ -384,6 +406,17 @@ export default function NotificationsScreen() {
           </ScrollView>
         )}
       </SafeAreaView>
+      {undoNotification?.userId === userId ? (
+        <Animated.View entering={FadeInDown.duration(180)} exiting={FadeOutDown.duration(140)} style={[styles.undoToast, { backgroundColor: colors.surfaceRaised, borderColor: colors.border }]}>
+          <View style={styles.undoIconBadge}>
+            <Feather name="check" size={15} color="#FFFFFF" />
+          </View>
+          <Text style={[styles.undoMessage, { color: colors.text }]}>Notification deleted</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Undo delete notification" onPress={() => void undoDismissal()} style={styles.undoButton}>
+            <Text style={[styles.undoButtonText, { color: colors.primary }]}>Undo</Text>
+          </Pressable>
+        </Animated.View>
+      ) : null}
       </GestureHandlerRootView>
     );
   }
@@ -410,9 +443,13 @@ const styles = StyleSheet.create({
     listContent: { paddingHorizontal: 18, paddingTop: 4, paddingBottom: 36 },
     sectionHeading: { marginTop: 22, marginBottom: 7, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
     notificationRow: { minHeight: 82, flexDirection: 'row', alignItems: 'flex-start', padding: 14, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, marginBottom: 10, gap: 12 },
-    dismissAction: { width: 88, minHeight: 82, alignItems: 'center', justifyContent: 'center', backgroundColor: '#D9534F', gap: 4 },
-    dismissActionText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
-    eventIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+    dismissAction: { width: 88, minHeight: 82, alignItems: 'center', justifyContent: 'center', borderRadius: 17, marginBottom: 10, overflow: 'hidden' },
+    undoToast: { position: 'absolute', left: 16, right: 16, bottom: 18, minHeight: 54, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth, elevation: 8, shadowColor: '#000000', shadowOpacity: 0.18, shadowOffset: { width: 0, height: 4 }, shadowRadius: 12 },
+    undoIconBadge: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: '#22C55E' },
+    undoMessage: { flex: 1, fontSize: 13, fontWeight: '600' },
+    undoButton: { minWidth: 52, minHeight: 42, alignItems: 'center', justifyContent: 'center' },
+    undoButtonText: { fontSize: 14, fontWeight: '800' },
+    eventIconImage: { width: 40, height: 40, borderRadius: 10, marginTop: 1, backgroundColor: '#090B0A' },
     notificationContent: { flex: 1, minWidth: 0 },
     titleLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 7 },
     unreadDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: BRAND_GREEN, marginTop: 6 },
@@ -428,3 +465,11 @@ const styles = StyleSheet.create({
     retryText: { fontSize: 14, fontWeight: '700' },
     inlineError: { color: '#F08D82', fontSize: 13, paddingTop: 12 },
 });
+
+function SwipeDeleteFeedback() {
+  return (
+    <LinearGradient colors={['#F04438', '#A82020', '#171A1B']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.dismissAction}>
+      <Feather name="trash-2" size={19} color="#FFFFFF" />
+    </LinearGradient>
+  );
+}

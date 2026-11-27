@@ -99,12 +99,20 @@ const refreshAccessToken = async (): Promise<string | null> => {
       if (refreshError?.response?.status === 404) {
         continue;
       }
-      break;
+      const isAuthError =
+        refreshError?.response?.status === 401 ||
+        refreshError?.response?.status === 400 ||
+        refreshError?.response?.status === 403;
+
+      if (isAuthError) {
+        await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
+        await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
+        await storage.removeItem(storage.KEYS.USER);
+      }
+      return null;
     }
   }
 
-  await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
-  await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
   return null;
 };
 
@@ -240,6 +248,8 @@ export const authAPI = {
 
   logout: (data: { refresh?: string }) => api.post("/auth/logout/", data),
 
+  deleteAccount: () => api.delete("/auth/profile/"),
+
   adminLogin: (data: { identifier: string; password: string }) =>
     api.post("/auth/admin-login/", data),
 };
@@ -371,7 +381,8 @@ export const assessmentAPI = {
 // result, which only contains recommendation metadata.
 export const workoutPlanAPI = {
   getCurrent: () => api.get("/workout-plans/current/"),
-  endCurrent: (reason: string) => api.post("/workout-plans/end/", { reason }),
+  endPlan: (planId: number, reason: string) =>
+    api.post(`/workout-plans/${planId}/end/`, { reason }),
   setBenchmark: (workoutId: number, is_benchmark: boolean) =>
     api.patch(`/workouts/${workoutId}/`, { is_benchmark }),
 };

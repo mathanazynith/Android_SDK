@@ -1,5 +1,6 @@
 const appJson = require("./app.json");
 const { withAndroidManifest } = require("expo/config-plugins");
+const withWorkoutVolumeSplit = require("./plugins/with-workout-volume-split");
 
 module.exports = () => {
   const expo = appJson.expo;
@@ -18,6 +19,16 @@ module.exports = () => {
       googleMapsApiKey,
     },
     plugins: [
+      withWorkoutVolumeSplit,
+      [
+        "expo-audio",
+        {
+          enableBackgroundPlayback: true,
+          enableBackgroundRecording: false,
+          recordAudioAndroid: false,
+          microphonePermission: false,
+        },
+      ],
       (config) =>
         withAndroidManifest(config, (manifestConfig) => {
           const application = manifestConfig.modResults.manifest.application?.[0];

@@ -1,41 +1,40 @@
 import { Alert } from '@/components/ThemedAlert';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Easing, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ActivityRouteMap from '../../../components/ActivityRouteMap';
 import ActivitySplitsModal from '../../../components/ActivitySplitsModal';
 import { RunningLoader } from '../../../components/common/RunningLoader';
+import { WorkoutFlyover3DModal } from '../../../components/flyover/WorkoutFlyover3DModal';
 import MotionEntrance from '../../../components/MotionEntrance';
+import {
+  getActivityLaunchParams,
+  launchFromView,
+  type DashboardLaunchOrigin,
+} from '../../../components/navigation/dashboardLaunchTransition';
+import OriginZoomModal from '../../../components/navigation/OriginZoomModal';
+import { WorkoutShareStudioModal } from '../../../components/share/WorkoutShareStudioModal';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getBackendErrorMessage } from '../../../service/api';
+import { useAuth } from '../../../service/auth';
 import { activityAPI, BackendActivity, normalizeActivitySplits, runRouteAPI } from '../../../src/services/activityApi';
-import { ActivityExtraSplits, ActivitySegmentSplits } from '../../../src/types/activity';
-
-const formatDistance = (meters: number) => `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
-
-const formatDuration = (seconds: number) => {
-  if (!Number.isFinite(seconds)) return '--';
-  const totalSeconds = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const secondsRemaining = totalSeconds % 60;
-  return hours > 0
-    ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secondsRemaining).padStart(2, '0')}`
-    : `${minutes} min ${secondsRemaining} sec`;
-};
-
-const formatPace = (secondsPerKm: number) => {
-  if (!Number.isFinite(secondsPerKm) || secondsPerKm <= 0) return '-- /km';
-  const totalSeconds = Math.round(secondsPerKm);
-  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')} /km`;
-};
-
-const formatSpeed = (metersPerSecond: number) => `${(Math.max(0, metersPerSecond) * 3.6).toFixed(1)} km/h`;
-const formatBackendSpeed = (speed: number) => Number.isFinite(speed) ? `${speed} Km/hr` : '--';
+import { shareActivityAsGpx } from '../../../src/services/gpxFileExport';
+import { socialAPI, type SocialPostVisibility } from '../../../src/services/socialApi';
+import { ActivityExtraSplits, ActivityLapRecord, ActivitySegmentSplits } from '../../../src/types/activity';
+import {
+  formatActivityDistanceFromMeters,
+  formatElevationFromMeters,
+  formatPaceFromSecondsPerKm,
+  formatSpeedFromKilometersPerHour,
+  formatSpeedFromMetersPerSecond
+} from '../../../src/utils/activityUnitFormatters';
+import { getActivityExtraDistanceMeters } from '../../../src/utils/extraDistance';
+import { formatDurationHhMmSs as formatDuration } from '../../../src/utils/splitFormatters';
 
 const formatRecordedDate = (value: string) => {
   const date = new Date(value);
@@ -49,6 +48,16 @@ const formatActivityDate = (value: string) => {
   return Number.isNaN(date.getTime())
     ? '--'
     : `${date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} at ${date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+};
+
+type ShareOptionsPosition = {
+  left: number;
+  top: number;
+  width: number;
+  originXPercent: number;
+  originYPercent: number;
+  originScaleX: number;
+  originScaleY: number;
 };
 
 function DetailMetric({
@@ -80,26 +89,70 @@ function DetailMetric({
 
 export default function ActivityDetailScreen() {
   const { colors, isDark } = useTheme();
-  const { id, cropStart, cropEnd, savedRouteId: savedRouteIdParam } = useLocalSearchParams<{
+  const { user } = useAuth();
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const reduceMotion = useReducedMotion();
+  const distanceUnit = user?.profile?.distance_unit;
+  const { id, cropStart, cropEnd, savedRouteId: savedRouteIdParam, autoOpenSplits } = useLocalSearchParams<{
     id: string;
     cropStart?: string;
     cropEnd?: string;
     savedRouteId?: string;
+    autoOpenSplits?: string;
   }>();
+  const autoOpenedSplitsRef = useRef(false);
+  const cropButtonRef = useRef<View>(null);
+  const splitsButtonRef = useRef<View>(null);
+  const shareCardButtonRef = useRef<View>(null);
+  const postWorkoutButtonRef = useRef<View>(null);
   const [activity, setActivity] = useState<BackendActivity | null>(null);
   const [savedRouteId, setSavedRouteId] = useState<number | null>(null);
   const [savedRouteIsPublic, setSavedRouteIsPublic] = useState<boolean | null>(null);
   const [isUpdatingRouteVisibility, setIsUpdatingRouteVisibility] = useState(false);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [exportingGpx, setExportingGpx] = useState(false);
+  const [shareOptionsVisible, setShareOptionsVisible] = useState(false);
+  const [shareOptionsPosition, setShareOptionsPosition] = useState<ShareOptionsPosition>({
+    left: 12,
+    top: 72,
+    width: 240,
+    originXPercent: 50,
+    originYPercent: 50,
+    originScaleX: 0.02,
+    originScaleY: 0.02,
+  });
+  const [shareOptionsScaleX] = useState(() => new Animated.Value(0.82));
+  const [shareOptionsScaleY] = useState(() => new Animated.Value(0.82));
+  const [shareOptionsOpacity] = useState(() => new Animated.Value(0));
+  const shareOptionsAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const shareOptionsClosingRef = useRef(false);
+  const [shareCardVisible, setShareCardVisible] = useState(false);
+  const [shareCardLaunchOrigin, setShareCardLaunchOrigin] = useState<DashboardLaunchOrigin>();
+  const [postWorkoutVisible, setPostWorkoutVisible] = useState(false);
+  const [postWorkoutLaunchOrigin, setPostWorkoutLaunchOrigin] = useState<DashboardLaunchOrigin>();
+  const [postWorkoutBusy, setPostWorkoutBusy] = useState(false);
+  const [postWorkoutError, setPostWorkoutError] = useState<string | null>(null);
+  const [postWorkoutComplete, setPostWorkoutComplete] = useState(false);
+  const [postVisibilityDraft, setPostVisibilityDraft] = useState<SocialPostVisibility | null>(null);
+  const [flyoverVisible, setFlyoverVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [splitsVisible, setSplitsVisible] = useState(false);
+  const [splitsLaunchOrigin, setSplitsLaunchOrigin] = useState<DashboardLaunchOrigin>();
   const [splitsLoading, setSplitsLoading] = useState(false);
   const [splitsError, setSplitsError] = useState<string | null>(null);
   const [splitSegments, setSplitSegments] = useState<ActivitySegmentSplits[]>([]);
+  const [lapRecords, setLapRecords] = useState<ActivityLapRecord[]>([]);
   const [extraSplits, setExtraSplits] = useState<ActivityExtraSplits['splits']>([]);
+  const [extraLapRecords, setExtraLapRecords] = useState<ActivityLapRecord[]>([]);
   const cropStartIndex = cropStart === undefined ? undefined : Number(cropStart);
   const cropEndIndex = cropEnd === undefined ? undefined : Number(cropEnd);
+  const extraDistanceMeters = getActivityExtraDistanceMeters(activity);
+
+  useEffect(() => () => {
+    shareOptionsAnimationRef.current?.stop();
+  }, []);
 
   const loadActivity = useCallback(async () => {
     if (!id) {
@@ -115,6 +168,13 @@ export default function ActivityDetailScreen() {
       setError(null);
       const loadedActivity = await activityAPI.get(id);
       setActivity(loadedActivity);
+      setSplitSegments(loadedActivity.segments ?? []);
+      setExtraSplits(loadedActivity.extra?.splits ?? []);
+      setExtraLapRecords(loadedActivity.extra?.laps ?? []);
+      if (autoOpenSplits === 'true' && !autoOpenedSplitsRef.current) {
+        autoOpenedSplitsRef.current = true;
+        setSplitsVisible(true);
+      }
       const parsedRouteId = Number(savedRouteIdParam ?? loadedActivity.saved_route_id);
       if (Number.isInteger(parsedRouteId) && parsedRouteId > 0) {
         try {
@@ -137,7 +197,185 @@ export default function ActivityDetailScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id, savedRouteIdParam]);
+  }, [id, savedRouteIdParam, autoOpenSplits]);
+
+  const exportActivityGpx = useCallback(async () => {
+    if (!activity) return;
+    setExportingGpx(true);
+    try {
+      await shareActivityAsGpx(activity);
+    } catch (exportError) {
+      const message = exportError instanceof Error
+        ? exportError.message
+        : 'Could not export this workout as GPX.';
+      Alert.alert('Could not export GPX', message);
+    } finally {
+      setExportingGpx(false);
+    }
+  }, [activity]);
+
+  const closeShareOptions = useCallback((afterClose?: () => void) => {
+    if (!shareOptionsVisible) {
+      afterClose?.();
+      return;
+    }
+    if (shareOptionsClosingRef.current) return;
+
+    shareOptionsClosingRef.current = true;
+    shareOptionsAnimationRef.current?.stop();
+
+    const finishClose = ({ finished }: { finished: boolean }) => {
+      if (!finished) return;
+      shareOptionsClosingRef.current = false;
+      setShareOptionsVisible(false);
+      afterClose?.();
+    };
+
+    if (reduceMotion) {
+      finishClose({ finished: true });
+      return;
+    }
+
+    const animation = Animated.parallel([
+      Animated.timing(shareOptionsScaleX, {
+        toValue: shareOptionsPosition.originScaleX,
+        duration: 160,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(shareOptionsScaleY, {
+        toValue: shareOptionsPosition.originScaleY,
+        duration: 160,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(shareOptionsOpacity, {
+        toValue: 0,
+        duration: 140,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
+    shareOptionsAnimationRef.current = animation;
+    animation.start(finishClose);
+  }, [reduceMotion, shareOptionsOpacity, shareOptionsPosition.originScaleX, shareOptionsPosition.originScaleY, shareOptionsScaleX, shareOptionsScaleY, shareOptionsVisible]);
+
+  const shareWorkoutImage = useCallback(() => {
+    closeShareOptions(() => launchFromView(shareCardButtonRef.current, (origin) => {
+      setShareCardLaunchOrigin(origin);
+      setShareCardVisible(true);
+    }));
+  }, [closeShareOptions]);
+
+  const shareWorkoutGpx = useCallback(() => {
+    closeShareOptions(() => void exportActivityGpx());
+  }, [closeShareOptions, exportActivityGpx]);
+
+  const openShareOptions = useCallback(() => {
+    if (shareOptionsVisible) {
+      closeShareOptions();
+      return;
+    }
+
+    shareCardButtonRef.current?.measureInWindow((x, y, width, height) => {
+      const menuWidth = Math.min(256, windowWidth - insets.left - insets.right - 24);
+      const menuHeight = 112;
+      const leftLimit = insets.left + 12;
+      const rightLimit = windowWidth - insets.right - 12;
+      const left = Math.max(leftLimit, Math.min(x + width - menuWidth, rightLimit - menuWidth));
+      const topLimit = insets.top + 8;
+      const bottomLimit = windowHeight - insets.bottom - 8;
+      const below = y + height + 4;
+      const top = below + menuHeight <= bottomLimit
+        ? below
+        : Math.max(topLimit, y - menuHeight - 4);
+      const anchorCenterX = x + width / 2;
+      const anchorCenterY = y + height / 2;
+      const originXPercent = ((anchorCenterX - left) / menuWidth) * 100;
+      const originYPercent = ((anchorCenterY - top) / menuHeight) * 100;
+      const originScaleX = Math.min(1, width / menuWidth);
+      const originScaleY = Math.min(1, height / menuHeight);
+
+      shareOptionsAnimationRef.current?.stop();
+      shareOptionsClosingRef.current = false;
+      shareOptionsScaleX.setValue(reduceMotion ? 1 : originScaleX);
+      shareOptionsScaleY.setValue(reduceMotion ? 1 : originScaleY);
+      shareOptionsOpacity.setValue(reduceMotion ? 1 : 0);
+      setShareOptionsPosition({ left, top, width: menuWidth, originXPercent, originYPercent, originScaleX, originScaleY });
+      setShareOptionsVisible(true);
+    });
+  }, [insets.bottom, insets.left, insets.right, insets.top, reduceMotion, shareOptionsOpacity, shareOptionsScaleX, shareOptionsScaleY, shareOptionsVisible, closeShareOptions, windowHeight, windowWidth]);
+
+  const animateShareOptionsIn = useCallback(() => {
+    shareOptionsAnimationRef.current?.stop();
+    shareOptionsClosingRef.current = false;
+    if (reduceMotion) {
+      shareOptionsScaleX.setValue(1);
+      shareOptionsScaleY.setValue(1);
+      shareOptionsOpacity.setValue(1);
+      return;
+    }
+    const animation = Animated.parallel([
+      Animated.timing(shareOptionsScaleX, {
+        toValue: 1,
+        duration: 200,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(shareOptionsScaleY, {
+        toValue: 1,
+        duration: 200,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(shareOptionsOpacity, {
+        toValue: 1,
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
+    shareOptionsAnimationRef.current = animation;
+    animation.start();
+  }, [reduceMotion, shareOptionsOpacity, shareOptionsScaleX, shareOptionsScaleY]);
+
+  const openPostWorkout = () => {
+    setPostWorkoutError(null);
+    setPostWorkoutComplete(false);
+    const existingPostId = Number(activity?.post_id);
+    setPostVisibilityDraft(Number.isInteger(existingPostId) && existingPostId > 0
+      ? activity?.share_audience === 'ALL' ? 'PUBLIC'
+        : activity?.share_audience === 'FOLLOWERS' ? 'FOLLOWERS'
+        : 'ONLY_ME'
+      : null);
+    launchFromView(postWorkoutButtonRef.current, (origin) => {
+      setPostWorkoutLaunchOrigin(origin);
+      setPostWorkoutVisible(true);
+    });
+  };
+
+  const postSavedWorkout = async (visibility: SocialPostVisibility) => {
+    if (!activity || postWorkoutBusy) return;
+    setPostVisibilityDraft(visibility);
+    setPostWorkoutBusy(true);
+    setPostWorkoutError(null);
+    try {
+      const existingPostId = Number(activity.post_id);
+      const response = Number.isInteger(existingPostId) && existingPostId > 0
+        ? await socialAPI.updateWorkoutPost(existingPostId, { visibility })
+        : await socialAPI.createWorkoutPost({ activity_id: Number(activity.id), visibility });
+      setActivity((current) => current ? {
+        ...current,
+        post_id: response.data.data.id,
+        share_audience: visibility === 'PUBLIC' ? 'ALL' : visibility === 'FOLLOWERS' ? 'FOLLOWERS' : 'NONE',
+      } : current);
+      setPostWorkoutComplete(true);
+    } catch (requestError) {
+      setPostWorkoutError(getBackendErrorMessage(requestError, 'Could not post this workout.'));
+    } finally {
+      setPostWorkoutBusy(false);
+    }
+  };
 
   useEffect(() => {
     // The request applies its state updates asynchronously after the screen mounts.
@@ -237,7 +475,9 @@ export default function ActivityDetailScreen() {
       const detail = await activityAPI.get(activity.id);
       const splitData = normalizeActivitySplits(detail);
       setSplitSegments(splitData.segments);
+      setLapRecords(splitData.laps);
       setExtraSplits(splitData.extra?.splits ?? []);
+      setExtraLapRecords(splitData.extra?.laps ?? []);
     } catch (requestError) {
       setSplitsError(getBackendErrorMessage(requestError, 'Unable to load split details.'));
     } finally {
@@ -252,22 +492,56 @@ export default function ActivityDetailScreen() {
         <TouchableOpacity accessibilityLabel="Back to workout history" onPress={handleBack} style={styles.backButton}>
           <Feather name="arrow-left" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Activity Details</Text>
+        <Text
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+          style={[styles.headerTitle, { color: colors.text }]}
+        >
+          Activity Details
+        </Text>
         {activity ? (
           <View style={styles.headerButtonsContainer}>
             <TouchableOpacity
+              ref={cropButtonRef}
               accessibilityLabel="Crop workout"
-              onPress={() => router.push(`/activity/crop/${activity.id}`)}
+              onPress={() => launchFromView(cropButtonRef.current, (origin) => {
+                router.push({
+                  pathname: '/(app)/activity/crop/[id]',
+                  params: {
+                    id: String(activity.id),
+                    ...(getActivityLaunchParams(origin) ?? {}),
+                  },
+                } as any);
+              })}
               style={styles.cropButton}
             >
               <Feather name="scissors" size={20} color="#FFB020" />
             </TouchableOpacity>
             <TouchableOpacity
+              ref={splitsButtonRef}
               accessibilityLabel="Open split details"
-              onPress={() => void loadSplits()}
+              onPress={() => launchFromView(splitsButtonRef.current, (origin) => {
+                setSplitsLaunchOrigin(origin);
+                void loadSplits();
+              })}
               style={styles.splitButton}
             >
               <Feather name="list" size={20} color={colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              ref={shareCardButtonRef}
+              accessibilityRole="button"
+              accessibilityLabel="Share"
+              accessibilityHint="Open workout image and GPX sharing options."
+              accessibilityState={{ expanded: shareOptionsVisible }}
+              disabled={exportingGpx}
+              onPress={openShareOptions}
+              style={styles.exportButton}
+            >
+              {exportingGpx
+                ? <RunningLoader size={18} fillColor={colors.primary} />
+                : <Feather name="share-2" size={20} color={colors.primary} />}
             </TouchableOpacity>
             <TouchableOpacity
               accessibilityLabel="Delete workout"
@@ -298,7 +572,18 @@ export default function ActivityDetailScreen() {
       ) : activity ? (
         <View style={styles.activityBody}>
           <View style={styles.routePanel}>
-            <Text style={[styles.sectionTitle, styles.routeTitle, { color: colors.text }]}>Route</Text>
+            <View style={styles.routeHeaderRow}>
+              <Text style={[styles.sectionTitle, styles.routeTitle, { color: colors.text }]}>Route</Text>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="3D Flyover Video"
+                onPress={() => setFlyoverVisible(true)}
+                style={styles.routeFlyoverPill}
+              >
+                <Feather name="play" size={12} color="#22C55E" />
+                <Text style={styles.routeFlyoverPillText}>3D Flyover</Text>
+              </TouchableOpacity>
+            </View>
             <ActivityRouteMap
               encodedPolyline={activity.encoded_polyline}
               plannedEncodedPolyline={activity.planned_encoded_polyline}
@@ -311,6 +596,7 @@ export default function ActivityDetailScreen() {
               cropStartIndex={Number.isFinite(cropStartIndex) ? cropStartIndex : undefined}
               cropEndIndex={Number.isFinite(cropEndIndex) ? cropEndIndex : undefined}
               enableFullScreen
+              distanceUnit={distanceUnit}
             />
             {savedRouteId !== null && savedRouteIsPublic !== null ? (
               <View style={[styles.routeVisibilityRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -351,52 +637,214 @@ export default function ActivityDetailScreen() {
               </Text>
             </View>
 
+            {!activity.post_id ? (
+              <TouchableOpacity
+                ref={postWorkoutButtonRef}
+                accessibilityRole="button"
+                accessibilityLabel="Post saved workout to Connections"
+                onPress={openPostWorkout}
+                style={[styles.postWorkoutButton, { backgroundColor: colors.primary }]}
+              >
+                <Feather name="send" size={17} color={colors.primaryText} />
+                <View style={styles.postWorkoutButtonCopy}>
+                  <Text style={[styles.postWorkoutButtonTitle, { color: colors.primaryText }]}>Post to Connections</Text>
+                  <Text style={[styles.postWorkoutButtonSubtitle, { color: colors.primaryText }]}>Post this saved workout to My Posts or Connections</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color={colors.primaryText} />
+              </TouchableOpacity>
+            ) : null}
+
             <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <DetailMetric label="Distance" value={formatDistance(activity.distance)} />
+              <DetailMetric label="Distance" value={formatActivityDistanceFromMeters(activity.distance, distanceUnit)} />
               <DetailMetric label="Moving time" value={formatDuration(activity.moving_time)} />
-              <DetailMetric label="Average pace" value={formatPace(activity.avg_pace)} />
+              <DetailMetric label="Average pace" value={formatPaceFromSecondsPerKm(activity.avg_pace, distanceUnit)} />
               <DetailMetric label="Calories" value={`${Math.round(activity.calories)} kcal`} />
             </View>
 
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Distance breakdown</Text>
             <View style={[styles.metricsCard, styles.verticalMetricsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <DetailMetric fullWidth label="Distance" value={formatDistance(activity.distance)} />
-              <DetailMetric
-                fullWidth
-                label="Planned distance"
-                value={formatDistance(activity.distance)}
-              />
-              <DetailMetric
-                fullWidth
-                label="Extra distance"
-                value={activity.extra_distance != null
-                  ? (Number(activity.extra_distance) > 0 ? formatDistance(Number(activity.extra_distance)) : 'No extra distance')
-                  : activity.extra_distance_km != null
-                    ? (Number(activity.extra_distance_km) > 0 ? formatDistance(Number(activity.extra_distance_km) * 1000) : 'No extra distance')
-                    : 'No extra distance'}
-              />
+              <DetailMetric fullWidth label="Distance" value={formatActivityDistanceFromMeters(activity.distance, distanceUnit)} />
+              {extraDistanceMeters !== null && (
+                <DetailMetric fullWidth label="Extra distance" value={formatActivityDistanceFromMeters(extraDistanceMeters, distanceUnit)} />
+              )}
               <DetailMetric fullWidth label="Elapsed time" value={formatDuration(activity.elapsed_time)} />
                 <DetailMetric fullWidth label="Moving time" value={formatDuration(activity.moving_time)} />
-              <DetailMetric fullWidth label="Average pace" value={formatPace(activity.avg_pace)} />
-              <DetailMetric fullWidth label="Average speed" value={formatBackendSpeed(activity.avg_speed)} />
-              <DetailMetric fullWidth label="Max speed" value={formatSpeed(activity.max_speed)} />
+              <DetailMetric fullWidth label="Average pace" value={formatPaceFromSecondsPerKm(activity.avg_pace, distanceUnit)} />
+              <DetailMetric fullWidth label="Average speed" value={formatSpeedFromKilometersPerHour(activity.avg_speed, distanceUnit)} />
+              <DetailMetric fullWidth label="Max speed" value={formatSpeedFromMetersPerSecond(activity.max_speed, distanceUnit)} />
               <DetailMetric fullWidth label="Calories" value={`${Math.round(activity.calories)} kcal`} />
-              <DetailMetric fullWidth label="Elevation gain" value={`${Math.round(activity.elevation_gain)} m`} />
-              <DetailMetric fullWidth label="Elevation loss" value={`${Math.round(activity.elevation_loss)} m`} />
-              <DetailMetric fullWidth singleLine label="Recorded" value={formatRecordedDate(activity.end_time)} />
+              <DetailMetric fullWidth label="Elevation gain" value={formatElevationFromMeters(activity.elevation_gain, distanceUnit)} />
+              <DetailMetric fullWidth label="Elevation loss" value={formatElevationFromMeters(activity.elevation_loss, distanceUnit)} />
+              <DetailMetric fullWidth singleLine label="Workout start" value={formatRecordedDate(activity.start_time)} />
             </View>
             </MotionEntrance>
           </ScrollView>
         </View>
       ) : null}
+      <Modal
+        visible={shareOptionsVisible}
+        transparent
+        animationType="none"
+        statusBarTranslucent
+        onShow={animateShareOptionsIn}
+        onRequestClose={() => closeShareOptions()}
+      >
+        <Animated.View style={[styles.shareOptionsBackdrop, { opacity: shareOptionsOpacity }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close share options"
+            onPress={() => closeShareOptions()}
+            style={[StyleSheet.absoluteFill, { backgroundColor: colors.overlay }]}
+          />
+          <Animated.View
+            style={[
+              styles.shareOptionsMenu,
+              {
+                left: shareOptionsPosition.left,
+                top: shareOptionsPosition.top,
+                width: shareOptionsPosition.width,
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+                transformOrigin: [
+                  `${shareOptionsPosition.originXPercent}%`,
+                  `${shareOptionsPosition.originYPercent}%`,
+                  0,
+                ],
+                transform: [{ scaleX: shareOptionsScaleX }, { scaleY: shareOptionsScaleY }],
+              },
+            ]}
+          >
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Share workout image"
+              onPress={shareWorkoutImage}
+              style={styles.shareOptionsMenuItem}
+            >
+              <Feather name="image" size={17} color={colors.textSecondary} />
+              <Text style={[styles.shareOptionsMenuText, { color: colors.text }]}>Share Image</Text>
+            </TouchableOpacity>
+            <View style={[styles.shareOptionsDivider, { backgroundColor: colors.border }]} />
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Share workout GPX file"
+              disabled={exportingGpx}
+              onPress={shareWorkoutGpx}
+              style={styles.shareOptionsMenuItem}
+            >
+              {exportingGpx
+                ? <RunningLoader size={16} fillColor={colors.text} />
+                : <Feather name="upload" size={17} color={colors.textSecondary} />}
+              <Text style={[styles.shareOptionsMenuText, { color: colors.text }]}>Share GPX</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Animated.View>
+      </Modal>
+      <OriginZoomModal
+        visible={postWorkoutVisible}
+        transparent
+        launchOrigin={postWorkoutLaunchOrigin}
+        onExitComplete={() => setPostWorkoutLaunchOrigin(undefined)}
+        onRequestClose={() => !postWorkoutBusy && setPostWorkoutVisible(false)}
+      >
+        <View style={styles.postAudienceBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} disabled={postWorkoutBusy} onPress={() => setPostWorkoutVisible(false)} />
+          <View style={[styles.postAudienceDialog, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={styles.postAudienceHeader}>
+              <View style={[styles.postAudienceIcon, { backgroundColor: colors.background }]}>
+                <Feather name={postWorkoutComplete ? 'check' : 'send'} size={19} color={colors.primary} />
+              </View>
+              <View style={styles.postAudienceHeaderCopy}>
+                <Text style={[styles.postAudienceTitle, { color: colors.text }]}>
+                  {postWorkoutComplete ? 'Workout posted' : 'Post saved workout'}
+                </Text>
+                <Text style={[styles.postAudienceSubtitle, { color: colors.textSecondary }]}>
+                  {postWorkoutComplete
+                    ? `${postVisibilityDraft === 'ONLY_ME' ? 'Only you' : postVisibilityDraft === 'FOLLOWERS' ? 'Your followers' : 'Everyone'} can see this workout.`
+                    : 'Choose who can see this workout post.'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Close post options"
+                disabled={postWorkoutBusy}
+                onPress={() => setPostWorkoutVisible(false)}
+                style={styles.postAudienceClose}
+              >
+                <Feather name="x" size={19} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            {!postWorkoutComplete ? ([
+              { value: 'ONLY_ME' as const, label: 'Only me', description: 'Keep the post on My Posts, out of the Connections feed.', icon: 'lock' as const },
+              { value: 'FOLLOWERS' as const, label: 'Followers', description: 'Visible to people who follow you.', icon: 'users' as const },
+              { value: 'PUBLIC' as const, label: 'Everyone', description: 'Visible to everyone in Connections.', icon: 'globe' as const },
+            ].map((option) => {
+              const selected = postVisibilityDraft === option.value;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: selected, disabled: postWorkoutBusy }}
+                  disabled={postWorkoutBusy}
+                  onPress={() => void postSavedWorkout(option.value)}
+                  style={[styles.postAudienceOption, { borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? (isDark ? 'rgba(16,185,129,0.12)' : '#E8F7EE') : colors.background, opacity: postWorkoutBusy && !selected ? 0.55 : 1 }]}
+                >
+                  <View style={[styles.postAudienceOptionIcon, { backgroundColor: isDark ? colors.surfaceRaised : '#E8F7EE' }]}>
+                    <Feather name={option.icon} size={16} color={colors.primary} />
+                  </View>
+                  <View style={styles.postAudienceOptionCopy}>
+                    <Text style={[styles.postAudienceOptionTitle, { color: colors.text }]}>{option.label}</Text>
+                    <Text style={[styles.postAudienceOptionDescription, { color: colors.textSecondary }]}>{option.description}</Text>
+                  </View>
+                  {postWorkoutBusy && selected
+                    ? <ActivityIndicator size="small" color={colors.primary} />
+                    : <Feather name={selected ? 'check-circle' : 'circle'} size={18} color={selected ? colors.primary : colors.textTertiary} />}
+                </TouchableOpacity>
+              );
+            })) : (
+              <TouchableOpacity onPress={() => setPostWorkoutVisible(false)} style={[styles.postAudienceDone, { backgroundColor: colors.primary }]}>
+                <Text style={[styles.postAudienceDoneText, { color: colors.primaryText }]}>Done</Text>
+              </TouchableOpacity>
+            )}
+            {postWorkoutError ? <Text style={styles.postAudienceError}>{postWorkoutError}</Text> : null}
+          </View>
+        </View>
+      </OriginZoomModal>
       <ActivitySplitsModal
         visible={splitsVisible}
         loading={splitsLoading}
         error={splitsError}
         segments={splitSegments}
+        laps={lapRecords}
         extraSplits={extraSplits}
+        extraLaps={extraLapRecords}
+        extraDistanceMeters={extraDistanceMeters}
+        distanceUnit={distanceUnit}
+        launchOrigin={splitsLaunchOrigin}
+        onExitComplete={() => setSplitsLaunchOrigin(undefined)}
         onClose={() => setSplitsVisible(false)}
         onRetry={() => void loadSplits()}
+      />
+      <WorkoutShareStudioModal
+        visible={shareCardVisible}
+        onClose={() => setShareCardVisible(false)}
+        activity={activity}
+        distanceUnit={distanceUnit}
+        launchOrigin={shareCardLaunchOrigin}
+        onExitComplete={() => setShareCardLaunchOrigin(undefined)}
+      />
+      <WorkoutFlyover3DModal
+        visible={flyoverVisible}
+        onClose={() => setFlyoverVisible(false)}
+        activity={activity}
+        points={activity?.route?.points ?? activity?.gps_points ?? activity?.points ?? []}
+        encodedPolyline={activity?.encoded_polyline}
+        title={activity?.activity_type?.toUpperCase() === 'WALK' ? 'Walk 3D Flyover' : 'Run 3D Flyover'}
+        totalDistanceMeters={activity?.distance}
+        totalDurationSeconds={activity?.moving_time || activity?.elapsed_time}
+        elevationGainMeters={activity?.elevation_gain ?? undefined}
+        avatarUrl={user?.profile?.profile_picture_url || user?.profile?.profile_picture}
+        mapboxToken={process.env.EXPO_PUBLIC_MAPBOX_TOKEN || process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN}
+        maptilerKey={process.env.EXPO_PUBLIC_MAPTILER_KEY}
       />
     </SafeAreaView>
   );
@@ -409,15 +857,39 @@ const styles = StyleSheet.create({
     paddingTop: 0,
   },
   header: { height: 68, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  backButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
-  headerButtonsContainer: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  cropButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
-  splitButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
-  deleteButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
-  headerTitle: { fontSize: 19, fontWeight: '700' },
-  headerSpacer: { width: 42 },
+  backButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
+  headerButtonsContainer: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  cropButton: { width: 32, height: 42, justifyContent: 'center', alignItems: 'center' },
+  splitButton: { width: 32, height: 42, justifyContent: 'center', alignItems: 'center' },
+  exportButton: { width: 32, height: 42, justifyContent: 'center', alignItems: 'center' },
+  flyoverButton: { width: 36, height: 42, justifyContent: 'center', alignItems: 'center' },
+  deleteButton: { width: 32, height: 42, justifyContent: 'center', alignItems: 'center' },
+  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', textAlign: 'center' },
+  headerSpacer: { width: 36 },
+  shareOptionsBackdrop: { flex: 1 },
+  shareOptionsMenu: { position: 'absolute', borderWidth: 1, borderRadius: 14, padding: 6, elevation: 18, shadowColor: '#000000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.2, shadowRadius: 14 },
+  shareOptionsMenuItem: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 10, borderRadius: 9 },
+  shareOptionsMenuText: { fontSize: 14, fontWeight: '600' },
+  shareOptionsDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 8, marginVertical: 4 },
   activityBody: { flex: 1, minHeight: 0 },
   routePanel: { flexShrink: 0, paddingTop: 12 },
+  routeHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  routeFlyoverPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.35)',
+  },
+  routeFlyoverPillText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#22C55E',
+  },
   routeTitle: { marginTop: 0 },
   routeVisibilityRow: { minHeight: 60, flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10, paddingHorizontal: 12, borderWidth: 1, borderRadius: 10 },
   routeVisibilityCopy: { flex: 1, minWidth: 0 },
@@ -430,6 +902,10 @@ const styles = StyleSheet.create({
   workoutTypeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 24 },
   workoutType: { fontSize: 20, fontWeight: '700' },
   workoutStatus: { fontSize: 14, fontWeight: '700' },
+  postWorkoutButton: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 15, marginTop: 16, paddingHorizontal: 14 },
+  postWorkoutButtonCopy: { flex: 1, minWidth: 0, gap: 2 },
+  postWorkoutButtonTitle: { fontSize: 13, fontWeight: '800' },
+  postWorkoutButtonSubtitle: { fontSize: 10, opacity: 0.86 },
   summaryCard: { borderRadius: 22, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 8, marginTop: 26 },
   sectionTitle: { fontSize: 21, fontWeight: '700', marginTop: 26, marginBottom: 12 },
   metricsCard: { borderRadius: 22, borderWidth: 1, flexDirection: 'row', flexWrap: 'wrap', padding: 8 },
@@ -444,4 +920,20 @@ const styles = StyleSheet.create({
   stateText: { fontSize: 16, textAlign: 'center', marginTop: 13 },
   retryButton: { borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, marginTop: 18 },
   retryText: { fontSize: 16, fontWeight: '700' },
+  postAudienceBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
+  postAudienceDialog: { width: '100%', maxWidth: 400, alignSelf: 'center', borderWidth: StyleSheet.hairlineWidth, borderRadius: 22, padding: 16, gap: 9 },
+  postAudienceHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 5 },
+  postAudienceIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  postAudienceHeaderCopy: { flex: 1, minWidth: 0, gap: 3 },
+  postAudienceTitle: { fontSize: 16, fontWeight: '800' },
+  postAudienceSubtitle: { fontSize: 11, lineHeight: 15 },
+  postAudienceClose: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  postAudienceOption: { minHeight: 62, borderWidth: StyleSheet.hairlineWidth, borderRadius: 13, paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  postAudienceOptionIcon: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  postAudienceOptionCopy: { flex: 1, minWidth: 0, gap: 2 },
+  postAudienceOptionTitle: { fontSize: 13, lineHeight: 17, fontWeight: '700' },
+  postAudienceOptionDescription: { fontSize: 10, lineHeight: 14 },
+  postAudienceError: { fontSize: 11, lineHeight: 16, marginTop: 2, color: '#D9424A' },
+  postAudienceDone: { minHeight: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  postAudienceDoneText: { fontSize: 13, fontWeight: '700' },
 });

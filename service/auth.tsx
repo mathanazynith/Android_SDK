@@ -10,6 +10,19 @@ import { subscribeToFcmTokenRefresh } from "./fcmService";
 import "./googleAuth"; // Ensure GoogleAuthService is initialized
 import { googleAuthService } from "./googleAuth";
 import {
+  clearBackgroundLocationSession,
+  flushBackgroundLocationTask,
+  getBackgroundLocationSession,
+  stopBackgroundLocationTracking,
+} from "../src/services/backgroundLocationTask";
+import {
+  clearActiveRunJournal,
+  flushActiveRunJournal,
+  readActiveRunJournal,
+} from "../src/services/activeRunJournal";
+import { savePendingWorkoutRecovery } from "../src/services/pendingWorkoutRecoveries";
+import { clearLiveTrackingNotificationForAuthExit } from "../src/services/liveTrackingNotification";
+import {
   deactivateNotificationDevice,
   registerNotificationDevice,
 } from "./notificationService";
@@ -95,10 +108,17 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const normalizeUser = (value: User | null): User | null => {
-  if (!value) return null;
+const normalizeUser = (value: unknown): User | null => {
+  if (!value || typeof value !== "object") return null;
 
-  const raw = value as User & Record<string, unknown>;
+  const raw = value as Partial<User> & Record<string, unknown>;
+  const rawId: unknown = raw.id;
+  const id = typeof rawId === "number"
+    ? rawId
+    : typeof rawId === "string" && /^\d+$/.test(rawId.trim())
+      ? Number(rawId)
+      : Number.NaN;
+  if (!Number.isSafeInteger(id) || id <= 0) return null;
   const provider = String(raw.authProvider ?? raw.auth_provider ?? raw.provider ?? '').toLowerCase();
   const explicitHasPassword = raw.hasPassword ?? raw.has_password;
   const hasPassword = typeof raw.password_setup_required === 'boolean'
@@ -107,13 +127,77 @@ const normalizeUser = (value: User | null): User | null => {
       ? explicitHasPassword
       : undefined;
 
-  return { ...value, hasPassword, authProvider: provider || undefined };
+  return { ...raw, id, hasPassword, authProvider: provider || undefined } as User;
+};
+
+const clearLiveRunState = async (reason: string, fallbackUserId?: string | number | null) => {
+  // Invalidate updates immediately, stop the producer, then finish dismissal
+  // before clearing durable state.
+  const notificationDismissal = clearLiveTrackingNotificationForAuthExit();
+  await stopBackgroundLocationTracking().catch((error) => {
+    console.warn(`[Auth] Could not stop background tracking during ${reason}`, error);
+  });
+  await flushBackgroundLocationTask().catch((error) => {
+    console.warn(`[Auth] Could not flush background locations during ${reason}`, error);
+  });
+  await notificationDismissal.catch((error) => {
+    console.warn(`[Auth] Could not dismiss the live notification during ${reason}`, error);
+  });
+  await flushActiveRunJournal().catch((error) => {
+    console.warn(`[Auth] Could not flush the route journal during ${reason}`, error);
+  });
+  const [session, journal] = await Promise.all([
+    getBackgroundLocationSession(),
+    readActiveRunJournal(),
+  ]);
+  const hasMatchingRun = Boolean(
+    session?.active
+    && session.runId
+    && journal?.active
+    && journal.runId === session.runId
+  );
+  if (session?.active && session.runId && !hasMatchingRun) {
+    console.warn(`[Auth] Preserving ${reason} workout files because its route journal is unavailable or mismatched.`);
+    return;
+  }
+  if (hasMatchingRun && session && journal) {
+    const ownerId = session.userId ?? (fallbackUserId == null ? null : String(fallbackUserId));
+    if (!ownerId) {
+      console.warn(`[Auth] Preserving ${reason} workout files because their account owner is unknown.`);
+      return;
+    }
+    try {
+      await savePendingWorkoutRecovery({ ...session, userId: ownerId }, journal);
+    } catch (error) {
+      console.warn(`[Auth] Could not checkpoint the active workout during ${reason}; preserving its files.`, error);
+      return;
+    }
+  }
+  await Promise.all([
+    clearBackgroundLocationSession(),
+    clearActiveRunJournal(),
+  ]).catch((error) => {
+    console.warn(`[Auth] Could not clear the active run during ${reason}`, error);
+  });
 };
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const isLoggingOut = useRef(false);
+  const previousUserIdRef = useRef<string | null>(null);
+
+  const storeUser = async (userObj: User | null) => {
+    try {
+      if (userObj) {
+        await storage.setItem(storage.KEYS.USER, JSON.stringify(userObj));
+      } else {
+        await storage.removeItem(storage.KEYS.USER);
+      }
+    } catch (e) {
+      console.warn('[Auth] Failed to persist user to storage', e);
+    }
+  };
   const [googleSignupData, setGoogleSignupData] = useState<{
     email: string;
     first_name: string;
@@ -122,15 +206,74 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const initializeAuth = async () => {
     try {
-      const token = await storage.getItem(storage.KEYS.ACCESS_TOKEN);
+      const [token, cachedUserJson] = await Promise.all([
+        storage.getItem(storage.KEYS.ACCESS_TOKEN),
+        storage.getItem(storage.KEYS.USER),
+      ]);
+
+      let restoredUser: User | null = null;
+      if (cachedUserJson) {
+        try {
+          restoredUser = normalizeUser(JSON.parse(cachedUserJson));
+        } catch (parseError) {
+          console.warn('[Auth] Failed to parse cached user', parseError);
+        }
+      }
+
       if (token) {
-        const response = await authAPI.getProfile();
         isLoggingOut.current = false;
-        setUser(normalizeUser(response.data.data));
+        if (restoredUser) setUser(restoredUser);
+
+        try {
+          const response = await authAPI.getProfile();
+          isLoggingOut.current = false;
+          const freshUser = normalizeUser(response.data?.data || response.data);
+          if (freshUser) {
+            setUser(freshUser);
+            await storeUser(freshUser);
+          } else if (!restoredUser) {
+            throw new Error('The profile response did not contain a valid user ID.');
+          }
+        } catch (error: any) {
+          const status = error?.response?.status;
+          const isNetworkError =
+            !error?.response ||
+            error?.code === 'ECONNABORTED' ||
+            error?.message?.toLowerCase().includes('network') ||
+            error?.message?.toLowerCase().includes('timeout') ||
+            error?.message?.toLowerCase().includes('connection') ||
+            error?.message?.toLowerCase().includes('failed');
+
+          if (isNetworkError) {
+            if (restoredUser) {
+              console.log('[Auth] Offline mode detected during initialization; maintaining cached session.');
+              isLoggingOut.current = false;
+              setUser(restoredUser);
+            } else {
+              // Keep credentials for a retry, but never invent a user identity.
+              setUser(null);
+            }
+          } else if (status === 401 || status === 403) {
+            await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
+            await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
+            await clearLiveRunState('token invalidation');
+            await storeUser(null);
+            setUser(null);
+          } else if (!restoredUser) {
+            await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
+            await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
+            await clearLiveRunState('unverified startup session');
+            await storeUser(null);
+            setUser(null);
+          }
+        }
+      } else {
+        await clearLiveRunState('signed-out startup');
+        await storeUser(null);
+        setUser(null);
       }
     } catch (error) {
-      await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
-      await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
+      console.warn('[Auth] Unexpected error during initializeAuth:', error);
     } finally {
       setIsLoading(false);
     }
@@ -139,6 +282,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void Promise.resolve().then(initializeAuth);
   }, []);
+
+  useEffect(() => {
+    const previousUserId = previousUserIdRef.current;
+    const currentUserId = user?.id == null ? null : String(user.id);
+
+    const shouldClearLiveRun = previousUserId !== null
+      && (currentUserId === null || previousUserId !== currentUserId);
+
+    if (shouldClearLiveRun) {
+      void clearLiveRunState('account switch or logout', previousUserId);
+    }
+
+    previousUserIdRef.current = currentUserId;
+  }, [user?.id]);
 
   useEffect(() => {
     const userId = user?.id;
@@ -175,6 +332,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await storage.setItem(storage.KEYS.REFRESH_TOKEN, refresh);
   };
 
+  const restoreStorageValue = async (key: string, value: string | null) => {
+    if (value === null) await storage.removeItem(key);
+    else await storage.setItem(key, value);
+  };
+
+  const establishTokenSession = async (
+    accessToken: string,
+    refreshToken: string,
+    responseUser: unknown,
+    operation: 'login' | 'OTP verification' | 'Google sign-in',
+  ): Promise<User> => {
+    const previousAccess = await storage.getItem(storage.KEYS.ACCESS_TOKEN);
+    const previousRefresh = await storage.getItem(storage.KEYS.REFRESH_TOKEN);
+    let userToSet = normalizeUser(responseUser);
+
+    try {
+      await storeTokens(accessToken, refreshToken);
+      if (!userToSet) {
+        const profileResponse = await authAPI.getProfile();
+        userToSet = normalizeUser(profileResponse.data?.data || profileResponse.data);
+      }
+      if (!userToSet) {
+        throw new Error(`The ${operation} response did not contain a valid user ID.`);
+      }
+      return userToSet;
+    } catch (error) {
+      await Promise.all([
+        restoreStorageValue(storage.KEYS.ACCESS_TOKEN, previousAccess),
+        restoreStorageValue(storage.KEYS.REFRESH_TOKEN, previousRefresh),
+      ]).catch((restoreError) => {
+        console.warn(`[Auth] Could not restore token storage after ${operation} failed`, restoreError);
+      });
+      throw error;
+    }
+  };
+
   const resolveAuthPayload = (response: any) => {
     const payload = response.data?.data || response.data || {};
     const tokens = payload.tokens || response.data?.tokens || response.tokens;
@@ -190,9 +383,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (identifier: string, password: string) => {
     const response = await authAPI.login({ identifier, password });
     const { accessToken, refreshToken, user: loggedInUser } = resolveAuthPayload(response);
-    await storeTokens(accessToken, refreshToken);
+    const userToSet = await establishTokenSession(accessToken, refreshToken, loggedInUser, 'login');
     isLoggingOut.current = false;
-    setUser(normalizeUser(loggedInUser));
+    setUser(userToSet);
+    await storeUser(userToSet);
   };
 
   const signup = async (data: SignupData) => {
@@ -203,9 +397,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const verifyOtp = async (email: string, otpcode: string) => {
     const response = await authAPI.verifyOtp({ email, otp_code: otpcode });
     const { accessToken, refreshToken, user: verifiedUser } = resolveAuthPayload(response);
-    await storeTokens(accessToken, refreshToken);
+    const userToSet = await establishTokenSession(accessToken, refreshToken, verifiedUser, 'OTP verification');
     isLoggingOut.current = false;
-    setUser(normalizeUser(verifiedUser));
+    setUser(userToSet);
+    await storeUser(userToSet);
   };
 
   const resendOtp = async (email: string, purpose: string) => {
@@ -214,12 +409,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshProfile = async () => {
     const response = await authAPI.getProfile();
-    setUser(normalizeUser(response.data.data));
+    const userToSet = normalizeUser(response.data.data);
+    setUser(userToSet);
+    await storeUser(userToSet);
   };
 
   const updateProfile = async (data: ProfileData) => {
     const response = await authAPI.updateProfile(data);
-    setUser(normalizeUser(response.data.data));
+    const userToSet = normalizeUser(response.data.data);
+    setUser(userToSet);
+    await storeUser(userToSet);
   };
 
   const uploadProfilePicture = async (file: { uri: string; name: string; type: string }) => {
@@ -256,12 +455,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
+      await clearLiveRunState('logout', user?.id);
+
       const refreshToken = await storage.getItem(storage.KEYS.REFRESH_TOKEN);
       await authAPI.logout({ refresh: refreshToken || "" });
     } catch (error) {
     } finally {
       await storage.removeItem(storage.KEYS.ACCESS_TOKEN);
       await storage.removeItem(storage.KEYS.REFRESH_TOKEN);
+      await storeUser(null);
       setUser(null);
       setGoogleSignupData(null);
     }
@@ -327,32 +529,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           };
         }
 
-        await storeTokens(tokens.access, tokens.refresh);
-        isLoggingOut.current = false;
-        setUser(normalizeUser({
+        const userCandidate = {
           ...normalizedUser,
           authProvider: normalizedUser.authProvider
             ?? normalizedUser.auth_provider
             ?? normalizedUser.provider
             ?? 'google',
-        }));
+        };
+        const googleUser = await establishTokenSession(
+          validateToken(tokens.access, 'Google access token'),
+          validateToken(tokens.refresh, 'Google refresh token'),
+          userCandidate,
+          'Google sign-in',
+        );
+        isLoggingOut.current = false;
+        setUser(googleUser);
+        await storeUser(googleUser);
         setIsLoading(false);
         return { requiresSignup: false };
       }
 
-      if (payload?.status === "success" && userData) {
-        setUser(normalizeUser({
-          ...userData,
-          authProvider: userData.authProvider
-            ?? userData.auth_provider
-            ?? userData.provider
-            ?? 'google',
-        }));
-        setIsLoading(false);
-        return { requiresSignup: false };
-      }
-
-      throw new Error("Invalid response from Google Login API");
+      throw new Error("Google sign-in did not return a supported access/refresh token pair.");
     } catch (error: any) {
       console.error("Google Login Error:", error);
       setIsLoading(false);

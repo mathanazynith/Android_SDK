@@ -16,6 +16,7 @@ import Timeline from './components/Timeline';
 import TrainingCalendarCard from './components/TrainingCalendarCard';
 import { RunningPlanData, RunningPlanWeek, WorkoutDetail } from './components/types';
 import WorkoutModal from './components/WorkoutModal';
+import { formatDistanceMeters } from '../../../src/utils/distance';
 
 const iconForWorkout = (workout: CurrentWorkout): WorkoutDetail['iconName'] => {
   const label = `${workout.workout_type} ${workout.title}`.toLowerCase();
@@ -26,11 +27,11 @@ const iconForWorkout = (workout: CurrentWorkout): WorkoutDetail['iconName'] => {
   return 'walk-outline';
 };
 const formatDuration = (seconds: number | null) => seconds == null ? '' : `${Math.round(seconds / 60)} min`;
-const formatDistance = (metres: number | null) => metres == null ? '' : `${metres / 1000} km`;
+const formatDistance = (metres: number | null) => metres == null ? '' : formatDistanceMeters(metres);
 const formatSegment = (segment: CurrentWorkout['segments'][number]) => [
   segment.segment_type,
   segment.repeats > 1 ? `${segment.repeats}×` : '',
-  segment.rep_distance != null ? `${segment.rep_distance / 1000} km` : '',
+  segment.rep_distance != null ? formatDistanceMeters(segment.rep_distance) : '',
   segment.duration != null ? formatDuration(segment.duration) : '',
   segment.target_pace ? `${segment.target_pace} ${segment.pace_unit}`.trim() : '',
   segment.rest_duration != null ? `rest ${formatDuration(segment.rest_duration)}` : '',
@@ -160,7 +161,7 @@ const toWorkoutDetail = (
       order: segment.segment_order,
       type: segment.segment_type,
       repeats: segment.repeats,
-      distance: segment.rep_distance != null ? `${segment.rep_distance / 1000} km` : '',
+      distance: segment.rep_distance != null ? formatDistanceMeters(segment.rep_distance) : '',
       duration: formatDuration(segment.duration),
       pace: segment.target_pace ? `${segment.target_pace} ${segment.pace_unit}`.trim() : '',
       rest: segment.rest_duration != null ? formatDuration(segment.rest_duration) : '',

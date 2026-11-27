@@ -106,18 +106,14 @@ export const validateDistance = (distance: string): ValidationResult => {
     return { valid: true };
   }
 
-  const distanceNum = parseFloat(trimmed);
+  const distanceNum = Number(trimmed);
 
-  if (Number.isNaN(distanceNum)) {
+  if (!Number.isFinite(distanceNum)) {
     return { valid: false, error: "Distance must be a valid number" };
   }
 
   if (distanceNum <= 0) {
     return { valid: false, error: "Distance must be greater than 0" };
-  }
-
-  if (distanceNum > 999) {
-    return { valid: false, error: "Distance must be less than 999" };
   }
 
   return { valid: true };

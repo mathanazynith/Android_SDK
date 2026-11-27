@@ -1,0 +1,342 @@
+import { Feather } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { router, useFocusEffect } from "expo-router";
+import React from "react";
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { RunningLoader } from "../../../components/common/RunningLoader";
+import MotionEntrance from "../../../components/MotionEntrance";
+import { BRAND_GREEN, useTheme } from "../../../contexts/ThemeContext";
+import { resolveApiUrl } from "../../../service/api";
+import { useAuth } from "../../../service/auth";
+import { subscriptionAPI, type UserSubscription } from "../../../src/services/subscriptionApi";
+import { getDistanceUnitCode } from "../../../utils/distanceUnit";
+
+type DetailRowProps = { label: string; value: string; compactValue?: boolean };
+
+function DetailRow({ label, value, compactValue = false }: DetailRowProps) {
+  const { colors } = useTheme();
+  return (
+    <View style={[styles.detailRow, { borderBottomColor: colors.border }]}>
+      <Text style={[styles.detailLabel, compactValue && styles.detailLabelCompact, { color: colors.textSecondary }]}>{label}</Text>
+      <Text
+        style={[styles.detailValue, compactValue && styles.detailValueCompact, { color: colors.text }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.78}
+        ellipsizeMode="middle"
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+const formatDate = (value?: string) => {
+  if (!value) return "--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+};
+
+const calculateAge = (dateOfBirth?: string) => {
+  if (!dateOfBirth) return "--";
+  const birthDate = new Date(dateOfBirth);
+  if (Number.isNaN(birthDate.getTime())) return "--";
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const hasHadBirthday =
+    today.getMonth() > birthDate.getMonth() ||
+    (today.getMonth() === birthDate.getMonth() && today.getDate() >= birthDate.getDate());
+  if (!hasHadBirthday) age -= 1;
+  return String(age);
+};
+
+const formatSubscriptionAmount = (subscription: UserSubscription) => {
+  const amount = Number(subscription.amount);
+  let formattedAmount: string;
+  try {
+    formattedAmount = new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: subscription.currency,
+    }).format(amount);
+  } catch {
+    formattedAmount = `${subscription.currency} ${amount.toFixed(2)}`;
+  }
+
+  const interval = subscription.billing_interval;
+  const unit = subscription.billing_interval_unit;
+  const period = interval > 0 && unit
+    ? ` / ${interval} ${interval === 1 ? unit : `${unit}s`}`
+    : "";
+  return `${formattedAmount}${period}`;
+};
+
+export default function ProfileScreen() {
+  const { colors } = useTheme();
+  const { user } = useAuth();
+  const [isProfilePicturePreviewVisible, setIsProfilePicturePreviewVisible] = React.useState(false);
+  const [activeSubscription, setActiveSubscription] = React.useState<UserSubscription | null>(null);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      let isCurrent = true;
+      subscriptionAPI.getCurrent()
+        .then(({ data }) => {
+          if (!isCurrent) return;
+          const subscription = data.subscription;
+          setActiveSubscription(
+            subscription && ["active", "trialing"].includes(subscription.status)
+              ? subscription
+              : null,
+          );
+        })
+        .catch((error) => {
+          console.warn("[Profile] Unable to load current subscription", error);
+        });
+
+      return () => {
+        isCurrent = false;
+      };
+    }, []),
+  );
+
+  const handleBackPress = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(app)/profile');
+  };
+
+  if (!user) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+        <RunningLoader size={64} label="Loading your profile..." />
+      </View>
+    );
+  }
+
+  const profile = user.profile as any;
+  const isImperial = getDistanceUnitCode(profile?.distance_unit) === "mile";
+  const unitSystemDisplay = isImperial
+    ? "Imperial (mi / ft / in / lb)"
+    : "Standard (km / cm / kg)";
+  const heightValue = Number(profile?.height_cm);
+  const weightValue = Number(profile?.weight_kg);
+  const totalHeightInches = Math.round(heightValue / 2.54);
+  const heightDisplay = Number.isFinite(heightValue) && heightValue > 0
+    ? isImperial
+      ? `${Math.floor(totalHeightInches / 12)} ft ${totalHeightInches % 12} in`
+      : `${heightValue} cm`
+    : "--";
+  const weightDisplay = Number.isFinite(weightValue) && weightValue > 0
+    ? `${isImperial ? (weightValue * 2.2046226218).toFixed(1) : weightValue} ${isImperial ? "lb" : "kg"}`
+    : "--";
+  const displayName = user.username || user.email?.split("@")[0] || "User";
+  const initials = displayName.slice(0, 2).toUpperCase();
+  const account = user as any;
+  const memberSince = profile?.member_since || profile?.created_at || account?.date_joined || account?.created_at;
+  const profilePicture = profile?.profile_picture_url || profile?.profile_picture;
+  const profilePictureUri = resolveApiUrl(profilePicture);
+
+  return (
+    <SafeAreaView edges={['top', 'left', 'right']} style={[styles.safeArea, { backgroundColor: colors.background }]}>
+      <ScrollView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 }]}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled
+      >
+        <MotionEntrance>
+          <LinearGradient
+            colors={[BRAND_GREEN, "#16A600"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.hero}
+          >
+          <View style={styles.heroNavigation}>
+            <TouchableOpacity
+              accessibilityLabel="Go back"
+              accessibilityRole="button"
+              onPress={handleBackPress}
+              style={styles.circleButton}
+            >
+              <Feather name="chevron-left" size={29} color={colors.primaryText} />
+            </TouchableOpacity>
+            <Text style={[styles.heroTitle, { color: colors.primaryText }]}>Profile</Text>
+            <TouchableOpacity
+              accessibilityLabel="Edit profile"
+              accessibilityRole="button"
+              onPress={() => router.push("/(app)/profile/edit")}
+              style={styles.editButton}
+            >
+              <Text style={[styles.editButtonText, { color: colors.primaryText }]}>Edit</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.profileIdentity}>
+            <TouchableOpacity
+              accessibilityRole={profilePictureUri ? "button" : undefined}
+              accessibilityLabel={profilePictureUri ? "View profile picture" : undefined}
+              onPress={() => profilePictureUri && setIsProfilePicturePreviewVisible(true)}
+              disabled={!profilePictureUri}
+              activeOpacity={profilePictureUri ? 0.85 : 1}
+            >
+              <View style={styles.avatar}>
+                {profilePictureUri ? <Image source={{ uri: profilePictureUri }} style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: colors.primaryText }]}>{initials}</Text>}
+              </View>
+            </TouchableOpacity>
+            <Text style={[styles.name, { color: colors.primaryText }]} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8}>{displayName}</Text>
+          </View>
+          </LinearGradient>
+        </MotionEntrance>
+
+        <MotionEntrance delay={45}>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={activeSubscription ? `Current plan, ${activeSubscription.plan_name_snapshot}, ${formatSubscriptionAmount(activeSubscription)}` : "Subscription plans"}
+          onPress={() => router.push('/(app)/profile/subscription')}
+          style={[
+            styles.subscriptionCard,
+            activeSubscription && styles.activeSubscriptionCard,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+          ]}
+        >
+          <View style={[styles.subscriptionIcon, { backgroundColor: colors.selected }]}>
+            <Feather name="credit-card" size={20} color={BRAND_GREEN} />
+          </View>
+          <View style={styles.subscriptionCopy}>
+            {activeSubscription ? (
+              <>
+                <Text style={[styles.subscriptionSubtitle, { color: colors.textSecondary }]}>Current plan</Text>
+                <View style={styles.activePlanSummary}>
+                  <Text style={[styles.activePlanName, { color: colors.text }]} numberOfLines={1}>
+                    {activeSubscription.plan_name_snapshot || "Active plan"}
+                  </Text>
+                  <Text style={[styles.activePlanAmount, { color: colors.textSecondary }]} numberOfLines={1}>
+                    {formatSubscriptionAmount(activeSubscription)}
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={[styles.subscriptionTitle, { color: colors.text }]}>Subscription plans</Text>
+                <Text style={[styles.subscriptionSubtitle, { color: colors.textSecondary }]}>View plans, billing, and invoices</Text>
+              </>
+            )}
+          </View>
+          <View style={styles.subscriptionTrailing}>
+            {activeSubscription ? (
+              <View style={[styles.statusBadge, { backgroundColor: colors.selected }]}>
+                <View style={[styles.statusDot, { backgroundColor: BRAND_GREEN }]} />
+                <Text style={[styles.statusBadgeText, { color: colors.primary }]}>
+                  {activeSubscription.status === "trialing" ? "TRIAL" : "ACTIVE"}
+                </Text>
+              </View>
+            ) : null}
+            <Feather name="chevron-right" size={20} color={colors.textSecondary} />
+          </View>
+        </TouchableOpacity>
+        </MotionEntrance>
+
+        <MotionEntrance delay={90} style={styles.detailsEntrance}>
+        <View style={[styles.detailsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <DetailRow label="Email" value={user.email || "--"} compactValue />
+          <DetailRow label="Phone Number" value={user.phone_number || profile?.phone_number || "--"} />
+          <DetailRow label="Date of Birth" value={formatDate(profile?.date_of_birth)} />
+          <DetailRow label="Age" value={calculateAge(profile?.date_of_birth)} />
+          <DetailRow label="Gender" value={profile?.gender || "--"} />
+          <DetailRow label="Blood Group" value={profile?.blood_group || "--"} />
+          <DetailRow label="Height" value={heightDisplay} />
+          <DetailRow label="Weight" value={weightDisplay} />
+          <DetailRow label="Unit System" value={unitSystemDisplay} />
+          <DetailRow label="Member Since" value={formatDate(memberSince)} />
+        </View>
+        </MotionEntrance>
+
+      </ScrollView>
+        <Modal
+          visible={isProfilePicturePreviewVisible && Boolean(profilePictureUri)}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setIsProfilePicturePreviewVisible(false)}
+          statusBarTranslucent
+        >
+          <View style={styles.previewBackdrop}>
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={() => setIsProfilePicturePreviewVisible(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Close profile picture preview"
+            />
+            {profilePictureUri ? (
+              <Image
+                source={{ uri: profilePictureUri }}
+                style={styles.previewImage}
+                resizeMode="contain"
+                accessibilityLabel={`${displayName}'s profile picture`}
+              />
+            ) : null}
+            <TouchableOpacity
+              style={styles.previewCloseButton}
+              onPress={() => setIsProfilePicturePreviewVisible(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Close profile picture preview"
+            >
+              <Feather name="x" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </Modal>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safeArea: { flex: 1 },
+  container: { flex: 1 },
+  scrollContent: { flexGrow: 1, justifyContent: "flex-start" },
+  detailsEntrance: { flexGrow: 1 },
+  loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
+  hero: {
+    minHeight: 184,
+    paddingHorizontal: 18,
+    paddingTop: 4,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    overflow: "hidden",
+  },
+  heroNavigation: { height: 40, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  heroTitle: { color: "#FFFFFF", fontSize: 19, fontWeight: "700" },
+  circleButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)" },
+  editButton: { minWidth: 68, height: 40, paddingHorizontal: 14, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.19)" },
+  editButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
+  profileIdentity: { flex: 1, alignItems: "center", justifyContent: "center", paddingBottom: 10 },
+  avatar: { width: 76, height: 76, borderRadius: 38, borderWidth: 3, borderColor: "#FFFFFF", alignItems: "center", justifyContent: "center", position: "relative", marginBottom: 6, backgroundColor: "rgba(255,255,255,0.16)" },
+  avatarImage: { width: "100%", height: "100%", borderRadius: 41 },
+  avatarText: { color: "#FFFFFF", fontSize: 31, fontWeight: "600" },
+  previewBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.94)", alignItems: "center", justifyContent: "center" },
+  previewImage: { width: "100%", height: "100%" },
+  previewCloseButton: { position: "absolute", top: 54, right: 20, width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.16)" },
+  name: { color: "#FFFFFF", fontSize: 18, lineHeight: 23, fontWeight: "700", textAlign: "center" },
+  detailsCard: { flex: 1, marginHorizontal: 16, marginTop: 12, borderRadius: 20, backgroundColor: "#242627", borderWidth: 1.25, borderColor: "#66686A", paddingHorizontal: 15, paddingVertical: 5, shadowColor: "#000000", shadowOpacity: 0.2, shadowOffset: { width: 0, height: 6 }, shadowRadius: 10, elevation: 3 },
+  subscriptionCard: { minHeight: 70, marginHorizontal: 16, marginTop: 12, paddingHorizontal: 14, borderRadius: 17, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 12, overflow: "hidden" },
+  activeSubscriptionCard: { borderLeftWidth: 3, borderLeftColor: BRAND_GREEN, paddingLeft: 12 },
+  subscriptionIcon: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  subscriptionCopy: { flex: 1, gap: 3 },
+  subscriptionTitle: { fontSize: 14, fontWeight: "700" },
+  subscriptionSubtitle: { fontSize: 10, fontWeight: "600", letterSpacing: 0.3 },
+  activePlanSummary: { flexDirection: "row", alignItems: "baseline", gap: 8 },
+  activePlanName: { flexShrink: 1, fontSize: 15, fontWeight: "800" },
+  activePlanAmount: { flexShrink: 0, fontSize: 12, fontWeight: "600" },
+  subscriptionTrailing: { flexDirection: "row", alignItems: "center", gap: 8 },
+  statusBadge: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 5 },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  statusBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.4 },
+  detailRow: { flexGrow: 1, minHeight: 34, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#515354" },
+  detailLabel: { flex: 0.42, color: "#BDBEC0", fontSize: 13, fontWeight: "500" },
+  detailLabelCompact: { flex: 0.32 },
+  detailValue: { flex: 0.58, minWidth: 0, color: "#F7F7F7", fontSize: 13, fontWeight: "700", textAlign: "right" },
+  detailValueCompact: { flex: 0.68, fontSize: 12 },
+});

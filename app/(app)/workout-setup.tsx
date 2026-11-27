@@ -182,15 +182,17 @@ export default function WorkoutSetupScreen() {
 
   // Time conversion helpers
   const formatSecToTimeStr = (totalSec: number) => {
-    const h = Math.floor(totalSec / 3600);
-    const m = Math.floor((totalSec % 3600) / 60);
-    const s = totalSec % 60;
+    const total = Math.round(Math.max(0, totalSec));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   };
 
   const formatSecToDisplayMin = (totalSec: number) => {
-    const m = Math.floor(totalSec / 60);
-    const s = totalSec % 60;
+    const total = Math.round(Math.max(0, totalSec));
+    const m = Math.floor(total / 60);
+    const s = total % 60;
     if (s > 0) return `${m}:${String(s).padStart(2, "0")} min`;
     return `${m}:00 min`;
   };
